@@ -6,8 +6,9 @@
 ## Estado actual
 
 - **Hecho:** Fase 0 fusionada en `main` (PR #1). Configuración de instaladores (`electron-builder.yml`, NSIS, `.deb`) y `release.yml` preparados; el `.deb` y el AppImage se han generado en local.
-- **En curso (Fase 1 y adelanto de la 2):** contrato del guardián (`docs/ARCHITECTURE.md`, tipos y puntos en `packages/shared`), catálogo + parser + tokens, capa de plataforma del guardián (servicio, reloj, hosts, procesos) y la web estilo Apple.
-- **Siguiente paso:** motor y API del guardián sobre el contrato, y la app de escritorio (bandeja, ventana de 440 px, confirmación, cuenta atrás, arnés de estados).
+- **Hecho en Fase 1:** contrato del guardián, catálogo, parser, puntos, tokens y capa de plataforma del guardián.
+- **En curso (3 workflows):** motor + API HTTP del guardián (`guardian-engine`), app de escritorio (`desktop-app`) y web estilo Apple (`web-apple-style`).
+- **Siguiente paso:** integrar los tres, PR de la Fase 1 a `main`, y release `v0.1.0` (Fase 2).
 
 ## Fase 0 · Esqueleto
 
@@ -21,11 +22,12 @@
 
 ## Fase 1 · Núcleo de bloqueo
 
-- [ ] Contrato de la API del guardián y tipos compartidos (`packages/shared/src/guardian-api.ts`)
-- [ ] Catálogo de servicios, categorías, apps y lista blanca (`packages/shared/src/catalog`)
-- [ ] Parser de lenguaje natural en español (≥ 60 frases de prueba)
-- [ ] Reglas de puntos (`packages/shared/src/points.ts`) como función pura sobre el registro de eventos
-- [ ] Tokens de diseño (`packages/shared/src/design/tokens.css` y `tokens.ts`) y lint de colores sueltos
+- [x] Contrato de la API del guardián y tipos compartidos (`docs/ARCHITECTURE.md`, `packages/shared/src/guardian-api.ts`, `domain.ts`)
+- [x] Catálogo de servicios, categorías, apps y lista blanca (`packages/shared/src/catalog`, 81 servicios)
+- [x] Parser de lenguaje natural en español (380 pruebas de frases)
+- [x] Reglas de puntos (`packages/shared/src/points.ts`) como función pura sobre el registro de eventos, con vectores compartidos para Go
+- [x] Tokens de diseño (`packages/shared/src/design/tokens.css` y `tokens.ts`) y lint de colores sueltos
+- [x] Guardián: capa de plataforma (servicio, CLI, rutas protegidas, logs, reloj que cuenta en suspensión, hosts, procesos)
 - [ ] Guardián: estado persistente, registro de eventos, API HTTP en `127.0.0.1` con token
 - [ ] Guardián: sección del hosts con marcadores, copia de seguridad, escritura atómica, vigilancia y vaciado de DNS
 - [ ] Guardián: vigilante de procesos
