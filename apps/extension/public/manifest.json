@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Céntrate",
+  "version": "0.0.0",
+  "description": "Bloquea tus distracciones con Céntrate.",
+  "background": {
+    "service_worker": "background.js",
+    "scripts": ["background.js"],
+    "type": "module"
+  },
+  "permissions": ["declarativeNetRequest", "storage", "alarms"],
+  "host_permissions": ["<all_urls>"],
+  "browser_specific_settings": {
+    "gecko": { "id": "centrate@imdlodoem23.github.io", "strict_min_version": "128.0" }
+  }
+}
