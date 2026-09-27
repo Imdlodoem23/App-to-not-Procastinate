@@ -1,9 +1,13 @@
 # Prompt para Claude: «Céntrate», la app para no procrastinar
 
 > **Cómo usar este prompt**
-> 1. Abre una sesión de **Claude Code** (claude.ai/code) con este repositorio y con **GitHub y Render conectados**.
-> 2. Pega todo lo que hay debajo de la línea, o escribe: «Lee `PROMPT.md` y síguelo empezando por la Fase 0».
-> 3. Si la sesión se corta o se acaba, abre otra y escribe: «Continúa con la siguiente fase pendiente de `ROADMAP.md`».
+> 1. Abre una sesión de **Claude Code** (claude.ai/code) con este repositorio y con **GitHub y Render conectados**. Elige el modo de permisos automático para que no te pida permiso en cada paso.
+> 2. Para que pueda usar unos 20 agentes a la vez, sube en `/config` el ajuste **«Dynamic workflow size»** (por defecto limita cada workflow a unos 10 agentes).
+> 3. Pega todo lo que hay debajo de la línea, o escribe: «Lee `PROMPT.md` y síguelo empezando por la Fase 0». El prompt incluye la palabra **ultracode**, que en Claude Code activa el trabajo con muchos agentes en paralelo.
+> 4. Para que siga trabajando solo sin que tengas que escribirle nada, lanza:
+>    `/loop Sigue PROMPT.md: haz la siguiente fase pendiente de ROADMAP.md y, si ya están todas, sigue perfeccionando la app (Fase 7).`
+>    Sin intervalo, Claude decide cuándo volver a ponerse a trabajar.
+> 5. Si aun así se para (por límite de uso o porque se acaba la sesión), escribe «sigue» o abre otra sesión con: «Continúa con la siguiente fase pendiente de `ROADMAP.md`».
 >
 > Antes de pegarlo puedes cambiar el nombre, las prioridades o los números (puntos, tiempos).
 
@@ -11,24 +15,40 @@
 
 ## 0. Tu papel y cómo quiero que trabajes
 
-Eres un ingeniero de software sénior (escritorio, web, DevOps e IA en el dispositivo). Vas a construir **de principio a fin** un producto real: el código, el repositorio en GitHub, los instaladores descargables y la web publicada en Render. No me des solo ideas o fragmentos: hazlo, pruébalo y publícalo.
+**ultracode.** Eres un equipo de ingeniería sénior (escritorio, web, DevOps, diseño de producto e IA en el dispositivo) coordinado por ti. Vas a construir **de principio a fin** un producto real: el código, el repositorio en GitHub, los instaladores descargables y la web publicada en Render. No me des solo ideas o fragmentos: hazlo, pruébalo y publícalo.
 
-Reglas:
+### Modo autónomo total (lo más importante)
 
-1. Trabaja **por fases** (sección 15). No pases a la siguiente hasta que la actual compile, pase los tests y esté subida.
-2. Antes de escribir código, resume en unas 10 líneas el plan y la arquitectura, y sigue sin esperar mi respuesta.
-3. Toma tú las decisiones pequeñas sin preguntarme y apúntalas en `DECISIONS.md` (una línea con el porqué). Pregúntame solo si necesitas algo que no puedes conseguir tú: credenciales, cuentas de pago o una acción irreversible.
-4. Mantén `ROADMAP.md` con casillas `[ ]` / `[x]` al día, para que cualquier sesión nueva pueda seguir donde lo dejaste.
-5. Commits pequeños y descriptivos. **Nunca** subas secretos: usa GitHub Secrets y las variables de entorno de Render.
-6. Al terminar cada fase dame: qué funciona, una **checklist para probarlo yo en mi ordenador** paso a paso y qué viene después.
-7. Sé honesto con los límites técnicos: si algo no se puede hacer al 100 % (por ejemplo, un bloqueo imposible de saltar para el administrador del ordenador), hazlo de la forma más robusta razonable y explícamelo.
-8. Si trabajas en un contenedor Linux y no puedes probar Windows o macOS a mano, cúbrelo con tests automáticos en GitHub Actions (`windows-latest`, `macos-latest`, `ubuntu-latest`).
-9. Usa `main` como rama principal y de despliegue; si no existe, créala. Al terminar cada fase abre un Pull Request hacia `main` con un resumen. Tienes mi permiso para fusionarlo cuando el CI esté en verde.
+1. **No me preguntes nada y no esperes nunca mi respuesta.** Toma tú todas las decisiones y apúntalas en `DECISIONS.md` (una línea con el porqué). Si algo depende de verdad de mí (una credencial, una cuenta de pago, hacer público el repositorio, probar en mi ordenador), anótalo en `PENDIENTE_PARA_MI.md` con los pasos exactos, usa una alternativa temporal y sigue con todo lo demás.
+2. **No pares hasta que la app esté terminada:** todas las fases de la sección 15. Después pasa a la Fase 7 y **sigue perfeccionándola durante horas** (interfaz, rendimiento, fallos, tests, textos). «Terminado» no es «compila»: es que funciona, se ve genial y está publicado.
+3. Si se te acaba el contexto o la sesión, deja `ROADMAP.md` al día para que la siguiente sesión siga exactamente donde lo dejaste, también sin preguntarme nada.
+
+### Trabajo con muchos agentes (unos 20 por tarea)
+
+Usa **workflows de Claude Code con muchos subagentes en paralelo para cada tarea importante**. Apunta a unos 20 agentes por tarea; si el sistema limita cuántos se ejecutan a la vez, ponlos en cola por tandas. Patrón para cada fase:
+
+- **Diseñar:** varios agentes proponen enfoques distintos y un panel de jueces elige el mejor y le injerta las mejores ideas del resto.
+- **Implementar:** reparte el trabajo por módulos (guardián, parser, cada sección de la interfaz, extensión, web, CI…), con un agente por módulo, cada uno en su propio worktree aislado para no pisarse, y luego intégralo.
+- **Revisar:** varios revisores independientes, cada uno con un enfoque distinto (bugs, seguridad, rendimiento, interfaz, accesibilidad, fidelidad a este prompt), intentan tumbar cada cambio; solo sobrevive lo que resiste. Repite hasta que dos rondas seguidas no encuentren nada nuevo.
+- **Verificar:** un agente final lo compara con los criterios de «terminado» y lo que falte vuelve a la cola.
+
+Tú coordinas, integras y te aseguras de que todo encaja. No hagas a mano, en serie, lo que un grupo de agentes puede hacer mejor en paralelo.
+
+### Reglas de trabajo
+
+4. Trabaja **por fases** (sección 15). No pases a la siguiente hasta que la actual compile, pase los tests y esté subida.
+5. Antes de escribir código, resume en unas 10 líneas el plan y la arquitectura, y sigue sin esperar mi respuesta.
+6. Mantén `ROADMAP.md` con casillas `[ ]` / `[x]` al día.
+7. Commits pequeños y descriptivos. **Nunca** subas secretos: usa GitHub Secrets y las variables de entorno de Render.
+8. Al terminar cada fase, deja escrito en `ROADMAP.md` y en el Pull Request qué funciona, una **checklist para que yo lo pruebe en mi ordenador cuando quiera** y qué viene después. Luego sigue con la siguiente fase sin esperar.
+9. Sé honesto con los límites técnicos: si algo no se puede hacer al 100 % (por ejemplo, un bloqueo imposible de saltar para el administrador del ordenador), hazlo de la forma más robusta razonable y explícalo en `DECISIONS.md`.
+10. Si trabajas en un contenedor Linux y no puedes probar Windows o macOS a mano, cúbrelo con tests automáticos en GitHub Actions (`windows-latest`, `macos-latest`, `ubuntu-latest`).
+11. Usa `main` como rama principal y de despliegue; si no existe, créala. Al terminar cada fase abre un Pull Request hacia `main` con un resumen y **fusiónalo tú** en cuanto el CI esté en verde (tienes mi permiso), sin esperar mi revisión.
 
 ## 1. Datos del proyecto
 
 - **Nombre:** Céntrate (identificador técnico `centrate`, sin tildes, para paquetes, archivos y binarios; appId `io.github.imdlodoem23.centrate`).
-- **Repositorio:** `https://github.com/imdlodoem23/app-to-not-procastinate`. Ahora mismo está vacío (como mucho contiene este `PROMPT.md`). Tiene que ser **público**: los archivos de GitHub Releases de un repositorio privado no se pueden descargar sin iniciar sesión. Si es privado y no puedes cambiarlo tú, avísame.
+- **Repositorio:** `https://github.com/imdlodoem23/app-to-not-procastinate`. Ahora mismo está vacío (como mucho contiene este `PROMPT.md`). Tiene que ser **público**: los archivos de GitHub Releases de un repositorio privado no se pueden descargar sin iniciar sesión. Si es privado y no puedes cambiarlo tú, apúntalo en `PENDIENTE_PARA_MI.md` y sigue.
 - **Idioma:** app y web en **español**, preparadas con i18n para añadir inglés. Código, nombres y commits en inglés.
 - **Plataformas:** **Windows 10/11 es la prioridad** y tiene que funcionar perfecto. También macOS (Apple Silicon e Intel) y Linux (Ubuntu/Debian).
 - **Licencia:** MIT.
@@ -57,7 +77,7 @@ Monorepo con npm workspaces:
 apps/desktop       App de escritorio: Electron + React + TypeScript + Vite + Tailwind
 apps/extension     Extensión Manifest V3 en TypeScript (Chromium y Firefox)
 apps/web           Web de descarga: Astro + Tailwind (sitio estático) -> Render
-apps/api           (Fase 6, opcional) Backend Node + TypeScript + Postgres -> Render
+apps/api           (Fase 6) Backend Node + TypeScript + Postgres -> Render
 guardian/          Servicio del sistema en Go
 packages/shared    Tipos, catálogo de webs/apps, parser de lenguaje natural, reglas de puntos
 .github/workflows  ci.yml y release.yml
@@ -266,8 +286,8 @@ Web en `apps/web` con Astro + Tailwind: rápida (Lighthouse ≥ 90), responsive,
 **Despliegue en Render:**
 
 - Crea `render.yaml` (Blueprint) con un **Static Site** (gratis): build `npm ci && npm run build -w apps/web`, carpeta publicada `apps/web/dist`, cabeceras de seguridad y de caché, y despliegue automático al hacer push a `main`.
-- **Si tienes el conector (MCP) de Render disponible, crea tú el servicio**, espera a que el deploy esté «live» y comprueba que la URL carga. Si no lo tienes, dame los pasos exactos (Render → New → Blueprint → elegir el repositorio) y lo hago yo.
-- Dame la URL final `https://….onrender.com`.
+- **Si tienes el conector (MCP) de Render disponible, crea tú el servicio**, espera a que el deploy esté «live» y comprueba que la URL carga. Si no lo tienes, deja los pasos exactos en `PENDIENTE_PARA_MI.md` (Render → New → Blueprint → elegir el repositorio) y sigue con lo demás.
+- Apunta la URL final `https://….onrender.com` en el `README`.
 
 ## 12. GitHub: CI, releases y actualizaciones
 
@@ -286,9 +306,9 @@ Web en `apps/web` con Astro + Tailwind: rápida (Lighthouse ≥ 90), responsive,
 - Dependencias actualizadas y sin vulnerabilidades conocidas (`npm audit`, `govulncheck`).
 - Sin secretos en el código ni en el historial de git.
 
-## 14. Fase opcional: cuentas, amigos e IA
+## 14. Fase 6: cuentas, amigos e IA
 
-Solo cuando todo lo anterior funcione:
+Hazla cuando todo lo anterior funcione y esté pulido. Lo que necesite claves o cuentas mías (API de Claude, OAuth de Google, base de datos de pago) déjalo preparado, desactivado y apuntado en `PENDIENTE_PARA_MI.md`; la app tiene que funcionar perfecta sin ello.
 
 - Backend en `apps/api` (Node + TypeScript + Fastify + Postgres con Drizzle) desplegado en Render como Web Service, con la configuración en variables de entorno. Ten en cuenta los límites del plan gratuito de Render (el servicio se duerme si no se usa y la base de datos gratuita caduca), así que la app tiene que seguir funcionando al 100 % sin cuenta y sin internet.
 - Inicio de sesión (Google o enlace mágico por email) con una librería de autenticación mantenida.
@@ -309,18 +329,28 @@ Solo cuando todo lo anterior funcione:
 - **Fase 4. Study Mode:** cámara, calibración, clasificador, máquina de estados, castigo y privacidad.
   ✅ *Terminada cuando:* si cojo el móvil o me voy, me avisa; a los 3 strikes se aplica el castigo de 60 min aunque cierre la app; y si escribo en un cuaderno **no** me castiga.
 - **Fase 5. Extras:** Pomodoro, horarios, modo examen, estadísticas, recompensas, logros, mascota, sonidos y onboarding completo. Release `v1.0.0`.
-- **Fase 6. Opcional:** cuentas, amigos, ranking y coach IA.
+- **Fase 6. Cuentas, amigos, ranking y coach IA** (sección 14).
+- **Fase 7. Perfeccionamiento continuo (no tiene fin).** Repite rondas, cada una con muchos agentes en paralelo:
+  1. **Interfaz:** capturas de todas las pantallas y estados, en tema claro y oscuro y a varios tamaños. Varios agentes las critican contra la sección 10 y contra G-Helper; se arregla todo y se vuelve a capturar.
+  2. **Caza de bugs:** varios agentes buscan fallos por módulos y otros intentan refutarlos; se arreglan los reales con su test. Repite hasta que dos rondas seguidas no encuentren nada.
+  3. **Rendimiento y robustez:** arranque, CPU del Study Mode, memoria, reinicios, suspensión, cambios de hora y situaciones raras.
+  4. **Accesibilidad, textos y tests** que falten.
+  5. Release de parche (`vX.Y.Z+1`) y web actualizada.
+
+  Sigue haciendo rondas mientras encuentres mejoras que valgan la pena.
 
 En cada fase: tests nuevos, CI en verde, release nueva si cambia la app, web actualizada, `ROADMAP.md` al día y checklist de pruebas manuales para mí.
 
 ## 16. Entrega final
 
-Cuando termines, dame:
+Cuando termines la Fase 6, deja en el `README` y en `ROADMAP.md`:
 
 1. El enlace al repositorio de GitHub.
 2. El enlace a la web en Render.
 3. El enlace a la última Release con los instaladores.
-4. La lista de cosas que tengo que hacer yo a mano, si hay alguna.
-5. Las limitaciones conocidas y los próximos pasos que recomiendas.
+4. Lo que tengo que hacer yo a mano (resumen de `PENDIENTE_PARA_MI.md`).
+5. Las limitaciones conocidas.
 
-**Empieza ahora por la Fase 0.**
+Después pasa directamente a la Fase 7 sin esperar.
+
+**Empieza ahora por la Fase 0 y no pares.**
