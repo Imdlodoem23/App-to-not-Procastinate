@@ -1,13 +1,13 @@
 # Prompt para Claude: «Céntrate», la app para no procrastinar
 
 > **Cómo usar este prompt**
-> 1. Abre una sesión de **Claude Code** (claude.ai/code) con este repositorio y con **GitHub y Render conectados**. Elige el modo de permisos automático para que no te pida permiso en cada paso.
-> 2. Para que pueda usar unos 20 agentes a la vez, sube en `/config` el ajuste **«Dynamic workflow size»** (por defecto limita cada workflow a unos 10 agentes).
-> 3. Pega todo lo que hay debajo de la línea, o escribe: «Lee `PROMPT.md` y síguelo empezando por la Fase 0». El prompt incluye la palabra **ultracode**, que en Claude Code activa el trabajo con muchos agentes en paralelo.
+> 1. Abre una sesión de **Claude Code** (claude.ai/code) con este repositorio y con **GitHub y Render conectados**. Elige el modo de permisos automático para que no te pida permiso en cada paso. En los ajustes del entorno (menú del entorno en la barra de título de la sesión → Editar), dale un **acceso a red amplio** o añade los dominios que necesite (npm, Go, GitHub, descargas de Electron y de los modelos de MediaPipe): si no, se le bloquearán descargas.
+> 2. Para que cada workflow pueda lanzar unos 20 agentes, sube (o quita) en `/config` el ajuste **«Dynamic workflow size»** (por defecto, «medium», pide menos de 10 agentes por workflow). A la vez solo se ejecutan unos cuantos (como mucho 16, según las CPU del contenedor) y el resto espera en cola: es normal.
+> 3. Pega todo lo que hay debajo de la línea, o escribe: «ultracode. Lee `PROMPT.md` y síguelo entero empezando por la Fase 0, sin preguntarme nada». La palabra **ultracode** es la que activa en Claude Code el trabajo con muchos agentes en paralelo, y solo cuenta si va en lo que tú pegas o escribes (dentro del archivo no sirve): ponla también al principio del `/loop` del paso 4 y de cada sesión nueva del paso 5.
 > 4. Para que siga trabajando solo sin que tengas que escribirle nada, lanza:
->    `/loop Sigue PROMPT.md: haz la siguiente fase pendiente de ROADMAP.md y, si ya están todas, sigue perfeccionando la app (Fase 7).`
+>    `/loop ultracode. Sigue PROMPT.md con workflows de unos 20 agentes: haz la siguiente fase pendiente de ROADMAP.md (si aún no existe, empieza por la Fase 0) y, si ya están todas, haz otra ronda de la Fase 7.`
 >    Sin intervalo, Claude decide cuándo volver a ponerse a trabajar.
-> 5. Si aun así se para (por límite de uso o porque se acaba la sesión), escribe «sigue» o abre otra sesión con: «Continúa con la siguiente fase pendiente de `ROADMAP.md`».
+> 5. Si aun así se para (por límite de uso o porque se acaba la sesión), escribe «sigue» o abre otra sesión (en la rama `main`, si ya existe) con: «ultracode. Trae lo último de `main`, lee `PROMPT.md` y `ROADMAP.md` y continúa con la siguiente fase pendiente sin preguntarme nada». En la sesión nueva, vuelve a lanzar el `/loop` del paso 4.
 >
 > Antes de pegarlo puedes cambiar el nombre, las prioridades o los números (puntos, tiempos).
 
@@ -21,15 +21,15 @@
 
 1. **No me preguntes nada y no esperes nunca mi respuesta.** Toma tú todas las decisiones y apúntalas en `DECISIONS.md` (una línea con el porqué). Si algo depende de verdad de mí (una credencial, una cuenta de pago, hacer público el repositorio, probar en mi ordenador), anótalo en `PENDIENTE_PARA_MI.md` con los pasos exactos, usa una alternativa temporal y sigue con todo lo demás.
 2. **No pares hasta que la app esté terminada:** todas las fases de la sección 15. Después pasa a la Fase 7 y **sigue perfeccionándola durante horas** (interfaz, rendimiento, fallos, tests, textos). «Terminado» no es «compila»: es que funciona, se ve genial y está publicado.
-3. Si se te acaba el contexto o la sesión, deja `ROADMAP.md` al día para que la siguiente sesión siga exactamente donde lo dejaste, también sin preguntarme nada.
+3. La sesión puede cortarse sin aviso (por límite de uso o de tiempo), así que no esperes al final: tras cada tarea terminada, actualiza `ROADMAP.md` (hecho, en curso y siguiente paso), haz commit y push. La siguiente sesión solo verá lo que esté en GitHub y seguirá desde ahí, también sin preguntarme nada; si al empezar hay un PR o una rama tuya sin fusionar, continúa desde ella.
 
 ### Trabajo con muchos agentes (unos 20 por tarea)
 
-Usa **workflows de Claude Code con muchos subagentes en paralelo para cada tarea importante**. Apunta a unos 20 agentes por tarea; si el sistema limita cuántos se ejecutan a la vez, ponlos en cola por tandas. Patrón para cada fase:
+Usa **workflows de Claude Code con muchos subagentes en paralelo para cada tarea importante**. Apunta a unos 20 agentes por tarea (una fase, un módulo grande, una ronda de revisión o de crítica). Te pido expresamente esta escala, aunque la guía por defecto de tamaño de workflow sea menor. Lánzalos todos: el sistema ejecuta a la vez los que puede y el resto espera en cola solo. Patrón para cada fase:
 
 - **Diseñar:** varios agentes proponen enfoques distintos y un panel de jueces elige el mejor y le injerta las mejores ideas del resto.
-- **Implementar:** reparte el trabajo por módulos (guardián, parser, cada sección de la interfaz, extensión, web, CI…), con un agente por módulo, cada uno en su propio worktree aislado para no pisarse, y luego intégralo.
-- **Revisar:** varios revisores independientes, cada uno con un enfoque distinto (bugs, seguridad, rendimiento, interfaz, accesibilidad, fidelidad a este prompt), intentan tumbar cada cambio; solo sobrevive lo que resiste. Repite hasta que dos rondas seguidas no encuentren nada nuevo.
+- **Implementar:** reparte el trabajo por módulos (guardián, parser, cada sección de la interfaz, extensión, web, CI…), con un agente por módulo, cada uno en su propio worktree aislado para no pisarse. Luego intégralo y borra los worktrees ya integrados para no llenar el disco.
+- **Revisar:** varios revisores independientes, cada uno con un enfoque distinto (bugs, seguridad, rendimiento, interfaz, accesibilidad, fidelidad a este prompt), intentan tumbar cada cambio; solo sobrevive lo que resiste. Repite hasta que dos rondas seguidas no encuentren nada nuevo de gravedad media o alta (como mucho 4 rondas por cambio; lo menor se apunta en `ROADMAP.md` para la Fase 7).
 - **Verificar:** un agente final lo compara con los criterios de «terminado» y lo que falte vuelve a la cola.
 
 Tú coordinas, integras y te aseguras de que todo encaja. No hagas a mano, en serie, lo que un grupo de agentes puede hacer mejor en paralelo.
@@ -42,8 +42,8 @@ Tú coordinas, integras y te aseguras de que todo encaja. No hagas a mano, en se
 7. Commits pequeños y descriptivos. **Nunca** subas secretos: usa GitHub Secrets y las variables de entorno de Render.
 8. Al terminar cada fase, deja escrito en `ROADMAP.md` y en el Pull Request qué funciona, una **checklist para que yo lo pruebe en mi ordenador cuando quiera** y qué viene después. Luego sigue con la siguiente fase sin esperar.
 9. Sé honesto con los límites técnicos: si algo no se puede hacer al 100 % (por ejemplo, un bloqueo imposible de saltar para el administrador del ordenador), hazlo de la forma más robusta razonable y explícalo en `DECISIONS.md`.
-10. Si trabajas en un contenedor Linux y no puedes probar Windows o macOS a mano, cúbrelo con tests automáticos en GitHub Actions (`windows-latest`, `macos-latest`, `ubuntu-latest`).
-11. Usa `main` como rama principal y de despliegue; si no existe, créala. Al terminar cada fase abre un Pull Request hacia `main` con un resumen y **fusiónalo tú** en cuanto el CI esté en verde (tienes mi permiso), sin esperar mi revisión.
+10. Si trabajas en un contenedor Linux y no puedes probar Windows o macOS a mano, cúbrelo con tests automáticos en GitHub Actions (`windows-latest`, `macos-latest`, `ubuntu-latest`). Haz lo mismo si la red del entorno te bloquea una descarga (por ejemplo, los navegadores de Playwright o Lighthouse): que un workflow haga esas pruebas y capturas y las suba como artefacto o a una rama para que las revises, y apunta el dominio bloqueado en `PENDIENTE_PARA_MI.md`.
+11. Usa `main` como rama principal y de despliegue. Si no existe, créala desde la rama que tiene este `PROMPT.md` (si no puedes hacer push a `main`, usa `create_branch` del conector de GitHub; tienes mi permiso) y ponla como rama por defecto; si no puedes, apúntalo en `PENDIENTE_PARA_MI.md`. Como `workflow_dispatch` solo funciona si el workflow está en la rama por defecto, haz que `release.yml` se lance también al fusionar en `main` un cambio de versión y que cree él mismo el tag. Al terminar cada fase abre un Pull Request hacia `main` con un resumen y **fusiónalo tú** en cuanto el CI esté en verde (tienes mi permiso), sin esperar mi revisión.
 
 ## 1. Datos del proyecto
 
@@ -123,7 +123,7 @@ Catálogo inicial en `packages/shared` (fácil de ampliar):
 Modos de bloqueo:
 
 - **Normal:** se puede cancelar con el desbloqueo de emergencia (sección 7).
-- **Estricto:** desbloqueo de emergencia con una espera larga y mucha penalización.
+- **Estricto:** desbloqueo de emergencia con una espera mucho más larga (30 min en vez de 10; sección 7).
 - **Hardcore:** imposible de cancelar hasta que termine. Avísalo muy claro antes de confirmar.
 
 ## 5. El Guardián: un bloqueo que no se salta cerrando la app
@@ -142,8 +142,8 @@ Objetivo: una vez confirmado, el bloqueo **dura hasta el final** aunque cierres 
 - El estado de los bloqueos, los horarios y el **registro de eventos** que afectan a los puntos (intentos, strikes, castigos, bloqueos completados, emergencias) los guarda el guardián en una carpeta del sistema que el usuario normal no puede modificar (`C:\ProgramData\Centrate\`, `/Library/Application Support/Centrate/`, `/var/lib/centrate/`). La app lo sincroniza con su base de datos local para las estadísticas.
 - Al arrancar el sistema, el guardián vuelve a aplicar los bloqueos activos. Si su estado está dañado, restaura la copia del hosts y nunca deja el archivo roto.
 - Si alguien borra a mano las líneas del hosts, el guardián las vuelve a poner (vigila el archivo).
-- **Cambiar la hora del ordenador no acaba el bloqueo:** usa un reloj monotónico y guarda el tiempo restante cada 30 s; si detecta un salto de hora sospechoso, no adelanta el final (y, si hay internet, lo contrasta con la hora de un servidor).
-- La API local **no tiene** ninguna operación para «terminar ya» un bloqueo. Solo permite crear, ampliar, consultar, informar de intentos y pedir el desbloqueo de emergencia, cuya cuenta atrás y penalización hace cumplir el propio guardián. Así, ni llamando a la API a mano se puede hacer trampa.
+- **Cambiar la hora del ordenador no acaba el bloqueo:** guarda la hora de fin (`endsAt`, en UTC) y compara cada pocos segundos lo que avanza el reloj del sistema con un reloj monotónico que **siga contando durante la suspensión** (`CLOCK_BOOTTIME` en Linux, `mach_continuous_time` en macOS, `QueryInterruptTime` en Windows; el monotónico normal, como el de `time.Since` en Go, se para al suspender en Linux y macOS). Si el reloj del sistema salta hacia delante más de lo que ha pasado de verdad, suma ese salto a `endsAt` y se lo manda a la app para que su cuenta atrás cuadre; si hay internet, contrástalo con la hora de un servidor. Suspender o reiniciar no alarga el bloqueo más allá de la hora prometida.
+- La API local **no tiene** ninguna operación para «terminar ya» un bloqueo. Solo permite crear, ampliar, consultar, gestionar horarios (sin tocar uno que ya esté en curso), empezar y terminar el Study Mode con sus latidos, informar de intentos, strikes y minutos concentrado, canjear recompensas (el guardián comprueba el saldo, cobra los puntos y abre solo ese servicio el tiempo comprado; nunca en Hardcore, Examen ni castigo), borrar datos (nunca los bloqueos en curso) y pedir el desbloqueo de emergencia, cuya cuenta atrás y penalización hace cumplir el propio guardián. Así, ni llamando a la API a mano se puede hacer trampa.
 - Seguridad de la API: solo `127.0.0.1`, token para las operaciones de escritura, CORS limitado a la extensión, validación estricta de todas las entradas y nunca ejecutar comandos construidos con datos recibidos.
 - Si la extensión no está conectada durante un bloqueo, la app lo avisa. Opción en Ajustes (desactivada por defecto): durante un bloqueo, cerrar los navegadores que no tengan la extensión activa, para que no se pueda usar otro navegador sin ella.
 - Los **horarios** (bloqueos que se repiten) también los guarda y los ejecuta el guardián.
@@ -154,6 +154,7 @@ Objetivo: una vez confirmado, el bloqueo **dura hasta el final** aunque cierres 
 - **macOS:** en el primer arranque la app pide la contraseña de administrador con el diálogo nativo, copia el binario a `/Library/PrivilegedHelperTools/` y carga un LaunchDaemon en `/Library/LaunchDaemons/`.
 - **Linux:** el `.deb` instala la unidad systemd en el `postinst`; con AppImage se instala en el primer arranque con `pkexec`.
 - **La desinstalación siempre deja el sistema limpio:** quita el servicio, la sección del hosts y todo lo demás. Nunca impidas desinstalar ni ocultes la app. Si hay un bloqueo activo, avisa de que se perderán los puntos y la racha.
+- **Actualizar no es desinstalar:** al actualizar en Windows, el instalador nuevo ejecuta el desinstalador de la versión anterior. Desde la v0.1.0, `customUnInstall` comprueba `${isUpdated}` y, si es una actualización, no toca bloqueos, hosts ni puntos; el guardián se para en `customInit` (antes de sustituir archivos, o fallará por estar en uso) y `customInstall` lo vuelve a arrancar. En el `.deb`, limpia solo si el script recibe `remove` o `purge`, no `upgrade`. En macOS y con AppImage, la app comprueba al arrancar la versión del guardián y lo actualiza si es más antigua.
 
 **App de escritorio:**
 
@@ -171,24 +172,24 @@ Objetivo: una vez confirmado, el bloqueo **dura hasta el final** aunque cierres 
 ## 6. Extensión del navegador
 
 - Manifest V3 con un solo código para Chrome, Edge, Brave (y otros Chromium) y Firefox (`browser_specific_settings` para Firefox).
-- Pide al guardián la lista activa cada pocos segundos (o por WebSocket) y crea reglas dinámicas de `declarativeNetRequest` que redirigen a `blocked.html` de la propia extensión (declarada en `web_accessible_resources`).
+- Pide al guardián la lista activa cada pocos segundos (o por WebSocket) y crea reglas dinámicas de `declarativeNetRequest` que redirigen a `blocked.html` de la propia extensión (declarada en `web_accessible_resources` para `<all_urls>`). Las reglas `redirect` y el modo lista blanca necesitan `host_permissions: ["<all_urls>"]`: sin ese permiso Chrome no aplica la redirección y no da ningún error. En Firefox MV3 ese permiso lo concede el usuario: comprueba con `permissions.contains` que lo ha hecho y, si no, pídelo desde la guía.
 - **`blocked.html`:** mensaje motivador con humor, **tu motivo**, tiempo restante, puntos perdidos por este intento y botón «Volver a lo mío». Informa del intento al guardián, que resta los puntos.
 - Emparejamiento con la app la primera vez mediante un código.
 - **Modo lista blanca** (lo usan el castigo de nivel 2 y el modo examen): bloquea todas las webs salvo las permitidas.
 - Más adelante: **«YouTube solo educativo»** (bloquear Shorts, la portada y las recomendaciones; permitir vídeos, canales o listas concretas).
-- Distribución: al principio se instala como extensión «descomprimida», con una guía paso a paso en la app y en la web. Déjalo todo preparado para publicarla en Chrome Web Store y Firefox Add-ons (iconos, textos y política de privacidad).
+- Distribución: al principio, en Chromium se instala como extensión «descomprimida», con una guía paso a paso en la app y en la web. En Firefox una extensión sin firmar se borra al cerrar el navegador: fírmala como «unlisted» con `web-ext sign` (claves de la API de AMO en GitHub Secrets; si no las hay, a `PENDIENTE_PARA_MI.md`) y sube el `.xpi` firmado a la Release. Déjalo todo preparado para publicarla en Chrome Web Store y Firefox Add-ons (iconos, textos y política de privacidad).
 
 ## 7. Puntos, penalizaciones y recompensas
 
 Todos los valores en un único archivo (`packages/shared/src/points.ts`) para poder ajustarlos:
 
 - **Ganar:** +1 punto por minuto de bloqueo cumplido; +2 por minuto concentrado en Study Mode; +20 de bonus por terminar una sesión sin ningún intento.
-- **Perder:** −10 por **cada intento** de entrar en algo bloqueado; si repites en menos de 5 min se duplica (−10, −20, −40…, con un tope de −80 por intento). El saldo puede quedar en negativo («números rojos»).
+- **Perder:** −10 por **cada intento** de entrar en algo bloqueado; si repites en menos de 5 min se duplica (−10, −20, −40…, con un tope de −80 por intento). El saldo puede quedar en negativo («números rojos»). Si varias capas (extensión, procesos, ventana activa) detectan el mismo servicio a la vez, o reaparece en menos de 30 s (una app que se reabre sola, recargas, sigues en la misma página), cuenta como un solo intento.
 - −15 por cada strike en Study Mode; −100 cuando salta el castigo.
 - **Desbloqueo de emergencia** (no existe en Hardcore): escribir a mano una frase de compromiso («Acepto romper mi compromiso y perder mis puntos»), esperar una cuenta atrás de 10 min en Normal o 30 min en Estricto (que se puede cancelar) y perder 200 puntos o la mitad del saldo (la pérdida mayor de las dos), además de la racha.
 - **XP y niveles:** la XP solo sube (minutos concentrado) y marca tu nivel; los puntos son el «dinero», que sube y baja.
 - **Racha:** días seguidos cumpliendo tu objetivo diario (por defecto, 60 min concentrado).
-- **Tienda de recompensas:** canjear puntos por descansos ganados (por ejemplo, 15 min de YouTube por 150 puntos) que desbloquean temporalmente un servicio de forma legal.
+- **Tienda de recompensas:** canjear puntos por descansos ganados (por ejemplo, 15 min de YouTube por 150 puntos) que desbloquean temporalmente un servicio sin penalización. Nunca durante Hardcore, Examen ni un castigo.
 - **Logros** (primera sesión, 7 días de racha, 10 h de Study Mode, una semana sin intentos…).
 - **Mascota o árbol** que crece mientras te concentras y se marchita si te rindes (estilo Forest).
 - Los puntos se calculan a partir del registro de eventos del guardián; la interfaz no permite editarlos.
@@ -230,11 +231,11 @@ Todos los valores en un único archivo (`packages/shared/src/points.ts`) para po
 - **3 strikes en una sesión → CASTIGO de 60 minutos** (configurable entre 15 y 120).
 - Los descansos del Pomodoro y el botón «Pausa» (máximo 2 pausas de 5 min por hora) no cuentan.
 
-**Niveles de castigo** (el usuario elige en Ajustes; por defecto, el 1):
+**Niveles de castigo** (el usuario lo elige en Ajustes y en el consentimiento del primer Study Mode, donde «Bloquear el ordenador» (Nuclear) aparece como una opción clara; por defecto, el 1):
 
 1. **Bloqueo de todas las distracciones:** todas las categorías de webs y apps.
 2. **Solo lista blanca:** únicamente webs y apps de estudio.
-3. **«Nuclear»** (opcional, desactivado por defecto): una pantalla completa por encima de todo, en todos los monitores, que bloquea el ordenador durante el castigo mostrando la cuenta atrás, con salida de emergencia con fricción (espera + penalización). Explica en la app que en un ordenador del que eres administrador no existe un bloqueo 100 % imposible de saltar.
+3. **«Nuclear»** (opcional, desactivado por defecto): una pantalla completa por encima de todo, en todos los monitores, que bloquea el ordenador durante el castigo mostrando la cuenta atrás, con salida de emergencia con fricción (espera + penalización). Si la app se cierra a la fuerza durante el castigo Nuclear, se vuelve a abrir en pocos segundos (y al iniciar sesión tras reiniciar) hasta que acabe: la relanza el guardián en la sesión del usuario o una tarea de inicio de sesión. Explica en la app que en un ordenador del que eres administrador no existe un bloqueo 100 % imposible de saltar.
 
 - El castigo lo aplica y lo mantiene **el guardián**, así que no se quita cerrando la app ni reiniciando.
 - Durante Study Mode la app envía «latidos» al guardián. Si dejan de llegar durante más de 2 min (porque la app se ha cerrado a la fuerza) y el equipo no estaba suspendido, cuenta como abandono y se aplica el castigo. Tapar la cámara cuenta como «no estás».
@@ -300,11 +301,11 @@ Copia su forma de organizar, no su código ni sus iconos (G-Helper es GPL-3.0 y 
   - Barra de título nativa solo con la X (oscura en tema oscuro).
   - El título de la ventana también dice el estado: «Céntrate», «Céntrate · quedan 42 min», «Céntrate · estudiando», «Céntrate · castigo 38 min».
 - **Alto automático:**
-  - Un `ResizeObserver` manda el alto por IPC. El proceso principal llama a `setContentSize(440, alto)` dejando fijo el borde inferior, con un máximo de `workArea.height − 20`.
+  - Un `ResizeObserver` manda el alto por IPC. El proceso principal limita el alto a `workArea.height − 20` y llama a `setContentBounds` con la `y` recalculada para dejar fijo el borde de su esquina: el inferior si la ventana está abajo (Windows) y el superior si está arriba (macOS). `setContentSize` deja fija la esquina de arriba y la ventana crecería hacia abajo, fuera de la pantalla.
   - Objetivo: ≤ 540 px de contenido en reposo y ≤ 600 px en cualquier estado.
   - Si no cabe, pasa sola a **densidad compacta**: tiles de 40 px con el icono a la izquierda del texto, cuenta atrás de 40 px y 8 px entre secciones.
   - Solo en pantallas más pequeñas que la matriz de pruebas (ver criterios de aceptación) hay scroll, y solo dentro de la columna de secciones, nunca en el pie.
-- **Posición:** en la esquina del `workArea` más cercana a la bandeja (`tray.getBounds()`), a 10 px de los bordes. En Windows, abajo a la derecha, aunque la barra de tareas esté arriba o a un lado; en macOS, arriba a la derecha. Vuelve ahí cada vez que se muestra.
+- **Posición:** a 10 px de los bordes del `workArea` de la pantalla de la bandeja (`tray.getBounds()`). En Windows, siempre abajo a la derecha, como G-Helper, aunque la barra de tareas esté arriba o a un lado; en macOS, arriba a la derecha. En Linux `tray.getBounds()` no funciona (devuelve ceros): usa la pantalla del ratón y la esquina derecha del lado del panel (arriba en Ubuntu). Vuelve ahí cada vez que se muestra.
 - **Ciclo de vida:**
   - Clic izquierdo en la bandeja: la muestra o la oculta (si está tapada, la trae delante).
   - La X oculta la principal y las de detalle; la primera vez, una línea lo explica.
@@ -371,7 +372,7 @@ Copia su forma de organizar, no su código ni sus iconos (G-Helper es GPL-3.0 y 
 **Ventanas de detalle** (lo que abren las puertas):
 
 - 600 px de ancho y el mismo alto que la principal (mínimo 480).
-- Pegadas a su izquierda con 6 px de hueco y alineadas por abajo; a la derecha si no caben.
+- Pegadas a su izquierda con 6 px de hueco y alineadas por el mismo borde fijo que la principal; a la derecha si no caben.
 - Una sola a la vez y sin redimensionar. Esc o su X las cierra, y se ocultan con la principal.
 - Usan el mismo patrón de secciones, en dos columnas si hace falta, y aquí sí puede haber scroll.
 
@@ -435,7 +436,7 @@ Las ventanas:
   - Ventana sin marco que no coge el foco ni el ratón (`focusable: false`, `setIgnoreMouseEvents(true)`).
   - Centrada a 300 px del borde inferior: píldora negra al 60 % con radio de 8 px y texto blanco de 28 px en 600, durante 2 s.
   - Se puede desactivar.
-- **Notificaciones:** las de las secciones 5 y 8 son nativas (la del strike, con el botón «¡Estaba estudiando!»), agrupadas y nunca más de una por minuto.
+- **Notificaciones:** las de las secciones 5 y 8 son nativas (la del strike, con el botón «¡Estaba estudiando!» donde el sistema lo permita: `actions` en macOS y `toastXml` en Windows; si no hay botones, el clic en la notificación abre la ventana con ese botón a la vista), agrupadas y nunca más de una por minuto.
 - **Mini temporizador:** 180×44 px, sin marco, siempre encima, arrastrable y recuerda su posición. Muestra el icono del servicio, el tiempo a 20 px y el punto de cámara activa.
 - **Nuclear:** pantalla completa en cada monitor con el fondo del tema, cuenta atrás de 72 px, «Castigo · vuelves a las 18:40» y un único botón secundario «Salida de emergencia».
 - **Onboarding** (la primera vez, con la ventana principal centrada):
@@ -489,7 +490,7 @@ Las ventanas:
 
 **Cuenta atrás, números y textos:**
 
-- **Cálculo:** la cuenta atrás es `endsAt − Date.now()` con un único `setTimeout` alineado al segundo. Nunca restando ni con `requestAnimationFrame`.
+- **Cálculo:** la cuenta atrás es `endsAt − Date.now()`, con el `endsAt` que da el guardián (que ya lo corrige si alguien cambia la hora; vuelve a pedirlo en cada consulta y al volver de una suspensión) y un único `setTimeout` alineado al segundo. Nunca restes 1 s en cada tic ni uses `requestAnimationFrame`.
 - **Formato:** `M:SS` bajo una hora y `H:MM:SS` por encima, con los segundos al 60 % de opacidad y sin animar los dígitos. El último minuto no se pone rojo.
 - **Lectores de pantalla:** `role="timer"` con `aria-label` («Quedan 43 minutos»), y otra región `aria-live="polite"` que solo habla a los 15, 5 y 1 min y al terminar.
 - **Números:** `Intl` en `es-ES` con `useGrouping: 'always'` (si no, sale «1240» en vez de «1.240»), horas de 24 h y el signo «−» tipográfico.
@@ -509,7 +510,7 @@ Las ventanas:
 - **Objetivos de clic:** 32×32 px como mínimo.
 - **Marcado:** `lang="es"`; cada sección es un `<section>` con su título como nombre accesible, y la línea de ayuda se enlaza con `aria-describedby`.
 
-**Criterios de aceptación y pulido** (desde la Fase 1 y en cada ronda de interfaz de la Fase 7):
+**Criterios de aceptación y pulido** (desde la Fase 1 con los estados que ya existan en cada fase, completos desde la Fase 5 y en cada ronda de interfaz de la Fase 7):
 
 - **Arnés de estados:** una ruta solo de desarrollo (`?state=…`) con datos de prueba y el guardián simulado. Tiene que mostrar cada estado:
   - reposo, escribiendo y frase no entendida;
@@ -520,7 +521,7 @@ Las ventanas:
   - cada ventana de detalle y cada paso del onboarding;
   - mini temporizador, OSD, Nuclear y `blocked.html`.
 - **Capturas con Playwright** (`_electron.launch`):
-  - de cada estado, en claro y oscuro, a 1366×768 (100 y 125 %) y a 1920×1080 (100 y 150 %);
+  - de cada estado, en claro y oscuro, a 1366×768 (100 y 125 %) y a 1920×1080 (100 y 150 %). El runner de CI tiene una sola pantalla fija: simula la escala con `--force-device-scale-factor` y la pantalla con un `workArea` falso del arnés, que use también el cálculo del alto automático;
   - guardadas en `docs/ui/` con una página que las enseñe juntas; de ahí salen las del `README` y las de la web;
   - para criticarlas, ponlas al lado de las capturas de G-Helper.
 - **Tiene que cumplirse:**
@@ -530,7 +531,7 @@ Las ventanas:
   - Tiempo restante, puntos, racha y estado de la protección visibles sin hacer nada.
   - La ventana principal no tiene scroll ni texto cortado en ningún estado de esa matriz (`scrollHeight <= clientHeight`).
   - Del clic en la bandeja a la ventana con el foco en el campo: menos de 150 ms y sin destello blanco.
-  - 0 fallos de axe-core.
+  - 0 fallos de axe-core (en Electron, `@axe-core/playwright` con `setLegacyMode(true)`, o inyectando `axe-core` y llamando a `axe.run()`: su modo normal abre una página nueva y Electron no lo permite).
   - La cuenta atrás no se desvía más de 1 s en una hora.
   - Con la ventana oculta y sin Study Mode, la app usa menos del 1 % de CPU.
 - **Rondas de crítica:** agentes independientes revisan las capturas, cada uno con un enfoque: fidelidad a esta sección, parecido con G-Helper, alineación al píxel, tipografía y contraste, estados y textos, y accesibilidad. Se arregla todo lo de gravedad media o alta y se repite hasta que dos rondas seguidas no encuentren nada importante.
@@ -557,13 +558,13 @@ Web en `apps/web` con Astro + Tailwind: rápida (Lighthouse ≥ 90), responsive,
 **Despliegue en Render:**
 
 - Crea `render.yaml` (Blueprint) con un **Static Site** (gratis): build `npm ci && npm run build -w apps/web`, carpeta publicada `apps/web/dist`, cabeceras de seguridad y de caché, y despliegue automático al hacer push a `main`.
-- **Si tienes el conector (MCP) de Render disponible, crea tú el servicio**, espera a que el deploy esté «live» y comprueba que la URL carga. Si no lo tienes, deja los pasos exactos en `PENDIENTE_PARA_MI.md` (Render → New → Blueprint → elegir el repositorio) y sigue con lo demás.
+- **Si tienes el conector (MCP) de Render disponible, crea tú el servicio** desde la rama `main`. Usa el workspace que devuelva `list_workspaces` (si hay varios, el personal) sin preguntarme. Si el conector no crea Blueprints, crea el Static Site con el mismo build y la misma carpeta. Espera a que el deploy esté «live» y comprueba que la URL carga. Si al fusionar en `main` no se despliega solo, lanza tú el deploy con el conector. Si no lo tienes, deja los pasos exactos en `PENDIENTE_PARA_MI.md` (Render → New → Blueprint → elegir el repositorio) y sigue con lo demás.
 - Apunta la URL final `https://….onrender.com` en el `README`.
 
 ## 12. GitHub: CI, releases y actualizaciones
 
 - **`ci.yml`** (en cada push y PR, en Windows, macOS y Linux): instalar, lint, typecheck, tests de TypeScript y Go, y build de la web y de la extensión. Incluye tests de integración del guardián contra un **hosts falso** en una carpeta temporal (la ruta del hosts tiene que ser configurable).
-- **`release.yml`:** se lanza con un tag `vX.Y.Z` y también a mano (`workflow_dispatch` con la versión; si no puedes subir tags, lánzalo así y que el propio workflow cree el tag). Matriz Windows/macOS/Linux: compila el guardián; empaqueta con electron-builder (Windows: NSIS `.exe`; macOS: `.dmg` universal, o dos DMG arm64/x64 si el universal da problemas con módulos nativos, y entonces la web ofrece los dos; Linux: `.AppImage` y `.deb`); empaqueta la extensión en `.zip`, y lo sube todo a **la misma Release, publicada y no como borrador** (si no, `/releases/latest` no funciona). Genera las sumas SHA-256.
+- **`release.yml`:** se lanza con un tag `vX.Y.Z` y también a mano (`workflow_dispatch` con la versión; si no puedes subir tags, lánzalo así y que el propio workflow cree el tag). Matriz Windows/macOS/Linux: compila el guardián; empaqueta con electron-builder (Windows: NSIS `.exe`; macOS: `.dmg` universal con firma ad hoc (sin certificado; en Apple Silicon una app sin firma válida sale como «dañada» y el «Abrir igualmente» no sirve; compruébalo en CI con `codesign --verify --deep --strict`), o dos DMG arm64/x64 si el universal da problemas con módulos nativos, y entonces la web ofrece los dos; Linux: `.AppImage` y `.deb`); empaqueta la extensión en `.zip`, y lo sube todo a **la misma Release, publicada y no como borrador** (si no, `/releases/latest` no funciona). Para que los jobs de la matriz no se pisen, compila con `--publish never` y que un job final cree la Release con todos los archivos, incluidos `latest*.yml` y los `.blockmap`, que son los que lee `electron-updater`. Genera las sumas SHA-256.
 - **Auto-actualización** con `electron-updater` desde GitHub Releases. En macOS sin firmar no funciona: ahí muestra «Hay una versión nueva» con un enlace a la web.
 - **Firma de código:** de momento sin firmar (cuesta dinero). Deja el workflow preparado para añadir certificados más adelante mediante secrets y explica en el `README` qué haría falta.
 - Versionado semántico y `CHANGELOG.md`.
@@ -579,7 +580,7 @@ Web en `apps/web` con Astro + Tailwind: rápida (Lighthouse ≥ 90), responsive,
 
 ## 14. Fase 6: cuentas, amigos e IA
 
-Hazla cuando todo lo anterior funcione y esté pulido. Lo que necesite claves o cuentas mías (API de Claude, OAuth de Google, base de datos de pago) déjalo preparado, desactivado y apuntado en `PENDIENTE_PARA_MI.md`; la app tiene que funcionar perfecta sin ello.
+Hazla cuando las Fases 0–5 estén terminadas y publicada la Release `v1.0.0`; el pulido largo es la Fase 7, después. Lo que necesite claves o cuentas mías (API de Claude, OAuth de Google, base de datos de pago) déjalo preparado, desactivado y apuntado en `PENDIENTE_PARA_MI.md`; la app tiene que funcionar perfecta sin ello.
 
 - Backend en `apps/api` (Node + TypeScript + Fastify + Postgres con Drizzle) desplegado en Render como Web Service, con la configuración en variables de entorno. Ten en cuenta los límites del plan gratuito de Render (el servicio se duerme si no se usa y la base de datos gratuita caduca), así que la app tiene que seguir funcionando al 100 % sin cuenta y sin internet.
 - Inicio de sesión (Google o enlace mágico por email) con una librería de autenticación mantenida.
@@ -599,7 +600,7 @@ Hazla cuando todo lo anterior funcione y esté pulido. Lo que necesite claves o 
   ✅ *Terminada cuando:* al entrar en YouTube veo la página de Céntrate con mi motivo y pierdo 10 puntos.
 - **Fase 4. Study Mode:** cámara, calibración, clasificador, máquina de estados, castigo y privacidad.
   ✅ *Terminada cuando:* si cojo el móvil o me voy, me avisa; a los 3 strikes se aplica el castigo de 60 min aunque cierre la app; y si escribo en un cuaderno **no** me castiga.
-- **Fase 5. Extras:** Pomodoro, horarios, modo examen, estadísticas, recompensas, logros, mascota, sonidos y onboarding completo. Release `v1.0.0`.
+- **Fase 5. Extras:** Pomodoro, horarios, modo examen, estadísticas, recompensas, logros, mascota, sonidos, tareas de la sesión, recordatorios, Ajustes completos, mini temporizador, OSD, auto-actualización y onboarding completo (todo lo que falte de las secciones 4–12). Release `v1.0.0`.
 - **Fase 6. Cuentas, amigos, ranking y coach IA** (sección 14).
 - **Fase 7. Perfeccionamiento continuo (no tiene fin).** Repite rondas, cada una con muchos agentes en paralelo:
   1. **Interfaz:** capturas de todas las pantallas y estados, en tema claro y oscuro y a varios tamaños. Varios agentes las critican contra la sección 10 y contra G-Helper; se arregla todo y se vuelve a capturar.
@@ -608,7 +609,7 @@ Hazla cuando todo lo anterior funcione y esté pulido. Lo que necesite claves o 
   4. **Accesibilidad, textos y tests** que falten.
   5. Release de parche (`vX.Y.Z+1`) y web actualizada.
 
-  Sigue haciendo rondas mientras encuentres mejoras que valgan la pena.
+  Sigue haciendo rondas durante horas. Si una ronda no encuentra nada, cambia de enfoque (otro módulo, sistema, estado o tipo de usuario) en vez de parar; nunca pares solo porque todo compila y los tests pasan.
 
 En cada fase: tests nuevos, CI en verde, release nueva si cambia la app, web actualizada, `ROADMAP.md` al día y checklist de pruebas manuales para mí.
 
