@@ -257,12 +257,283 @@ Todos los valores en un único archivo (`packages/shared/src/points.ts`) para po
 - **Ajustes:** idioma, tema claro/oscuro, sonidos, sensibilidad de la IA, penalizaciones, arranque automático, estado del guardián y de la extensión, exportar y **borrar todos mis datos**.
 - **Onboarding** la primera vez: bienvenida → instalar el guardián (permiso de administrador) → instalar la extensión → probar la cámara (opcional) → crear tu primer bloqueo.
 
-## 10. Diseño de la app
+## 10. Diseño de la interfaz: moderna, simple y útil (estilo G-Helper)
 
-- Moderno, limpio y motivador (inspiración: Forest, Opal). Tema oscuro y claro, animaciones sutiles, buena tipografía y accesible (contraste, teclado, lectores de pantalla).
-- Pantallas: **Inicio** (campo «¿Qué quieres hacer?», plantillas, bloqueos activos con una cuenta atrás grande, puntos, nivel y racha), **Study Mode** (tarea, temporizador, medidor de concentración, strikes, vista previa opcional), **Bloqueos** (activos, horarios, listas), **Estadísticas**, **Recompensas y logros**, **Ajustes** y **Onboarding**.
-- Textos en español, cercanos y con algo de humor («YouTube seguirá ahí dentro de 43 minutos. Tus deberes, no.»).
-- Menú de la bandeja: tiempo restante, bloqueo rápido y abrir la app.
+**Referencia visual: G-Helper** (`https://github.com/seerge/g-helper`). Clónalo fuera del repositorio y estudia estos archivos:
+
+- `docs/screenshot.png`, `docs/screenshot-dark.png` y `docs/app-hero.jpg`
+- `app/UI/RForm.cs` (colores)
+- `app/UI/RButton.cs` (botones y estado seleccionado)
+- `app/Settings.Designer.cs` + `app/Settings.cs` (medidas, posición y líneas de ayuda)
+
+Copia su forma de organizar, no su código ni sus iconos (G-Helper es GPL-3.0 y Céntrate es MIT): **una ventana pequeña que sale de la bandeja al instante, con secciones apiladas y filas de botones grandes, todo a la vista y aplicado al momento, sin navegar**. Minimalista significa quitar adornos, no funciones: todo lo de las secciones 4–9 queda a uno o dos clics.
+
+**Reglas de base:**
+
+- **El título es el estado.** Cada sección empieza con una cabecera de 20 px:
+  - icono de 16 px;
+  - título en negrita «Cosa: valor» («Bloqueo: YouTube · Estricto»);
+  - alineado a la derecha y en peso normal, un dato vivo («hasta 17:42»).
+
+  No hay pantalla de resumen aparte.
+- **Una decisión = una fila de 3 o 4 botones grandes iguales («tiles»).** Van en una rejilla de 4 columnas (o 3) con 4 px de hueco. Debajo, una **línea de ayuda** gris de 12 px explica el tile que tiene el ratón o el foco. Reserva su alto para que nada salte. Nada de tooltips emergentes.
+- **El último tile puede ser una puerta.** Su etiqueta acaba en «…», usa el fondo secundario y abre algo en vez de aplicar. Normalmente es una ventana de detalle pegada a la principal, como «Fans + Power» en G-Helper.
+- **Lo reversible se aplica al instante, sin «Guardar».** Crear un bloqueo pasa por la tarjeta de confirmación de la sección 4.
+- **Confirmación en el sitio** (para canjear una recompensa, terminar el Study Mode antes de tiempo, activar Nuclear y dar el paso final del desbloqueo de emergencia):
+  - el primer clic cambia la etiqueta a «¿Seguro? …», con contorno rojo y la consecuencia en la línea de ayuda;
+  - el segundo clic, antes de 3 s, aplica;
+  - Esc o sacar el ratón lo desarma.
+
+  Nunca modales encadenados.
+- **Prohibido:**
+  - barra lateral, pestañas, rutas con «Atrás» y menú hamburguesa;
+  - paneles de tarjetas, sombras, degradados, cristal, ilustraciones o logo grande dentro de la app;
+  - seleccionados con relleno sólido y controles solo con icono;
+  - spinners en acciones locales;
+  - scroll en la ventana principal (salvo el caso extremo de «Alto automático»).
+- **Oculta lo que no aplica** en vez de dejarlo gris. Sin cámara no se ofrece nada de cámara, y la fila de ampliar solo existe con un bloqueo activo. Las secciones que no protagonizan el estado actual se pliegan a su cabecera: durante el Study Mode, Bloqueo queda en «Bloqueo: YouTube · 42 min».
+
+**Ventana principal:**
+
+- **Forma:** 440 px (DIP) de ancho y alto ajustado al contenido.
+  - `resizable`, `minimizable`, `maximizable` y `fullscreenable` a `false`.
+  - Barra de título nativa solo con la X (oscura en tema oscuro).
+  - El título de la ventana también dice el estado: «Céntrate», «Céntrate · quedan 42 min», «Céntrate · estudiando», «Céntrate · castigo 38 min».
+- **Alto automático:**
+  - Un `ResizeObserver` manda el alto por IPC. El proceso principal llama a `setContentSize(440, alto)` dejando fijo el borde inferior, con un máximo de `workArea.height − 20`.
+  - Objetivo: ≤ 540 px de contenido en reposo y ≤ 600 px en cualquier estado.
+  - Si no cabe, pasa sola a **densidad compacta**: tiles de 40 px con el icono a la izquierda del texto, cuenta atrás de 40 px y 8 px entre secciones.
+  - Solo en pantallas más pequeñas que la matriz de pruebas (ver criterios de aceptación) hay scroll, y solo dentro de la columna de secciones, nunca en el pie.
+- **Posición:** en la esquina del `workArea` más cercana a la bandeja (`tray.getBounds()`), a 10 px de los bordes. En Windows, abajo a la derecha, aunque la barra de tareas esté arriba o a un lado; en macOS, arriba a la derecha. Vuelve ahí cada vez que se muestra.
+- **Ciclo de vida:**
+  - Clic izquierdo en la bandeja: la muestra o la oculta (si está tapada, la trae delante).
+  - La X oculta la principal y las de detalle; la primera vez, una línea lo explica.
+  - Solo se sale con «Salir».
+- **Rápida:**
+  - Créala oculta al arrancar (`show: false`, `backgroundColor` del tema, sin destello blanco) y después solo muéstrala u ocúltala.
+  - Mientras está visible consulta al guardián cada 2 s. Oculta no hace nada (la bandeja la actualiza el proceso principal).
+  - Recharts y MediaPipe se cargan solo cuando hacen falta.
+
+**Secciones, de arriba abajo** (12 px de margen lateral, 12 px de aire entre secciones y ningún separador):
+
+1. **Aviso de protección.** Solo aparece si algo falla, como mucho 5 s después de detectarlo:
+   - «Guardián detenido: ahora mismo no se bloquea nada», con **Reparar | Detalles…**;
+   - en naranja, «Chrome no tiene la extensión: ahí el bloqueo puede tardar», con **Instalar…**.
+2. **Bloqueo** (icono de candado).
+   - *Sin bloqueo:*
+     - Cabecera: «Bloqueo: ninguno» · «Próximo horario: 16:00» (si lo hay).
+     - Campo «¿Qué quieres hacer?» de 44 px y texto de 15 px. Recibe el foco cada vez que se muestra la ventana y, mientras está vacío, enseña una frase de ejemplo distinta cada 4 s.
+     - Mientras escribes, la línea de ayuda muestra fichas con lo entendido (servicio con su icono · «1 h» · «hasta 17:42»; clic en una ficha para corregirla) o lo que no («No he entendido: "mañana tarde"»).
+     - Debajo, tus plantillas: **Deberes 1 h | Examen 3 h | Leer 30 min | Más…**. «Examen» usa el modo examen (lista blanca + Hardcore) y «Más…» abre **Bloqueos**.
+   - *Confirmación* (en la misma sección, sustituye a las plantillas, sin modal). Contiene:
+     - qué se bloquea (fichas con icono);
+     - duración y hora de fin sincronizadas (máximo 24 h);
+     - **Normal | Estricto | Hardcore | Examen**, por defecto el de Ajustes. La línea de ayuda explica cada uno: «Estricto: la emergencia tarda 30 min y cuesta al menos 200 puntos»;
+     - «Tu motivo» (una línea; recuerda el último);
+     - el recordatorio «Solo se puede ampliar, nunca acortar»;
+     - **Editar… | Bloquear hasta 17:42**.
+
+     Enter confirma y Esc vuelve.
+     - **Más de 4 h, Hardcore o Examen:** el primer Enter añade una línea roja con la consecuencia («6 h: termina a las 23:42 y solo se puede ampliar»; en Hardcore y Examen, «No podrás cancelarlo de ninguna forma hasta las 20:42»). El botón pasa a «Sí, bloquear 6 h», desactivado 2 s.
+     - Si la frase es de estudiar («estudiar mates 1 hora»), la tarjeta propone Study Mode con la tarea puesta.
+     - Si el parser no entiende la frase, Enter abre **Bloqueos** con lo que sí entendió.
+     - Nada aparece como activo hasta que el guardián lo confirma. Mientras tanto se ve «Bloqueando…»; si no responde en 3 s, «El guardián no responde · Reintentar · Reparar».
+   - *Con bloqueo:*
+     - Cabecera: «Bloqueo: YouTube, Instagram · Estricto» · «hasta 17:42», con una píldora «Nuevo» que vuelve al campo.
+     - Cuenta atrás grande, barra de 3 px del color del modo y tu motivo en cursiva en la línea de ayuda.
+     - Fila **+15 min | +30 min | +1 h | Otro…**. Un clic amplía y muestra «+30 min · termina a las 18:12 · Deshacer (5 s)». La app no manda la ampliación al guardián hasta que pasan esos 5 s, así que deshacer nunca acorta un bloqueo real.
+     - No existe ningún control para acortar.
+     - Bajo la barra, el enlace gris «Desbloqueo de emergencia…». En Hardcore, en su lugar, «Hardcore: no se puede cancelar».
+     - Con varios bloqueos, la cuenta grande es la del que acaba más tarde y los demás son filas de 28 px (máximo 2; el resto, «y 3 más…», abre **Bloqueos**).
+   - *Castigo:* la misma sección con barra roja y sin ampliar: «Castigo: todas las distracciones · 60 min», la causa («3 strikes en "mates"») y «−100 puntos», sin parpadeos ni riñas.
+   - *Al terminar:* «Bloqueo: terminado» · «Hecho. +80 puntos» en verde durante 1 min.
+3. **Study Mode** (icono de libro).
+   - Cabecera: «Study Mode: listo» · «Con cámara · calibrado» (o «Sin cámara»).
+   - Tiles **25/5 | 50/10 | 1 h | Más…**. Un clic muestra en el sitio «¿Qué vas a estudiar?» (opcional, con la última tarea), y Enter o «Empezar» arranca.
+   - La primera vez con cámara, antes se abre la ventana **Study Mode** con el consentimiento.
+   - *En sesión:*
+     - Cabecera «Study Mode: historia · 32:10», con la píldora roja fija «● Cámara activa» a la derecha mientras la cámara esté encendida (clic = vista previa).
+     - Medidor de 6 px a todo el ancho, siempre con texto: «Concentrado», «¿Sigues ahí?», «No te veo» o «Descanso 4:12 · la cámara no vigila» (en los descansos, todo en gris). A su derecha, 3 puntos de strikes.
+     - Tras un aviso o un strike aparece debajo **¡Estaba estudiando!** a todo el ancho.
+     - Tiles **Pausa (2) | Sonido: Lluvia | Vista previa | Terminar**. «Sonido» pasa por Nada, Lluvia, Ruido blanco y Lo-fi con cada clic.
+     - Al terminar se abre **Resumen**.
+4. **Progreso.**
+   - El icono de la cabecera es la mascota en su fase actual (brote, planta, árbol, marchita).
+   - Cabecera: «Nivel 7 · 1.240 puntos» · «Racha: 5 días». Si el saldo es negativo, en rojo y con la píldora «Números rojos».
+   - Una barra de 4 px con el objetivo diario («Hoy: 42 de 60 min»).
+   - Tiles de 40 px **Estadísticas… | Recompensas… | Logros…**.
+   - Los puntos no se pueden editar en ningún sitio.
+5. **Pie:**
+   - «● Guardián activo · ● Extensión conectada» (punto de 8 px + texto; si algo falla, «Guardián detenido · Reparar»).
+   - A la derecha, «v1.2.0», que pasa a «Actualizar a v1.3.0» en azul cuando hay versión nueva.
+   - Debajo, 3 botones secundarios iguales de 32 px con icono: **Mini temporizador | Ajustes… | Salir**. La ayuda de «Salir» dice «Los bloqueos siguen activos aunque salgas».
+
+**Ventanas de detalle** (lo que abren las puertas):
+
+- 600 px de ancho y el mismo alto que la principal (mínimo 480).
+- Pegadas a su izquierda con 6 px de hueco y alineadas por abajo; a la derecha si no caben.
+- Una sola a la vez y sin redimensionar. Esc o su X las cierra, y se ocultan con la principal.
+- Usan el mismo patrón de secciones, en dos columnas si hace falta, y aquí sí puede haber scroll.
+
+Las ventanas:
+
+- **Bloqueos:**
+  - el formulario avanzado de la sección 4: buscador y categorías del catálogo con casillas, dominios propios, apps con autocompletado de los procesos abiertos, duración de 5 min a 24 h o «Hasta las HH:MM», modo y «Tu motivo», con **Guardar como plantilla | Bloquear…**;
+  - bloqueos activos y plantillas;
+  - **horarios** («L–V 16:00–19:00 · Redes sociales», con interruptor por fila);
+  - modo examen y lista blanca;
+  - más adelante, «YouTube solo educativo».
+- **Emergencia:**
+  - lo que vas a perder, ya calculado («Perderás 620 puntos y tu racha de 5 días»);
+  - la frase de compromiso escrita a mano;
+  - la cuenta atrás en naranja («Esperando · 8:12 · Cancelar (recomendado)»);
+  - al final, «Desbloquear» con confirmación en el sitio.
+- **Study Mode:**
+  - duración y tarea propias, Pomodoro personalizado, modo sin cámara y sonidos con volumen;
+  - cámara: consentimiento con «Ninguna imagen sale de tu ordenador» y vista previa de 320×240, oculta por defecto;
+  - calibración: las 5 situaciones como filas (Pendiente → Grabando 12 s → Hecho), con un único botón «Grabar 20 s» y «Recalibrar»;
+  - ayuda si el sistema bloquea la cámara.
+- **Resumen:** tiempo concentrado y porcentaje, una línea de tiempo a todo el ancho con las distracciones en naranja y rojo, strikes, puntos y **¿Lo has conseguido? Sí | En parte | No**.
+- **Estadísticas:**
+  - **Día | Semana | Mes**;
+  - una gráfica de barras (Recharts, un solo color, sin rejilla salvo la línea base);
+  - mapa de calor tipo GitHub en verde;
+  - lo que más intentas abrir y tus mejores horas;
+  - registro de eventos y «Exportar CSV».
+
+  Cada gráfica lleva al lado un resumen en texto para lectores de pantalla.
+- **Recompensas:**
+  - la tienda en filas («15 min de YouTube · 150 pts · Canjear», con confirmación en el sitio). Si no te llega, el botón aparece desactivado con el motivo: «Te faltan 40 puntos»;
+  - la mascota en grande.
+- **Logros:** rejilla de 4 columnas. Los conseguidos llevan el estilo de seleccionado en verde; los pendientes, contorno gris, y la línea de ayuda dice cómo conseguirlos.
+- **Ajustes** (el «Extra» de G-Helper): filas de 48 px con título y descripción a la izquierda y el control a la derecha. Grupos:
+  - **General:** idioma, tema **Sistema | Claro | Oscuro**, arranque automático, objetivo diario, sonidos, avisos grandes y atajo global.
+  - **Bloqueo:** modo por defecto, penalizaciones y cerrar navegadores sin extensión.
+  - **Study Mode:** sensibilidad de la IA, nivel de castigo (1, 2 o Nuclear, con su explicación), duración del castigo de 15 a 120 min, tiempos, recordatorios y regla 20-20-20.
+  - **Sistema:** guardián, extensión (con código de emparejamiento y guía por navegador y para incógnito), permisos y «Copiar diagnóstico».
+  - **Datos:** exportar y «Borrar todos mis datos», que pide escribir BORRAR.
+
+**Bandeja y otras superficies:**
+
+- **Icono de la bandeja**, dibujado a 16, 20, 24 y 32 px:
+  - monocromo en reposo;
+  - azul, naranja o rojo según el modo del bloqueo;
+  - verde en Study Mode;
+  - rojo en castigo;
+  - con un punto rojo si la cámara está encendida.
+- **Tooltip** actualizado una vez por minuto: «Céntrate · YouTube · quedan 43 min · 1.240 pts».
+- **Clic derecho:** menú nativo que repite los tiles:
+  - «Quedan 43 min · YouTube» (desactivado);
+  - Ampliar ▸ +15 / +30 / +1 h;
+  - Bloqueo rápido ▸ (las plantillas, que abren la confirmación);
+  - Study Mode ▸;
+  - Mini temporizador (casilla);
+  - Abrir Céntrate;
+  - «Salir (los bloqueos siguen activos)».
+- **Aviso grande (OSD, como el `ToastForm` de G-Helper):**
+  - Cuándo: para lo que hagas desde la bandeja o el atajo global, y para «¿Sigues ahí?» con la ventana oculta.
+  - Ventana sin marco que no coge el foco ni el ratón (`focusable: false`, `setIgnoreMouseEvents(true)`).
+  - Centrada a 300 px del borde inferior: píldora negra al 60 % con radio de 8 px y texto blanco de 28 px en 600, durante 2 s.
+  - Se puede desactivar.
+- **Notificaciones:** las de las secciones 5 y 8 son nativas (la del strike, con el botón «¡Estaba estudiando!»), agrupadas y nunca más de una por minuto.
+- **Mini temporizador:** 180×44 px, sin marco, siempre encima, arrastrable y recuerda su posición. Muestra el icono del servicio, el tiempo a 20 px y el punto de cámara activa.
+- **Nuclear:** pantalla completa en cada monitor con el fondo del tema, cuenta atrás de 72 px, «Castigo · vuelves a las 18:40» y un único botón secundario «Salida de emergencia».
+- **Onboarding** (la primera vez, con la ventana principal centrada):
+  - Los 5 pasos de la sección 9, cada uno como una sección («Guardián · paso 2 de 5» · «No instalado») con una frase, una fila **Instalar | Omitir** y puntos de progreso.
+  - El paso de la extensión muestra el código de emparejamiento a 32 px.
+  - El último deja escrito «no veo YouTube en 25 minutos».
+- **`blocked.html` y la ventana emergente de la extensión:** los mismos tokens en una columna de 440 px, con:
+  - «YouTube: bloqueado» · «quedan 43 min»;
+  - tu motivo a 20 px;
+  - «−10 puntos» en rojo;
+  - la frase con humor en gris;
+  - un único tile «Volver a lo mío».
+
+**Estilo visual:**
+
+- Un único `packages/shared/src/design/tokens.css` con variables en `:root` y `[data-theme=dark]`, mapeadas en Tailwind con `@theme inline`.
+- `tokens.ts` con los mismos valores para el proceso principal.
+- Escritorio, extensión y web solo usan estos tokens; un lint en CI falla si aparece un color suelto.
+
+| Token | Oscuro (valores de G-Helper) | Claro | Uso |
+|---|---|---|---|
+| `bg` / `tile` / `tile-2` | `#1C1C1C` / `#2E2E2E` / `#242424` | `#F0F0F0` / `#FFFFFF` / `#E3E3E3` | fondo / tiles y campos / puertas y botones secundarios |
+| `fg` / `fg-muted` | `#F0F0F0` / `#A8A8A8` | `#1A1A1A` / `#5C5C5C` | texto / ayuda y datos secundarios |
+| `border` / `control` | `#373737` / `#7A7A7A` | `#DCDCDC` / `#8A8A8A` | borde de tiles / borde de campos y casillas |
+| `green` | `#06B48A` | `#047857` | concentrado, completado, guardián OK |
+| `blue` | `#3AAEEF` | `#0A6AA8` | Normal, información, enlaces, sliders, foco |
+| `orange` | `#FF8000` | `#A34700` | Estricto, aviso, «¿Sigues ahí?», strike |
+| `red` | `#FF2020` (texto `#FF6464`) | `#C81E1E` | Hardcore, Examen, castigo, puntos perdidos, cámara activa, error |
+| `neutral` | `#A8A8A8` | `#767676` | seleccionado en opciones sin «mejor» (duraciones, sonidos) |
+
+- **Color:** solo esos 4 acentos, con el mismo significado en toda la app. Texto ≥ 4,5:1 y bordes de controles ≥ 3:1 en los dos temas. El color nunca es la única señal: siempre va con texto.
+- **Tile:**
+  - Fondo `tile`, borde de 1 px `border`, radio de 6 px y un icono de 20 px sobre una etiqueta de 13 px.
+  - Alto: 56 px; 40 px las puertas de Progreso y 32 px los de solo texto.
+  - Con el ratón encima, el fondo se acerca un 4 % a `fg` (un 8 % al pulsar).
+  - **Seleccionado:** contorno de 2 px del acento (un 15 % más claro arriba) y un tinte del acento al 12 % que se desvanece en el primer 20 % del alto, como en `RButton.cs`. Nunca relleno sólido, y el texto no cambia de color.
+  - Desactivado: 45 % de opacidad, y la línea de ayuda dice por qué.
+  - **Única excepción de relleno:** el botón que confirma («Bloquear hasta 17:42», «Empezar»), en `blue`, con texto `#111111` en oscuro y blanco en claro.
+- **Tipografía:**
+  - Fuente: `"Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "SF Pro Text", Ubuntu, "Noto Sans", sans-serif` (sin descargas).
+  - Casi todo a 13 px: títulos en 600 y el resto en 400. Ayuda y pie a 12 px; píldoras a 11 px en 600.
+  - Excepciones: el campo principal a 15 px, la cuenta atrás a 48 px (40 en compacta) en 600 con `tabular-nums` y `letter-spacing: -0.02em`, y el OSD.
+  - Mayúscula solo al empezar la frase.
+- **Espacio y forma:**
+  - Rejilla de 4 px (4, 8, 12, 16).
+  - Radios: 4 (píldoras, casillas), 6 (tiles, campos) y 8 (OSD, mini temporizador). Círculo solo en puntos de estado y fichas.
+  - Sin sombras dentro de la ventana.
+- **Movimiento:** solo el cambio de fondo al pasar el ratón o pulsar (100 ms) y la barra de progreso (lineal). Los cambios de estado son instantáneos o un fundido de 120 ms. Con `prefers-reduced-motion`, nada. Sin transiciones entre pantallas, rebotes ni confeti.
+- **Iconos:** solo `lucide-react`, trazo 1,75 y `currentColor`; 16 px en cabeceras y pie, 20 px en tiles. Los servicios usan su favicon guardado en el catálogo. Todo control lleva texto.
+- **Tema:** sigue a `nativeTheme` y cambia en vivo, con `color-scheme: light dark` para los controles nativos. Con el contraste alto de Windows (`forced-colors`) se mantienen los bordes.
+
+**Cuenta atrás, números y textos:**
+
+- **Cálculo:** la cuenta atrás es `endsAt − Date.now()` con un único `setTimeout` alineado al segundo. Nunca restando ni con `requestAnimationFrame`.
+- **Formato:** `M:SS` bajo una hora y `H:MM:SS` por encima, con los segundos al 60 % de opacidad y sin animar los dígitos. El último minuto no se pone rojo.
+- **Lectores de pantalla:** `role="timer"` con `aria-label` («Quedan 43 minutos»), y otra región `aria-live="polite"` que solo habla a los 15, 5 y 1 min y al terminar.
+- **Números:** `Intl` en `es-ES` con `useGrouping: 'always'` (si no, sale «1240» en vez de «1.240»), horas de 24 h y el signo «−» tipográfico.
+- **Textos:** cercanos y breves, con humor solo en estados vacíos y en la página de bloqueo («YouTube seguirá ahí dentro de 43 minutos. Tus deberes, no.»). Errores claros y con una acción; penalizaciones como un dato, sin culpa.
+- **Estados vacíos:** icono de 24 px, una frase y una acción («Tus estadísticas aparecerán después de tu primera sesión» + «Empezar 25 min»).
+
+**Teclado y accesibilidad:**
+
+- **Foco:** al mostrarse la ventana, el foco va al campo; Ctrl+N o `/` vuelven a él.
+- **Atajos:**
+  - Enter avanza y Esc retrocede u oculta.
+  - Ctrl+E amplía (y luego 1/2/3).
+  - Ctrl+Shift+S empieza o termina el Study Mode.
+  - Flechas dentro de cada fila (`role="radiogroup"` si es una elección).
+  - Alt + letra en cada tile, como en G-Helper.
+- **Anillo de foco:** `blue` de 2 px, solo con `:focus-visible`.
+- **Objetivos de clic:** 32×32 px como mínimo.
+- **Marcado:** `lang="es"`; cada sección es un `<section>` con su título como nombre accesible, y la línea de ayuda se enlaza con `aria-describedby`.
+
+**Criterios de aceptación y pulido** (desde la Fase 1 y en cada ronda de interfaz de la Fase 7):
+
+- **Arnés de estados:** una ruta solo de desarrollo (`?state=…`) con datos de prueba y el guardián simulado. Tiene que mostrar cada estado:
+  - reposo, escribiendo y frase no entendida;
+  - confirmación: normal, más de 4 h, Hardcore y Examen;
+  - uno y tres bloqueos, ampliar con deshacer, terminado, emergencia, castigo y puntos en negativo;
+  - Study Mode: concentrado, duda, strike, descanso y sin cámara;
+  - protección rota y densidad compacta;
+  - cada ventana de detalle y cada paso del onboarding;
+  - mini temporizador, OSD, Nuclear y `blocked.html`.
+- **Capturas con Playwright** (`_electron.launch`):
+  - de cada estado, en claro y oscuro, a 1366×768 (100 y 125 %) y a 1920×1080 (100 y 150 %);
+  - guardadas en `docs/ui/` con una página que las enseñe juntas; de ahí salen las del `README` y las de la web;
+  - para criticarlas, ponlas al lado de las capturas de G-Helper.
+- **Tiene que cumplirse:**
+  - Crear un bloqueo = escribir + 2 Enter (con plantilla, clic + Enter).
+  - Ampliar = 1 clic.
+  - Empezar el Study Mode = 2 acciones tras el primer consentimiento.
+  - Tiempo restante, puntos, racha y estado de la protección visibles sin hacer nada.
+  - La ventana principal no tiene scroll ni texto cortado en ningún estado de esa matriz (`scrollHeight <= clientHeight`).
+  - Del clic en la bandeja a la ventana con el foco en el campo: menos de 150 ms y sin destello blanco.
+  - 0 fallos de axe-core.
+  - La cuenta atrás no se desvía más de 1 s en una hora.
+  - Con la ventana oculta y sin Study Mode, la app usa menos del 1 % de CPU.
+- **Rondas de crítica:** agentes independientes revisan las capturas, cada uno con un enfoque: fidelidad a esta sección, parecido con G-Helper, alineación al píxel, tipografía y contraste, estados y textos, y accesibilidad. Se arregla todo lo de gravedad media o alta y se repite hasta que dos rondas seguidas no encuentren nada importante.
 
 ## 11. La web en Render
 
