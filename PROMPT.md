@@ -458,7 +458,7 @@ Las ventanas:
 
 - Un único `packages/shared/src/design/tokens.css` con variables en `:root` y `[data-theme=dark]`, mapeadas en Tailwind con `@theme inline`.
 - `tokens.ts` con los mismos valores para el proceso principal.
-- Escritorio, extensión y web solo usan estos tokens; un lint en CI falla si aparece un color suelto.
+- Escritorio y extensión solo usan estos tokens; la web parte de ellos con su propia capa (sección 11). Un lint en CI falla si aparece un color suelto.
 
 | Token | Oscuro (valores de G-Helper) | Claro | Uso |
 |---|---|---|---|
@@ -540,13 +540,74 @@ Las ventanas:
   - Con la ventana oculta y sin Study Mode, la app usa menos del 1 % de CPU.
 - **Rondas de crítica:** agentes independientes revisan las capturas, cada uno con un enfoque: fidelidad a esta sección, parecido con G-Helper, alineación al píxel, tipografía y contraste, estados y textos, y accesibilidad. Se arregla todo lo de gravedad media o alta y se repite hasta que dos rondas seguidas no encuentren nada importante.
 
-## 11. La web en Render
+## 11. La web en Render: estilo Apple
 
-Web en `apps/web` con Astro + Tailwind: rápida (Lighthouse ≥ 90), responsive, con modo oscuro y en español.
+Web en `apps/web` con Astro + Tailwind, en español. **Tiene que sentirse como una página de producto de apple.com**, sobre todo como las de software (apple.com/es/macos/, apple.com/es/apple-intelligence/): mucho aire, tipografía enorme y precisa, la app como protagonista, vídeos reales de la interfaz y animaciones al hacer scroll contenidas y perfectas. **Inspiración, no copia:** nada de logos, fuentes, imágenes, dispositivos ni textos de Apple.
 
-**Páginas:**
+**Antes de diseñar:**
 
-- **Inicio:** titular claro («Deja de procrastinar. De verdad.»), botón grande **«Descargar para Windows / macOS / Linux»** que detecta tu sistema, enlaces a los otros sistemas, «cómo funciona» en 3 pasos, funciones, sección de Study Mode con el mensaje «tu cámara nunca sale de tu ordenador», **demo interactiva** del campo de texto (usa el parser real de `packages/shared`: escribes «no veo YouTube en una hora» y te enseña qué haría la app), capturas o mockups, preguntas frecuentes y pie con enlace a GitHub.
+- Sigue la skill `frontend-design` (regla 12). Esta sección es su brief: el estilo Apple manda sobre los valores por defecto de la skill.
+- Estudia en vivo apple.com/es/macos/ y apple.com/es/apple-intelligence/ (necesitas el acceso a red **Full**). Haz capturas con Playwright a 375, 768, 1280 y 1920 px y apunta medidas y patrones en `docs/web/referencia-apple.md`. Esas capturas son solo para comparar: nunca se publican.
+
+**Estructura de la página de inicio** (la plantilla de las páginas de software de Apple):
+
+1. **Barra pegajosa translúcida** de 52 px (`rgba(255,255,255,.8)` con `backdrop-filter: saturate(180%) blur(20px)`): «Céntrate» a la izquierda, enlaces a Funciones, Study Mode y Privacidad, y un único botón píldora azul «Descargar».
+2. **Hero:** el nombre como antetítulo de 28 px y un titular de 64 px en dos tiempos acabado en punto (estilo «Escríbelo. Y olvídate.»; escribe los textos con un panel de agentes y quédate con los mejores). Debajo, el botón **«Descargar gratis para Windows»** (detecta el sistema), una línea pequeña «Gratis y sin cuenta. Windows 10 y 11.» y el enlace «Otros sistemas». El visual es la ventana real de Céntrate flotando, sin dispositivo, con un vídeo en bucle: escribes «no veo YouTube en una hora», Enter, y empieza la cuenta atrás.
+3. **«Lo más destacado.»** Cuatro tarjetas grandes (680 px de alto, radio 28) que avanzan solas cada 5 s, con botón de pausa siempre visible en una píldora translúcida pegajosa: escríbelo y listo; aunque cierres la app; cada intento te cuesta 10 puntos; el Study Mode te ve estudiar. Una de las cuatro es oscura y lleva vídeo.
+4. **Demo en vivo:** el campo «¿Qué quieres hacer?» con el parser real de `packages/shared`. Escribes una frase y te enseña lo que haría la app.
+5. **Una sola escena pegajosa**, la estrella de la página: «Ciérrala. Sigue funcionando.» Un contenedor de unos 300 vh con un bloque `position: sticky` de 100 vh. Al bajar, la ventana de la app se cierra, un navegador genérico intenta abrir youtube.com y aparece la página de bloqueo con «−10 puntos».
+6. **Tres capítulos** (Bloqueo, Study Mode y Progreso) sobre fondo `#f5f5f7`. Cada uno lleva antetítulo, titular, una entradilla gris (máximo 840 px de ancho) y una galería horizontal de tarjetas blancas de 580 px de alto y radio 28, con flechas. Bajo cada tarjeta, un arranque en negrita y una sola frase.
+7. **Privacidad:** «Tu cámara no sale de tu ordenador.» Texto en 6 columnas, un icono animado de cámara con candado en las otras 6, y 3 viñetas en negrita: no se guarda ninguna imagen; todo se procesa en tu ordenador; sin cuenta y sin cookies de seguimiento.
+8. **Números como titulares**, en 2 o 3 bloques: «−10 puntos por cada intento.», «60 minutos de castigo si no estudias.».
+9. **«Y mucho más.»** Rejilla de 8 a 10 funciones, cada una con icono de 80 px y una frase: Pomodoro, horarios, modo examen, estadísticas, mascota, sonidos, mini temporizador, extensión…
+10. **Preguntas frecuentes** y **descarga final:** «Céntrate es gratis.», botones por sistema, requisitos y enlace a la guía de instalación.
+11. **Notas al pie** numeradas para cualquier matiz (por ejemplo, que la página de bloqueo necesita la extensión).
+
+**Lenguaje visual** (tokens propios en `apps/web/src/styles/tokens.css`, construidos sobre los colores de marca de la sección 10):
+
+- **Tipografía:** SF Pro no se puede usar en una web que no sea de Apple (su licencia lo prohíbe). Usa **Inter variable** autoalojada (licencia OFL, con eje `opsz` y `font-display: swap`), o elige otra con un panel de jueces y justifícalo en `DECISIONS.md`. La escala va por saltos, no es fluida, con cambios en 1068 y 734 px:
+  - Titular del hero y de capítulo: 64 / 56 / 40 px, interlineado 1,06, espaciado −0,009 em.
+  - Titular de sección: 56 / 48 / 32 px.
+  - Antetítulo y entradilla gris: 28 / 24 / 21 px, interlineado 1,14.
+  - Texto: 17 px, interlineado 1,47, espaciado −0,022 em. Letra pequeña 14 px; notas 12 px.
+  - Solo pesos 600 y 400. Mayúscula solo al empezar la frase; los titulares acaban en punto.
+- **Color:** texto `#1d1d1f`, secundario `#6e6e73`; fondos `#ffffff` y `#f5f5f7` alternos; secciones oscuras en `#000` con texto `#f5f5f7`. Un solo color para las acciones: el azul de la marca. Texto con degradado como mucho en 1 a 3 palabras de toda la página. Sin sombras de texto y casi ninguna otra sombra.
+- **Espacio y forma:** contenido al 87,5 % del ancho con un máximo de 1260 px; relleno vertical de sección de 160 / 128 / 96 px; radios de 28 (tarjetas), 18 (tiles) y 980 (botones píldora); puntos de corte en 734, 1068 y 1440 px.
+- **Imágenes:** la interfaz real en primer plano, recortes de la app mejor que pantallas completas, y cada imagen con un `alt` descriptivo.
+- **Página clara con secciones oscuras**, como Apple, sin modo oscuro automático.
+
+**Movimiento** (el scroll siempre es el nativo del navegador):
+
+- Nada de scroll suave, secuestro del scroll ni ajuste a secciones. El ajuste solo existe dentro de las galerías horizontales.
+- **Aparición:** cuando un bloque llega al 85 % de la pantalla, sus elementos suben 30 px y aparecen (0,7 s el movimiento, 0,9 s la opacidad, 0,15 s entre elementos, `cubic-bezier(0.4, 0, 0.6, 1)`), una sola vez. Solo en titulares y galerías: nada de animar cada tarjeta ni poner efectos al pasar el ratón en todo.
+- **La escena pegajosa** del punto 5 es la única controlada por el scroll. Hazla con CSS scroll-driven animations (`animation-timeline`) dentro de `@supports`, y si el navegador no las tiene, con un único manejador de scroll con `requestAnimationFrame` que escribe una variable `--progress`. Anima solo `transform` y `opacity`.
+- **Vídeos:** `muted playsinline`; se reproducen al entrar en pantalla y se pausan al salir. Cada vídeo que explica algo tiene botón de pausa y reproducción, y «Repetir» al acabar. Todo lo que se mueve solo más de 5 s se puede pausar.
+- Con `prefers-reduced-motion`: todo estático, sin reproducción automática, con fotogramas fijos en lugar de vídeos.
+
+**Material visual, generado siempre desde la app real:**
+
+- **Capturas y vídeos** con Playwright (`_electron.launch`), usando el arnés de estados de la sección 10 (`?state=…`), datos de prueba y un reloj falso (`clock.install`). Captura a escala 2 o 3 con `--force-device-scale-factor`; en CI, con Xvfb y una pantalla grande (`xvfb-run -s "-screen 0 5120x2880x24"`) para que la ventana no se recorte.
+- **Vídeos fotograma a fotograma**, para que sean deterministas y nítidos: máster sin pérdidas y después AV1, VP9 y H.264 (color bt709) con póster en WebP. Los vídeos solo llevan los píxeles de la interfaz: el brillo, el degradado, la sombra, el grano y la inclinación los pone la web con CSS.
+- **Workflow `marketing-assets.yml`** (manual y en cada release) que regenera capturas, vídeos, la imagen Open Graph (satori + resvg) y los iconos de la app (`.ico`, `.icns` y PNG) y abre un Pull Request con ellos.
+- **Presupuestos:** vídeo del hero ≤ 0,4 MB en AV1 y ≤ 1,2 MB en H.264; bucles de sección ≤ 0,5 MB; imágenes ≤ 120 KB en AVIF; primera vista ≤ 1,5 MB en total. El plan gratuito de Render incluye poco tráfico de salida: no subas vídeos pesados.
+- Imágenes con `<Picture>` de Astro (AVIF y WebP en varios anchos); la del hero, con `priority`.
+
+**Legal (obligatorio):**
+
+- Nada de Apple: ni logo, ni SF Pro, ni marcos de iPhone o MacBook, ni sus imágenes, ni sus textos o eslóganes. Usa dispositivos genéricos o, mejor, la ventana de la app flotando sola.
+- YouTube, Windows y demás marcas solo como texto, nunca sus logos. En las capturas de marketing, cambia los favicons de los servicios por iconos neutros.
+- Nada de código, iconos ni capturas de G-Helper (GPL-3.0), ni su nombre en el marketing.
+- Recursos de terceros solo con licencia libre (CC0 u OFL), apuntados en `ASSET-LICENSES.json`.
+- Sin caras reales en el Study Mode: ilustración o la interfaz sola.
+
+**Criterios de aceptación y pulido:**
+
+- Lighthouse ≥ 90 en móvil y en escritorio (LCP < 2,5 s, CLS < 0,1, INP < 200 ms), comprobado con Lighthouse CI en GitHub Actions, y 0 fallos de axe-core.
+- Capturas con Playwright de la página entera y en varias posiciones de scroll, a 375, 768, 1280, 1440 y 1920 px, con y sin movimiento reducido.
+- Rondas de crítica con varios agentes que comparan las capturas con las de referencia de Apple (tipografía, ritmo, espacio, movimiento y textos). Se arregla todo y se repite hasta que dos rondas seguidas no encuentren nada importante.
+
+**Otras páginas:**
+
 - **Descargar:** instrucciones por sistema, requisitos, versión actual, tamaño, SHA-256, cómo instalar la extensión y **cómo pasar los avisos de seguridad**, porque al principio la app no estará firmada (Windows SmartScreen: «Más información» → «Ejecutar de todas formas»; macOS: Ajustes del Sistema → Privacidad y seguridad → «Abrir igualmente»). Cómo desinstalar.
 - **Novedades:** changelog leído de GitHub Releases.
 - **Privacidad:** política clara (qué se guarda, cámara 100 % local, sin cookies de seguimiento), adaptada al RGPD.
@@ -598,13 +659,13 @@ Hazla cuando las Fases 0–5 estén terminadas y publicada la Release `v1.0.0`; 
 - **Fase 0. Esqueleto:** monorepo, lint, tests, CI en verde en los 3 sistemas, `README`, `ROADMAP`, `DECISIONS` y `LICENSE`.
 - **Fase 1. Núcleo de bloqueo:** app con campo de texto y confirmación, parser, catálogo, guardián (hosts, procesos, persistencia, fin automático, anti-cambio de hora), bandeja, notificaciones y puntos básicos.
   ✅ *Terminada cuando:* escribo «no veo YouTube en una hora», confirmo, cierro la app (y la mato desde el Administrador de tareas) y YouTube sigue bloqueado; reinicio y sigue bloqueado; al pasar la hora se desbloquea solo sin abrir la app.
-- **Fase 2. Distribución:** instaladores con GitHub Actions, Release `v0.1.0` y web publicada en Render con descargas que funcionan.
+- **Fase 2. Distribución:** instaladores con GitHub Actions, Release `v0.1.0` y web publicada en Render con descargas que funcionan (ya con la estructura y la tipografía de la sección 11; los vídeos llegan en la Fase 5).
   ✅ *Terminada cuando:* entro en la URL de Render, pulso «Descargar», instalo y la Fase 1 funciona en mi ordenador.
 - **Fase 3. Extensión e intentos:** extensión, página de bloqueo, intentos que restan puntos, ventana activa y desbloqueo de emergencia.
   ✅ *Terminada cuando:* al entrar en YouTube veo la página de Céntrate con mi motivo y pierdo 10 puntos.
 - **Fase 4. Study Mode:** cámara, calibración, clasificador, máquina de estados, castigo y privacidad.
   ✅ *Terminada cuando:* si cojo el móvil o me voy, me avisa; a los 3 strikes se aplica el castigo de 60 min aunque cierre la app; y si escribo en un cuaderno **no** me castiga.
-- **Fase 5. Extras:** Pomodoro, horarios, modo examen, estadísticas, recompensas, logros, mascota, sonidos, tareas de la sesión, recordatorios, Ajustes completos, mini temporizador, OSD, auto-actualización y onboarding completo (todo lo que falte de las secciones 4–12). Release `v1.0.0`.
+- **Fase 5. Extras:** Pomodoro, horarios, modo examen, estadísticas, recompensas, logros, mascota, sonidos, tareas de la sesión, recordatorios, Ajustes completos, mini temporizador, OSD, auto-actualización, onboarding completo y la web estilo Apple terminada con capturas y vídeos reales (todo lo que falte de las secciones 4–12). Release `v1.0.0`.
 - **Fase 6. Cuentas, amigos, ranking y coach IA** (sección 14).
 - **Fase 7. Perfeccionamiento continuo (no tiene fin).** Repite rondas, cada una con muchos agentes en paralelo:
   1. **Interfaz:** capturas de todas las pantallas y estados, en tema claro y oscuro y a varios tamaños. Varios agentes las critican contra la sección 10 y contra G-Helper; se arregla todo y se vuelve a capturar.
