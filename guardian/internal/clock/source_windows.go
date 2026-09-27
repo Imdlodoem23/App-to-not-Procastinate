@@ -1,7 +1,6 @@
 package clock
 
 import (
-	"strconv"
 	"time"
 	"unsafe"
 
@@ -20,7 +19,8 @@ var (
 	procQueryUnbiasedInterruptTime = modKernel32.NewProc("QueryUnbiasedInterruptTime")
 )
 
-// bootIDKey holds BootId, a counter Windows increments at every boot.
+// bootIDKey holds BootId, a counter Windows increments at every boot (except
+// on some systems; see windowsBootID).
 const bootIDKey = `SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters`
 
 // osBootClock uses QueryInterruptTime (Windows 10+), which includes sleep and
@@ -59,19 +59,45 @@ func osAwakeClock() (string, func() (time.Duration, error)) {
 	}
 }
 
-// osBootID reads the BootId counter. If it is missing, it derives the boot
-// moment from the wall clock minus the interrupt time, rounded to the minute.
-// That fallback changes when the wall clock is changed or drifts across a
-// minute boundary, which only makes Restore treat the restart as a reboot and
-// fall back to the wall clock: it can never fake continuity.
+// osBootID combines the BootId counter with the creation time of the System
+// process; see windowsBootID. If neither can be read it derives the boot
+// moment from the wall clock minus the interrupt time. That fallback changes
+// when the wall clock is changed, so SameBoot never compares it and decides by
+// Mono continuity alone.
 func osBootID() (string, error) {
-	if k, err := registry.OpenKey(registry.LOCAL_MACHINE, bootIDKey, registry.QUERY_VALUE); err == nil {
-		v, _, err := k.GetIntegerValue("BootId")
-		_ = k.Close()
-		if err == nil {
-			return "bootid:" + strconv.FormatUint(v, 10), nil
-		}
+	return windowsBootID(prefetchBootID, systemProcessStart, func() time.Time {
+		return time.Now().Add(-BootTime())
+	}), nil
+}
+
+// prefetchBootID reads the BootId counter.
+func prefetchBootID() (uint64, error) {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, bootIDKey, registry.QUERY_VALUE)
+	if err != nil {
+		return 0, err
 	}
-	boot := time.Now().Add(-BootTime()).Round(time.Minute) // Round strips the monotonic reading.
-	return "derived:" + strconv.FormatInt(boot.Unix(), 10), nil
+	defer func() { _ = k.Close() }()
+	v, _, err := k.GetIntegerValue("BootId")
+	return v, err
+}
+
+// systemPID is the process id of the System process on every Windows NT 6+.
+const systemPID = 4
+
+// systemProcessStart returns the creation time of the System process as a
+// FILETIME (100 ns units since 1601). The kernel stamps it at boot and never
+// rewrites it, so it tells boots apart when the BootId counter does not
+// change. PROCESS_QUERY_LIMITED_INFORMATION is granted on protected processes
+// such as System; the guardian runs as LocalSystem.
+func systemProcessStart() (uint64, error) {
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, systemPID)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = windows.CloseHandle(h) }()
+	var created, exited, kernel, user windows.Filetime
+	if err := windows.GetProcessTimes(h, &created, &exited, &kernel, &user); err != nil {
+		return 0, err
+	}
+	return uint64(created.HighDateTime)<<32 | uint64(created.LowDateTime), nil
 }

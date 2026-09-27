@@ -23,9 +23,18 @@
 // time.
 //
 // [BootID] identifies the current boot: /proc/sys/kernel/random/boot_id on
-// Linux, sysctl kern.bootsessionuuid on macOS, and the BootId counter under
+// Linux, sysctl kern.bootsessionuuid on macOS, and on Windows the BootId
+// counter under
 // HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters
-// on Windows (falling back to the boot moment rounded to the minute).
+// combined with the creation time of the System process (PID 4), which
+// Windows stamps at boot and never rewrites: the counter alone does not change
+// on some systems (prefetcher disabled). When no primary source can be read,
+// macOS falls back to kern.boottime ("boottime:") and Windows to the boot
+// moment derived from the wall clock ("derived:"). A clock change can alter
+// those, so [SameBoot] ignores their value and decides by Mono continuity
+// alone: a wrong "same boot" only makes blocks last longer, while a wrong
+// "different boot" would accept a clock change made while the guardian was
+// stopped.
 //
 // # Trusted time
 //
@@ -83,6 +92,14 @@
 //     inside the same lock that guards its expiry checks.
 //   - Evaluate recurring schedules against EffectiveNow().In(loc), never
 //     against time.Now().
+//   - When the user allows network checks, call [NetworkTime] with
+//     EffectiveNow as the certificate clock (after boot or resume, after a
+//     jump, then every half hour or so) and pass the result to
+//     [Detector.Resync]. When [JumpResult.TrustedShift] is not zero, add it to
+//     every pending deadline kept in trusted time inside the lock that guards
+//     the expiry checks; display times do not change. A caller that cannot
+//     shift its deadlines must use [Detector.Calibrate] instead, which never
+//     moves EffectiveNow forward (and so never corrects a lag).
 //   - When [JumpResult.Suspended], do not count the missing heartbeats of
 //     SuspendedFor as a failure.
 //   - Persist [Detector.Snapshot] with the rest of the state (every minute and
@@ -103,9 +120,24 @@
 // guessing wrong can only make blocks last longer, never end early. T is never
 // set earlier than the saved T: a wall clock that reads earlier (dead CMOS
 // battery, clock set back while the machine was off) is not believed, and
-// RestoreResult.WallBehind says so. A clock moved forward while the machine
-// was off cannot be seen without an external reference:
-// [Detector.Calibrate] with [NetworkTime] moves T back when T runs ahead of the
-// network time. It never moves T forward, because that would shorten any block
-// created while T was behind.
+// RestoreResult.WallBehind says so.
+//
+// Without an external reference two errors remain. A clock moved forward
+// while the machine was off makes T run ahead: [Detector.Calibrate] (and
+// Resync) move T back to the network time, without touching deadlines, so
+// blocks last until their promised real moment. A wrong guess, or the clamp to
+// the saved T, makes T lag real time, by the offset or by the downtime; ticks
+// never correct that (the wall clock agrees with T + W) and it survives
+// further reboots. [Detector.Resync] moves T forward to the network time and
+// reports the move as TrustedShift, which the engine adds to its pending
+// deadlines so that none of them is reached earlier.
+//
+// Restore distrusts a snapshot only when it cannot be genuine: a zero trusted
+// time, or one that is implausible (before 2025, or more than a year ahead of
+// both wall-clock candidates) and contradicts the snapshot's own wall clock
+// and offset by more than a year (RestoreResult.Discarded; T restarts from the
+// wall clock). A snapshot consistent with itself is always used. A large
+// offset is never a reason to discard one: it is how a compensated clock
+// change survives a reboot. Offsets are added with saturation, so extreme
+// values cannot wrap around.
 package clock

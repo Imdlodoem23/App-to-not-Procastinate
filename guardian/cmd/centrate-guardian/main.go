@@ -10,6 +10,10 @@
 //	centrate-guardian cleanup-hosts           remove the Céntrate section from the hosts file
 //	centrate-guardian version                 {"version":…}
 //
+// Exit codes: 0 success; 1 error; 2 usage; 3 not installed (start and
+// restart; stop exits 0 because nothing is running); 10 a block is active
+// (has-active).
+//
 // Human messages go to stderr in Spanish; machine output is JSON on stdout.
 // Every command is safe to run twice.
 package main
@@ -18,28 +22,38 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	// IANA time zones for schedules (Intl names such as "Europe/Madrid"):
+	// Windows has no zoneinfo database, so the binary embeds one.
+	_ "time/tzdata"
 
+	"github.com/imdlodoem23/centrate/guardian/internal/hosts"
 	"github.com/imdlodoem23/centrate/guardian/internal/logx"
 	"github.com/imdlodoem23/centrate/guardian/internal/platform"
 	"github.com/imdlodoem23/centrate/guardian/internal/svc"
 	"github.com/imdlodoem23/centrate/guardian/internal/version"
 )
 
+func init() {
+	// Hosts cleanup does not depend on the engine, so it is wired here for
+	// every build (and for this package's tests), not in main.
+	svc.RemoveHostsSection = removeHostsSection
+}
+
 func main() {
-	// The coordinator wires the engine here, before running any command:
-	//   svc.RemoveHostsSection = hosts.RemoveSection
-	//   svc.HasActiveBlocks    = engine.HasActiveBlocks
-	//   svc.NewRunner          = engine.NewRunner
+	// The engine wires itself here, before running any command:
+	//   svc.HasActiveBlocks = engine.HasActiveBlocks
+	//   svc.NewRunner       = engine.NewRunner
 	os.Exit(defaultApp().run(os.Args[1:]))
 }
 
 func defaultApp() *app {
 	return &app{
-		stdout:      os.Stdout,
-		stderr:      os.Stderr,
-		version:     version.Version,
-		interactive: svc.Interactive,
-		elevated:    platform.IsElevated,
+		stdout:        os.Stdout,
+		stderr:        os.Stderr,
+		version:       version.Version,
+		interactive:   svc.Interactive,
+		elevated:      platform.IsElevated,
+		useSystemPATH: platform.UseSystemPATH,
 		newManager: func(o svc.Options) (serviceManager, error) {
 			return svc.New(o)
 		},
@@ -51,6 +65,44 @@ func defaultApp() *app {
 		removeData:   platform.RemoveDataDir,
 		dataDir:      platform.DataDir,
 	}
+}
+
+// removeHostsSection is svc.RemoveHostsSection. It takes the Céntrate section
+// out of the hosts file at path. When an interrupted write left the file
+// damaged (see hosts.Manager.Damaged) it restores the newest backup instead,
+// which comes back without the section. The DNS cache is flushed only for the
+// real system hosts file.
+func removeHostsSection(path string) error {
+	m := &hosts.Manager{
+		Path:      path,
+		BackupDir: hostsBackupDir(),
+		AutoFlush: path == platform.DefaultHostsPath(),
+	}
+	if m.BackupDir != "" {
+		if damaged, err := m.Damaged(); err == nil && damaged {
+			if err := m.RestoreFromBackup(); err == nil {
+				return nil
+			}
+		}
+	}
+	return m.Remove()
+}
+
+// hostsBackupDir returns the guardian's hosts backup folder, secured, or ""
+// when the data folder does not exist (nothing to restore from, and cleanup
+// must not create it) or cannot be secured (cleanup goes on without backups).
+func hostsBackupDir() string {
+	if _, err := os.Lstat(platform.DataDir()); err != nil {
+		return ""
+	}
+	if err := platform.EnsureDataDir(); err != nil {
+		return ""
+	}
+	dir := platform.BackupDir()
+	if err := platform.EnsureDir(dir); err != nil {
+		return ""
+	}
+	return dir
 }
 
 // prepareDirs creates the data and log directories with their permissions.

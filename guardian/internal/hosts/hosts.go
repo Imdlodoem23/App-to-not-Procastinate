@@ -53,11 +53,12 @@ type Manager struct {
 	// on; tests leave it off so they never run system commands.
 	AutoFlush bool
 
-	mu       sync.Mutex
-	backedUp bool        // a backup was taken (or was not needed) in this process
-	cleaned  bool        // stale temporary files were removed in this process
-	known    fingerprint // content after our last Apply/Remove/Restore
-	seq      uint64      // incremented every time known is set
+	mu             sync.Mutex
+	backupSum      fingerprint // user part (section stripped) known to be in the newest backup
+	recoverChecked bool        // the startup damage check (see Recover) has run
+	cleaned        bool        // stale temporary files were removed in this process
+	known          fingerprint // content after our last Apply/Remove/Restore
+	seq            uint64      // incremented every time known is set
 
 	// Test hooks; nil selects the real implementation.
 	rename      func(src, dst string) error
@@ -100,8 +101,10 @@ func (m *Manager) checkPath() error {
 // Domains are validated, lowercased, deduplicated and sorted first (see
 // NormalizeDomains); if any is invalid nothing is written. An empty list is
 // the same as Remove. When the resulting content equals the current one,
-// nothing is written (the modification time does not change). Before the
-// first write of the process lifetime the original file is backed up.
+// nothing is written (the modification time does not change). The file is
+// backed up before the write when its user lines are not in a backup yet, and
+// the first Apply or Remove of the process restores a damaged file first (see
+// Recover). On Windows, pass the list through HostsLayerDomains first.
 func (m *Manager) Apply(domains []string) error {
 	norm, err := NormalizeDomains(domains)
 	if err != nil {
@@ -134,18 +137,28 @@ func (m *Manager) updateLocked(domains []string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	restored := false
+	if !m.recoverChecked {
+		// First write of this process: restore a file torn by a crash of an
+		// earlier one before building on it (see Recover). Without a usable
+		// backup, parseDocument reports the damage below.
+		data, exists, restored, err = m.recoverLocked(data, exists)
+		if err != nil && !errors.Is(err, ErrNoBackup) {
+			return false, err
+		}
+	}
 	doc, err := parseDocument(data)
 	if err != nil {
-		return false, err
+		return restored, err
 	}
 	out := doc.render(domains)
 	if bytes.Equal(out, data) { // includes a missing file and no domains
 		m.remember(data, exists)
-		return false, nil
+		return restored, nil
 	}
-	m.backupOnce(data, exists)
+	m.backupBeforeWrite(doc, data, exists)
 	if err := m.write(out); err != nil {
-		return false, err
+		return restored, err
 	}
 	m.remember(out, true)
 	m.logger().Info("hosts: section updated", "entries", len(domains), "bytes", len(out))
@@ -201,22 +214,32 @@ func (m *Manager) Verify(expected []string) (bool, error) {
 
 // read returns the file content; a missing file is (nil, false, nil).
 func (m *Manager) read() ([]byte, bool, error) {
-	f, err := os.Open(m.Path)
+	data, err := readFileLimited(m.Path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, false, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("hosts: open: %w", err)
+		return nil, false, err
+	}
+	return data, true, nil
+}
+
+// readFileLimited reads path, refusing files larger than MaxFileSize with
+// ErrTooLarge. A missing file returns an error wrapping fs.ErrNotExist.
+func readFileLimited(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("hosts: open: %w", err)
 	}
 	defer func() { _ = f.Close() }()
 	data, err := io.ReadAll(io.LimitReader(f, MaxFileSize+1))
 	if err != nil {
-		return nil, false, fmt.Errorf("hosts: read: %w", err)
+		return nil, fmt.Errorf("hosts: read: %w", err)
 	}
 	if len(data) > MaxFileSize {
-		return nil, false, ErrTooLarge
+		return nil, ErrTooLarge
 	}
-	return data, true, nil
+	return data, nil
 }
 
 // remember records the content left by one of our operations, so Watch does

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"reflect"
@@ -51,11 +52,12 @@ func newTestApp(e env) (*app, *[]string, *bytes.Buffer, *bytes.Buffer) {
 		return e.errs[name]
 	}
 	a := &app{
-		stdout:      stdout,
-		stderr:      stderr,
-		version:     "1.2.3",
-		interactive: func() bool { return e.interactive },
-		elevated:    func() bool { return e.elevated },
+		stdout:        stdout,
+		stderr:        stderr,
+		version:       "1.2.3",
+		interactive:   func() bool { return e.interactive },
+		elevated:      func() bool { return e.elevated },
+		useSystemPATH: func() {},
 		newManager: func(o svc.Options) (serviceManager, error) {
 			if err := record("newManager"); err != nil {
 				return nil, err
@@ -132,8 +134,22 @@ func TestDispatch(t *testing.T) {
 		{name: "uninstall data removal fails", args: []string{"uninstall"}, env: env{elevated: true, errs: map[string]error{"removeData": boom}}, wantCode: exitError,
 			wantCalls: []string{"newManager", "uninstall", "cleanupHosts", "removeData"}},
 		{name: "start", args: []string{"start"}, env: admin, wantCode: exitOK, wantCalls: []string{"newManager", "start"}},
-		{name: "start not installed", args: []string{"start"}, env: env{elevated: true, errs: map[string]error{"start": svc.ErrNotInstalled}}, wantCode: exitError,
+		{name: "install marked for deletion explains what to do", args: []string{"install"},
+			env: env{elevated: true, errs: map[string]error{"install": fmt.Errorf("svc: install: %w", svc.ErrMarkedForDeletion)}}, wantCode: exitError,
+			wantCalls: []string{"prepareDirs", "newManager", "install"}, stderr: "«Servicios»"},
+		{name: "install from an unprotected folder explains what to do", args: []string{"install"},
+			env: env{elevated: true, errs: map[string]error{"install": svc.ErrUntrustedExecutable}}, wantCode: exitError,
+			wantCalls: []string{"prepareDirs", "newManager", "install"}, stderr: "otros usuarios pueden modificar"},
+		{name: "start not installed", args: []string{"start"}, env: env{elevated: true, errs: map[string]error{"start": svc.ErrNotInstalled}}, wantCode: exitNotInstalled,
 			wantCalls: []string{"newManager", "start"}, stderr: "no está instalado"},
+		{name: "start disabled in login items", args: []string{"start"}, env: env{elevated: true, errs: map[string]error{"start": svc.ErrDisabledByUser}}, wantCode: exitError,
+			wantCalls: []string{"newManager", "start"}, stderr: "Ítems de inicio"},
+		{name: "stop not installed is already stopped", args: []string{"stop"}, env: env{elevated: true, errs: map[string]error{"stop": svc.ErrNotInstalled}}, wantCode: exitOK,
+			wantCalls: []string{"newManager", "stop"}, stderr: "nada que parar"},
+		{name: "restart not installed", args: []string{"restart"}, env: env{elevated: true, errs: map[string]error{"restart": svc.ErrNotInstalled}}, wantCode: exitNotInstalled,
+			wantCalls: []string{"newManager", "restart"}, stderr: "no está instalado"},
+		{name: "restart error", args: []string{"restart"}, env: env{elevated: true, errs: map[string]error{"restart": boom}}, wantCode: exitError,
+			wantCalls: []string{"newManager", "restart"}, stderr: "boom"},
 		{name: "start needs admin", args: []string{"start"}, env: env{}, wantCode: exitError},
 		{name: "stop", args: []string{"stop"}, env: admin, wantCode: exitOK, wantCalls: []string{"newManager", "stop"}},
 		{name: "stop error", args: []string{"stop"}, env: env{elevated: true, errs: map[string]error{"stop": boom}}, wantCode: exitError,
@@ -208,6 +224,36 @@ func TestEveryCommandIsDocumented(t *testing.T) {
 	for name := range commands {
 		if !strings.Contains(usageText, name) {
 			t.Errorf("usage text does not mention %q", name)
+		}
+	}
+}
+
+func TestElevatedCommandsUseSystemPATH(t *testing.T) {
+	for _, tc := range []struct {
+		args     []string
+		elevated bool
+		want     int
+	}{
+		{[]string{"install"}, true, 1},
+		{[]string{"status"}, true, 1},
+		{nil, true, 1}, // started by the service manager
+		{[]string{"status"}, false, 0},
+		{[]string{"install"}, false, 0},
+	} {
+		a, _, _, _ := newTestApp(env{elevated: tc.elevated})
+		n := 0
+		a.useSystemPATH = func() { n++ }
+		a.run(tc.args)
+		if n != tc.want {
+			t.Errorf("%v elevated=%v: useSystemPATH called %d times, want %d", tc.args, tc.elevated, n, tc.want)
+		}
+	}
+}
+
+func TestUsageDocumentsExitCodes(t *testing.T) {
+	for _, want := range []string{"0 bien", "1 error", "2 uso", "3 el servicio no está", "10 hay un"} {
+		if !strings.Contains(usageText, want) {
+			t.Errorf("usage text lacks %q", want)
 		}
 	}
 }

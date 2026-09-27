@@ -22,8 +22,7 @@ func osAwakeClock() (string, func() (time.Duration, error)) {
 
 // osBootID prefers kern.bootsessionuuid (a UUID generated at every boot). The
 // fallback, kern.boottime, is shifted by the kernel whenever the wall clock is
-// set, so after a clock change it may look like a reboot: that only makes
-// Restore fall back to the wall clock, never trust a broken continuity.
+// set, so SameBoot does not compare it and relies on Mono continuity alone.
 func osBootID() (string, error) {
 	if id, err := unix.Sysctl("kern.bootsessionuuid"); err == nil {
 		if id = strings.TrimSpace(id); validID(id) {
@@ -34,5 +33,5 @@ func osBootID() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("boottime:%d.%06d", tv.Sec, tv.Usec), nil
+	return fmt.Sprintf("%s%d.%06d", boottimeIDPrefix, tv.Sec, tv.Usec), nil
 }

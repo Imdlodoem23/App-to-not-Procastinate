@@ -1,4 +1,4 @@
-//go:build !windows && !darwin
+//go:build unix && !darwin
 
 package svc
 
@@ -9,18 +9,45 @@ import (
 	"path/filepath"
 
 	"github.com/kardianos/service"
+
+	"github.com/imdlodoem23/centrate/guardian/internal/platform"
 )
+
+// protectedTargets are the root-only places install copies the binary to, in
+// order of preference. A variable so tests can use temporary folders.
+var protectedTargets = []string{LinuxStablePath, LinuxFallbackPath}
+
+// systemBinDirs are the only places systemctl is looked for: PATH is not
+// consulted.
+var systemBinDirs = []string{"/usr/bin", "/bin", "/usr/sbin", "/sbin"}
 
 func serviceID() string { return Name }
 
-// registeredExecutable keeps the binary where it is unless it lives on an
-// AppImage mount or in a temp dir, which vanish; then install copies it to
-// LinuxStablePath.
+// registeredExecutable keeps the binary where it is only when that is safe to
+// run as root at every boot (see trustedInPlace). Otherwise install copies it
+// to LinuxStablePath (or LinuxFallbackPath, decided at install time).
 func registeredExecutable(src string) string {
-	if isEphemeralPath(src) {
-		return LinuxStablePath
+	if trustedInPlace(src) {
+		return src
 	}
-	return src
+	return LinuxStablePath
+}
+
+// trustedInPlace reports whether src can be registered where it is: a
+// regular file on a path that survives reboots, that the unit can quote, and
+// that only root can replace (root owns it and every folder above it, none
+// writable by group or others). A .deb install under /opt passes; an
+// extracted AppImage in $HOME, a tarball in Downloads or an AppImage mount
+// does not.
+func trustedInPlace(src string) bool {
+	if isEphemeralPath(src) || !unitSafe(src) {
+		return false
+	}
+	fi, err := lstat(src)
+	if err != nil || !fi.Mode().IsRegular() {
+		return false
+	}
+	return checkRootOnly(src) == nil
 }
 
 func platformOptions() service.KeyValue {
@@ -35,16 +62,16 @@ func (m *Manager) isSystemd() bool {
 }
 
 func (m *Manager) install() error {
-	target := m.cfg.Executable
-	if target != m.sourceExe {
-		if err := installExecutable(m.sourceExe, target); err != nil {
-			return fmt.Errorf("copy binary to %s: %w", target, err)
+	if m.cfg.Executable != m.sourceExe {
+		dst, err := m.copyToProtected()
+		if err != nil {
+			return err
 		}
-	} else if target != LinuxStablePath {
-		// A previous install from an AppImage may have left a copy behind.
-		if err := removeFile(LinuxStablePath); err != nil {
-			m.logger.Warn("could not remove stale binary copy", "err", err)
-		}
+		m.cfg.Executable = dst
+	} else {
+		// A previous install from an untrusted location may have left a copy
+		// (keep the source: it may be one of those copies).
+		m.removeCopies(m.sourceExe)
 	}
 	if st, err := m.status(); err == nil && st.Installed {
 		// kardianos refuses to overwrite a registration: remove it first. The
@@ -68,6 +95,85 @@ func (m *Manager) install() error {
 	return m.svc.Start()
 }
 
+// copyToProtected copies the binary to the first protectedTargets entry that
+// ends up root-only and returns the path to register.
+func (m *Manager) copyToProtected() (string, error) {
+	var errs []error
+	for _, dst := range protectedTargets {
+		path, err := copyProtected(m.sourceExe, dst)
+		if err == nil {
+			m.removeCopies(path)
+			return path, nil
+		}
+		errs = append(errs, fmt.Errorf("%s: %w", dst, err))
+	}
+	return "", fmt.Errorf("%w: %w", ErrUntrustedExecutable, errors.Join(errs...))
+}
+
+// copyProtected creates dst's folder root-owned 0755 (through a descriptor
+// that never follows links), copies src there under the folder's real path
+// and checks that the result and every folder above it are root-only. It
+// fails on a read-only /usr/local (EROFS) or a /usr/local someone chowned to
+// a user, so the caller can try the next location.
+func copyProtected(src, dst string) (string, error) {
+	dir := filepath.Dir(dst)
+	if err := platform.EnsureDir(dir); err != nil {
+		return "", err
+	}
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", err
+	}
+	target := filepath.Join(real, filepath.Base(dst))
+	if !unitSafe(target) {
+		return "", fmt.Errorf("%q cannot be written into a systemd unit", target)
+	}
+	if err := installExecutable(src, target); err != nil {
+		return "", err
+	}
+	if err := checkRootOnly(target); err != nil {
+		_ = removeFile(target)
+		return "", err
+	}
+	return target, nil
+}
+
+// removeCopies deletes the binary copies install may have made, except keep,
+// and their folders when empty.
+func (m *Manager) removeCopies(keep string) {
+	for _, p := range protectedTargets {
+		if keep != "" && sameFile(p, keep) {
+			continue
+		}
+		if err := removeFile(p); err != nil {
+			m.logger.Warn("could not remove a stale binary copy", "err", err)
+		}
+		// Only succeeds when empty, which is the point.
+		_ = os.Remove(filepath.Dir(p))
+	}
+}
+
+func sameFile(a, b string) bool {
+	fa, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	fb, err := os.Stat(b)
+	return err == nil && os.SameFile(fa, fb)
+}
+
+// systemBinary returns the absolute path of a system tool from systemBinDirs,
+// or "".
+func systemBinary(name string) string {
+	for _, dir := range systemBinDirs {
+		p := filepath.Join(dir, name)
+		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0 {
+			return p
+		}
+	}
+	return ""
+}
+
 func (m *Manager) uninstall() error {
 	var errs []error
 	if st, _ := m.status(); st.Installed {
@@ -78,19 +184,21 @@ func (m *Manager) uninstall() error {
 			if m.isSystemd() && fileExists(SystemdUnitPath) {
 				if rmErr := removeFile(SystemdUnitPath); rmErr != nil {
 					errs = append(errs, err, rmErr)
-				} else {
-					_, _ = runCmd("systemctl", "daemon-reload")
+				} else if systemctl := systemBinary("systemctl"); systemctl != "" {
+					_, _ = runCmd(systemctl, "daemon-reload")
 				}
 			} else if !m.isSystemd() {
 				errs = append(errs, err)
 			}
 		}
 	}
-	if err := removeFile(LinuxStablePath); err != nil {
-		errs = append(errs, err)
+	for _, p := range protectedTargets {
+		if err := removeFile(p); err != nil {
+			errs = append(errs, err)
+		}
+		// Only succeeds when empty, which is the point.
+		_ = os.Remove(filepath.Dir(p))
 	}
-	// Only succeeds when empty, which is the point.
-	_ = os.Remove(filepath.Dir(LinuxStablePath))
 	return errors.Join(errs...)
 }
 

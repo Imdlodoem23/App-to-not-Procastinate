@@ -130,14 +130,17 @@ func EnsureDataDir() error {
 //   - Windows: every missing directory is created atomically with its final
 //     security descriptor (owner BUILTIN\Administrators; protected DACL:
 //     SYSTEM and Administrators full control, Users read & execute, inherited
-//     by everything inside). An existing directory that is a reparse point or
-//     is owned by anyone but SYSTEM or Administrators (a standard user can
-//     pre-create folders in C:\ProgramData) is renamed to
-//     "<dir>.untrusted-<unix time>" and created again. Inside a trusted
-//     directory, links are deleted, files with more than one hard link are
-//     deleted, and anything else not owned by SYSTEM or Administrators gets
-//     owner Administrators and the inherited DACL. Finally the directory's own
-//     owner and DACL are reset.
+//     by everything inside), so it never carries C:\ProgramData's inherited
+//     ACL, which lets every user add files. An existing tree is trusted only
+//     if the directory and everything inside it are plain files and folders
+//     owned by SYSTEM or Administrators, with no link, junction or file with
+//     several hard links. Otherwise (a standard user can pre-create folders in
+//     C:\ProgramData and plant files there) the directory is renamed to
+//     "<dir>.untrusted-<unix time>", without opening anything inside, and
+//     created again. Finally its owner and DACL are reset, which also resets
+//     the inherited entries of what it contains. The call also makes
+//     Administrators the default owner of everything the process creates
+//     afterwards, so the guardian's own files always pass that check.
 //
 // Without elevation (development and unit tests) it only creates the directory.
 func EnsureDir(dir string) error {
@@ -207,11 +210,14 @@ func RemoveDataDir() error {
 		return nil
 	case err != nil:
 		return fmt.Errorf("platform: stat %s: %w", dir, err)
-	case !isPlainDir(fi):
+	case fi.Mode()&(fs.ModeSymlink|fs.ModeIrregular) != 0:
+		// A link or junction: remove the link, never what it points to.
 		if err := os.Remove(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("platform: remove %s: %w", dir, err)
 		}
 		return nil
+	case !fi.IsDir():
+		return fmt.Errorf("platform: refusing to remove %q: not a directory", dir)
 	}
 	if !samePath(dir, defaultDataDir()) && !hasMarker(dir) {
 		return fmt.Errorf("platform: refusing to remove %q: it has no %s marker", dir, DataDirMarker)

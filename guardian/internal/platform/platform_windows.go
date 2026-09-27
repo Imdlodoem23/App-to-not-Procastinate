@@ -50,16 +50,11 @@ func defaultDataDir() string {
 	return filepath.Join(base, "Centrate")
 }
 
+// defaultHostsPath follows the DataBasePath registry value; see
+// hostspath_windows.go.
 func defaultHostsPath() string {
-	sys, err := windows.GetSystemDirectory()
-	if err != nil || sys == "" {
-		root := os.Getenv("SystemRoot")
-		if root == "" {
-			root = `C:\Windows`
-		}
-		sys = filepath.Join(root, "System32")
-	}
-	return filepath.Join(sys, "drivers", "etc", "hosts")
+	p, _ := systemHostsPath()
+	return p
 }
 
 // IsElevated reports whether the process token is elevated (an administrator

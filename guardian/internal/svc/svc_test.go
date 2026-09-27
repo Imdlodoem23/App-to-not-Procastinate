@@ -3,7 +3,9 @@ package svc
 import (
 	"bytes"
 	"context"
+	"encoding/xml"
 	"errors"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -29,7 +31,8 @@ func TestNewConfig(t *testing.T) {
 		if ServiceID() != "CentrateGuardian" {
 			t.Fatalf("ServiceID() = %q", ServiceID())
 		}
-		if cfg.Option["StartType"] != "automatic" || cfg.Option["DelayedAutoStart"] != false {
+		if cfg.Option["StartType"] != "automatic" || cfg.Option["DelayedAutoStart"] != false ||
+			cfg.Option["OnFailure"] != "restart" || cfg.Option["OnFailureDelayDuration"] != "5s" {
 			t.Fatalf("options = %v", cfg.Option)
 		}
 	case "darwin":
@@ -38,6 +41,9 @@ func TestNewConfig(t *testing.T) {
 		}
 		if cfg.Option["KeepAlive"] != true || cfg.Option["RunAtLoad"] != true {
 			t.Fatalf("options = %v", cfg.Option)
+		}
+		if cfg.Option["LogDirectory"] != "/var/log" || cfg.Option["LaunchdConfig"] != launchdPlist {
+			t.Fatalf("launchd logs must go to /var/log with the custom plist: %v", cfg.Option)
 		}
 	default:
 		if ServiceID() != "CentrateGuardian" {
@@ -84,7 +90,8 @@ func TestRegisteredExecutable(t *testing.T) {
 			t.Fatalf("got %q", got)
 		}
 	default:
-		if got := registeredExecutable(stable); got != stable {
+		// A path that does not exist cannot be proven root-only.
+		if got := registeredExecutable(stable); got != LinuxStablePath {
 			t.Fatalf("got %q", got)
 		}
 		if got := registeredExecutable("/tmp/.mount_CentrXYZ/resources/centrate-guardian"); got != LinuxStablePath {
@@ -121,6 +128,72 @@ func TestLaunchdRunning(t *testing.T) {
 	}
 	if launchdRunning("") {
 		t.Fatal("empty output must not be running")
+	}
+}
+
+func TestLaunchdDisabled(t *testing.T) {
+	const label = "io.github.imdlodoem23.centrate.guardian"
+	modern := "disabled services = {\n\t\"com.apple.ftpd\" => disabled\n\t\"" + label + "\" => disabled\n}\nlogin item associations = {\n}\n"
+	if !launchdDisabled(modern, label) {
+		t.Fatal("want disabled (macOS 11+ format)")
+	}
+	if launchdDisabled(strings.Replace(modern, label+"\" => disabled", label+"\" => enabled", 1), label) {
+		t.Fatal("want enabled")
+	}
+	if !launchdDisabled("\t\""+label+"\" => true\n", label) {
+		t.Fatal("want disabled (old format)")
+	}
+	if launchdDisabled("\t\""+label+".other\" => disabled\n", label) || launchdDisabled("", label) {
+		t.Fatal("other labels must not match")
+	}
+}
+
+// renderPlist mimics kardianos' mini template on launchdPlist well enough to
+// check that the result is well-formed XML.
+func renderPlist(t *testing.T) string {
+	t.Helper()
+	out := strings.NewReplacer(
+		"{{KeepAlive}}", "true",
+		"{{RunAtLoad}}", "true",
+		"{{Name | html}}", LaunchdLabel,
+		"{{Path | html}}", DarwinHelperPath,
+		"{{StandardErrorPath | html}}", DarwinStderrLog,
+		"{{range Arguments}}", "",
+		"{{. | html}}", RunArg,
+		"{{end}}", "",
+	).Replace(launchdPlist)
+	if strings.Contains(out, "{{") {
+		t.Fatalf("unhandled template action in %q", out)
+	}
+	return out
+}
+
+func TestLaunchdPlist(t *testing.T) {
+	out := renderPlist(t)
+	dec := xml.NewDecoder(strings.NewReader(out))
+	dec.Strict = true
+	for {
+		if _, err := dec.Token(); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			t.Fatalf("plist is not well-formed XML: %v\n%s", err, out)
+		}
+	}
+	for _, want := range []string{
+		"<key>AssociatedBundleIdentifiers</key>\n\t<array>\n\t\t<string>io.github.imdlodoem23.centrate</string>",
+		"<key>StandardOutPath</key>\n\t<string>/dev/null</string>",
+		"<key>StandardErrorPath</key>\n\t<string>/var/log/io.github.imdlodoem23.centrate.guardian.err.log</string>",
+		"<key>ThrottleInterval</key>\n\t<integer>5</integer>",
+		"<key>KeepAlive</key>\n\t<true/>",
+		"<string>/Library/PrivilegedHelperTools/io.github.imdlodoem23.centrate.guardian</string>\n\t\t<string>run</string>",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("plist lacks %q", want)
+		}
+	}
+	if !strings.Contains(newsyslogConf, DarwinStderrLog+"  root:wheel") {
+		t.Errorf("newsyslog rule = %q", newsyslogConf)
 	}
 }
 
@@ -218,9 +291,16 @@ func (f *fakeRunner) Stop() error {
 	return f.stopErr
 }
 
+func testProgram(r Runner, logger *slog.Logger) *program {
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	return newProgram(func() Runner { return r }, logger)
+}
+
 func TestProgramStartStop(t *testing.T) {
 	r := &fakeRunner{}
-	p := &program{runner: r, logger: slog.New(slog.DiscardHandler)}
+	p := testProgram(r, nil)
 	if err := p.Start(nil); err != nil {
 		t.Fatal(err)
 	}
@@ -241,10 +321,29 @@ func TestProgramStartStop(t *testing.T) {
 	}
 }
 
+func TestProgramBuildsRunnerOnceOnStart(t *testing.T) {
+	built := 0
+	p := newProgram(func() Runner { built++; return &fakeRunner{} }, slog.New(slog.DiscardHandler))
+	if built != 0 {
+		t.Fatal("the runner must not be built before Start")
+	}
+	for range 2 {
+		if err := p.Start(nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := p.Stop(nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if built != 1 {
+		t.Fatalf("runner built %d times", built)
+	}
+}
+
 func TestProgramStartError(t *testing.T) {
 	boom := errors.New("boom")
 	r := &fakeRunner{startErr: boom}
-	p := &program{runner: r, logger: slog.New(slog.DiscardHandler)}
+	p := testProgram(r, nil)
 	if err := p.Start(nil); !errors.Is(err, boom) {
 		t.Fatalf("Start = %v", err)
 	}
@@ -259,14 +358,121 @@ func TestProgramStartError(t *testing.T) {
 	}
 }
 
-func TestProgramStopError(t *testing.T) {
-	boom := errors.New("boom")
-	p := &program{runner: &fakeRunner{stopErr: boom}, logger: slog.New(slog.DiscardHandler)}
+// A failing Runner.Stop must not turn an explicit stop into a failure exit
+// (Windows would "recover" it by restarting the guardian): it is logged.
+func TestProgramStopErrorIsLoggedNotReturned(t *testing.T) {
+	var out syncBuffer
+	p := testProgram(&fakeRunner{stopErr: errors.New("disk full")}, slog.New(slog.NewTextHandler(&out, nil)))
 	if err := p.Start(nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.Stop(nil); !errors.Is(err, boom) {
-		t.Fatalf("Stop = %v", err)
+	if err := p.Stop(nil); err != nil {
+		t.Fatalf("Stop = %v, want nil", err)
+	}
+	if !strings.Contains(out.String(), "disk full") {
+		t.Fatalf("log = %q", out.String())
+	}
+}
+
+// blockingRunner never finishes stopping until released.
+type blockingRunner struct {
+	fakeRunner
+	release chan struct{}
+}
+
+func (b *blockingRunner) Stop() error {
+	<-b.release
+	return nil
+}
+
+func TestProgramStopIsBounded(t *testing.T) {
+	var out syncBuffer
+	r := &blockingRunner{release: make(chan struct{})}
+	defer close(r.release)
+	p := testProgram(r, slog.New(slog.NewTextHandler(&out, nil)))
+	p.stopTimeout = 20 * time.Millisecond
+	if err := p.Start(nil); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- p.Stop(nil) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop did not return after its timeout")
+	}
+	if !strings.Contains(out.String(), "did not stop in time") {
+		t.Fatalf("log = %q", out.String())
+	}
+}
+
+// shutdownRunner records how it was stopped.
+type shutdownRunner struct {
+	fakeRunner
+	deadline time.Duration
+	shutdown int
+}
+
+func (s *shutdownRunner) Shutdown(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.shutdown++
+	if d, ok := ctx.Deadline(); ok {
+		s.deadline = time.Until(d)
+	}
+	return nil
+}
+
+func TestProgramShutdownUsesShutdownRunner(t *testing.T) {
+	r := &shutdownRunner{}
+	p := testProgram(r, nil)
+	if err := p.Start(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Shutdown(nil); err != nil {
+		t.Fatal(err)
+	}
+	if r.shutdown != 1 || r.stops != 0 {
+		t.Fatalf("shutdown=%d stops=%d", r.shutdown, r.stops)
+	}
+	if r.deadline <= 0 || r.deadline > ShutdownTimeout {
+		t.Fatalf("shutdown deadline = %v, want within %v", r.deadline, ShutdownTimeout)
+	}
+	if r.ctx.Err() == nil {
+		t.Fatal("Shutdown must cancel the runner context")
+	}
+	if err := p.Stop(nil); err != nil || r.stops != 0 {
+		t.Fatalf("Stop after Shutdown: err=%v stops=%d", err, r.stops)
+	}
+}
+
+func TestProgramShutdownFallsBackToStop(t *testing.T) {
+	r := &fakeRunner{}
+	p := testProgram(r, nil)
+	if err := p.Start(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Shutdown(nil); err != nil {
+		t.Fatal(err)
+	}
+	if r.stops != 1 {
+		t.Fatalf("stops = %d", r.stops)
+	}
+}
+
+func TestNewDoesNotBuildRunner(t *testing.T) {
+	prev := NewRunner
+	t.Cleanup(func() { NewRunner = prev })
+	built := 0
+	NewRunner = func(*slog.Logger) Runner { built++; return &fakeRunner{} }
+	if _, err := New(Options{Executable: filepath.Join(t.TempDir(), "centrate-guardian")}); err != nil {
+		t.Fatal(err)
+	}
+	if built != 0 {
+		t.Fatal("New must not build the engine runner (control commands would construct it)")
 	}
 }
 
@@ -393,8 +599,8 @@ func TestCleanupHookUsesHostsPath(t *testing.T) {
 
 func TestDefaultHooks(t *testing.T) {
 	active, err := HasActiveBlocks()
-	if err != nil || active {
-		t.Fatalf("HasActiveBlocks() = %v, %v", active, err)
+	if !errors.Is(err, ErrActiveBlocksNotWired) || active {
+		t.Fatalf("HasActiveBlocks() = %v, %v; want the not-wired error", active, err)
 	}
 	if _, ok := NewRunner(nil).(*HeartbeatRunner); !ok {
 		t.Fatal("default runner must be the heartbeat runner")

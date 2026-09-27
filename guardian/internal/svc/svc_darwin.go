@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/kardianos/service"
@@ -23,9 +24,12 @@ func registeredExecutable(string) string { return DarwinHelperPath }
 
 func platformOptions() service.KeyValue {
 	return service.KeyValue{
-		"KeepAlive":    true,
-		"RunAtLoad":    true,
-		"LogDirectory": platform.LogDir(),
+		"KeepAlive": true,
+		"RunAtLoad": true,
+		// Always exists and is root-only; kardianos derives
+		// StandardErrorPath (DarwinStderrLog) from it.
+		"LogDirectory":  filepath.Dir(DarwinStderrLog),
+		"LaunchdConfig": launchdPlist,
 	}
 }
 
@@ -34,7 +38,22 @@ func loaded() bool {
 	return err == nil
 }
 
+// enable clears launchd's "disabled" override for the job, left by
+// "launchctl disable" or by switching the item off in System Settings >
+// General > Login Items. It persists across reboots and reinstalls, and while
+// it is set bootstrap fails with a generic I/O error. It is idempotent.
+func enable() {
+	_, _ = runCmd(launchctl, "enable", launchdTarget)
+}
+
+// disabledByUser reports whether launchd still lists the job as disabled.
+func disabledByUser() bool {
+	out, err := runCmd(launchctl, "print-disabled", "system")
+	return err == nil && launchdDisabled(out, LaunchdLabel)
+}
+
 func bootstrap() error {
+	enable()
 	var err error
 	// Right after a bootout launchd may still be tearing the job down
 	// ("Bootstrap failed: 5: Input/output error"): retry for a few seconds.
@@ -42,9 +61,24 @@ func bootstrap() error {
 		if _, err = runCmd(launchctl, "bootstrap", "system", DarwinPlistPath); err == nil || loaded() {
 			return nil
 		}
+		if disabledByUser() {
+			return ErrDisabledByUser
+		}
 		time.Sleep(300 * time.Millisecond)
 	}
 	return err
+}
+
+// kickstart starts (or with -k restarts) the loaded job.
+func kickstart(args ...string) error {
+	enable()
+	if _, err := runCmd(launchctl, append(append([]string{"kickstart"}, args...), launchdTarget)...); err != nil {
+		if disabledByUser() {
+			return ErrDisabledByUser
+		}
+		return err
+	}
+	return nil
 }
 
 func bootout() error {
@@ -65,9 +99,6 @@ func bootout() error {
 }
 
 func (m *Manager) install() error {
-	if err := platform.EnsureDir(platform.LogDir()); err != nil {
-		return err
-	}
 	if err := bootout(); err != nil {
 		return err
 	}
@@ -90,7 +121,26 @@ func (m *Manager) install() error {
 	if err := os.Chmod(DarwinPlistPath, 0o644); err != nil {
 		return err
 	}
+	if err := writeNewsyslogConf(); err != nil {
+		m.logger.Warn("could not install the stderr log rotation", "err", err)
+	}
 	return bootstrap()
+}
+
+// writeNewsyslogConf installs the rotation rule for DarwinStderrLog.
+func writeNewsyslogConf() error {
+	if err := os.MkdirAll(filepath.Dir(DarwinNewsyslogPath), 0o755); err != nil {
+		return err
+	}
+	f, err := platform.OpenRegularFile(DarwinNewsyslogPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString(newsyslogConf); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 func (m *Manager) uninstall() error {
@@ -98,11 +148,19 @@ func (m *Manager) uninstall() error {
 	if err := bootout(); err != nil {
 		errs = append(errs, err)
 	}
-	if err := removeFile(DarwinPlistPath); err != nil {
-		errs = append(errs, err)
-	}
-	if err := removeFile(DarwinHelperPath); err != nil {
-		errs = append(errs, err)
+	// newsyslog names rotated copies <log>.0, <log>.1, <log>.2.
+	for _, p := range []string{
+		DarwinPlistPath,
+		DarwinHelperPath,
+		DarwinNewsyslogPath,
+		DarwinStderrLog,
+		DarwinStderrLog + ".0",
+		DarwinStderrLog + ".1",
+		DarwinStderrLog + ".2",
+	} {
+		if err := removeFile(p); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	return errors.Join(errs...)
 }
@@ -127,8 +185,7 @@ func (m *Manager) start() error {
 	if st, err := m.status(); err == nil && st.Running {
 		return nil
 	}
-	_, err := runCmd(launchctl, "kickstart", launchdTarget)
-	return err
+	return kickstart()
 }
 
 func (m *Manager) stop() error {
@@ -146,6 +203,5 @@ func (m *Manager) restart() error {
 	if !loaded() {
 		return bootstrap()
 	}
-	_, err := runCmd(launchctl, "kickstart", "-k", launchdTarget)
-	return err
+	return kickstart("-k")
 }

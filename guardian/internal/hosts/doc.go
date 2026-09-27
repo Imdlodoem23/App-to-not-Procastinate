@@ -7,7 +7,7 @@
 // anything else:
 //
 //	# >>> CENTRATE START
-//	# Managed by Céntrate. Do not edit: changes are restored.
+//	# Managed by Centrate. Do not edit: changes are restored.
 //	0.0.0.0 example.com
 //	:: example.com
 //	# <<< CENTRATE END
@@ -16,6 +16,10 @@
 // hostnames (see ValidateDomain): the hosts file has no wildcards, so the
 // catalog lists the subdomains it needs. A new section is appended at the end
 // of the file after one blank line; an existing one is rewritten where it is.
+// The section is pure ASCII: a non-ASCII byte would make some editors save the
+// file as UTF-8 with a BOM, which breaks the first entry for the Windows
+// resolver. (Earlier builds wrote «Céntrate» in the header; that line is
+// still recognised.)
 //
 // # Preserving the user's file
 //
@@ -23,12 +27,11 @@
 // encoding or line terminator. The lines we write use the file's dominant
 // terminator (CRLF in a typical Windows file; the OS default for an empty
 // file). A UTF-8 BOM is kept, and so is the presence or absence of a final
-// line break. The header is ASCII («Centrate») in files that are not valid
-// UTF-8, so a legacy code page file never gets mixed encodings. UTF-16 files
-// are refused (ErrUnsupportedEncoding) and files with NUL bytes are refused
-// (ErrCorrupt) rather than guessed at. Remove takes the section out together
-// with one of the blank lines around it, so Apply followed by Remove returns
-// the original bytes.
+// line break. UTF-16 and UTF-32 files (with or without a byte order mark) and
+// other files with scattered NUL bytes are refused with ErrUnsupportedEncoding;
+// files with blocks of NUL bytes are refused with ErrCorrupt. Remove takes the
+// section out together with one of the blank lines around it, so Apply
+// followed by Remove returns the original bytes.
 //
 // Writes go through a temporary file in the same directory that inherits the
 // original's permissions, owner, SELinux label and ACL (Windows: owner, group,
@@ -38,20 +41,54 @@
 //
 // # Repairs
 //
-// Apply and Remove normalize damaged markers without losing user lines:
-// a START with no END claims only the lines right after it that look exactly
-// like ours; an END with no START claims only the lines right above it that
-// look exactly like ours; duplicated sections are merged into one at the
-// position of the first. Lines between the markers of a well-formed section
-// belong to Céntrate and are discarded, as its header warns.
+// Apply and Remove normalize damaged markers without losing user lines. Only
+// lines exactly as render writes them, in its order, are taken from beside a
+// stray marker: the header and "0.0.0.0 d" / ":: d" pairs with the domains in
+// ascending order. A START with no END claims the header and pairs right
+// after it; an END with no START claims the pairs (and header) right above
+// it only when they start after a blank line, at the start of the file or
+// right below the header, and otherwise only the marker goes. A user's own
+// "0.0.0.0 d" list next to a stray marker is therefore never taken; the price
+// is that a few of our lines may stay behind as user lines when someone
+// deletes a marker together with its neighbours. Duplicated sections are
+// merged into one at the position of the first. Lines between the markers of
+// a well-formed section belong to Céntrate and are discarded, as its header
+// warns.
 //
 // # Backups and restore
 //
-// Before the first write of each process lifetime the file is copied to
-// BackupDir/hosts.bak (older copies rotate to hosts.bak.1 and hosts.bak.2).
+// Before a write, the file is copied to BackupDir/hosts.bak (older copies
+// rotate to hosts.bak.1 and hosts.bak.2) when its user part (everything
+// outside the section) differs from the newest backup: on the first write of
+// a process and again after someone else edits the user's lines, but never
+// for changes to our own section. A file that is empty while a backup has
+// content is never backed up, so it cannot push the good copies out.
+//
 // Manager.Damaged tells when the file looks broken by an interrupted write of
-// ours (NUL bytes, or empty while the backup is not); only then should the
-// engine call Manager.RestoreFromBackup and re-apply.
+// ours (blocks of NUL bytes, or empty while a backup has content), and
+// Manager.Recover restores it from the newest backup with content in that case
+// only. The first Apply or Remove of each process runs that check itself, so a
+// file torn by a crash is restored before anything is built on it; the engine
+// still calls Recover at startup to report it.
+//
+// # Antivirus (Microsoft Defender)
+//
+// Defender reports hosts entries for some Microsoft domains as
+// SettingsModifier:Win32/HostsFileHijack and its remediation rewrites the
+// file. On Windows the engine therefore passes its list through
+// HostsLayerDomains, which leaves DefenderSensitiveDomains to the browser
+// extension. Any program that keeps rewriting the file (Defender with a
+// future rule, a hosts manager) is dampened with Contention: after five
+// rewrites in a minute, re-applies back off from 10 s to 5 min and one warning
+// is logged.
+//
+// If Defender still warns about the hosts file: open Windows Security, Virus
+// & threat protection, Protection history, pick the HostsFileHijack entry and
+// choose «Allow on device» (choosing Remove or Quarantine only rewrites the
+// file, and the guardian writes its section again). Alternatively add the
+// hosts file (platform.HostsPath, normally
+// %SystemRoot%\System32\drivers\etc\hosts) under Exclusions. Nothing else
+// is needed: the browser extension keeps blocking meanwhile.
 //
 // # Watching and DNS
 //

@@ -14,10 +14,11 @@ import (
 
 // Exit codes.
 const (
-	exitOK     = 0
-	exitError  = 1
-	exitUsage  = 2
-	exitActive = 10 // has-active: at least one block is active
+	exitOK           = 0
+	exitError        = 1
+	exitUsage        = 2
+	exitNotInstalled = 3  // start, restart: the service is not installed
+	exitActive       = 10 // has-active: at least one block is active
 )
 
 const keepDataFlag = "--keep-data"
@@ -37,6 +38,10 @@ const usageText = `Uso: centrate-guardian <orden>
 
 install, uninstall, start, stop, restart y cleanup-hosts necesitan permisos
 de administrador.
+
+Códigos de salida: 0 bien; 1 error; 2 uso incorrecto; 3 el servicio no está
+instalado (start y restart; stop sale con 0 porque ya está parado); 10 hay un
+bloqueo activo (has-active).
 `
 
 const msgNeedsAdmin = "Esta orden necesita permisos de administrador. Ejecútala con sudo (macOS y Linux) o desde una consola de administrador (Windows)."
@@ -57,16 +62,17 @@ type app struct {
 	stdout, stderr io.Writer
 	version        string
 
-	interactive  func() bool
-	elevated     func() bool
-	newManager   func(svc.Options) (serviceManager, error)
-	newRunner    func(*slog.Logger) svc.Runner
-	openLogger   func(console io.Writer) (*slog.Logger, func(), error)
-	prepareDirs  func() error
-	cleanupHosts func() error
-	hasActive    func() (bool, error)
-	removeData   func() error
-	dataDir      func() string
+	interactive   func() bool
+	elevated      func() bool
+	useSystemPATH func()
+	newManager    func(svc.Options) (serviceManager, error)
+	newRunner     func(*slog.Logger) svc.Runner
+	openLogger    func(console io.Writer) (*slog.Logger, func(), error)
+	prepareDirs   func() error
+	cleanupHosts  func() error
+	hasActive     func() (bool, error)
+	removeData    func() error
+	dataDir       func() string
 }
 
 type command struct {
@@ -90,6 +96,12 @@ var commands = map[string]command{
 
 // run dispatches args (without the program name) and returns the exit code.
 func (a *app) run(args []string) int {
+	if a.elevated() {
+		// Every binary an elevated command runs by name (kardianos runs
+		// systemctl and launchctl that way) must come from system folders,
+		// whatever PATH the caller passed down (sudo -E, pkexec helpers).
+		a.useSystemPATH()
+	}
 	if len(args) == 0 {
 		if !a.interactive() {
 			// Started by the service manager without arguments.
@@ -180,6 +192,7 @@ func (a *app) cmdInstall([]string) int {
 	}
 	if err := m.Install(); err != nil {
 		a.say("No se pudo instalar el guardián: %v", err)
+		a.hint(err)
 		return exitError
 	}
 	a.say("Guardián instalado y en marcha.")
@@ -229,17 +242,24 @@ func (a *app) cmdUninstall(args []string) int {
 	return code
 }
 
-func (a *app) control(op func(serviceManager) error, done string) int {
+// control runs a start, stop or restart. notInstalled is the exit code when
+// the service is not installed.
+func (a *app) control(op func(serviceManager) error, done string, notInstalled int) int {
 	m, ok := a.manager()
 	if !ok {
 		return exitError
 	}
 	if err := op(m); err != nil {
 		if errors.Is(err, svc.ErrNotInstalled) {
-			a.say("El guardián no está instalado.")
-		} else {
-			a.say("Error: %v", err)
+			if notInstalled == exitOK {
+				a.say("El guardián no está instalado: no hay nada que parar.")
+			} else {
+				a.say("El guardián no está instalado.")
+			}
+			return notInstalled
 		}
+		a.say("Error: %v", err)
+		a.hint(err)
 		return exitError
 	}
 	a.say(done)
@@ -247,15 +267,29 @@ func (a *app) control(op func(serviceManager) error, done string) int {
 }
 
 func (a *app) cmdStart([]string) int {
-	return a.control(serviceManager.Start, "Guardián en marcha.")
+	return a.control(serviceManager.Start, "Guardián en marcha.", exitNotInstalled)
 }
 
+// cmdStop succeeds when the service is not installed: the goal (nothing
+// running) is already met, and installers call it before every install.
 func (a *app) cmdStop([]string) int {
-	return a.control(serviceManager.Stop, "Guardián detenido.")
+	return a.control(serviceManager.Stop, "Guardián detenido.", exitOK)
 }
 
 func (a *app) cmdRestart([]string) int {
-	return a.control(serviceManager.Restart, "Guardián reiniciado.")
+	return a.control(serviceManager.Restart, "Guardián reiniciado.", exitNotInstalled)
+}
+
+// hint explains, in Spanish, the errors the user can do something about.
+func (a *app) hint(err error) {
+	switch {
+	case errors.Is(err, svc.ErrMarkedForDeletion):
+		a.say("Windows todavía está quitando el servicio anterior. Cierra la ventana «Servicios» (y el Visor de eventos, si está abierto) o reinicia el ordenador, y vuelve a intentarlo.")
+	case errors.Is(err, svc.ErrDisabledByUser):
+		a.say("macOS tiene desactivado el guardián. Actívalo en Ajustes del Sistema › General › Ítems de inicio y vuelve a intentarlo.")
+	case errors.Is(err, svc.ErrUntrustedExecutable):
+		a.say("El guardián está en una carpeta que otros usuarios pueden modificar y no se puede instalar como servicio desde ahí. Usa el instalador de Céntrate.")
+	}
 }
 
 type statusOutput struct {

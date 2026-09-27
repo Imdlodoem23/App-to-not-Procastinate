@@ -1,6 +1,7 @@
 package clock
 
 import (
+	"math"
 	"sync"
 	"time"
 )
@@ -20,6 +21,10 @@ const (
 // minPlausibleTime rejects references that cannot be the current time (a zero
 // time.Time, a server with a broken clock): the project did not exist before.
 var minPlausibleTime = time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC)
+
+// maxSnapshotSkew is how far a snapshot's trusted time may disagree with the
+// rest of the evidence before Restore considers the snapshot corrupt.
+const maxSnapshotSkew = 366 * 24 * time.Hour
 
 // Options configures a Detector. Every source is injectable so tests can drive
 // the clocks by hand; zero values select the real clocks and the defaults.
@@ -70,6 +75,19 @@ type JumpResult struct {
 	// within one boot. The detector then keeps EffectiveNow where it was and
 	// resumes from the new reading; the time since the previous tick is lost.
 	Reset bool
+	// TrustedShift is how far Resync moved EffectiveNow forward because the
+	// reference showed it lagging real time by more than the tolerance (after
+	// a reboot the trusted clock can restart behind; see Restore). It is zero
+	// in every other result. WallOffset drops by the same amount, so the
+	// wall clock is not reported as moved.
+	//
+	// The caller must add TrustedShift to every pending deadline it keeps in
+	// trusted time, inside the lock that guards its expiry checks: remaining
+	// durations and display times (deadline + WallOffset) then stay exactly
+	// as they were and no deadline is reached earlier than before. A deadline
+	// set before the lag appeared ends later than promised by at most the
+	// lag, as it already would have without Resync.
+	TrustedShift time.Duration
 }
 
 // Jumped reports whether a wall-clock jump was detected.
@@ -92,12 +110,27 @@ type Snapshot struct {
 }
 
 // SameBoot reports whether cur was taken in the same boot as prev, so that
-// their Mono readings are comparable: both boot identifiers are known and
-// equal, prev is not empty, and Mono did not go backwards. Anything else,
-// including unknown identifiers, counts as a different boot.
+// their Mono readings are comparable. prev must not be empty, both boot
+// identifiers must be known and Mono must not have gone backwards (a negative
+// saved reading, which no clock produces, is corrupt). Then, if
+// either identifier comes from a fallback source (prefix "derived:" or
+// "boottime:"), whose value a clock change can alter within one boot, that
+// Mono continuity alone decides; otherwise the identifiers must be equal.
+// Unknown identifiers count as a different boot.
+//
+// The fallback rule leans towards "same boot" on purpose. A wrong "same boot"
+// after a real reboot only makes the trusted clock lag (Mono restarted from
+// zero, so less time is counted than really passed): blocks last longer. A
+// wrong "different boot" would accept a clock change made while the guardian
+// was stopped: blocks could end early.
 func SameBoot(prev, cur Snapshot) bool {
-	return prev.BootID != "" && prev.BootID == cur.BootID &&
-		!prev.Trusted.IsZero() && cur.Boot >= prev.Boot
+	if prev.BootID == "" || cur.BootID == "" || prev.Trusted.IsZero() || prev.Boot < 0 || cur.Boot < prev.Boot {
+		return false
+	}
+	if isFallbackID(prev.BootID) || isFallbackID(cur.BootID) {
+		return true
+	}
+	return prev.BootID == cur.BootID
 }
 
 // RestoreResult describes how a saved Snapshot relates to the present.
@@ -115,6 +148,14 @@ type RestoreResult struct {
 	// battery, clock set back while the machine was off). EffectiveNow then
 	// resumed from the saved trusted time.
 	WallBehind bool
+	// Discarded is true when the snapshot was rejected as corrupt, and the
+	// detector started afresh from the wall clock as if there were no
+	// snapshot. That happens only when its trusted time is implausible
+	// (before 2025, or more than a year ahead of the wall clock both as read
+	// and as corrected by the saved offset) and also contradicts the
+	// snapshot's own wall clock and offset by more than a year. A snapshot
+	// that is consistent with itself is always used, however odd.
+	Discarded bool
 }
 
 // Detector tracks a trusted clock that wall-clock changes cannot move and
@@ -174,9 +215,7 @@ func NewDetector(opts Options) *Detector {
 	if id, err := idFn(); err == nil && validID(id) {
 		d.bootID = id
 	}
-	w, m, a := d.read()
-	d.baseWall, d.baseMono = w, m
-	d.lastMono, d.lastAwake, d.awakeKnown = m, a, true
+	d.anchor(d.read())
 	return d
 }
 
@@ -200,9 +239,9 @@ func (d *Detector) EffectiveNow() time.Time {
 }
 
 // WallOffset returns how far the system wall clock is believed to be from
-// EffectiveNow: the signed sum of every Delta reported (and of every
-// Calibrate correction). endsAt.Add(WallOffset()) is when a deadline will be
-// reached according to the machine's clock.
+// EffectiveNow: the signed sum of every Delta reported (Calibrate and Resync
+// corrections included), minus every TrustedShift. endsAt.Add(WallOffset())
+// is when a deadline will be reached according to the machine's clock.
 func (d *Detector) WallOffset() time.Duration {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -229,12 +268,19 @@ func (d *Detector) Snapshot() Snapshot {
 // so the trusted clock restarts from the earlier of the wall clock and the
 // wall clock minus the saved Offset, and never below the saved Trusted time.
 // WallOffset becomes the wall clock minus that value. Nothing is reported as
-// a jump. A zero Snapshot behaves like a fresh start.
+// a jump. The trusted clock may then lag real time; Resync corrects that.
+//
+// A zero Snapshot behaves like a fresh start, and so does a corrupt one
+// (RestoreResult.Discarded).
 func (d *Detector) Restore(prev Snapshot) RestoreResult {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	w, m, a := d.read()
 	prev.Wall, prev.Trusted = stripWall(prev.Wall), stripWall(prev.Trusted)
+	if prev.Trusted.IsZero() || corruptSnapshot(prev, w) {
+		d.anchor(w, m, a)
+		return RestoreResult{Discarded: !prev.Trusted.IsZero()}
+	}
 	if SameBoot(prev, Snapshot{Boot: m, BootID: d.bootID}) {
 		d.baseWall, d.baseMono, d.off = prev.Trusted, prev.Boot, prev.Offset
 		d.lastMono, d.awakeKnown = prev.Boot, false
@@ -249,16 +295,41 @@ func (d *Detector) Restore(prev Snapshot) RestoreResult {
 	// makes blocks last longer, while one that is ahead would end them early.
 	var res RestoreResult
 	t := w
-	if c := w.Add(-prev.Offset); c.Before(t) {
+	if c := w.Add(negSat(prev.Offset)); c.Before(t) {
 		t = c
 	}
-	if !prev.Trusted.IsZero() && t.Before(prev.Trusted) {
+	if t.Before(prev.Trusted) {
 		res.WallBehind = prev.Trusted.Sub(t) > d.tol
 		t = prev.Trusted
 	}
 	d.baseWall, d.baseMono, d.off = t, m, w.Sub(t)
 	d.lastMono, d.lastAwake, d.awakeKnown = m, a, true
 	return res
+}
+
+// corruptSnapshot reports whether s cannot be a snapshot this package wrote
+// on a working machine, given the wall clock w at restore time. Its trusted
+// time must be implausible: before minPlausibleTime (the project did not
+// exist), or more than maxSnapshotSkew ahead of both w and w − Offset (using
+// it would push EffectiveNow years ahead and end every block at once). And it
+// must also contradict the snapshot's own wall clock and offset: a detector
+// keeps Trusted + Offset within the tolerance of the wall clock, except for a
+// jump made after its last Tick.
+//
+// The second condition keeps real snapshots whose timeline is merely odd: a
+// dead CMOS battery that resets the clock to a firmware date more than a year
+// back, or a trusted clock that was first anchored on a wrong wall clock. The
+// first condition means a discarded snapshot can only move EffectiveNow back
+// (blocks last longer) or away from a date before 2025.
+func corruptSnapshot(s Snapshot, w time.Time) bool {
+	limit := s.Trusted.Add(-maxSnapshotSkew)
+	implausible := s.Trusted.Before(minPlausibleTime) ||
+		(w.Before(limit) && w.Add(negSat(s.Offset)).Before(limit))
+	if !implausible {
+		return false
+	}
+	own := s.Wall.Add(negSat(s.Offset))
+	return s.Trusted.Sub(own).Abs() > maxSnapshotSkew
 }
 
 // Calibrate compares the trusted clock with an external reference, typically
@@ -270,9 +341,29 @@ func (d *Detector) Restore(prev Snapshot) RestoreResult {
 // promised real moment instead of ending early.
 //
 // It never moves the trusted clock forward: a block created while the trusted
-// clock was behind would otherwise end early. References before 2025 are
-// ignored.
-func (d *Detector) Calibrate(ref time.Time) JumpResult {
+// clock was behind would otherwise end early. A lag left by Restore after a
+// reboot therefore stays; Resync corrects it for callers that shift their
+// deadlines. References before 2025 are ignored.
+func (d *Detector) Calibrate(ref time.Time) JumpResult { return d.calibrate(ref, false) }
+
+// Resync is Calibrate that also corrects a trusted clock that lags ref by
+// more than the tolerance: EffectiveNow moves forward to ref, WallOffset drops
+// by as much (so the wall clock is not reported as moved), and the returned
+// TrustedShift tells the caller to add that amount to every pending deadline
+// (see JumpResult.TrustedShift). A lag appears when Restore, after a reboot,
+// cannot tell a wrong clock from one put right while the machine was off
+// (it picks the earlier reading), when the wall clock read earlier than the
+// saved trusted time (dead CMOS battery), or when the detector was first
+// anchored on a clock that was behind. Without Resync that lag would last
+// forever, and recurring schedules evaluated against EffectiveNow would stay
+// shifted by it.
+//
+// Use it only with a reference that is hard to fake (NetworkTime requires
+// two agreeing HTTPS sources). References before 2025 are ignored.
+func (d *Detector) Resync(ref time.Time) JumpResult { return d.calibrate(ref, true) }
+
+// calibrate implements Calibrate and, with forward set, Resync.
+func (d *Detector) calibrate(ref time.Time, forward bool) JumpResult {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	w, m, a := d.read()
@@ -281,14 +372,19 @@ func (d *Detector) Calibrate(ref time.Time) JumpResult {
 	if ref.Before(minPlausibleTime) {
 		return r
 	}
-	ahead := d.trusted(m).Sub(ref)
-	if ahead <= d.tol {
+	gap := ref.Sub(d.trusted(m)) // > 0: the trusted clock is behind ref
+	if gap >= -d.tol && (!forward || gap <= d.tol) {
 		return r
 	}
-	d.baseWall = d.baseWall.Add(-ahead)
-	d.off += ahead
-	r.Delta += ahead
-	r.Forward = r.Delta > 0
+	// T becomes ref and T + W, what the wall clock should read, is unchanged.
+	d.baseWall = d.baseWall.Add(gap)
+	d.off = addSat(d.off, negSat(gap))
+	if gap < 0 {
+		r.Delta = addSat(r.Delta, negSat(gap))
+		r.Forward = r.Delta > 0
+	} else {
+		r.TrustedShift = gap
+	}
 	return r
 }
 
@@ -311,14 +407,24 @@ func (d *Detector) advance(w time.Time, m, a time.Duration) JumpResult {
 	diff := w.Sub(d.trusted(m).Add(d.off))
 	switch {
 	case diff > d.tol || diff < -d.tol:
-		r.Delta, r.Forward = diff, diff > 0
-		d.off += diff
+		// Report what W actually absorbs: all of diff, except when W is at
+		// the limit of time.Duration (a wall clock centuries away).
+		off := addSat(d.off, diff)
+		r.Delta, r.Forward = off-d.off, off > d.off
+		d.off = off
 	case diff != 0 && d.maxSlew > 0:
 		limit := time.Duration(float64(dm) * d.maxSlew)
 		d.baseWall = d.baseWall.Add(min(max(diff, -limit), limit))
 	}
 	d.lastMono, d.lastAwake, d.awakeKnown = m, a, true
 	return r
+}
+
+// anchor restarts the trusted clock on wall reading w, with no offset, as a
+// fresh detector does. The caller holds d.mu (or is the constructor).
+func (d *Detector) anchor(w time.Time, m, a time.Duration) {
+	d.baseWall, d.baseMono, d.off = w, m, 0
+	d.lastMono, d.lastAwake, d.awakeKnown = m, a, true
 }
 
 // read takes one reading of every source. The caller holds d.mu (or is the
@@ -335,3 +441,24 @@ func (d *Detector) trusted(m time.Duration) time.Time {
 // stripWall drops the monotonic reading of t (so that Sub compares wall
 // values, not Go's monotonic clock) and normalises it to UTC.
 func stripWall(t time.Time) time.Time { return t.Round(0).UTC() }
+
+// addSat returns a + b, clamped to the range of time.Duration instead of
+// wrapping around (an offset near the limits must not flip sign).
+func addSat(a, b time.Duration) time.Duration {
+	sum := a + b
+	switch {
+	case a > 0 && b > 0 && sum < 0:
+		return math.MaxInt64
+	case a < 0 && b < 0 && sum >= 0:
+		return math.MinInt64
+	}
+	return sum
+}
+
+// negSat returns −a; −MinInt64, which does not fit, becomes MaxInt64.
+func negSat(a time.Duration) time.Duration {
+	if a == math.MinInt64 {
+		return math.MaxInt64
+	}
+	return -a
+}

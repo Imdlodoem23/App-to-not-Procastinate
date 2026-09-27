@@ -29,30 +29,53 @@ func (m *Manager) BackupPath(i int) string {
 	return filepath.Join(m.BackupDir, BackupName+"."+strconv.Itoa(i))
 }
 
-// backupOnce copies the file to BackupDir before the first modification of
-// the process lifetime. A backup identical to the newest one is not repeated,
-// so restarts do not push older backups out. A failed backup is logged and
-// retried before the next write; it does not block the write, which is atomic
-// in the normal case. Callers hold m.mu.
-func (m *Manager) backupOnce(data []byte, exists bool) {
-	if m.backedUp || m.BackupDir == "" {
+// backupBeforeWrite copies the file (data, parsed as doc) to BackupDir before
+// a write, when the user's part of it (everything outside the Céntrate
+// section) is not in the newest backup yet: before the first write of a
+// process, and again whenever someone else has edited the user's lines since.
+// Changes to our own section never rotate the backups.
+//
+// Content that could push the good copies out is never backed up: a file
+// whose user part is empty (or only a BOM) while an older backup has content,
+// which is what an interrupted write or an emptied file looks like.
+// Unparseable content never reaches this point.
+//
+// A failed backup is logged and retried before the next write; it does not
+// block the write, which is atomic in the normal case. Callers hold m.mu.
+func (m *Manager) backupBeforeWrite(doc *document, data []byte, exists bool) {
+	if m.BackupDir == "" || !exists {
 		return
 	}
-	if !exists {
-		m.backedUp = true // nothing to preserve
+	user := doc.render(nil)
+	sum := fingerprintOf(user, true)
+	if sum == m.backupSum {
 		return
+	}
+	if !hasContent(user) {
+		if good, _, ok := m.pickBackup(); ok && hasContent(good) {
+			m.logger().Warn("hosts: not backing up an empty hosts file over a backup with content")
+			return
+		}
+	}
+	if newest, err := readFileLimited(m.BackupPath(0)); err == nil {
+		if nd, err := parseDocument(newest); err == nil && fingerprintOf(nd.render(nil), true) == sum {
+			m.backupSum = sum
+			return
+		}
 	}
 	if err := m.writeBackup(data); err != nil {
 		m.logger().Warn("hosts: backup failed", "err", err)
 		return
 	}
-	m.backedUp = true
+	m.backupSum = sum
+}
+
+// hasContent reports whether b has anything besides a UTF-8 BOM.
+func hasContent(b []byte) bool {
+	return len(bytes.TrimPrefix(b, utf8BOM)) > 0
 }
 
 func (m *Manager) writeBackup(data []byte) error {
-	if newest, err := os.ReadFile(m.BackupPath(0)); err == nil && bytes.Equal(newest, data) {
-		return nil
-	}
 	if err := os.MkdirAll(m.BackupDir, 0o755); err != nil {
 		return err
 	}
@@ -93,21 +116,55 @@ func (m *Manager) writeBackup(data []byte) error {
 	return nil
 }
 
+// pickBackup returns the newest usable backup with any Céntrate section taken
+// out, and its index. Usable means readable, at most MaxFileSize and parseable
+// (no NUL bytes, not UTF-16/UTF-32). A backup with content is preferred over
+// newer empty ones, so a backup of an empty file (taken by an older build)
+// never hides a good one. ok is false when no backup is usable.
+func (m *Manager) pickBackup() (out []byte, index int, ok bool) {
+	if m.BackupDir == "" {
+		return nil, 0, false
+	}
+	var fallback []byte
+	fallbackAt := -1
+	for i := range BackupKeep {
+		data, err := readFileLimited(m.BackupPath(i))
+		if err != nil {
+			continue
+		}
+		doc, err := parseDocument(data)
+		if err != nil {
+			continue
+		}
+		stripped := doc.render(nil)
+		if hasContent(stripped) {
+			return stripped, i, true
+		}
+		if fallbackAt < 0 {
+			fallback, fallbackAt = stripped, i
+		}
+	}
+	return fallback, fallbackAt, fallbackAt >= 0
+}
+
 // Damaged reports whether the hosts file looks broken by an interrupted write
-// of ours, the only case in which the engine should call RestoreFromBackup.
-// The heuristic:
+// of ours, the only case in which it should be restored from a backup (see
+// Recover). The heuristic:
 //
-//   - the file contains NUL bytes (and is not UTF-16/UTF-32): a text hosts
-//     file never does, while a crash during an in-place write can leave
-//     zero-filled blocks; or
-//   - the file is empty (0 bytes, or only a BOM) while the newest backup is
-//     not: the atomic replace never produces an empty file, but a crash in the
-//     middle of the in-place fallback can.
+//   - the file contains a run of NUL bytes or nothing but NUL bytes
+//     (ErrCorrupt): a text hosts file never does, in any encoding, while a
+//     crash during an in-place write can leave zero-filled blocks; or
+//   - the file is empty (0 bytes, or only a BOM) while a usable backup has
+//     content: the atomic replace never produces an empty file, but a crash
+//     in the middle of the in-place fallback can.
 //
-// Unbalanced or duplicated markers are not damage: Apply and Remove repair
-// them without losing any user line (see the package documentation), which a
-// restore could not promise because the backup may predate the user's edits.
-// A missing file is not damage either: Apply creates it.
+// Files in an unsupported encoding (UTF-16 or UTF-32, with or without a byte
+// order mark) are not damage: Apply refuses them with ErrUnsupportedEncoding
+// and they stay as the user saved them. Unbalanced or duplicated markers are
+// not damage either: Apply and Remove repair them without losing any user
+// line (see the package documentation), which a restore could not promise
+// because the backup may predate the user's edits. A missing file is not
+// damage: Apply creates it.
 func (m *Manager) Damaged() (bool, error) {
 	if err := m.checkPath(); err != nil {
 		return false, err
@@ -115,65 +172,122 @@ func (m *Manager) Damaged() (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	data, exists, err := m.read()
-	if err != nil || !exists {
+	if err != nil {
 		return false, err
 	}
-	switch _, err := parseDocument(data); {
-	case errors.Is(err, ErrCorrupt):
-		return true, nil
-	case err != nil:
-		return false, nil
+	return m.damagedLocked(data, exists), nil
+}
+
+func (m *Manager) damagedLocked(data []byte, exists bool) bool {
+	switch {
+	case !exists:
+		return false
+	case errors.Is(checkEncoding(data), ErrCorrupt):
+		return true
+	case hasContent(data):
+		return false
 	}
-	if len(bytes.TrimPrefix(data, utf8BOM)) > 0 || m.BackupDir == "" {
-		return false, nil
+	good, _, ok := m.pickBackup()
+	return ok && hasContent(good)
+}
+
+// Recover restores the hosts file from the newest usable backup when it
+// looks damaged (see Damaged), checking and restoring under one lock, and
+// reports whether it rewrote the file. A damaged file with no usable backup
+// returns ErrNoBackup and is left alone.
+//
+// The first Apply or Remove of each process runs the same check itself before
+// anything else, so a file torn by a crash in an earlier process is restored
+// before a new section is built on it (after which Damaged could no longer
+// tell). The engine should still call Recover at startup, before the first
+// Apply, to learn about a restore and report it.
+func (m *Manager) Recover() (bool, error) {
+	if err := m.checkPath(); err != nil {
+		return false, err
 	}
-	backup, err := os.ReadFile(m.BackupPath(0))
-	return err == nil && len(bytes.TrimPrefix(backup, utf8BOM)) > 0, nil
+	changed, err := m.recoverOnce()
+	if err == nil && changed {
+		m.autoFlush()
+	}
+	return changed, err
+}
+
+func (m *Manager) recoverOnce() (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	data, exists, err := m.read()
+	if err != nil {
+		return false, err
+	}
+	_, _, changed, err := m.recoverLocked(data, exists)
+	return changed, err
+}
+
+// recoverLocked restores the file when data (its current content) looks
+// damaged and returns the content the caller should continue from, whether
+// the file exists and whether it was rewritten. Once a check has completed
+// (nothing to do, restored, or nothing to restore from), m.recoverChecked is
+// set and updates stop checking. Callers hold m.mu.
+func (m *Manager) recoverLocked(data []byte, exists bool) ([]byte, bool, bool, error) {
+	if !m.damagedLocked(data, exists) {
+		m.recoverChecked = true
+		return data, exists, false, nil
+	}
+	out, changed, err := m.restoreLocked()
+	if err != nil {
+		if errors.Is(err, ErrNoBackup) {
+			m.recoverChecked = true
+		}
+		return data, exists, false, err
+	}
+	m.recoverChecked = true
+	return out, true, changed, nil
 }
 
 // RestoreFromBackup rewrites the hosts file from the newest usable backup
-// (one that exists and parses: no NUL bytes, not UTF-16), with any Céntrate
-// section taken out; the engine re-applies the active domains afterwards. The
-// damaged file is not backed up. It returns ErrNoBackup when there is nothing
-// to restore. Use it only when Damaged reports true.
+// (see pickBackup: one that exists and parses, preferring one with content
+// over newer empty ones), with any Céntrate section taken out; the engine
+// re-applies the active domains afterwards. The current file is not backed
+// up. It returns ErrNoBackup when there is nothing to restore. It restores
+// unconditionally: prefer Recover, which only restores a damaged file.
 func (m *Manager) RestoreFromBackup() error {
 	if err := m.checkPath(); err != nil {
 		return err
 	}
-	changed, err := m.restoreLocked()
+	changed, err := m.restoreUnconditionally()
 	if err == nil && changed {
 		m.autoFlush()
 	}
 	return err
 }
 
-func (m *Manager) restoreLocked() (bool, error) {
+func (m *Manager) restoreUnconditionally() (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.BackupDir == "" {
-		return false, ErrNoBackup
+	_, changed, err := m.restoreLocked()
+	if err == nil {
+		m.recoverChecked = true
 	}
-	for i := range BackupKeep {
-		data, err := os.ReadFile(m.BackupPath(i))
-		if err != nil || len(data) > MaxFileSize {
-			continue
-		}
-		doc, err := parseDocument(data)
-		if err != nil {
-			continue
-		}
-		out := doc.render(nil)
-		current, exists, err := m.read()
-		if err == nil && exists && bytes.Equal(current, out) {
-			m.remember(current, true)
-			return false, nil
-		}
-		if err := m.write(out); err != nil {
-			return false, fmt.Errorf("hosts: restore: %w", err)
-		}
-		m.remember(out, true)
-		m.logger().Warn("hosts: restored from backup", "backup", i, "bytes", len(out))
-		return true, nil
+	return changed, err
+}
+
+// restoreLocked writes the chosen backup (section stripped) to the file
+// unless the file already holds exactly that, and returns that content.
+// Callers hold m.mu.
+func (m *Manager) restoreLocked() ([]byte, bool, error) {
+	out, i, ok := m.pickBackup()
+	if !ok {
+		return nil, false, ErrNoBackup
 	}
-	return false, ErrNoBackup
+	current, exists, err := m.read()
+	if err == nil && exists && bytes.Equal(current, out) {
+		m.remember(current, true)
+		return out, false, nil
+	}
+	if err := m.write(out); err != nil {
+		return nil, false, fmt.Errorf("hosts: restore: %w", err)
+	}
+	m.remember(out, true)
+	m.logger().Warn("hosts: restored from backup", "backup", i, "bytes", len(out))
+	return out, true, nil
 }

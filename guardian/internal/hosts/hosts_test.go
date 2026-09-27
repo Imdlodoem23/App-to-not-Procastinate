@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -188,6 +189,10 @@ func TestRemoveRoundTrip(t *testing.T) {
 		"blank only":       "\n",
 		"legacy encoding":  "# Configuraci\xF3n\r\n127.0.0.1 localhost\r\n",
 		"whitespace lines": "  \t\n127.0.0.1 localhost\n \n",
+		"lone cr at end":   "x\r",
+		"only a lone cr":   "\r",
+		"lf then lone cr":  "a\nb\nx\r",
+		"crlf then cr":     "a\r\nx\r",
 	}
 	for name, orig := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -289,8 +294,8 @@ func TestUserLinesUntouchedByteForByte(t *testing.T) {
 		t.Fatalf("user lines changed:\n%q", got)
 	}
 	mid := strings.TrimSuffix(strings.TrimPrefix(got, before), after)
-	if !strings.Contains(mid, headerASCII) || strings.Contains(mid, Header) {
-		t.Fatalf("a legacy-encoded file must get the ASCII header, got %q", mid)
+	if !strings.Contains(mid, Header) || strings.Contains(mid, headerUTF8) {
+		t.Fatalf("the section must use the ASCII header, got %q", mid)
 	}
 	if !strings.Contains(mid, "0.0.0.0 new.com") || strings.Contains(mid, "old.com") {
 		t.Fatalf("section not updated: %q", mid)
@@ -317,17 +322,68 @@ func TestRepairUnbalancedMarkers(t *testing.T) {
 		},
 		{
 			name:    "start without end at the end of the file",
-			in:      "a.lan\n\n" + StartMarker + "\n" + hdr + "0.0.0.0 old.com\n",
+			in:      "a.lan\n\n" + StartMarker + "\n" + hdr + "0.0.0.0 old.com\n:: old.com\n",
 			applied: "a.lan\n\n" + section("\n", "new.com"),
 			removed: "a.lan\n",
 			current: []string{"old.com"},
 		},
 		{
-			name:    "end without start",
-			in:      "a.lan\n0.0.0.0 old.com\n:: old.com\n" + EndMarker + "\nb.lan\n",
+			name:    "start without end stops at a half pair",
+			in:      "a.lan\n\n" + StartMarker + "\n" + hdr + "0.0.0.0 old.com\n:: old.com\n0.0.0.0 cut.com\n",
+			applied: "a.lan\n\n" + section("\n", "new.com") + "0.0.0.0 cut.com\n",
+			removed: "a.lan\n\n0.0.0.0 cut.com\n",
+			current: []string{"old.com"},
+		},
+		{
+			name: "start without end stops when the order breaks",
+			in: StartMarker + "\n" + hdr + "0.0.0.0 b.com\n:: b.com\n" +
+				"0.0.0.0 a.com\n:: a.com\n0.0.0.0 x.com\n:: y.com\n0.0.0.0 Z.com\n:: Z.com\n",
+			applied: section("\n", "new.com") + "0.0.0.0 a.com\n:: a.com\n0.0.0.0 x.com\n:: y.com\n0.0.0.0 Z.com\n:: Z.com\n",
+			removed: "0.0.0.0 a.com\n:: a.com\n0.0.0.0 x.com\n:: y.com\n0.0.0.0 Z.com\n:: Z.com\n",
+			current: []string{"b.com"},
+		},
+		{
+			name:    "start without end with the header of older builds",
+			in:      "a.lan\n\n" + StartMarker + "\n" + headerUTF8 + "\n0.0.0.0 old.com\n:: old.com\n",
+			applied: "a.lan\n\n" + section("\n", "new.com"),
+			removed: "a.lan\n",
+			current: []string{"old.com"},
+		},
+		{
+			name:    "end without start after a blank line",
+			in:      "a.lan\n\n0.0.0.0 old.com\n:: old.com\n" + EndMarker + "\nb.lan\n",
+			applied: "a.lan\n\n" + section("\n", "new.com") + "b.lan\n",
+			removed: "a.lan\n\nb.lan\n",
+			current: []string{"old.com"},
+		},
+		{
+			name:    "end without start below the header",
+			in:      "a.lan\n" + hdr + "0.0.0.0 a.com\n:: a.com\n0.0.0.0 b.com\n:: b.com\n" + EndMarker + "\nb.lan\n",
 			applied: "a.lan\n" + section("\n", "new.com") + "b.lan\n",
 			removed: "a.lan\nb.lan\n",
+			current: []string{"a.com", "b.com"},
+		},
+		{
+			name:    "end without start at the start of the file",
+			in:      "0.0.0.0 old.com\n:: old.com\n" + EndMarker + "\nb.lan\n",
+			applied: section("\n", "new.com") + "b.lan\n",
+			removed: "b.lan\n",
 			current: []string{"old.com"},
+		},
+		{
+			// The pairs may be the tail of the user's own list: keep them.
+			name:    "end without start right after a user line",
+			in:      "a.lan\n0.0.0.0 old.com\n:: old.com\n" + EndMarker + "\nb.lan\n",
+			applied: "a.lan\n0.0.0.0 old.com\n:: old.com\n" + section("\n", "new.com") + "b.lan\n",
+			removed: "a.lan\n0.0.0.0 old.com\n:: old.com\nb.lan\n",
+			current: []string{},
+		},
+		{
+			name:    "end without start and pairs out of order",
+			in:      "a.lan\n\n0.0.0.0 b.com\n:: b.com\n0.0.0.0 a.com\n:: a.com\n" + EndMarker + "\n",
+			applied: "a.lan\n\n0.0.0.0 b.com\n:: b.com\n0.0.0.0 a.com\n:: a.com\n" + section("\n", "new.com"),
+			removed: "a.lan\n\n0.0.0.0 b.com\n:: b.com\n0.0.0.0 a.com\n:: a.com\n",
+			current: []string{},
 		},
 		{
 			name:    "lone end marker",
@@ -347,9 +403,9 @@ func TestRepairUnbalancedMarkers(t *testing.T) {
 			name: "start, user line, start, end",
 			in: "a.lan\n" + StartMarker + "\n0.0.0.0 x.com\nuser line\n" +
 				StartMarker + "\n:: y.com\n" + EndMarker + "\nz.lan\n",
-			applied: "a.lan\n" + section("\n", "new.com") + "user line\nz.lan\n",
-			removed: "a.lan\nuser line\nz.lan\n",
-			current: []string{"x.com", "y.com"},
+			applied: "a.lan\n" + section("\n", "new.com") + "0.0.0.0 x.com\nuser line\nz.lan\n",
+			removed: "a.lan\n0.0.0.0 x.com\nuser line\nz.lan\n",
+			current: []string{"y.com"},
 		},
 		{
 			name:    "indented markers are still ours",
@@ -437,13 +493,22 @@ func TestCurrentAndVerify(t *testing.T) {
 }
 
 func TestRejectsUnsupportedFiles(t *testing.T) {
+	block := strings.Repeat("\x00", nulRunDamage)
 	cases := map[string]struct {
 		content string
 		err     error
 	}{
-		"utf-16 le": {"\xFF\xFE1\x002\x007\x00", ErrUnsupportedEncoding},
-		"utf-16 be": {"\xFE\xFF\x001\x002", ErrUnsupportedEncoding},
-		"nul bytes": {"127.0.0.1 localhost\n\x00\x00\x00", ErrCorrupt},
+		"utf-16 le":           {"\xFF\xFE1\x002\x007\x00", ErrUnsupportedEncoding},
+		"utf-16 be":           {"\xFE\xFF\x001\x002", ErrUnsupportedEncoding},
+		"utf-32 le":           {"\xFF\xFE\x00\x001\x00\x00\x00", ErrUnsupportedEncoding},
+		"utf-32 be":           {"\x00\x00\xFE\xFF\x00\x00\x001\x00\x00\x002", ErrUnsupportedEncoding},
+		"utf-16 le no bom":    {"1\x002\x007\x00.\x000\x00.\x000\x00.\x001\x00\r\x00\n\x00", ErrUnsupportedEncoding},
+		"utf-16 be no bom":    {"\x001\x002\x007\x00.\x000\x00.\x000\x00.\x001\x00\n", ErrUnsupportedEncoding},
+		"utf-32 le no bom":    {"1\x00\x00\x002\x00\x00\x00\n\x00\x00\x00", ErrUnsupportedEncoding},
+		"scattered nul bytes": {"127.0.0.1 localhost\n\x00\x00\x00", ErrUnsupportedEncoding},
+		"block of nul bytes":  {"127.0.0.1 localhost\n" + block + "::1 localhost\n", ErrCorrupt},
+		"only nul bytes":      {"\x00\x00\x00\x00", ErrCorrupt},
+		"bom and nul bytes":   {"\xEF\xBB\xBF\x00\x00", ErrCorrupt},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -461,6 +526,100 @@ func TestRejectsUnsupportedFiles(t *testing.T) {
 				t.Fatal("the file was modified")
 			}
 		})
+	}
+}
+
+// TestStrayMarkerKeepsUserBlockLists covers user lists of "0.0.0.0 <domain>"
+// entries (StevenBlack style) next to a marker whose partner was deleted by
+// hand: none of the user's lines may be claimed as ours.
+func TestStrayMarkerKeepsUserBlockLists(t *testing.T) {
+	var list strings.Builder
+	list.WriteString("# StevenBlack\n")
+	for i := range 500 {
+		fmt.Fprintf(&list, "0.0.0.0 ads%03d.example\n", i)
+	}
+	userList := list.String()
+	cases := []struct {
+		name, in, applied, removed string
+	}{
+		{
+			// Someone deleted START, the header and the blank separator.
+			name: "orphan end below the user's list",
+			in: "127.0.0.1 localhost\n" + userList +
+				"0.0.0.0 ours.com\n:: ours.com\n" + EndMarker + "\n",
+			applied: "127.0.0.1 localhost\n" + userList +
+				"0.0.0.0 ours.com\n:: ours.com\n" + section("\n", "new.com"),
+			removed: "127.0.0.1 localhost\n" + userList + "0.0.0.0 ours.com\n:: ours.com\n",
+		},
+		{
+			name:    "orphan end right after the user's list",
+			in:      "127.0.0.1 localhost\n" + userList + EndMarker + "\n",
+			applied: "127.0.0.1 localhost\n" + userList + section("\n", "new.com"),
+			removed: "127.0.0.1 localhost\n" + userList,
+		},
+		{
+			name:    "orphan start followed by the user's list",
+			in:      "127.0.0.1 localhost\n" + StartMarker + "\n" + userList,
+			applied: "127.0.0.1 localhost\n" + section("\n", "new.com") + userList,
+			removed: "127.0.0.1 localhost\n" + userList,
+		},
+		{
+			// Someone deleted END: our pairs are claimed, the list is not.
+			name: "orphan start, our pairs, then the user's list",
+			in: "127.0.0.1 localhost\n\n" + StartMarker + "\n" + Header + "\n" +
+				"0.0.0.0 ours.com\n:: ours.com\n" + userList,
+			applied: "127.0.0.1 localhost\n\n" + section("\n", "new.com") + userList,
+			removed: "127.0.0.1 localhost\n\n" + userList,
+		},
+		{
+			name: "orphan start, our pairs, then a list without a blank line",
+			in: "127.0.0.1 localhost\n\n" + StartMarker + "\n" + Header + "\n" +
+				"0.0.0.0 ours.com\n:: ours.com\n0.0.0.0 zzz.example\n0.0.0.0 zzzz.example\n",
+			applied: "127.0.0.1 localhost\n\n" + section("\n", "new.com") +
+				"0.0.0.0 zzz.example\n0.0.0.0 zzzz.example\n",
+			removed: "127.0.0.1 localhost\n\n0.0.0.0 zzz.example\n0.0.0.0 zzzz.example\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, path := newManager(t, []byte(tc.in))
+			mustApply(t, m, "new.com")
+			if got := readString(t, path); got != tc.applied {
+				t.Fatalf("after Apply\n got %q\nwant %q", got, tc.applied)
+			}
+			if err := os.WriteFile(path, []byte(tc.in), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			mustRemove(t, m)
+			if got := readString(t, path); got != tc.removed {
+				t.Fatalf("after Remove\n got %q\nwant %q", got, tc.removed)
+			}
+			want := strings.Count(tc.in, ".example\n") // every user entry
+			if n := strings.Count(readString(t, path), ".example\n"); n != want {
+				t.Fatalf("%d of the %d user entries left", n, want)
+			}
+		})
+	}
+}
+
+func TestOldUTF8HeaderIsReplaced(t *testing.T) {
+	old := strings.Replace(section("\r\n", "a.com"), Header, headerUTF8, 1)
+	m, path := newManager(t, []byte(windowsDefaultHosts+"\r\n"+old))
+	if cur, err := m.Current(); err != nil || !slices.Equal(cur, []string{"a.com"}) {
+		t.Fatalf("Current = %v, %v", cur, err)
+	}
+	if ok, err := m.Verify([]string{"a.com"}); ok || err != nil {
+		t.Fatalf("Verify with the old header = %v, %v; want false", ok, err)
+	}
+	mustApply(t, m, "a.com")
+	got := readString(t, path)
+	if want := windowsDefaultHosts + "\r\n" + section("\r\n", "a.com"); got != want {
+		t.Fatalf("got %q\nwant %q", got, want)
+	}
+	for i := range len(got) {
+		if got[i] >= 0x80 {
+			t.Fatalf("non-ASCII byte %#x at %d", got[i], i)
+		}
 	}
 }
 
@@ -493,7 +652,7 @@ func TestAutoFlushOnlyOnChange(t *testing.T) {
 func TestRenderIsStable(t *testing.T) {
 	// Rendering an already rendered document with the same domains is a no-op
 	// for every layout the other tests produce.
-	inputs := []string{"", linuxHosts, windowsDefaultHosts, "x", "\xEF\xBB\xBF", "a\r\nb\n"}
+	inputs := []string{"", linuxHosts, windowsDefaultHosts, "x", "\xEF\xBB\xBF", "a\r\nb\n", "x\r", "\r"}
 	for _, in := range inputs {
 		doc, err := parseDocument([]byte(in))
 		if err != nil {
@@ -508,4 +667,51 @@ func TestRenderIsStable(t *testing.T) {
 			t.Errorf("%q: render not stable:\n%q\n%q", in, once, twice)
 		}
 	}
+}
+
+// FuzzRoundTrip checks, for any file that parses: rendering is idempotent,
+// the section is found again, and removing the section from the applied file
+// gives what Remove gives on the original. For files without markers, Apply
+// followed by Remove gives back the original bytes.
+func FuzzRoundTrip(f *testing.F) {
+	for _, seed := range []string{
+		"", linuxHosts, windowsDefaultHosts, "x", "x\r", "\r", "\r\r\n", "a\n\r",
+		"\xEF\xBB\xBF", "\xEF\xBB\xBFx\r", "a\r\nb\n", "\n\n", "  \n\t", "# caf\xE9\r",
+		"0.0.0.0 a.com\n:: a.com\n", Header + "\n",
+		"a\n" + StartMarker + "\n" + Header + "\n0.0.0.0 x.com\n:: x.com\nb\n",
+		"a\n\n0.0.0.0 x.com\n:: x.com\n" + EndMarker + "\r\nb",
+		section("\r\n", "x.com") + section("\n", "y.com") + EndMarker,
+	} {
+		f.Add([]byte(seed))
+	}
+	domains := []string{"a.com", "b.org"}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		doc, err := parseDocument(data)
+		if err != nil {
+			return
+		}
+		applied := doc.render(domains)
+		doc2, err := parseDocument(applied)
+		if err != nil {
+			t.Fatalf("rendered file does not parse: %v", err)
+		}
+		if again := doc2.render(domains); !bytes.Equal(again, applied) {
+			t.Fatalf("render not idempotent:\n%q\n%q", applied, again)
+		}
+		if got := doc2.sectionDomains(); !slices.Equal(got, domains) {
+			t.Fatalf("section domains = %v", got)
+		}
+		removed := doc2.render(nil)
+		if want := doc.render(nil); !bytes.Equal(removed, want) {
+			t.Fatalf("Remove after Apply differs from Remove:\n got %q\nwant %q", removed, want)
+		}
+		for _, l := range doc.lines {
+			if kindOf(l) != kindOther {
+				return
+			}
+		}
+		if !bytes.Equal(removed, data) {
+			t.Fatalf("Apply then Remove changed the file:\n got %q\nwant %q", removed, data)
+		}
+	})
 }

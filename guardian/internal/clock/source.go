@@ -2,6 +2,7 @@ package clock
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,6 +15,19 @@ const FallbackClockName = "go-runtime-monotonic"
 
 // errNoBootID is returned by BootID when the system offers no boot identifier.
 var errNoBootID = errors.New("clock: boot id not available")
+
+// Prefixes of the boot identifiers that come from a fallback source. Both are
+// derived from the wall clock, so a clock change can alter them within one
+// boot; SameBoot therefore ignores their value (see there).
+const (
+	derivedIDPrefix  = "derived:"  // Windows: boot moment from the wall clock
+	boottimeIDPrefix = "boottime:" // macOS: kern.boottime
+)
+
+// isFallbackID reports whether id comes from a fallback source.
+func isFallbackID(id string) bool {
+	return strings.HasPrefix(id, derivedIDPrefix) || strings.HasPrefix(id, boottimeIDPrefix)
+}
 
 // processStart anchors the last-resort fallback clock.
 var processStart = time.Now()
@@ -78,7 +92,8 @@ func AwakeClockName() string { return awakeSource().name }
 // BootID returns an identifier that is the same for the whole life of the
 // current boot and different after a reboot. Identifiers that come from a
 // fallback source carry a prefix ("boottime:", "derived:") so they can never
-// equal a primary one. The value is read once per process and cached.
+// equal a primary one; SameBoot does not compare their value, because a clock
+// change can alter it. The value is read once per process and cached.
 func BootID() (string, error) { return cachedID() }
 
 // validID reports whether s looks like a boot identifier: 1 to 128 printable

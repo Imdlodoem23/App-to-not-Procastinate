@@ -348,8 +348,6 @@ func (p *program) bounded(op string, d time.Duration, fn func(context.Context) e
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- fn(ctx) }()
-	timer := time.NewTimer(d)
-	defer timer.Stop()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -357,7 +355,7 @@ func (p *program) bounded(op string, d time.Duration, fn func(context.Context) e
 			return
 		}
 		p.logger.Info("runner stopped", "op", op)
-	case <-timer.C:
+	case <-ctx.Done():
 		p.logger.Error("runner did not stop in time; exiting anyway", "op", op, "timeout", d.String())
 	}
 }

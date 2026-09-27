@@ -87,15 +87,16 @@ func TestBootID(t *testing.T) {
 		t.Fatalf("BootID = %q is not a valid id", id)
 	}
 	// The underlying source (not only the cache) must be stable within a
-	// boot. The Windows fallback is derived from rounded times, so only check
-	// it is well formed there.
+	// boot. Fallback ids are derived from the wall clock and may change; only
+	// their form is checked (SameBoot does not compare them).
 	again, err := osBootID()
 	if err != nil {
 		t.Fatalf("osBootID: %v", err)
 	}
-	if runtime.GOOS != "windows" && again != id {
+	if !isFallbackID(id) && again != id {
 		t.Fatalf("boot id changed within one boot: %q then %q", id, again)
 	}
+	t.Logf("boot id on %s: %q", runtime.GOOS, id)
 }
 
 func TestValidID(t *testing.T) {

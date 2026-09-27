@@ -263,6 +263,21 @@ func TestRemoveDataDirRefusesOtherNames(t *testing.T) {
 	}
 }
 
+func TestRemoveDataDirRefusesAFile(t *testing.T) {
+	forceElevated(t, false)
+	p := filepath.Join(t.TempDir(), "centrate")
+	if err := os.WriteFile(p, []byte("notes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(EnvDataDir, p)
+	if err := RemoveDataDir(); err == nil {
+		t.Fatal("RemoveDataDir must refuse a regular file")
+	}
+	if _, err := os.Stat(p); err != nil {
+		t.Fatalf("file removed: %v", err)
+	}
+}
+
 func TestRemoveDataDirOnlyRemovesALink(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("creating symlinks needs a privilege on Windows")

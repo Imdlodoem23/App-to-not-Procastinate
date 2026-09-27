@@ -3,6 +3,7 @@ package clock
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -566,6 +567,22 @@ func TestRestoreWallBehindClampsToSavedTrusted(t *testing.T) {
 		t.Fatalf("got %+v, want the correction reported as a forward jump", r)
 	}
 	assertTime(t, "EffectiveNow", d2.EffectiveNow(), saved.Trusted.Add(10*time.Second))
+
+	// The trusted clock now lags real time by the downtime. Calibrate leaves
+	// that alone; Resync, with a network reference, corrects it.
+	realNow := f.Wall()
+	lag := realNow.Sub(d2.EffectiveNow())
+	if r := d2.Calibrate(realNow); r.Jumped() || r.TrustedShift != 0 {
+		t.Fatalf("Calibrate moved a lagging clock: %+v", r)
+	}
+	r = d2.Resync(realNow)
+	if r.TrustedShift != lag || r.Jumped() {
+		t.Fatalf("got %+v, want TrustedShift %v and no jump", r, lag)
+	}
+	assertTime(t, "EffectiveNow", d2.EffectiveNow(), realNow)
+	if off := d2.WallOffset(); off != 0 {
+		t.Fatalf("WallOffset = %v, want 0", off)
+	}
 }
 
 func TestRestoreZeroSnapshotIsFreshStart(t *testing.T) {
@@ -596,6 +613,15 @@ func TestSameBoot(t *testing.T) {
 		{"same id, mono backwards", prev, Snapshot{Boot: time.Minute, BootID: "a"}, false},
 		{"unknown ids", Snapshot{Trusted: t0, Boot: time.Hour}, Snapshot{Boot: 2 * time.Hour}, false},
 		{"empty previous snapshot", Snapshot{BootID: "a"}, Snapshot{Boot: 2 * time.Hour, BootID: "a"}, false},
+		{"corrupt negative mono", Snapshot{Trusted: t0, Boot: -time.Hour, BootID: "a"}, Snapshot{Boot: time.Hour, BootID: "a"}, false},
+		// Fallback identifiers move with the wall clock: continuity decides.
+		{"derived ids differ, mono forward", Snapshot{Trusted: t0, Boot: time.Hour, BootID: "derived:100"}, Snapshot{Boot: 2 * time.Hour, BootID: "derived:7300"}, true},
+		{"boottime ids differ, mono forward", Snapshot{Trusted: t0, Boot: time.Hour, BootID: "boottime:1.000001"}, Snapshot{Boot: 2 * time.Hour, BootID: "boottime:9.000001"}, true},
+		{"fallback then primary, mono forward", Snapshot{Trusted: t0, Boot: time.Hour, BootID: "derived:100"}, Snapshot{Boot: 2 * time.Hour, BootID: "bootid:7:99"}, true},
+		{"primary then fallback, mono forward", prev, Snapshot{Boot: 2 * time.Hour, BootID: "derived:100"}, true},
+		{"fallback, mono backwards", Snapshot{Trusted: t0, Boot: time.Hour, BootID: "derived:100"}, Snapshot{Boot: time.Minute, BootID: "derived:100"}, false},
+		{"fallback then unknown", Snapshot{Trusted: t0, Boot: time.Hour, BootID: "derived:100"}, Snapshot{Boot: 2 * time.Hour}, false},
+		{"different primary ids", Snapshot{Trusted: t0, Boot: time.Hour, BootID: "bootid:7:1"}, Snapshot{Boot: 2 * time.Hour, BootID: "bootid:7:2"}, false},
 	}
 	for _, c := range cases {
 		if got := SameBoot(c.prev, c.cur); got != c.want {
@@ -695,5 +721,409 @@ func TestConcurrentUse(t *testing.T) {
 	wg.Wait()
 	if r := d.Tick(); r.Jumped() {
 		t.Fatalf("no clock change was made, got %+v", r)
+	}
+}
+
+// setWallTo sets the wall clock to an absolute value.
+func (f *fakeClock) setWallTo(w time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.wall = w
+}
+
+// Probe from review: the clock is moved +2h (compensated), the machine is off
+// for 10 h and the clock is put right before the guardian starts. Restore
+// cannot tell that from "still 2h ahead" and picks the earlier reading, so
+// the trusted clock lags by 2 h. Ticks, Calibrate and further reboots keep
+// that lag; Resync removes it without shortening any deadline.
+func TestResyncCorrectsLagLeftByReboot(t *testing.T) {
+	f := newFake()
+	d1 := f.detector(nil)
+	f.run(time.Minute)
+	f.setWall(2 * time.Hour)
+	d1.Tick()
+	saved := d1.Snapshot()
+
+	f.reboot(10*time.Hour, "boot-b")
+	f.setWall(-2 * time.Hour) // put right while off: the wall clock is real time from now on
+	d2 := f.detector(nil)
+	d2.Restore(saved)
+	lagOf := func(d *Detector) time.Duration { return f.Wall().Sub(d.EffectiveNow()) }
+	if lag := lagOf(d2); lag != 2*time.Hour {
+		t.Fatalf("lag after Restore = %v, want 2h", lag)
+	}
+	for range 17280 { // one day of 5 s ticks
+		f.run(5 * time.Second)
+		if r := d2.Tick(); r.Jumped() {
+			t.Fatalf("unexpected jump %+v", r)
+		}
+	}
+	if r := d2.Calibrate(f.Wall()); r.Jumped() || r.TrustedShift != 0 {
+		t.Fatalf("Calibrate moved a lagging clock: %+v", r)
+	}
+	if lag := lagOf(d2); lag != 2*time.Hour {
+		t.Fatalf("lag after a day and Calibrate = %v, want still 2h", lag)
+	}
+	// The lag survives another reboot on its own.
+	again := d2.Snapshot()
+	f.reboot(time.Hour, "boot-c")
+	d3 := f.detector(nil)
+	d3.Restore(again)
+	if lag := lagOf(d3); lag != 2*time.Hour {
+		t.Fatalf("lag after a second reboot = %v, want still 2h", lag)
+	}
+
+	// A 1 h block created now, on the lagging clock.
+	endsAt := d3.EffectiveNow().Add(time.Hour)
+	shownAt := endsAt.Add(d3.WallOffset())
+	r := d3.Resync(f.Wall())
+	if r.TrustedShift != 2*time.Hour || r.Jumped() {
+		t.Fatalf("got %+v, want TrustedShift 2h and no jump", r)
+	}
+	assertTime(t, "EffectiveNow", d3.EffectiveNow(), f.Wall())
+	if off := d3.WallOffset(); off != 0 {
+		t.Fatalf("WallOffset = %v, want 0", off)
+	}
+	// The engine shifts its deadlines: nothing ends earlier, nothing moves on
+	// the app's countdown.
+	endsAt = endsAt.Add(r.TrustedShift)
+	if rem := endsAt.Sub(d3.EffectiveNow()); rem != time.Hour {
+		t.Fatalf("remaining = %v, want 1h", rem)
+	}
+	assertTime(t, "endsAt on the wall clock", endsAt.Add(d3.WallOffset()), shownAt)
+
+	f.run(5 * time.Second)
+	assertNoJump(t, d3.Tick())
+	fixed := d3.Snapshot()
+	f.reboot(time.Hour, "boot-d")
+	d4 := f.detector(nil)
+	d4.Restore(fixed)
+	assertTime(t, "EffectiveNow after the next reboot", d4.EffectiveNow(), f.Wall())
+}
+
+func TestResyncMovesTrustedClockBackLikeCalibrate(t *testing.T) {
+	f := newFake()
+	d := f.detector(nil) // anchored on a wall clock that is 2 h ahead
+	f.run(time.Minute)
+	realNow := t0.Add(time.Minute - 2*time.Hour)
+	r := d.Resync(realNow)
+	if r.Delta != 2*time.Hour || !r.Forward || r.TrustedShift != 0 {
+		t.Fatalf("got %+v, want a forward correction of 2h and no shift", r)
+	}
+	assertTime(t, "EffectiveNow", d.EffectiveNow(), realNow)
+	if off := d.WallOffset(); off != 2*time.Hour {
+		t.Fatalf("WallOffset = %v, want 2h", off)
+	}
+	f.run(5 * time.Second)
+	assertNoJump(t, d.Tick())
+}
+
+func TestResyncIgnoresSmallAndImplausibleReferences(t *testing.T) {
+	f := newFake()
+	d := f.detector(nil)
+	f.run(time.Minute)
+	want := t0.Add(time.Minute)
+	for _, ref := range []time.Time{
+		want.Add(DefaultTolerance),
+		want.Add(-DefaultTolerance),
+		{},
+		time.Date(1999, 1, 1, 0, 0, 0, 0, time.UTC),
+	} {
+		if r := d.Resync(ref); r.Jumped() || r.TrustedShift != 0 {
+			t.Fatalf("Resync(%v) = %+v, want no change", ref, r)
+		}
+		assertTime(t, "EffectiveNow", d.EffectiveNow(), want)
+	}
+	if r := d.Resync(want.Add(DefaultTolerance + time.Millisecond)); r.TrustedShift != DefaultTolerance+time.Millisecond {
+		t.Fatalf("just above the tolerance: got %+v", r)
+	}
+}
+
+// Tick reports a jump in the same call as Resync's shift when both happen.
+func TestResyncAlsoTicks(t *testing.T) {
+	f := newFake()
+	d := f.detector(nil)
+	f.run(time.Minute)
+	f.setWall(-3 * time.Hour)
+	r := d.Resync(t0.Add(time.Minute + time.Hour))
+	if r.Delta != -3*time.Hour || r.TrustedShift != time.Hour {
+		t.Fatalf("got %+v, want the -3h jump and a 1h shift", r)
+	}
+	assertTime(t, "EffectiveNow", d.EffectiveNow(), t0.Add(time.Minute+time.Hour))
+	if off := d.WallOffset(); off != -4*time.Hour {
+		t.Fatalf("WallOffset = %v, want -4h", off)
+	}
+}
+
+// A corrupt snapshot must not move the trusted clock decades away.
+func TestRestoreDiscardsCorruptSnapshot(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*Snapshot)
+	}{
+		{"trusted far ahead", func(s *Snapshot) { s.Trusted = time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC) }},
+		{"trusted before 2025", func(s *Snapshot) { s.Trusted = time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC) }},
+		{"trusted ahead, wall missing", func(s *Snapshot) {
+			s.Trusted, s.Wall = time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC), time.Time{}
+		}},
+	}
+	for _, c := range cases {
+		for _, same := range []bool{true, false} {
+			f := newFake()
+			d1 := f.detector(nil)
+			f.run(time.Minute)
+			d1.Tick()
+			saved := d1.Snapshot()
+			c.mutate(&saved)
+			if same {
+				f.run(time.Minute)
+			} else {
+				f.reboot(time.Minute, "boot-b")
+			}
+			d2 := f.detector(nil)
+			res := d2.Restore(saved)
+			if !res.Discarded || res.SameBoot || res.WallBehind || res.Jump.Jumped() {
+				t.Fatalf("%s (same boot %v): got %+v, want Discarded only", c.name, same, res)
+			}
+			assertTime(t, "EffectiveNow", d2.EffectiveNow(), f.Wall())
+			if off := d2.WallOffset(); off != 0 {
+				t.Fatalf("%s: WallOffset = %v, want 0", c.name, off)
+			}
+		}
+	}
+}
+
+// A zero trusted time is no snapshot at all: its offset is ignored too (an
+// extreme one used to move EffectiveNow to the year 1734).
+func TestRestoreZeroTrustedIgnoresOffset(t *testing.T) {
+	for _, off := range []time.Duration{math.MaxInt64, math.MinInt64, 2 * time.Hour} {
+		f := newFake()
+		d := f.detector(nil)
+		f.run(time.Second)
+		res := d.Restore(Snapshot{Wall: t0, Offset: off, Boot: time.Hour, BootID: "boot-a"})
+		if res != (RestoreResult{}) {
+			t.Fatalf("offset %v: got %+v, want a plain fresh start", off, res)
+		}
+		assertTime(t, "EffectiveNow", d.EffectiveNow(), f.Wall())
+		if d.WallOffset() != 0 {
+			t.Fatalf("offset %v: WallOffset = %v, want 0", off, d.WallOffset())
+		}
+	}
+}
+
+// An offset at the limits of time.Duration never moves EffectiveNow outside
+// [saved Trusted, wall clock] (give or take the slewing of a nanosecond left
+// by the saturation), and later ticks do not wrap it around.
+func TestRestoreExtremeOffsetStaysSane(t *testing.T) {
+	for _, off := range []time.Duration{math.MaxInt64, math.MinInt64} {
+		for _, same := range []bool{true, false} {
+			f := newFake()
+			d1 := f.detector(nil)
+			f.run(time.Minute)
+			saved := d1.Snapshot()
+			saved.Offset = off
+			if same {
+				f.run(5 * time.Minute)
+			} else {
+				f.reboot(5*time.Minute, "boot-b")
+			}
+			d2 := f.detector(nil)
+			if res := d2.Restore(saved); res.Discarded {
+				t.Fatalf("offset %v: a plausible trusted time was discarded", off)
+			}
+			for i := range 3 {
+				now := d2.EffectiveNow()
+				if now.Before(saved.Trusted) || now.After(f.Wall().Add(time.Microsecond)) {
+					t.Fatalf("offset %v, same boot %v, tick %d: EffectiveNow %v outside [%v, %v]",
+						off, same, i, now, saved.Trusted, f.Wall())
+				}
+				f.run(5 * time.Second)
+				d2.Tick()
+			}
+			if w := d2.WallOffset(); w.Abs() > time.Hour {
+				t.Fatalf("offset %v, same boot %v: WallOffset = %v after ticks", off, same, w)
+			}
+		}
+	}
+}
+
+// A dead CMOS battery can reset the clock to a firmware date after 2025 but
+// more than a year back. The snapshot agrees with itself, so it is kept and
+// the trusted clock resumes from it instead of from the firmware date.
+func TestRestoreKeepsConsistentSnapshotWhenWallIsYearsBehind(t *testing.T) {
+	f := newFake()
+	d1 := f.detector(nil)
+	f.run(time.Minute)
+	d1.Tick()
+	saved := d1.Snapshot()
+
+	f.reboot(0, "boot-b")
+	f.setWallTo(time.Date(2025, time.March, 1, 0, 0, 0, 0, time.UTC))
+	d2 := f.detector(nil)
+	res := d2.Restore(saved)
+	if res.Discarded || !res.WallBehind {
+		t.Fatalf("got %+v, want WallBehind and the snapshot kept", res)
+	}
+	assertTime(t, "EffectiveNow", d2.EffectiveNow(), saved.Trusted)
+}
+
+// The trusted clock was first anchored on a dead-CMOS wall clock in 2000 and
+// NTP put the wall clock right later. The snapshot agrees with itself, so it
+// is kept (discarding it would end blocks set on that timeline at once); the
+// lag is Resync's to correct.
+func TestRestoreKeepsConsistentSnapshotBefore2025(t *testing.T) {
+	f := newFake()
+	f.setWallTo(time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC))
+	d1 := f.detector(nil)
+	f.run(time.Minute)
+	f.setWallTo(t0.Add(time.Minute)) // NTP
+	if r := d1.Tick(); !r.Forward {
+		t.Fatalf("NTP correction not reported: %+v", r)
+	}
+	saved := d1.Snapshot()
+	endsAt := saved.Trusted.Add(time.Hour) // a block set on that timeline
+
+	f.reboot(5*time.Minute, "boot-b")
+	d2 := f.detector(nil)
+	res := d2.Restore(saved)
+	if res.Discarded || res.WallBehind {
+		t.Fatalf("got %+v, want the snapshot kept", res)
+	}
+	if !d2.EffectiveNow().Before(endsAt) {
+		t.Fatal("block ended at once after the reboot")
+	}
+	r := d2.Resync(f.Wall())
+	assertTime(t, "EffectiveNow", d2.EffectiveNow(), f.Wall())
+	if rem := endsAt.Add(r.TrustedShift).Sub(d2.EffectiveNow()); rem <= 0 || rem > time.Hour {
+		t.Fatalf("remaining after the shift = %v, want within (0, 1h]", rem)
+	}
+}
+
+// A large offset is a real, compensated clock change, not corruption:
+// discarding it would let "move the clock 2 years ahead, wait for the tick,
+// reboot offline" end every block.
+func TestRestoreKeepsLargeGenuineOffset(t *testing.T) {
+	f := newFake()
+	d1 := f.detector(nil)
+	f.run(time.Minute)
+	const twoYears = 2 * 365 * 24 * time.Hour
+	f.setWall(twoYears)
+	d1.Tick()
+	saved := d1.Snapshot()
+
+	f.reboot(5*time.Minute, "boot-b") // the clock is still 2 years ahead
+	d2 := f.detector(nil)
+	if res := d2.Restore(saved); res.Discarded || res.WallBehind {
+		t.Fatalf("got %+v", res)
+	}
+	assertTime(t, "EffectiveNow", d2.EffectiveNow(), t0.Add(6*time.Minute))
+	if off := d2.WallOffset(); off != twoYears {
+		t.Fatalf("WallOffset = %v, want 2 years", off)
+	}
+}
+
+// With a fallback boot id (which moves with the wall clock), a clock change
+// made while the guardian was stopped is still caught through Mono
+// continuity instead of being taken for a reboot.
+func TestRestoreFallbackIDStillDetectsJumpWhileStopped(t *testing.T) {
+	f := newFake()
+	f.bootID = "derived:1000"
+	d1 := f.detector(nil)
+	f.run(time.Minute)
+	d1.Tick()
+	saved := d1.Snapshot()
+
+	f.run(10 * time.Minute) // guardian stopped
+	f.setWall(2 * time.Hour)
+	f.bootID = "derived:8200" // derived from the (moved) wall clock
+	d2 := f.detector(nil)
+	res := d2.Restore(saved)
+	if !res.SameBoot || res.Jump.Delta != 2*time.Hour {
+		t.Fatalf("got %+v, want SameBoot and the 2h jump", res)
+	}
+	assertTime(t, "EffectiveNow", d2.EffectiveNow(), t0.Add(11*time.Minute))
+}
+
+// Review finding: with BootId stuck (prefetcher disabled), a short previous
+// session followed by a slower boot looked like the same boot, and the whole
+// off time was reported as a forward jump. The System process creation time
+// in the identifier tells the boots apart.
+func TestRestoreStuckBootCounterStillSeesReboot(t *testing.T) {
+	stuck := func() (uint64, error) { return 7, nil }
+	id := func(ft uint64) string {
+		return windowsBootID(stuck, func() (uint64, error) { return ft, nil }, func() time.Time { return t0 })
+	}
+	f := newFake()
+	f.bootID = id(133_000_000_000_000_000)
+	f.mono, f.awake = 30*time.Second, 30*time.Second
+	d1 := f.detector(nil)
+	f.run(time.Minute) // short session: Mono 90 s
+	saved := d1.Snapshot()
+
+	f.reboot(8*time.Hour, id(133_000_288_000_000_000))
+	f.mu.Lock()
+	f.mono, f.awake = 3*time.Minute, 3*time.Minute // slower boot: Mono already past 90 s
+	f.mu.Unlock()
+	d2 := f.detector(nil)
+	res := d2.Restore(saved)
+	if res.SameBoot || res.Jump.Jumped() {
+		t.Fatalf("got %+v, want a reboot without a jump", res)
+	}
+	assertTime(t, "EffectiveNow", d2.EffectiveNow(), f.Wall())
+}
+
+// Setting the clock centuries ahead saturates the offset instead of wrapping
+// it around, reports the jump once, and recovers when the clock is put back.
+func TestHugeClockChangesDoNotOverflowOffset(t *testing.T) {
+	f := newFake()
+	d := f.detector(nil)
+	f.setWallTo(time.Date(9000, time.January, 1, 0, 0, 0, 0, time.UTC))
+	var reports int
+	for range 3 {
+		f.run(5 * time.Second)
+		if r := d.Tick(); r.Jumped() {
+			reports++
+			if !r.Forward {
+				t.Fatalf("got %+v, want a forward jump", r)
+			}
+		}
+	}
+	if reports != 1 {
+		t.Fatalf("jump reported %d times, want once", reports)
+	}
+	if off := d.WallOffset(); off != math.MaxInt64 {
+		t.Fatalf("WallOffset = %v, want saturated at the maximum", off)
+	}
+	assertTime(t, "EffectiveNow", d.EffectiveNow(), t0.Add(15*time.Second))
+
+	f.setWallTo(t0.Add(20 * time.Second))
+	if r := d.Tick(); !r.Jumped() || r.Forward {
+		t.Fatalf("got %+v, want a backward jump", r)
+	}
+	if off := d.WallOffset(); off.Abs() > DefaultTolerance {
+		t.Fatalf("WallOffset = %v, want about 0", off)
+	}
+	f.run(5 * time.Second)
+	assertNoJump(t, d.Tick())
+}
+
+func TestSaturatingArithmetic(t *testing.T) {
+	const maxD, minD = time.Duration(math.MaxInt64), time.Duration(math.MinInt64)
+	cases := []struct{ a, b, want time.Duration }{
+		{1, 2, 3},
+		{maxD, 1, maxD},
+		{maxD, maxD, maxD},
+		{minD, -1, minD},
+		{minD, minD, minD},
+		{maxD, minD, -1},
+		{-5, 3, -2},
+	}
+	for _, c := range cases {
+		if got := addSat(c.a, c.b); got != c.want {
+			t.Errorf("addSat(%d, %d) = %d, want %d", c.a, c.b, got, c.want)
+		}
+	}
+	if negSat(minD) != maxD || negSat(maxD) != -maxD || negSat(5) != -5 {
+		t.Error("negSat is wrong")
 	}
 }
