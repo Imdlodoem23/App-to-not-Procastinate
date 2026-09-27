@@ -49,7 +49,7 @@ Sin cuenta, sin telemetría y funciona sin internet. Las imágenes de la cámara
 
 ## Desarrollo
 
-Requisitos: Node 22 o superior y Go 1.24 o superior.
+Requisitos: Node 22 o superior y Go 1.26 o superior.
 
 ```bash
 npm install          # instala todo el monorepo

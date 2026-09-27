@@ -15,7 +15,7 @@ packages/shared   TS source consumed directly (exports -> src/*.ts). Catalog, NL
 apps/desktop      Electron 44 + electron-vite 5 (Vite 7) + React 19 + Tailwind 4 + Zustand. Local DB: node:sqlite (no native modules).
 apps/extension    MV3 extension built with esbuild (Chromium + Firefox, one codebase).
 apps/web          Astro 7 + Tailwind 4 static site deployed to Render.
-guardian/         Go 1.24 system service (kardianos/service). HTTP API on 127.0.0.1 only.
+guardian/         Go 1.26 system service (kardianos/service). HTTP API on 127.0.0.1 only.
 ```
 
 ## Commands (run from repo root)
