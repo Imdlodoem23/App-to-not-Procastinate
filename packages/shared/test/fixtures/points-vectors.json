@@ -1,13 +1,14 @@
 {
   "$comment": [
     "Shared points parity vectors (PROMPT.md section 7). Run by packages/shared/test/points.test.ts (vitest) and by the guardian Go tests; both must pass unchanged.",
-    "functions: call fn(...args) with the default rules and compare with expect (deep equality; blockCompletionPoints compares its total).",
+    "functions: call fn(...args) with the default rules and compare with expect (deep equality; blockCompletionPoints compares its total; allowanceValue takes one array of {cost, totalMs, remainingMs}).",
     "sequences: start from initialLedgerState(); for each step convert input.at (ISO UTC) to epoch ms (and escalation.lastCountedAt when present), apply applyLedgerInput, and compare every key present in expect: points and xp are the step deltas, balance is the balance after the step, the rest are LedgerOutcome fields (null means the field is null).",
-    "Then summarizeLedger(state, summary) must match expectFinal (todayFocusMinutes = today.focusMinutes, todayGoalMet = today.goalMet).",
+    "Then summarizeLedger(state, summary) (summary.pendingFocusMinutes defaults to 0) must match every key of expectFinal (todayFocusMinutes = today.focusMinutes, todayGoalMet = today.goalMet, the rest are PointsSummary fields).",
+    "eventSequences: logged events exactly as /v1/events serves them (timestamps inside data are trusted time and must not be shifted by wallOffsetMs). Run replayEvents from initialLedgerState(): mismatches must equal expectMismatches and the final state must match expectFinal (escalationIndex = escalation.index, escalationLastCountedAt = escalation.lastCountedAtMs as ISO UTC).",
     "Expectations were written by hand from the rules; never regenerate them from either implementation."
   ],
   "formatVersion": 1,
-  "rulesVersion": 1,
+  "rulesVersion": 2,
   "functions": [
     {
       "name": "attempt penalty index 0",
@@ -372,7 +373,7 @@
     {
       "name": "emergency phrase \"Acepto\\u00a0romper mi compromiso y perder mis puntos\"",
       "fn": "emergencyPhraseMatches",
-      "args": ["Acepto romper mi compromiso y perder mis puntos"],
+      "args": ["Acepto\u00a0romper mi compromiso y perder mis puntos"],
       "expect": true
     },
     {
@@ -396,13 +397,13 @@
     {
       "name": "emergency phrase \"Acepto romper mi compromiso y perder mis p\\u00fantos\"",
       "fn": "emergencyPhraseMatches",
-      "args": ["Acepto romper mi compromiso y perder mis púntos"],
+      "args": ["Acepto romper mi compromiso y perder mis p\u00fantos"],
       "expect": false
     },
     {
       "name": "emergency phrase \"Acepto romper mi compromiso y perder mis puntos\\u2003\"",
       "fn": "emergencyPhraseMatches",
-      "args": ["Acepto romper mi compromiso y perder mis puntos "],
+      "args": ["Acepto romper mi compromiso y perder mis puntos\u2003"],
       "expect": false
     },
     {
@@ -426,8 +427,8 @@
     {
       "name": "normalize phrase \"\\u00c1RBOL\"",
       "fn": "normalizePhrase",
-      "args": ["ÁRBOL"],
-      "expect": "Árbol"
+      "args": ["\u00c1RBOL"],
+      "expect": "\u00c1rbol"
     },
     {
       "name": "add days ['2026-09-27', 1]",
@@ -458,6 +459,51 @@
       "fn": "addDays",
       "args": ["2026-09-27", -7],
       "expect": "2026-09-20"
+    },
+    {
+      "name": "study end bonus ['interrupted', 0, 0, 50]",
+      "fn": "studyEndBonus",
+      "args": ["interrupted", 0, 0, 50],
+      "expect": 0
+    },
+    {
+      "name": "allowance value of nothing",
+      "fn": "allowanceValue",
+      "args": [[]],
+      "expect": 0
+    },
+    {
+      "name": "allowance value of an unused 30-min allowance",
+      "fn": "allowanceValue",
+      "args": [
+        [
+          {
+            "cost": 300,
+            "totalMs": 1800000,
+            "remainingMs": 1800000
+          }
+        ]
+      ],
+      "expect": 300
+    },
+    {
+      "name": "allowance value sums each refund rounded down",
+      "fn": "allowanceValue",
+      "args": [
+        [
+          {
+            "cost": 150,
+            "totalMs": 900000,
+            "remainingMs": 300000
+          },
+          {
+            "cost": 280,
+            "totalMs": 1800000,
+            "remainingMs": 900001
+          }
+        ]
+      ],
+      "expect": 190
     }
   ],
   "sequences": [
@@ -1236,7 +1282,8 @@
             "type": "emergency_confirmed",
             "at": "2026-09-27T17:00:00.000Z",
             "day": "2026-09-27",
-            "goalMinutes": 60
+            "goalMinutes": 60,
+            "allowanceValue": 0
           },
           "expect": {
             "points": -620,
@@ -1296,7 +1343,8 @@
             "type": "emergency_confirmed",
             "at": "2026-09-27T13:00:00.000Z",
             "day": "2026-09-27",
-            "goalMinutes": 60
+            "goalMinutes": 60,
+            "allowanceValue": 0
           },
           "expect": {
             "points": -200,
@@ -1339,7 +1387,8 @@
             "type": "emergency_confirmed",
             "at": "2026-09-27T11:00:00.000Z",
             "day": "2026-09-27",
-            "goalMinutes": 60
+            "goalMinutes": 60,
+            "allowanceValue": 0
           },
           "expect": {
             "points": -200,
@@ -1384,7 +1433,8 @@
             "type": "emergency_confirmed",
             "at": "2026-09-27T13:00:00.000Z",
             "day": "2026-09-27",
-            "goalMinutes": 60
+            "goalMinutes": 60,
+            "allowanceValue": 0
           },
           "expect": {
             "points": -201,
@@ -2440,7 +2490,8 @@
             "type": "balance_correction",
             "at": "2026-09-27T09:00:00.000Z",
             "day": "2026-09-27",
-            "amount": -50
+            "amount": -50,
+            "voidStreak": false
           },
           "expect": {
             "points": -50,
@@ -2503,6 +2554,405 @@
         "bestStreakDays": 0,
         "todayFocusMinutes": 0,
         "todayGoalMet": false
+      }
+    },
+    {
+      "name": "points parked in allowances still count towards the emergency penalty",
+      "steps": [
+        {
+          "input": {
+            "type": "block_completed",
+            "at": "2026-09-27T08:00:00.000Z",
+            "day": "2026-09-27",
+            "kind": "manual",
+            "creditedMinutes": 1180,
+            "attemptsCounted": 0
+          },
+          "expect": {
+            "points": 1200,
+            "balance": 1200
+          }
+        },
+        {
+          "input": {
+            "type": "reward_redeemed",
+            "at": "2026-09-27T09:00:00.000Z",
+            "day": "2026-09-27",
+            "cost": 150
+          },
+          "expect": {
+            "points": -150,
+            "balance": 1050
+          }
+        },
+        {
+          "input": {
+            "type": "reward_redeemed",
+            "at": "2026-09-27T09:00:05.000Z",
+            "day": "2026-09-27",
+            "cost": 150
+          },
+          "expect": {
+            "points": -150,
+            "balance": 900
+          }
+        },
+        {
+          "input": {
+            "type": "emergency_confirmed",
+            "at": "2026-09-27T09:00:10.000Z",
+            "day": "2026-09-27",
+            "goalMinutes": 60,
+            "allowanceValue": 300
+          },
+          "expect": {
+            "points": -600,
+            "penalty": 600,
+            "streakDaysLost": 0,
+            "balance": 300
+          }
+        },
+        {
+          "input": {
+            "type": "reward_ended",
+            "at": "2026-09-27T09:10:00.000Z",
+            "day": "2026-09-27",
+            "reason": "revoked",
+            "cost": 300,
+            "totalMs": 1800000,
+            "remainingMs": 1200000
+          },
+          "expect": {
+            "points": 200,
+            "refund": 200,
+            "balance": 500
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 500,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "a guardian stopped during a block costs like an emergency and voids the streak",
+      "steps": [
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-26T18:00:00.000Z",
+            "day": "2026-09-26",
+            "minutes": 60
+          },
+          "expect": {
+            "points": 120,
+            "xp": 60
+          }
+        },
+        {
+          "input": {
+            "type": "day_closed",
+            "at": "2026-09-27T00:00:05.000Z",
+            "day": "2026-09-27",
+            "closedDay": "2026-09-26",
+            "goalMinutes": 60
+          },
+          "expect": {
+            "points": 0,
+            "met": true
+          }
+        },
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-27T10:00:00.000Z",
+            "day": "2026-09-27",
+            "minutes": 60
+          },
+          "expect": {
+            "points": 120,
+            "xp": 60,
+            "balance": 240
+          }
+        },
+        {
+          "input": {
+            "type": "balance_correction",
+            "at": "2026-09-27T11:00:00.000Z",
+            "day": "2026-09-27",
+            "amount": -200,
+            "voidStreak": true
+          },
+          "expect": {
+            "points": -200,
+            "xp": 0,
+            "balance": 40
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 40,
+        "xp": 120,
+        "level": 2,
+        "streakDays": 0,
+        "bestStreakDays": 1,
+        "todayFocusMinutes": 60,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "an attempt earlier than the previous one (clock corrected back) counts and starts over",
+      "steps": [
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:10:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -10,
+            "counted": true,
+            "escalationIndex": 0
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:00:10.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -10,
+            "counted": true,
+            "merged": false,
+            "escalationIndex": 0,
+            "balance": -20
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:00:20.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": 0,
+            "counted": false,
+            "merged": true
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:01:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:tiktok",
+            "penalized": true
+          },
+          "expect": {
+            "points": -20,
+            "counted": true,
+            "escalationIndex": 1,
+            "balance": -40
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": -40,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "an escalation carried from a clock that ran ahead does not escalate",
+      "steps": [
+        {
+          "input": {
+            "type": "epoch_started",
+            "at": "2026-09-27T10:00:00.000Z",
+            "day": "2026-09-27",
+            "carryOverBalance": 0,
+            "escalation": {
+              "lastCountedAt": "2026-09-27T10:30:00.000Z",
+              "index": 2
+            }
+          },
+          "expect": {
+            "points": 0,
+            "balance": 0
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:05:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -10,
+            "counted": true,
+            "escalationIndex": 0,
+            "balance": -10
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": -10,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "pending focus minutes of the active session show in the summary",
+      "steps": [
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-27T10:00:00.000Z",
+            "day": "2026-09-27",
+            "minutes": 40
+          },
+          "expect": {
+            "points": 80,
+            "xp": 40,
+            "balance": 80
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60,
+        "pendingFocusMinutes": 25
+      },
+      "expectFinal": {
+        "balance": 130,
+        "xp": 65,
+        "level": 2,
+        "streakDays": 1,
+        "bestStreakDays": 1,
+        "todayFocusMinutes": 65,
+        "todayGoalMet": true,
+        "pendingFocusMinutes": 25
+      }
+    }
+  ],
+  "eventSequences": [
+    {
+      "name": "timestamps inside event data are trusted time, never display time",
+      "events": [
+        {
+          "v": 1,
+          "epoch": "ep_0123456789abcdefABCD",
+          "seq": 1,
+          "at": "2026-09-27T09:59:00.000Z",
+          "wallOffsetMs": -3600000,
+          "day": "2026-09-27",
+          "type": "epoch_started",
+          "points": -40,
+          "xp": 0,
+          "txEnd": true,
+          "req": null,
+          "data": {
+            "reason": "data_deleted",
+            "previousEpoch": null,
+            "carryOverBalance": -40,
+            "escalation": {
+              "lastCountedAt": "2026-09-27T09:58:00.000Z",
+              "index": 2
+            },
+            "kept": {
+              "blocks": [],
+              "punishments": [],
+              "allowances": [],
+              "schedules": [],
+              "settings": {
+                "timezone": "Europe/Madrid",
+                "dailyGoalMinutes": 60,
+                "attemptPenalties": true,
+                "punishment": {
+                  "level": "distractions",
+                  "minutes": 60
+                },
+                "closeBrowsersWithoutExtension": false,
+                "serverTimeCheck": true,
+                "studyWhitelist": {
+                  "extraDomains": [],
+                  "extraProcesses": []
+                }
+              },
+              "pendingSettings": [],
+              "materializedOccurrences": []
+            }
+          }
+        },
+        {
+          "v": 1,
+          "epoch": "ep_0123456789abcdefABCD",
+          "seq": 2,
+          "at": "2026-09-27T10:00:00.000Z",
+          "wallOffsetMs": -3600000,
+          "day": "2026-09-27",
+          "type": "attempt",
+          "points": -80,
+          "xp": 0,
+          "txEnd": true,
+          "req": null,
+          "data": {
+            "attemptId": "att_0123456789abcdefABCD",
+            "layer": "extension",
+            "targetKey": "svc:youtube",
+            "targetType": "service",
+            "serviceId": "youtube",
+            "blockIds": ["blk_0123456789abcdefABCD"],
+            "browser": "chrome",
+            "incognito": false,
+            "escalationIndex": 3,
+            "penalized": true
+          }
+        }
+      ],
+      "expectMismatches": [],
+      "expectFinal": {
+        "balance": -120,
+        "escalationIndex": 3,
+        "escalationLastCountedAt": "2026-09-27T10:00:00.000Z"
       }
     }
   ]

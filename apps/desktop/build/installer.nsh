@@ -21,6 +21,7 @@
       Pop $0
       Pop $1
       ${If} $0 == "10"
+      ${OrIf} $0 == "11"
         MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION "Tienes un bloqueo activo.$\r$\n$\r$\nSi desinstalas Céntrate ahora, el bloqueo se quitará y perderás tus puntos y tu racha.$\r$\n$\r$\n¿Quieres desinstalar de todas formas?" /SD IDOK IDOK centrate_no_guardian
         Abort
       ${EndIf}

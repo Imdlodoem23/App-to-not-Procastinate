@@ -27,8 +27,12 @@ import type {
 } from './domain';
 import { isKnownEvent } from './domain';
 
-/** Version of the rules below; recorded in `guardian_started` and `/v1/health`. */
-export const RULES_VERSION = 1;
+/**
+ * Version of the points rules below; recorded as `rulesVersion` in `guardian_started`,
+ * `/v1/health` and `/v1/diagnostics`. (The extension's enforcement counter is a different
+ * thing: `extRulesVersion` in guardian-api.ts.)
+ */
+export const RULES_VERSION = 2;
 
 // ---------------------------------------------------------------------------------------
 // Values
@@ -67,7 +71,10 @@ export interface PointRules {
   strikePenalty: number;
   /** −100 when a punishment starts. */
   punishmentPenalty: number;
-  /** Emergency unlock costs max(200, floor(max(0, balance) / 2)) and the streak. */
+  /**
+   * Emergency unlock costs max(200, floor(max(0, balance + allowance value) / 2)) and the
+   * streak (see `emergencyPenalty` and `allowanceValue`).
+   */
   emergencyMinPenalty: number;
   emergencyBalanceDivisor: number;
   /** XP only goes up: +1 per focused minute. Block minutes give no XP. */
@@ -120,22 +127,39 @@ export const EMERGENCY_RULES: Readonly<EmergencyRules> = Object.freeze({
   }),
 });
 
+/** A user-tunable value: the app clamps what the user picks to [min, max]. */
+export interface TunableRange {
+  min: number;
+  max: number;
+  default: number;
+}
+
 export interface StudyRules {
   plannedMinutes: { min: number; max: number };
   pomodoroWorkMinutes: { min: number; max: number };
   pomodoroBreakMinutes: { min: number; max: number };
-  /** App-side attention thresholds (defaults; «tiempos configurables»). */
-  doubtAfterMs: number;
-  strikeAfterDoubtMs: number;
-  noFaceStrikeMs: number;
+  /**
+   * App-side attention state machine («tiempos configurables» and «sensibilidad de la
+   * IA» in Ajustes). The app clamps the user's values to these ranges, so no setting can
+   * silently disable strikes. The guardian embeds them but does not enforce them.
+   */
+  doubtAfterMs: TunableRange;
+  strikeAfterDoubtMs: TunableRange;
+  noFaceStrikeMs: TunableRange;
+  /** Focus score (0–100) below which the app starts counting towards «¿Sigues ahí?». */
+  focusScoreThreshold: TunableRange;
   /** Guardian-enforced. */
   maxStrikes: number;
   strikeCooldownMs: number;
   heartbeatIntervalMs: number;
   /** Awake time without heartbeats (guardian running) that counts as abandonment. */
   heartbeatTimeoutMs: number;
-  /** Grace after a reboot for the app to resume the session. */
-  bootGraceMs: number;
+  /**
+   * At the planned end the guardian waits this long (awake) for the app's final heartbeat
+   * before it logs the last focus minutes and `study_ended{completed}`, so the last
+   * heartbeat interval is not lost. Nothing is credited past the planned end.
+   */
+  finalHeartbeatGraceMs: number;
   pauseMs: number;
   maxPausesPerWindow: number;
   pauseWindowMs: number;
@@ -153,14 +177,15 @@ export const STUDY_RULES: Readonly<StudyRules> = Object.freeze({
   plannedMinutes: Object.freeze({ min: 5, max: 480 }),
   pomodoroWorkMinutes: Object.freeze({ min: 5, max: 120 }),
   pomodoroBreakMinutes: Object.freeze({ min: 1, max: 60 }),
-  doubtAfterMs: 15_000,
-  strikeAfterDoubtMs: 30_000,
-  noFaceStrikeMs: 60_000,
+  doubtAfterMs: Object.freeze({ min: 10_000, max: 60_000, default: 15_000 }),
+  strikeAfterDoubtMs: Object.freeze({ min: 15_000, max: 120_000, default: 30_000 }),
+  noFaceStrikeMs: Object.freeze({ min: 30_000, max: 180_000, default: 60_000 }),
+  focusScoreThreshold: Object.freeze({ min: 30, max: 80, default: 50 }),
   maxStrikes: 3,
   strikeCooldownMs: 60_000,
   heartbeatIntervalMs: 15_000,
   heartbeatTimeoutMs: 120_000,
-  bootGraceMs: 600_000,
+  finalHeartbeatGraceMs: 20_000,
   pauseMs: 300_000,
   maxPausesPerWindow: 2,
   pauseWindowMs: 3_600_000,
@@ -170,6 +195,41 @@ export const STUDY_RULES: Readonly<StudyRules> = Object.freeze({
   punishmentMinutes: Object.freeze({ min: 15, max: 120, default: 60 }),
   defaultPunishmentLevel: 'distractions' as const,
 });
+
+/** Clamps a user-picked value to a tunable range (non-numbers give the default). */
+export function clampTunable(value: number, range: Readonly<TunableRange>): number {
+  if (!Number.isFinite(value)) return range.default;
+  return Math.min(range.max, Math.max(range.min, Math.round(value)));
+}
+
+/**
+ * Pomodoro tiles («25/5 | 50/10»). A Pomodoro session lasts `cycles` work blocks with
+ * breaks between them: `plannedMinutes = cycles × (work + break) − break` (the session
+ * ends right after the last work block), so it can complete and earn the clean bonus.
+ */
+export interface PomodoroPreset {
+  id: string;
+  workMinutes: number;
+  breakMinutes: number;
+  cycles: number;
+}
+
+export const POMODORO_PRESETS: readonly PomodoroPreset[] = Object.freeze(
+  [
+    { id: '25-5', workMinutes: 25, breakMinutes: 5, cycles: 4 },
+    { id: '50-10', workMinutes: 50, breakMinutes: 10, cycles: 2 },
+  ].map((preset) => Object.freeze(preset)),
+);
+
+/** `plannedMinutes` of a Pomodoro session (see `PomodoroPreset`). */
+export function pomodoroPlannedMinutes(p: {
+  workMinutes: number;
+  breakMinutes: number;
+  cycles: number;
+}): number {
+  const cycles = Math.max(1, Math.trunc(p.cycles));
+  return cycles * (p.workMinutes + p.breakMinutes) - p.breakMinutes;
+}
 
 /** One item of the reward shop: `minutes` of `serviceId` for `cost` points. */
 export interface RewardOffer {
@@ -209,6 +269,7 @@ export function rulesSnapshot(): {
   emergency: EmergencyRules;
   study: StudyRules;
   rewardOffers: RewardOffer[];
+  pomodoroPresets: PomodoroPreset[];
 } {
   return JSON.parse(
     JSON.stringify({
@@ -217,6 +278,7 @@ export function rulesSnapshot(): {
       emergency: EMERGENCY_RULES,
       study: STUDY_RULES,
       rewardOffers: REWARD_OFFERS,
+      pomodoroPresets: POMODORO_PRESETS,
     }),
   ) as ReturnType<typeof rulesSnapshot>;
 }
@@ -247,18 +309,26 @@ export function attemptPenalty(
   return Math.min(penalty, rules.attemptPenaltyCap);
 }
 
-/** Escalation index of a counted attempt at `atMs` after `previous`. */
+/**
+ * Escalation index of a counted attempt at `atMs` after `previous`. Trusted time can step
+ * back (a calibration, an epoch carry from a clock that ran ahead): an attempt earlier
+ * than the previous counted one starts over at 0.
+ */
 export function nextEscalationIndex(
   previous: { lastCountedAtMs: number | null; index: number },
   atMs: number,
   rules: Readonly<PointRules> = POINT_RULES,
 ): number {
   if (previous.lastCountedAtMs === null) return 0;
-  if (atMs - previous.lastCountedAtMs >= rules.attemptEscalationWindowMs) return 0;
+  const elapsed = atMs - previous.lastCountedAtMs;
+  if (elapsed < 0 || elapsed >= rules.attemptEscalationWindowMs) return 0;
   return Math.min(previous.index + 1, maxEscalationIndex(rules));
 }
 
-/** Emergency penalty (positive): max(200, floor(max(0, balance) / 2)). */
+/**
+ * Emergency penalty (positive): max(200, floor(max(0, base) / 2)). The guardian passes
+ * `balance + allowanceValue(active allowances)` as `base` (see `emergency_confirmed`).
+ */
 export function emergencyPenalty(
   balance: number,
   rules: Readonly<PointRules> = POINT_RULES,
@@ -286,9 +356,10 @@ export function emergencyCountdownMinutes(
 }
 
 /**
- * Normalizes a typed commitment phrase for comparison: trims, collapses runs of ASCII
- * whitespace and no-break spaces to one space, lowercases ASCII letters only and drops
- * one trailing `.`. Deliberately ASCII-only so the Go port matches byte for byte.
+ * Normalizes a typed commitment phrase for comparison: collapses runs of ASCII whitespace
+ * (space, \t, \n, \r, \f, \v) and U+00A0 no-break spaces to one space, trims one space at
+ * each end, lowercases ASCII letters only (`Á` stays `Á`) and drops one trailing `.`.
+ * No Unicode case folding or other whitespace (U+2003…), so the Go port matches exactly.
  */
 export function normalizePhrase(text: string): string {
   let out = text.replace(/[ \t\n\r\f\v\u00a0]+/g, ' ');
@@ -354,6 +425,24 @@ export function allowanceRefund(cost: number, totalMs: number, remainingMs: numb
   if (totalMs <= 0 || cost <= 0) return 0;
   const remaining = Math.max(0, Math.min(remainingMs, totalMs));
   return Math.floor((cost * remaining) / totalMs);
+}
+
+/** What an active allowance is worth right now (the refund inputs). */
+export interface AllowanceWorth {
+  cost: number;
+  totalMs: number;
+  remainingMs: number;
+}
+
+/**
+ * Points parked in active allowances: Σ `allowanceRefund` of each, i.e. what revoking
+ * them now would give back. Added to the balance before computing an emergency (or an
+ * equivalent tamper) penalty, so redeeming offers cannot shelter points from it.
+ */
+export function allowanceValue(allowances: readonly AllowanceWorth[]): number {
+  let total = 0;
+  for (const a of allowances) total += allowanceRefund(a.cost, a.totalMs, a.remainingMs);
+  return total;
 }
 
 /** XP needed to reach `level` (level 1 starts at 0). */
@@ -463,7 +552,13 @@ export type LedgerInput =
       plannedMinutes: number;
     })
   | (LedgerInputBase & { type: 'punishment_started' })
-  | (LedgerInputBase & { type: 'emergency_confirmed'; goalMinutes: number })
+  | (LedgerInputBase & {
+      type: 'emergency_confirmed';
+      goalMinutes: number;
+      /** `allowanceValue` of the active allowances at confirm (≥ 0). */
+      allowanceValue: number;
+    })
+  /** `cost`: what this redemption charged (`reward_redeemed.offerCost`). */
   | (LedgerInputBase & { type: 'reward_redeemed'; cost: number })
   | (LedgerInputBase & {
       type: 'reward_ended';
@@ -473,7 +568,12 @@ export type LedgerInput =
       remainingMs: number;
     })
   | (LedgerInputBase & { type: 'day_closed'; closedDay: LocalDay; goalMinutes: number })
-  | (LedgerInputBase & { type: 'balance_correction'; amount: number })
+  | (LedgerInputBase & {
+      type: 'balance_correction';
+      amount: number;
+      /** Also sets the streak to 0 and voids `day` (like an emergency unlock). */
+      voidStreak: boolean;
+    })
   | (LedgerInputBase & {
       type: 'epoch_started';
       carryOverBalance: number;
@@ -535,9 +635,11 @@ function cloneState(state: LedgerState): LedgerState {
   };
 }
 
+/** Drops entries outside [atMs − window, atMs], including ones ahead of `atMs`. */
 function pruneDedupe(state: LedgerState, atMs: number, rules: Readonly<PointRules>): void {
   for (const [key, last] of Object.entries(state.dedupe)) {
-    if (atMs - last >= rules.attemptDedupeWindowMs) delete state.dedupe[key];
+    const elapsed = atMs - last;
+    if (elapsed < 0 || elapsed >= rules.attemptDedupeWindowMs) delete state.dedupe[key];
   }
 }
 
@@ -595,8 +697,9 @@ export function applyLedgerInput(
     case 'attempt_detected': {
       pruneDedupe(next, input.atMs, rules);
       const last = next.dedupe[input.key];
-      if (last !== undefined && input.atMs - last < rules.attemptDedupeWindowMs) {
-        next.dedupe[input.key] = Math.max(last, input.atMs);
+      // After pruning, a remaining entry is within [atMs − window, atMs].
+      if (last !== undefined) {
+        next.dedupe[input.key] = input.atMs;
         outcome.counted = false;
         outcome.merged = true;
         outcome.escalationIndex = null;
@@ -655,7 +758,7 @@ export function applyLedgerInput(
       outcome.penalty = rules.punishmentPenalty;
       break;
     case 'emergency_confirmed': {
-      const penalty = emergencyPenalty(next.balance, rules);
+      const penalty = emergencyPenalty(next.balance + Math.max(0, input.allowanceValue), rules);
       outcome.penalty = penalty;
       outcome.streakDaysLost = streakAsOf(next, input.day, input.goalMinutes);
       points = neg(penalty);
@@ -701,6 +804,10 @@ export function applyLedgerInput(
     }
     case 'balance_correction':
       points = Math.trunc(input.amount);
+      if (input.voidStreak) {
+        next.streak = 0;
+        next.voidedDay = input.day;
+      }
       break;
     case 'epoch_started': {
       // Starts a new epoch: the ledger resets and only a negative balance and the attempt
@@ -733,7 +840,10 @@ export function computeLedger(
   return { state, steps };
 }
 
-/** The ledger input of a logged event, or `null` for events without points/streak effect. */
+/**
+ * The ledger input of a logged event, or `null` for events without points/streak effect.
+ * Every time is trusted time (`at` and data timestamps), never display time.
+ */
 export function ledgerInputFromEvent(event: GuardianEvent): LedgerInput | null {
   const base = { atMs: Date.parse(event.at), day: event.day };
   switch (event.type) {
@@ -770,9 +880,14 @@ export function ledgerInputFromEvent(event: GuardianEvent): LedgerInput | null {
     case 'punishment_started':
       return { ...base, type: 'punishment_started' };
     case 'emergency_confirmed':
-      return { ...base, type: 'emergency_confirmed', goalMinutes: event.data.goalMinutes };
+      return {
+        ...base,
+        type: 'emergency_confirmed',
+        goalMinutes: event.data.goalMinutes,
+        allowanceValue: event.data.allowanceValue,
+      };
     case 'reward_redeemed':
-      return { ...base, type: 'reward_redeemed', cost: event.data.cost };
+      return { ...base, type: 'reward_redeemed', cost: event.data.offerCost };
     case 'reward_ended':
       return {
         ...base,
@@ -790,9 +905,21 @@ export function ledgerInputFromEvent(event: GuardianEvent): LedgerInput | null {
         goalMinutes: event.data.goalMinutes,
       };
     case 'tamper_detected':
+      return {
+        ...base,
+        type: 'balance_correction',
+        amount: event.data.balanceCorrection,
+        voidStreak: event.data.voidStreak,
+      };
     case 'ledger_repaired':
-      return { ...base, type: 'balance_correction', amount: event.data.balanceCorrection };
+      return {
+        ...base,
+        type: 'balance_correction',
+        amount: event.data.balanceCorrection,
+        voidStreak: false,
+      };
     case 'epoch_started': {
+      // Trusted time like every timestamp inside an event: never add wallOffsetMs here.
       const last = event.data.escalation.lastCountedAt;
       return {
         ...base,
@@ -842,12 +969,26 @@ export function replayEvents(
   return { state, mismatches };
 }
 
-/** The Progress summary on `today` with the daily goal currently in force. */
+/**
+ * The Progress summary on `today` with the daily goal currently in force.
+ * `pendingFocusMinutes` (default 0) are the active session's accepted whole minutes not
+ * logged yet: they are counted as a provisional `focus_minutes` on `today` (display only),
+ * so «Hoy: 42 de 60 min», the balance and the streak never lag behind the session.
+ */
 export function summarizeLedger(
-  state: LedgerState,
-  options: { today: LocalDay; goalMinutes: number },
+  input: LedgerState,
+  options: { today: LocalDay; goalMinutes: number; pendingFocusMinutes?: number },
   rules: Readonly<PointRules> = POINT_RULES,
 ): PointsSummary {
+  const pendingFocusMinutes = Math.max(0, Math.floor(options.pendingFocusMinutes ?? 0));
+  const state =
+    pendingFocusMinutes > 0
+      ? applyLedgerInput(
+          input,
+          { type: 'focus_minutes', atMs: 0, day: options.today, minutes: pendingFocusMinutes },
+          rules,
+        ).state
+      : input;
   const level = levelForXp(state.xp, rules);
   const streakDays = streakAsOf(state, options.today, options.goalMinutes);
   const focusMinutes = isDayOpen(state, options.today) ? (state.openDays[options.today] ?? 0) : 0;
@@ -865,5 +1006,178 @@ export function summarizeLedger(
       goalMinutes: options.goalMinutes,
       goalMet: todayMet(state, options.today, options.goalMinutes),
     },
+    pendingFocusMinutes,
   };
+}
+
+// ---------------------------------------------------------------------------------------
+// Achievements and mascot (PROMPT §7 «Logros» and «Mascota o árbol»)
+//
+// The app evaluates these from its synced copy of the event log; the guardian does not
+// (they affect no points), so they have no Go port and are covered by vitest only.
+// ---------------------------------------------------------------------------------------
+
+/** Aggregates the achievements are defined on. */
+export interface AchievementMetrics {
+  /** Study sessions that ended `completed`. */
+  completedStudySessions: number;
+  /** Completed `manual`/`schedule` blocks. */
+  completedBlocks: number;
+  /** Focused Study Mode minutes ever logged (= XP within an epoch). */
+  focusMinutesTotal: number;
+  /** Longest run of consecutive closed days that met the daily goal. */
+  bestStreakDays: number;
+  /**
+   * Longest run of consecutive closed days that each had activity (a focus minute or a
+   * completed block) and no counted attempt («una semana sin intentos»).
+   */
+  bestCleanDayRun: number;
+}
+
+export type AchievementMetric = keyof AchievementMetrics;
+
+/** One achievement: reached when `metrics[metric] ≥ threshold`. Ids are stable. */
+export interface Achievement {
+  id: string;
+  metric: AchievementMetric;
+  threshold: number;
+}
+
+/** The Logros grid, in display order (the UI maps ids to Spanish names and help lines). */
+export const ACHIEVEMENTS: readonly Achievement[] = Object.freeze(
+  (
+    [
+      { id: 'first-session', metric: 'completedStudySessions', threshold: 1 },
+      { id: 'first-block', metric: 'completedBlocks', threshold: 1 },
+      { id: 'streak-7', metric: 'bestStreakDays', threshold: 7 },
+      { id: 'study-10h', metric: 'focusMinutesTotal', threshold: 600 },
+      { id: 'clean-week', metric: 'bestCleanDayRun', threshold: 7 },
+      { id: 'sessions-25', metric: 'completedStudySessions', threshold: 25 },
+      { id: 'streak-30', metric: 'bestStreakDays', threshold: 30 },
+      { id: 'study-50h', metric: 'focusMinutesTotal', threshold: 3000 },
+    ] as const
+  ).map((a) => Object.freeze({ ...a })),
+);
+
+/** Each achievement with its progress («la línea de ayuda dice cómo conseguirlos»). */
+export function evaluateAchievements(
+  metrics: Readonly<AchievementMetrics>,
+): Array<{ id: string; achieved: boolean; current: number; threshold: number }> {
+  return ACHIEVEMENTS.map((a) => {
+    const current = Math.max(0, Math.trunc(metrics[a.metric]));
+    return { id: a.id, achieved: current >= a.threshold, current, threshold: a.threshold };
+  });
+}
+
+/** Builds `AchievementMetrics` from one epoch's events (unknown/malformed ones are skipped). */
+export function achievementMetricsFromEvents(
+  events: readonly WireEvent[],
+  rules: Readonly<PointRules> = POINT_RULES,
+): AchievementMetrics {
+  const metrics: AchievementMetrics = {
+    completedStudySessions: 0,
+    completedBlocks: 0,
+    focusMinutesTotal: 0,
+    bestStreakDays: 0,
+    bestCleanDayRun: 0,
+  };
+  const active = new Set<string>();
+  const dirty = new Set<string>();
+  let cleanRun = 0;
+  let lastClosed: LocalDay | null = null;
+  const known = events.filter(isKnownEvent);
+  for (const e of known) {
+    switch (e.type) {
+      case 'study_ended':
+        if (e.data.outcome === 'completed') metrics.completedStudySessions += 1;
+        break;
+      case 'block_completed':
+        if (rules.earningBlockKinds.includes(e.data.kind)) {
+          metrics.completedBlocks += 1;
+          active.add(e.day);
+        }
+        break;
+      case 'focus_minutes':
+        metrics.focusMinutesTotal += Math.max(0, e.data.minutes);
+        if (e.data.minutes > 0) active.add(e.day);
+        break;
+      case 'attempt':
+        dirty.add(e.day);
+        break;
+      case 'day_closed': {
+        const d = e.data.day;
+        if (lastClosed !== null && dayNumber(d) <= dayNumber(lastClosed)) break;
+        const consecutive = lastClosed !== null && dayNumber(d) === dayNumber(lastClosed) + 1;
+        const clean = active.has(d) && !dirty.has(d);
+        cleanRun = clean ? (consecutive ? cleanRun + 1 : 1) : 0;
+        metrics.bestCleanDayRun = Math.max(metrics.bestCleanDayRun, cleanRun);
+        lastClosed = d;
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  metrics.bestStreakDays = replayEvents(events, rules).state.bestStreak;
+  return metrics;
+}
+
+/** Mascot phases of the Progreso header icon and the Recompensas window. */
+export const MASCOT_STAGES = ['sprout', 'plant', 'tree', 'wilted'] as const;
+export type MascotStage = (typeof MASCOT_STAGES)[number];
+
+export interface MascotRules {
+  /** `plant` from this share of today's goal (percent). */
+  plantAtGoalPercent: number;
+  /** After giving up, the mascot stays `wilted` until this many new focused minutes. */
+  recoveryFocusMinutes: number;
+}
+
+export const MASCOT_RULES: Readonly<MascotRules> = Object.freeze({
+  plantAtGoalPercent: 50,
+  recoveryFocusMinutes: 25,
+});
+
+/**
+ * «Crece mientras te concentras y se marchita si te rindes»: `wilted` after giving up
+ * (an emergency unlock, a study session abandoned or punished) until
+ * `recoveryFocusMinutes` of new focus; otherwise `tree` once today's goal is met, `plant`
+ * from `plantAtGoalPercent` of it and `sprout` before that (each day starts as a sprout).
+ * `focusMinutesSinceGiveUp` is `null` when the user never gave up.
+ */
+export function mascotStage(
+  input: { todayFocusMinutes: number; goalMinutes: number; focusMinutesSinceGiveUp: number | null },
+  rules: Readonly<MascotRules> = MASCOT_RULES,
+): MascotStage {
+  if (
+    input.focusMinutesSinceGiveUp !== null &&
+    input.focusMinutesSinceGiveUp < rules.recoveryFocusMinutes
+  ) {
+    return 'wilted';
+  }
+  const goal = Math.max(1, input.goalMinutes);
+  if (input.todayFocusMinutes >= goal) return 'tree';
+  if (input.todayFocusMinutes * 100 >= goal * rules.plantAtGoalPercent) return 'plant';
+  return 'sprout';
+}
+
+/**
+ * Focused minutes logged since the last give-up (`emergency_confirmed`, or `study_ended`
+ * with `abandoned`/`punished`), or `null` when there was none in these events.
+ */
+export function focusMinutesSinceGiveUp(events: readonly WireEvent[]): number | null {
+  let since: number | null = null;
+  for (const e of events) {
+    if (!isKnownEvent(e)) continue;
+    if (
+      e.type === 'emergency_confirmed' ||
+      (e.type === 'study_ended' &&
+        (e.data.outcome === 'abandoned' || e.data.outcome === 'punished'))
+    ) {
+      since = 0;
+    } else if (e.type === 'focus_minutes' && since !== null) {
+      since += Math.max(0, e.data.minutes);
+    }
+  }
+  return since;
 }

@@ -7,13 +7,18 @@
  * docs/ARCHITECTURE.md for the semantics of every field and event.
  *
  * Wire conventions:
- * - Every timestamp is an `IsoUtc` string (`2026-09-27T16:42:00.000Z`, UTC, `Z` suffix).
- *   In API responses timestamps are **display time**: the instant as the machine's own
- *   clock will read it, so `Date.parse(block.endsAt) - Date.now()` is the countdown even
- *   after someone moved the system clock. Events store **trusted time** in `at` plus the
- *   `wallOffsetMs` that turns it into display time (see `EventEnvelopeBase`).
+ * - Every timestamp is an `IsoUtc` string with exactly millisecond precision
+ *   (`2026-09-27T16:42:00.000Z`, UTC, `Z` suffix).
+ * - In every API response **except `/v1/events`** timestamps are **display time**: the
+ *   instant as the machine's own clock will read it, so `Date.parse(block.endsAt) -
+ *   Date.now()` is the countdown even after someone moved the system clock.
+ * - Inside events every timestamp is **trusted time**: the envelope `at` and every
+ *   `IsoUtc` in `data`, entity snapshots (`block_created.block`, `epoch_started.kept`…)
+ *   included. `/v1/events` never converts them; display time is `value + wallOffsetMs` of
+ *   the same envelope (see `EventEnvelopeBase`).
  * - Absent values are `null`, never omitted. Lists are `[]`, never `null`.
  * - Integers only: minutes, milliseconds and points are whole numbers.
+ * - Text lengths count UTF-16 code units (JavaScript `.length`), see `GUARDIAN_LIMITS`.
  */
 import type { CategoryId } from './catalog';
 
@@ -119,11 +124,26 @@ export const STUDY_STATUSES = [
   'ended_early',
   'abandoned',
   'punished',
+  'interrupted',
 ] as const;
 export type StudyStatus = (typeof STUDY_STATUSES)[number];
 
-/** Terminal study statuses (a subset of `StudyStatus`). */
-export const STUDY_OUTCOMES = ['completed', 'ended_early', 'abandoned', 'punished'] as const;
+/**
+ * Terminal study statuses (a subset of `StudyStatus`):
+ * - `completed`: the planned active time ran out (clean bonus possible).
+ * - `ended_early`: the user ended it before the planned end (no penalty, no bonus).
+ * - `abandoned`: heartbeats stopped while the machine was awake (punishment).
+ * - `punished`: the third strike (punishment).
+ * - `interrupted`: the machine rebooted or the owner's session logged off. No penalty and
+ *   no bonus; the app never restarts the camera by itself (PROMPT §8).
+ */
+export const STUDY_OUTCOMES = [
+  'completed',
+  'ended_early',
+  'abandoned',
+  'punished',
+  'interrupted',
+] as const;
 export type StudyOutcome = (typeof STUDY_OUTCOMES)[number];
 
 /** Phase computed by the guardian from Pomodoro settings and pauses. */
@@ -154,6 +174,14 @@ export type PunishmentCause = (typeof PUNISHMENT_CAUSES)[number];
 export const PUNISHMENT_STATUSES = ['active', 'completed', 'cancelled_emergency'] as const;
 export type PunishmentStatus = (typeof PUNISHMENT_STATUSES)[number];
 
+/**
+ * `counting` → `ready` → `confirmed`, or a terminal `cancelled` / `expired`. Allowed
+ * (`status`, `cancelReason`) pairs (see `EMERGENCY_STATUS_REASONS`):
+ * - `counting`, `ready`, `confirmed`: `cancelReason` is `null`;
+ * - `cancelled`: `user`, `blocks_ended` or `reboot`;
+ * - `expired` (the confirm window passed): always `expired`. The event is
+ *   `emergency_cancelled{reason: "expired"}`.
+ */
 export const EMERGENCY_STATUSES = [
   'counting',
   'ready',
@@ -166,11 +194,31 @@ export type EmergencyStatus = (typeof EMERGENCY_STATUSES)[number];
 export const EMERGENCY_CANCEL_REASONS = ['user', 'expired', 'blocks_ended', 'reboot'] as const;
 export type EmergencyCancelReason = (typeof EMERGENCY_CANCEL_REASONS)[number];
 
+/** The only valid `cancelReason` values for each emergency status. */
+export const EMERGENCY_STATUS_REASONS: Readonly<
+  Record<EmergencyStatus, readonly (EmergencyCancelReason | null)[]>
+> = Object.freeze({
+  counting: Object.freeze([null]),
+  ready: Object.freeze([null]),
+  confirmed: Object.freeze([null]),
+  cancelled: Object.freeze(['user', 'blocks_ended', 'reboot'] as const),
+  expired: Object.freeze(['expired'] as const),
+});
+
 export const ALLOWANCE_STATUSES = ['active', 'expired', 'revoked'] as const;
 export type AllowanceStatus = (typeof ALLOWANCE_STATUSES)[number];
 
-/** Why the reward shop is closed right now. */
-export const REWARDS_LOCK_REASONS = ['hardcore', 'exam', 'punishment', 'study'] as const;
+/**
+ * Why the reward shop is closed right now. `emergency`: an emergency unlock is counting or
+ * ready (buying time then would only park points out of the penalty's reach).
+ */
+export const REWARDS_LOCK_REASONS = [
+  'hardcore',
+  'exam',
+  'punishment',
+  'study',
+  'emergency',
+] as const;
 export type RewardsLockReason = (typeof REWARDS_LOCK_REASONS)[number];
 
 /**
@@ -251,7 +299,12 @@ export interface Block {
   reason: string;
   createdAt: IsoUtc;
   startsAt: IsoUtc;
-  /** Current end (display time). Only ever moves later (extensions, clock corrections). */
+  /**
+   * Current end. The trusted end only moves later (extensions, clock corrections). The
+   * display value (non-event responses) also shifts with wall-clock changes by the same
+   * delta, so it can move earlier; `Date.parse(endsAt) − Date.now()` never shrinks faster
+   * than real time. Clients must not treat an earlier `endsAt` as a shortening.
+   */
   endsAt: IsoUtc;
   /** End as first confirmed, before any extension. */
   originalEndsAt: IsoUtc;
@@ -331,6 +384,8 @@ export interface StudySession {
   nextPauseAvailableAt: IsoUtc | null;
   lastHeartbeatAt: IsoUtc | null;
   lastHeartbeatSeq: number;
+  /** «¿Sigues ahí?» warnings reported by the app (aggregate only; PROMPT §8 privacy). */
+  warnings: number;
   policy: PunishmentPolicy;
   achieved: Achieved | null;
 }
@@ -340,6 +395,8 @@ export interface Punishment {
   /** The strict block that enforces it (kind `punishment`). */
   blockId: BlockId;
   sessionId: StudySessionId | null;
+  /** Task of that session («3 strikes en "mates"»); `""` when none. */
+  task: string;
   cause: PunishmentCause;
   level: PunishmentLevel;
   minutes: number;
@@ -370,11 +427,15 @@ export interface EmergencyUnlock {
 
 export interface RewardAllowance {
   id: AllowanceId;
+  /** Offer of the first redemption. */
   offerId: string;
   serviceId: string;
-  /** Total purchased minutes (redeeming the same service again extends it). */
+  /**
+   * Total purchased minutes (redeeming the same service again extends it, up to
+   * `GUARDIAN_LIMITS.allowanceMaxMinutes`).
+   */
   minutes: number;
-  /** Total points paid. */
+  /** Total points paid across its redemptions. */
   cost: number;
   startedAt: IsoUtc;
   endsAt: IsoUtc;
@@ -391,7 +452,11 @@ export interface EscalationState {
 }
 
 export interface GuardianSettings {
-  /** IANA zone for local days and default schedule zone; `null` = the OS local zone. */
+  /**
+   * IANA zone for local days and the default schedule zone. The guardian writes the OS
+   * zone here at its first start; `null` only while it could not detect one (then the
+   * OS local zone is used). Every later change waits 24 h.
+   */
   timezone: string | null;
   /** Daily goal of focused minutes for the streak. */
   dailyGoalMinutes: number;
@@ -408,13 +473,44 @@ export interface GuardianSettings {
 
 export type SettingsField = keyof GuardianSettings;
 
+/** Value type of each settings path that can have a pending (delayed) change. */
+export interface PendingSettingValues {
+  timezone: string | null;
+  dailyGoalMinutes: number;
+  attemptPenalties: boolean;
+  closeBrowsersWithoutExtension: boolean;
+  serverTimeCheck: boolean;
+  /** The full list that will be effective (current entries plus the waiting additions). */
+  'studyWhitelist.extraDomains': string[];
+  'studyWhitelist.extraProcesses': string[];
+}
+
+/** Settings paths whose weakening changes wait (punishment changes apply at once). */
+export const PENDING_SETTING_PATHS = [
+  'timezone',
+  'dailyGoalMinutes',
+  'attemptPenalties',
+  'closeBrowsersWithoutExtension',
+  'serverTimeCheck',
+  'studyWhitelist.extraDomains',
+  'studyWhitelist.extraProcesses',
+] as const satisfies readonly (keyof PendingSettingValues)[];
+export type PendingSettingPath = (typeof PENDING_SETTING_PATHS)[number];
+
 /**
- * A weakening settings change waiting for its delay (24 h) to pass. Strengthening changes
- * apply at once and never appear here.
+ * A weakening settings change waiting for its delay (24 h of verified time) to pass. At
+ * most one per path. Strengthening changes apply at once and never appear here.
+ *
+ * - A new weakening value replaces the pending one; the delay restarts only when the new
+ *   value is weaker than the pending one (an identical value keeps it, so retries never
+ *   postpone a change). Setting the effective value again cancels it.
+ * - `effectiveAt` is an estimate (now + remaining delay, display time): the delay only
+ *   elapses while the guardian runs, plus downtime a network time check verified, so it
+ *   can move later.
  */
 export type PendingSettingChange = {
-  [K in SettingsField]: { field: K; value: GuardianSettings[K]; effectiveAt: IsoUtc };
-}[SettingsField];
+  [P in PendingSettingPath]: { field: P; value: PendingSettingValues[P]; effectiveAt: IsoUtc };
+}[PendingSettingPath];
 
 /** What the Progress section shows. Derived by `summarizeLedger` (points.ts). */
 export interface PointsSummary {
@@ -430,6 +526,11 @@ export interface PointsSummary {
   streakDays: number;
   bestStreakDays: number;
   today: { day: LocalDay; focusMinutes: number; goalMinutes: number; goalMet: boolean };
+  /**
+   * Accepted focus minutes of the active study session not logged yet (display only).
+   * `balance`, `xp`, `level`, `streakDays` and `today` already include them.
+   */
+  pendingFocusMinutes: number;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -439,6 +540,9 @@ export interface PointsSummary {
 /**
  * Fields shared by every event line. The guardian also writes `prevMac` and `mac` (HMAC
  * chain) to disk; they are stripped from API responses.
+ *
+ * Time basis: `at` and every `IsoUtc` inside `data` are **trusted time**, never converted
+ * by `/v1/events`. Display time of any of them is `value + wallOffsetMs`.
  */
 export interface EventEnvelopeBase {
   /** Envelope version. Additive changes only; a breaking change bumps it. */
@@ -468,15 +572,38 @@ export interface EventEnvelopeBase {
 export type RecoveryKind =
   'none' | 'replayed' | 'backup_snapshot' | 'rebuilt' | 'partial' | 'hosts_section' | 'empty';
 
-export type TamperKind =
-  'hosts' | 'hosts_locked' | 'hosts_path_overridden' | 'state_mac' | 'ledger_rollback';
+/**
+ * - `hosts`, `hosts_locked`, `hosts_path_overridden`: the hosts file was edited, locked
+ *   or redirected while the guardian ran.
+ * - `state_mac`, `ledger_rollback`: tampered `state.json` or a restored older copy.
+ * - `service_stopped`: the guardian was stopped for > 60 s in the same boot while a block
+ *   or punishment was active, without an installer «planned stop» marker.
+ * - `hosts_changed_while_stopped`: the section found at startup (same boot, blocks
+ *   active) differs from the one last written.
+ * - `untrusted_key`: `secret/ledger.key` was not owned by SYSTEM/Administrators (root).
+ */
+export const TAMPER_KINDS = [
+  'hosts',
+  'hosts_locked',
+  'hosts_path_overridden',
+  'state_mac',
+  'ledger_rollback',
+  'service_stopped',
+  'hosts_changed_while_stopped',
+  'untrusted_key',
+] as const;
+export type TamperKind = (typeof TAMPER_KINDS)[number];
 
 export type ProcessClosedReason =
   'running_at_block_start' | 'logon_grace' | 'browser_without_extension';
 
 export type BlockCreatedSource = 'user' | 'schedule' | 'punishment';
 
-export type EpochStartReason = 'install' | 'data_deleted' | 'log_unreadable';
+/**
+ * `untrusted_key`: the ledger key had to be replaced (see `TamperKind`); the carry comes
+ * from the rollback anchor.
+ */
+export type EpochStartReason = 'install' | 'data_deleted' | 'log_unreadable' | 'untrusted_key';
 
 /**
  * State carried into a new epoch, so the epoch can be rebuilt from its own events without
@@ -491,9 +618,17 @@ export interface EpochKeptState {
   schedules: Schedule[];
   settings: GuardianSettings;
   pendingSettings: PendingSettingChange[];
+  /**
+   * Schedule occurrence keys (`<scheduleId>@<localDate>`) already materialized within the
+   * last 8 days, so an occurrence is never created twice across an epoch change.
+   */
+  materializedOccurrences: string[];
 }
 
-/** Payload of each event type. Adding a type or an optional field is non-breaking. */
+/**
+ * Payload of each event type. Adding a type or an optional field is non-breaking. Every
+ * `IsoUtc` here is trusted time (see `EventEnvelopeBase`).
+ */
 export interface EventDataMap {
   guardian_started: {
     version: string;
@@ -523,6 +658,13 @@ export interface EventDataMap {
     trust: ClockTrust;
     /** Blocks brought back by a `calibrate` correction. */
     reactivatedBlockIds: BlockId[];
+    /**
+     * `calibrate` only: active blocks (their punishments follow) whose trusted deadlines
+     * were created while the trusted clock ran ahead and moved by `deltaMs` with it.
+     */
+    shiftedBlockIds: BlockId[];
+    /** `calibrate` only: active allowances whose `startedAt`/`endsAt` moved by `deltaMs`. */
+    shiftedAllowanceIds: AllowanceId[];
   };
   day_closed: {
     /** The local day that ended. */
@@ -531,6 +673,7 @@ export interface EventDataMap {
     goalMinutes: number;
   };
   block_created: { block: Block; source: BlockCreatedSource };
+  /** `endsAt`: the new trusted end. */
   block_extended: { blockId: BlockId; addMinutes: number; endsAt: IsoUtc };
   block_completed: {
     blockId: BlockId;
@@ -579,14 +722,25 @@ export interface EventDataMap {
   study_resumed: { sessionId: StudySessionId; auto: boolean };
   focus_minutes: { sessionId: StudySessionId; minutes: number };
   strike: { sessionId: StudySessionId; strikeNumber: number; cause: StrikeCause };
+  /** The «Resumen» numbers, so the app can rebuild them from the log alone. */
   study_ended: {
     sessionId: StudySessionId;
     outcome: StudyOutcome;
     plannedMinutes: number;
     activeMinutes: number;
+    /** Active minutes in `work` phases (the denominator of `focusPct`). */
+    workMinutes: number;
     focusedMinutes: number;
+    /** round(100 × focusedMinutes / workMinutes), 0 without work time. */
+    focusPct: number;
     strikes: number;
+    /** «¿Sigues ahí?» warnings reported during the session. */
+    warnings: number;
     attempts: number;
+    /** `StudySummary.pointsTotal`. */
+    pointsTotal: number;
+    /** The clean bonus this event grants (also its envelope `points`). */
+    cleanBonus: number;
   };
   study_outcome: { sessionId: StudySessionId; achieved: Achieved };
   punishment_started: { punishment: Punishment };
@@ -601,17 +755,30 @@ export interface EventDataMap {
     emergencyId: EmergencyId;
     blockIds: BlockId[];
     balanceBefore: number;
+    /**
+     * Points parked in active allowances at confirm: Σ `allowanceRefund` of each (what
+     * revoking them now would refund). The penalty is computed on `balanceBefore +
+     * allowanceValue`, so buying allowances cannot shrink it.
+     */
+    allowanceValue: number;
     penalty: number;
     streakDaysLost: number;
     /** Daily goal in force (needed to derive today's streak contribution). */
     goalMinutes: number;
   };
+  /**
+   * `offerMinutes`/`offerCost` belong to this redemption (the envelope delta is
+   * `−offerCost`); `allowanceMinutes`/`allowanceCost`/`endsAt` are the allowance's totals
+   * after it (`reward_ended.cost` is the same total).
+   */
   reward_redeemed: {
     allowanceId: AllowanceId;
     offerId: string;
     serviceId: string;
-    minutes: number;
-    cost: number;
+    offerMinutes: number;
+    offerCost: number;
+    allowanceMinutes: number;
+    allowanceCost: number;
     endsAt: IsoUtc;
     extendedExisting: boolean;
   };
@@ -620,7 +787,7 @@ export interface EventDataMap {
     serviceId: string;
     reason: 'expired' | 'revoked';
     revokedByBlockId: BlockId | null;
-    /** Total cost, total span and remaining span: inputs of the pro-rata refund. */
+    /** Total cost (all redemptions), total span and remaining span: refund inputs. */
     cost: number;
     totalMs: number;
     remainingMs: number;
@@ -638,8 +805,14 @@ export interface EventDataMap {
   extension_revoked: { extensionId: ExtensionId };
   tamper_detected: {
     kind: TamperKind;
-    /** ≤ 0. Only `ledger_rollback` corrects the balance by default. */
+    /**
+     * ≤ 0. `ledger_rollback`: min(0, anchor − balance). `service_stopped` and
+     * `hosts_changed_while_stopped`: −`emergencyPenalty(balance + allowanceValue)`, like an
+     * emergency unlock. The rest: 0.
+     */
     balanceCorrection: number;
+    /** True when it also costs the streak (sets it to 0 and voids the day). */
+    voidStreak: boolean;
   };
   ledger_repaired: {
     droppedFromSeq: number;
@@ -705,7 +878,19 @@ export interface UnknownGuardianEvent extends EventEnvelopeBase {
   data: Record<string, unknown>;
 }
 
-export type WireEvent = GuardianEvent | UnknownGuardianEvent;
+/**
+ * An event of a known type whose `data` failed validation (a guardian bug or a newer
+ * guardian that broke the contract). The client keeps it like an unknown event (raw,
+ * recorded `points`/`xp` apply, the cursor advances) instead of failing the whole page,
+ * and reports it in its diagnostics.
+ */
+export interface MalformedGuardianEvent extends EventEnvelopeBase {
+  type: string;
+  data: unknown;
+  malformed: { path: string; issue: string; message: string };
+}
+
+export type WireEvent = GuardianEvent | UnknownGuardianEvent | MalformedGuardianEvent;
 
 const EVENT_TYPE_SET: ReadonlySet<string> = new Set(EVENT_TYPES);
 
@@ -716,5 +901,5 @@ export function isEventType(type: unknown): type is EventType {
 
 /** Narrows a wire event to the known union (use before switching on `type`). */
 export function isKnownEvent(event: WireEvent): event is GuardianEvent {
-  return isEventType(event.type);
+  return isEventType(event.type) && !('malformed' in event);
 }

@@ -16,3 +16,25 @@ Una línea por decisión, con el porqué. Las más recientes, al final.
 - **Web en Render pendiente:** la cuenta de Render está en el límite de 25 servicios del plan gratuito. `render.yaml` queda listo y los pasos están en `PENDIENTE_PARA_MI.md`. Las descargas funcionan igual desde GitHub Releases.
 - **Nombre del paquete `.deb` en ASCII** (`centrate`): Debian no admite tildes en el nombre del paquete. La app sigue llamándose «Céntrate» en la interfaz.
 - **Firma ad hoc en macOS** con un `afterPack` (`codesign --force --deep --sign -`) e `identity: null`: sin certificado de Apple, es lo que evita el aviso de «app dañada» en Apple Silicon. El CI lo comprueba con `codesign --verify --deep --strict`.
+
+### Contrato del guardián (`docs/ARCHITECTURE.md`)
+
+- **Diseño elegido por un panel:** 3 propuestas (anti-trampas, robustez y sencillez del cliente) y 2 jueces; ganó la de anti-trampas y se le injertaron las mejores ideas de las otras, con 3 revisores adversariales después.
+- **XP y racha solo con minutos concentrado del Study Mode** (sección 7 al pie de la letra); los bloqueos dan puntos, no XP.
+- **Crédito de bloqueo solo con el equipo despierto**, un bloqueo por minuto real y sin crédito mientras una recompensa abre parte del bloqueo: evita «granjear» puntos con bloqueos solapados o suspendiendo el portátil.
+- **Bonus de +20 por sesión limpia solo desde 25 min** y, en Study Mode, con 0 strikes: evita granjearlo con sesiones de 5 min.
+- **Escalada de intentos global** (no por servicio) y ventana de 30 s deslizante para agrupar detecciones.
+- **Los castigos se apilan** como bloqueos separados; la emergencia sí existe para un castigo (con las reglas de Estricto) y una emergencia cubre varios bloqueos a la vez.
+- **La penalización de emergencia cuenta los puntos «aparcados» en recompensas activas**, y no se puede canjear mientras hay una emergencia en marcha: evita esconder puntos antes de pagar.
+- **Recompensas:** máximo 60 min por servicio, bloqueadas durante el Study Mode, y si se revocan se devuelve la parte proporcional.
+- **Reiniciar cancela una emergencia pendiente.** Los horarios en curso no se pueden tocar, y editar o borrar uno para debilitarlo queda congelado 10 min antes de que empiece.
+- **Ajustes que debilitan tardan 24 h** en aplicarse (tiempo de funcionamiento o verificado); el nivel y la duración del castigo se aplican al momento. La zona horaria se fija en el primer arranque y los cambios posteriores también esperan.
+- **Borrar datos conserva** el saldo negativo, la escalada y los ajustes anti-trampas; reinstalar sí reinicia el registro de puntos.
+- **Los intentos los informa el proceso de fondo de la extensión** (con `webNavigation`), no `blocked.html`: una página se puede abrir a mano y no es fiable como prueba del intento.
+- **Las peticiones con el token de la app no pueden llevar `Origin`**: así el token no sirve desde ninguna web. Terminar el Study Mode antes de tiempo es gratis.
+- **Reiniciar o cerrar sesión termina el Study Mode como «interrumpido»** sin penalización, y la cámara nunca se vuelve a encender sola. «¡Estaba estudiando!» solo reentrena la IA; no devuelve el strike.
+- **Tras reiniciar, un bloqueo recién terminado se mantiene hasta 120 s** («Comprobando la hora…») mientras el guardián verifica que nadie ha adelantado el reloj.
+- **Parar el servicio del guardián durante un bloqueo cuesta como una emergencia**, salvo que sea el instalador (marca de parada planificada) o un apagado del sistema.
+- **Los bloqueos recuperados** del encabezado del hosts (si el estado se perdió) son Estrictos y no dan puntos.
+- **`has-active` devuelve 10** (bloqueo Normal o Estricto) u **11** (Hardcore, Examen o castigo).
+- **Puerto fijo 47600 sin alternativa**: la extensión confía en ese puerto tras el emparejamiento.

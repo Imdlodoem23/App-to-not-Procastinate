@@ -4,16 +4,22 @@ import { getService } from '../src/catalog';
 import { DEFAULT_GUARDIAN_SETTINGS } from '../src/guardian-api';
 import type { BlockKind, BlockMode, GuardianEvent, StudyOutcome, WireEvent } from '../src/domain';
 import { EVENT_TYPES } from '../src/domain';
-import type { LedgerInput, LedgerState, LedgerStep } from '../src/points';
+import type { AllowanceWorth, LedgerInput, LedgerState, LedgerStep } from '../src/points';
 import {
+  ACHIEVEMENTS,
   EMERGENCY_RULES,
+  MASCOT_RULES,
   POINT_RULES,
+  POMODORO_PRESETS,
   REWARD_OFFERS,
   RULES_VERSION,
   STUDY_RULES,
+  achievementMetricsFromEvents,
   addDays,
   allowanceRefund,
+  allowanceValue,
   applyLedgerInput,
+  clampTunable,
   attemptPenalty,
   blockCompletionPoints,
   computeLedger,
@@ -21,13 +27,17 @@ import {
   emergencyCountdownMinutes,
   emergencyPenalty,
   emergencyPhraseMatches,
+  evaluateAchievements,
   findRewardOffer,
+  focusMinutesSinceGiveUp,
   initialLedgerState,
   isLocalDay,
   ledgerInputFromEvent,
   levelForXp,
+  mascotStage,
   maxEscalationIndex,
   normalizePhrase,
+  pomodoroPlannedMinutes,
   replayEvents,
   rulesSnapshot,
   studyEndBonus,
@@ -49,8 +59,15 @@ interface FunctionVector {
 interface SequenceVector {
   name: string;
   steps: Array<{ input: Record<string, unknown>; expect: Record<string, unknown> }>;
-  summary: { today: string; goalMinutes: number };
+  summary: { today: string; goalMinutes: number; pendingFocusMinutes?: number };
   expectFinal: Record<string, unknown>;
+}
+
+interface EventSequenceVector {
+  name: string;
+  events: WireEvent[];
+  expectMismatches: number[];
+  expectFinal: { balance: number; escalationIndex: number; escalationLastCountedAt: string | null };
 }
 
 interface VectorFile {
@@ -58,6 +75,7 @@ interface VectorFile {
   rulesVersion: number;
   functions: FunctionVector[];
   sequences: SequenceVector[];
+  eventSequences: EventSequenceVector[];
 }
 
 const vectors = JSON.parse(
@@ -78,6 +96,7 @@ const FUNCTIONS: Record<string, (args: unknown[]) => unknown> = {
   emergencyPhraseMatches: (a) => emergencyPhraseMatches(a[0] as string),
   normalizePhrase: (a) => normalizePhrase(a[0] as string),
   addDays: (a) => addDays(a[0] as string, a[1] as number),
+  allowanceValue: (a) => allowanceValue(a[0] as AllowanceWorth[]),
 };
 
 /** Vector inputs carry ISO `at` (and `escalation.lastCountedAt`); the ledger takes ms. */
@@ -130,7 +149,7 @@ describe('points parity vectors', () => {
         state = step.state;
       });
       const summary = summarizeLedger(state, v.summary);
-      expect({
+      const got: Record<string, unknown> = {
         balance: summary.balance,
         xp: summary.xp,
         level: summary.level,
@@ -138,8 +157,34 @@ describe('points parity vectors', () => {
         bestStreakDays: summary.bestStreakDays,
         todayFocusMinutes: summary.today.focusMinutes,
         todayGoalMet: summary.today.goalMet,
-      }).toEqual(v.expectFinal);
+        pendingFocusMinutes: summary.pendingFocusMinutes,
+      };
+      for (const key of Object.keys(got).filter((k) => k !== 'pendingFocusMinutes')) {
+        expect(v.expectFinal, `expectFinal.${key}`).toHaveProperty(key);
+      }
+      const picked = Object.fromEntries(Object.keys(v.expectFinal).map((k) => [k, got[k]]));
+      expect(picked).toEqual(v.expectFinal);
     });
+  });
+
+  describe.each(vectors.eventSequences.map((s) => [s.name, s] as const))(
+    'event sequence: %s',
+    (_, v) => {
+      it('replays logged events with trusted data timestamps', () => {
+        const { state, mismatches } = replayEvents(v.events);
+        expect(mismatches).toEqual(v.expectMismatches);
+        const last = state.escalation.lastCountedAtMs;
+        expect({
+          balance: state.balance,
+          escalationIndex: state.escalation.index,
+          escalationLastCountedAt: last === null ? null : new Date(last).toISOString(),
+        }).toEqual(v.expectFinal);
+      });
+    },
+  );
+
+  it('has event sequences', () => {
+    expect(vectors.eventSequences.length).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -165,6 +210,40 @@ describe('rule values (PROMPT.md §7)', () => {
     expect(STUDY_RULES.heartbeatTimeoutMs).toBe(120_000);
     expect(STUDY_RULES.punishmentMinutes).toEqual({ min: 15, max: 120, default: 60 });
     expect(maxEscalationIndex()).toBe(3);
+  });
+
+  it('bounds every user-tunable Study Mode time', () => {
+    for (const range of [
+      STUDY_RULES.doubtAfterMs,
+      STUDY_RULES.strikeAfterDoubtMs,
+      STUDY_RULES.noFaceStrikeMs,
+      STUDY_RULES.focusScoreThreshold,
+    ]) {
+      expect(range.min).toBeLessThanOrEqual(range.default);
+      expect(range.default).toBeLessThanOrEqual(range.max);
+    }
+    expect(STUDY_RULES.doubtAfterMs.default).toBe(15_000);
+    expect(STUDY_RULES.strikeAfterDoubtMs.default).toBe(30_000);
+    expect(STUDY_RULES.noFaceStrikeMs.default).toBe(60_000);
+    expect(clampTunable(3_600_000, STUDY_RULES.noFaceStrikeMs)).toBe(180_000);
+    expect(clampTunable(1, STUDY_RULES.doubtAfterMs)).toBe(10_000);
+    expect(clampTunable(Number.NaN, STUDY_RULES.doubtAfterMs)).toBe(15_000);
+    expect(STUDY_RULES).not.toHaveProperty('bootGraceMs');
+    expect(STUDY_RULES.finalHeartbeatGraceMs).toBeGreaterThan(STUDY_RULES.heartbeatIntervalMs);
+  });
+
+  it('gives Pomodoro sessions a finite planned length that ends after a work block', () => {
+    expect(POMODORO_PRESETS.map((p) => [p.id, pomodoroPlannedMinutes(p)])).toEqual([
+      ['25-5', 115],
+      ['50-10', 110],
+    ]);
+    for (const preset of POMODORO_PRESETS) {
+      const planned = pomodoroPlannedMinutes(preset);
+      expect(planned).toBeGreaterThanOrEqual(STUDY_RULES.plannedMinutes.min);
+      expect(planned).toBeLessThanOrEqual(STUDY_RULES.plannedMinutes.max);
+      expect(planned).toBeGreaterThanOrEqual(POINT_RULES.cleanSessionMinMinutes);
+      expect(planned % (preset.workMinutes + preset.breakMinutes)).toBe(preset.workMinutes);
+    }
   });
 
   it('is frozen', () => {
@@ -198,6 +277,7 @@ describe('rule values (PROMPT.md §7)', () => {
     expect(snap.points).toEqual({ ...POINT_RULES, earningBlockKinds: ['manual', 'schedule'] });
     expect(snap.emergency.phrases.es).toBe('Acepto romper mi compromiso y perder mis puntos');
     expect(snap.rewardOffers).toHaveLength(REWARD_OFFERS.length);
+    expect(snap.pomodoroPresets).toHaveLength(POMODORO_PRESETS.length);
     expect(JSON.parse(JSON.stringify(snap))).toEqual(snap);
     expect(Object.isFrozen(snap.points)).toBe(false);
   });
@@ -329,6 +409,7 @@ function keptNothing() {
     schedules: [],
     settings: structuredClone(DEFAULT_GUARDIAN_SETTINGS),
     pendingSettings: [],
+    materializedOccurrences: [],
   };
 }
 
@@ -391,12 +472,30 @@ describe('ledgerInputFromEvent', () => {
     const tamper: GuardianEvent = {
       ...envelope(4, -30),
       type: 'tamper_detected',
-      data: { kind: 'ledger_rollback', balanceCorrection: -30 },
+      data: { kind: 'ledger_rollback', balanceCorrection: -30, voidStreak: false },
     };
     expect(ledgerInputFromEvent(tamper)).toMatchObject({
       type: 'balance_correction',
       amount: -30,
+      voidStreak: false,
     });
+    const redeemed: GuardianEvent = {
+      ...envelope(6, -150),
+      type: 'reward_redeemed',
+      data: {
+        allowanceId: 'alw_0123456789abcdefABCD',
+        offerId: 'youtube-15',
+        serviceId: 'youtube',
+        offerMinutes: 15,
+        offerCost: 150,
+        allowanceMinutes: 30,
+        allowanceCost: 300,
+        endsAt: '2026-09-27T10:30:00.000Z',
+        extendedExisting: true,
+      },
+    };
+    // The charge is this redemption's cost, never the allowance total.
+    expect(ledgerInputFromEvent(redeemed)).toMatchObject({ type: 'reward_redeemed', cost: 150 });
     const epoch: GuardianEvent = {
       ...envelope(1, -40),
       type: 'epoch_started',
@@ -448,9 +547,14 @@ describe('replayEvents', () => {
         outcome: 'completed',
         plannedMinutes: 50,
         activeMinutes: 50,
+        workMinutes: 50,
         focusedMinutes: 50,
+        focusPct: 100,
         strikes: 0,
+        warnings: 0,
         attempts: 0,
+        pointsTotal: 120,
+        cleanBonus: 20,
       },
     },
     // A type from a newer guardian: only its recorded deltas apply.
@@ -474,5 +578,160 @@ describe('replayEvents', () => {
     const { state, mismatches } = replayEvents(drifted);
     expect(mismatches).toEqual([3]);
     expect(state.balance).toBe(132);
+  });
+});
+
+describe('replayEvents with malformed events', () => {
+  it('applies the recorded deltas of a malformed known event like an unknown one', () => {
+    const malformed: WireEvent = {
+      ...envelope(1, -10),
+      type: 'attempt',
+      data: { targetKey: 42 },
+      malformed: { path: 'data.attemptId', issue: 'required', message: 'att_ id' },
+    };
+    const { state, mismatches } = replayEvents([malformed]);
+    expect(state.balance).toBe(-10);
+    expect(mismatches).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// Achievements and mascot (app-only; no Go port)
+// ---------------------------------------------------------------------------------------
+
+function dayEvent(seq: number, day: string, type: string, data: unknown, points = 0, xp = 0) {
+  return { ...envelope(seq, points, xp, `${day}T12:00:00.000Z`), day, type, data } as WireEvent;
+}
+
+describe('achievements', () => {
+  it('have stable unique ids and positive thresholds', () => {
+    const ids = ACHIEVEMENTS.map((a) => a.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toEqual(
+      expect.arrayContaining(['first-session', 'streak-7', 'study-10h', 'clean-week']),
+    );
+    for (const a of ACHIEVEMENTS) expect(a.threshold).toBeGreaterThan(0);
+  });
+
+  it('are evaluated from metrics with progress', () => {
+    const progress = evaluateAchievements({
+      completedStudySessions: 1,
+      completedBlocks: 0,
+      focusMinutesTotal: 599,
+      bestStreakDays: 7,
+      bestCleanDayRun: 3,
+    });
+    const byId = Object.fromEntries(progress.map((p) => [p.id, p]));
+    expect(byId['first-session']?.achieved).toBe(true);
+    expect(byId['first-block']?.achieved).toBe(false);
+    expect(byId['streak-7']?.achieved).toBe(true);
+    expect(byId['study-10h']).toMatchObject({ achieved: false, current: 599, threshold: 600 });
+    expect(byId['clean-week']).toMatchObject({ achieved: false, current: 3 });
+  });
+
+  it('builds metrics from the log: sessions, blocks, focus and clean days', () => {
+    const days = ['2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23'];
+    const events: WireEvent[] = [];
+    let seq = 1;
+    for (const day of days) {
+      events.push(
+        dayEvent(seq++, day, 'focus_minutes', { sessionId: SESSION, minutes: 60 }, 120, 60),
+      );
+    }
+    // A counted attempt on the third day breaks the clean run.
+    events.push(
+      dayEvent(
+        seq++,
+        days[2] as string,
+        'attempt',
+        {
+          attemptId: ATTEMPT,
+          layer: 'extension',
+          targetKey: 'svc:youtube',
+          targetType: 'service',
+          serviceId: 'youtube',
+          blockIds: [BLOCK],
+          browser: 'chrome',
+          incognito: false,
+          escalationIndex: 0,
+          penalized: true,
+        },
+        -10,
+      ),
+    );
+    events.push(
+      dayEvent(
+        seq,
+        days[0] as string,
+        'study_ended',
+        {
+          sessionId: SESSION,
+          outcome: 'completed',
+          plannedMinutes: 60,
+          activeMinutes: 60,
+          workMinutes: 60,
+          focusedMinutes: 60,
+          focusPct: 100,
+          strikes: 0,
+          warnings: 0,
+          attempts: 0,
+          pointsTotal: 140,
+          cleanBonus: 20,
+        },
+        20,
+      ),
+    );
+    // Days close in order; the log is replayed in seq order, so sort by (day, seq).
+    const closes = days.map((d, i) =>
+      dayEvent(100 + i, addDays(d, 1), 'day_closed', { day: d, goalMinutes: 60 }),
+    );
+    const ordered = [...events, ...closes].sort((a, b) =>
+      a.day === b.day ? a.seq - b.seq : a.day < b.day ? -1 : 1,
+    );
+    const metrics = achievementMetricsFromEvents(ordered);
+    expect(metrics).toEqual({
+      completedStudySessions: 1,
+      completedBlocks: 0,
+      focusMinutesTotal: 240,
+      bestStreakDays: 4,
+      bestCleanDayRun: 2,
+    });
+  });
+});
+
+describe('mascot', () => {
+  it('grows with today’s focus and wilts after giving up until it recovers', () => {
+    const base = { goalMinutes: 60, focusMinutesSinceGiveUp: null };
+    expect(mascotStage({ ...base, todayFocusMinutes: 0 })).toBe('sprout');
+    expect(mascotStage({ ...base, todayFocusMinutes: 29 })).toBe('sprout');
+    expect(mascotStage({ ...base, todayFocusMinutes: 30 })).toBe('plant');
+    expect(mascotStage({ ...base, todayFocusMinutes: 60 })).toBe('tree');
+    expect(
+      mascotStage({ goalMinutes: 60, todayFocusMinutes: 60, focusMinutesSinceGiveUp: 10 }),
+    ).toBe('wilted');
+    expect(
+      mascotStage({
+        goalMinutes: 60,
+        todayFocusMinutes: 60,
+        focusMinutesSinceGiveUp: MASCOT_RULES.recoveryFocusMinutes,
+      }),
+    ).toBe('tree');
+  });
+
+  it('counts focus since the last give-up from the log', () => {
+    const focus = (seq: number, minutes: number) =>
+      dayEvent(seq, DAY, 'focus_minutes', { sessionId: SESSION, minutes }, minutes * 2, minutes);
+    expect(focusMinutesSinceGiveUp([focus(1, 30)])).toBeNull();
+    const gaveUp = dayEvent(2, DAY, 'emergency_confirmed', {
+      emergencyId: 'emg_0123456789abcdefABCD',
+      blockIds: [BLOCK],
+      balanceBefore: 500,
+      allowanceValue: 0,
+      penalty: 250,
+      streakDaysLost: 0,
+      goalMinutes: 60,
+    });
+    expect(focusMinutesSinceGiveUp([focus(1, 30), gaveUp])).toBe(0);
+    expect(focusMinutesSinceGiveUp([focus(1, 30), gaveUp, focus(3, 20)])).toBe(20);
   });
 });

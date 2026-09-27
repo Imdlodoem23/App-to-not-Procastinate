@@ -14,8 +14,21 @@
  * Dependency-free: only the catalog helpers of this package and platform `fetch`,
  * `crypto.subtle`, `TextEncoder` and `atob`.
  */
-import type { CategoryId } from './catalog';
-import { CATEGORY_IDS, isProtectedProcessName, isValidDomain, isValidProcessName } from './catalog';
+import type { CatalogPlatform, CategoryId } from './catalog';
+import {
+  APPS,
+  CATEGORIES,
+  CATEGORY_IDS,
+  SERVICES,
+  findAppByProcessName,
+  findServiceByDomain,
+  findServiceByProcessName,
+  isProtectedProcessName,
+  isSameOrSubdomain,
+  isValidDomain,
+  isValidProcessName,
+  processNameKey,
+} from './catalog';
 import type {
   Achieved,
   AllowanceId,
@@ -27,6 +40,7 @@ import type {
   BrowserFamily,
   ClockJumpSource,
   ClockTrust,
+  EmergencyCancelReason,
   EmergencyId,
   EmergencyUnlock,
   EpochId,
@@ -42,7 +56,10 @@ import type {
   IdKind,
   IsoUtc,
   IsoWeekday,
+  MalformedGuardianEvent,
   PendingSettingChange,
+  PendingSettingPath,
+  PendingSettingValues,
   PointsSummary,
   PomodoroSpec,
   Punishment,
@@ -54,6 +71,7 @@ import type {
   Schedule,
   ScheduleId,
   StrikeCause,
+  StudyOutcome,
   StudySession,
   StudySessionId,
   TargetSpec,
@@ -72,6 +90,7 @@ import {
   CLOCK_TRUST_LEVELS,
   EMERGENCY_CANCEL_REASONS,
   EMERGENCY_STATUSES,
+  EMERGENCY_STATUS_REASONS,
   GUARDIAN_MODES,
   HEARTBEAT_STATES,
   ID_PREFIXES,
@@ -83,6 +102,7 @@ import {
   STUDY_OUTCOMES,
   STUDY_PHASES,
   STUDY_STATUSES,
+  TAMPER_KINDS,
   isEventType,
   isIdOf,
 } from './domain';
@@ -131,6 +151,11 @@ export const DATA_DELETE_CONFIRM_WORDS: readonly string[] = Object.freeze(['BORR
 /**
  * Limits shared by the app (confirmation card, forms) and the guardian (validation). The
  * guardian embeds `apiContractSnapshot()`, so both always use the same numbers.
+ *
+ * Every text length (`reasonMaxLength`, `taskMaxLength`, `scheduleNameMaxLength`,
+ * `phraseMaxLength`, …) counts **UTF-16 code units** (JavaScript `.length`), not bytes or
+ * runes: Go computes it as `utf16Len(s) = Σ over runes (r ≥ 0x10000 ? 2 : 1)` (see
+ * `textLength`). 139 BMP characters plus one emoji is 141 units.
  */
 export const GUARDIAN_LIMITS = Object.freeze({
   /** A block lasts 5 min … 24 h. */
@@ -155,6 +180,26 @@ export const GUARDIAN_LIMITS = Object.freeze({
   maxCustomProcesses: 50,
   maxWhitelistExtraDomains: 100,
   maxWhitelistExtraProcesses: 50,
+  /**
+   * Active blocks of any kind. A client create beyond it gets 422 `too_many_targets`;
+   * guardian-created blocks (punishments, schedule occurrences) are never refused.
+   */
+  maxActiveBlocks: 32,
+  /**
+   * Hosts entries from custom domains (after `www.`/apex expansion) across active user
+   * blocks (`manual`); a create beyond it gets 422 `too_many_targets`.
+   */
+  maxActiveCustomHosts: 1_000,
+  /** The same budget across enabled schedules, checked on schedule create and update. */
+  maxScheduleCustomHosts: 1_000,
+  /**
+   * Hard cap of the hosts section. With the limits above it is never reached; if it were,
+   * entries are dropped by priority (punishment > exam > hardcore > strict > normal,
+   * catalog before custom, older blocks first), never alphabetically.
+   */
+  hostsMaxDomains: 20_000,
+  /** One service's allowance can be extended up to this many minutes in total. */
+  allowanceMaxMinutes: 60,
   /** Weakening settings changes become effective after this delay. */
   settingsWeakeningDelayMs: 24 * 3_600_000,
   maxBodyBytes: 65_536,
@@ -165,10 +210,21 @@ export const GUARDIAN_LIMITS = Object.freeze({
   longPollMaxMs: 25_000,
   eventsPageDefault: 500,
   eventsPageMax: 1_000,
+  /**
+   * Largest atomic batch (a calibration that reactivates `unverifiedCompletionsMax`
+   * blocks). A page of `/v1/events` never splits a batch.
+   */
+  maxBatchEvents: 256,
   blocksPageMax: 100,
   heartbeatMaxFocusMs: 600_000,
+  /** «¿Sigues ahí?» warnings one heartbeat (or the end request) may report. */
+  heartbeatMaxWarnings: 100,
   idempotencyTtlMs: 600_000,
   idempotencyKeyMaxLength: 128,
+  /** Idempotency records kept (with their stored responses, persisted across restarts). */
+  idempotencyMaxEntries: 256,
+  /** Completions kept for resurrection until a network time check (§10.2). */
+  unverifiedCompletionsMax: 200,
   pairingCodeTtlMs: 300_000,
   pairingMaxFailures: 5,
   pairingClaimsPerWindow: 20,
@@ -177,12 +233,37 @@ export const GUARDIAN_LIMITS = Object.freeze({
   extHeartbeatIntervalMs: 30_000,
   /** An extension is "connected" if it sent a heartbeat within this window. */
   extConnectedWindowMs: 90_000,
+  /** An extension still counts as protecting this long after the rules changed. */
+  extRulesCurrentGraceMs: 60_000,
   /** A browser running this long without a connected extension is reported (or closed). */
   browserWithoutExtensionGraceMs: 60_000,
   /** `/v1/state.recent.endedBlocks` keeps blocks that ended within this window. */
   recentEndedBlocksMs: 120_000,
+  /** `/v1/state.recent.endedStudy` keeps the last session this long after it ended. */
+  recentEndedStudyMs: 120_000,
+  /** `GET /v1/study/sessions/{id}` serves sessions that ended within this window. */
+  studyHistoryMs: 7 * 24 * 3_600_000,
   emergencyMaxBlocks: 50,
   phraseMaxLength: 400,
+  /** The app sends a Nuclear heartbeat this often while the overlay is shown. */
+  nuclearHeartbeatIntervalMs: 3_000,
+  /** Without a Nuclear heartbeat for this long, the guardian relaunches the app. */
+  nuclearLivenessMs: 10_000,
+});
+
+/**
+ * Size caps of the response validators. They are deliberately far above anything the
+ * guardian may emit under `GUARDIAN_LIMITS` (a test checks it): one oversized list must
+ * never make a whole response invalid.
+ */
+export const RESPONSE_LIMITS = Object.freeze({
+  domains: 100_000,
+  processes: 10_000,
+  ids: 10_000,
+  blocks: 10_000,
+  punishments: 1_000,
+  allowances: 1_000,
+  schedules: 1_000,
 });
 
 /** Features a guardian build supports; clients gate optional request fields on them. */
@@ -198,8 +279,16 @@ export const GUARDIAN_CAPABILITIES = [
   'ext_rules_signed',
   'events_longpoll',
   'data_delete',
+  'study_history',
+  'nuclear_heartbeat',
 ] as const;
 export type GuardianCapability = (typeof GUARDIAN_CAPABILITIES)[number];
+
+/**
+ * Capability reported only by builds with the `testhooks` tag (they serve
+ * `POST /v1/_test/clock`). A release must never report it; the release workflow checks it.
+ */
+export const GUARDIAN_TEST_CAPABILITY = 'testhooks';
 
 /** Problem codes in `/v1/health` and `/v1/state` (codes only, no personal data). */
 export const GUARDIAN_PROBLEMS = [
@@ -238,6 +327,7 @@ export const GUARDIAN_PATHS = {
   schedule: (id: ScheduleId) => `/v1/schedules/${seg(id)}`,
   studySessions: '/v1/study/sessions',
   studyCurrent: '/v1/study/sessions/current',
+  studySession: (id: StudySessionId) => `/v1/study/sessions/${seg(id)}`,
   studyHeartbeat: (id: StudySessionId) => `/v1/study/sessions/${seg(id)}/heartbeat`,
   studyStrike: (id: StudySessionId) => `/v1/study/sessions/${seg(id)}/strike`,
   studyPause: (id: StudySessionId) => `/v1/study/sessions/${seg(id)}/pause`,
@@ -260,6 +350,7 @@ export const GUARDIAN_PATHS = {
   pairingExtension: (id: ExtensionId) => `/v1/pairing/extensions/${seg(id)}`,
   extRules: '/v1/ext/rules',
   extHeartbeat: '/v1/ext/heartbeat',
+  nuclearHeartbeat: '/v1/nuclear/heartbeat',
   dataDelete: '/v1/data/delete',
   /** Only in builds with the `testhooks` tag. */
   testClock: '/v1/_test/clock',
@@ -325,6 +416,7 @@ export const GUARDIAN_ENDPOINTS: readonly EndpointSpec[] = Object.freeze([
   ep('deleteSchedule', 'DELETE', '/v1/schedules/{id}', 'app'),
   ep('startStudy', 'POST', '/v1/study/sessions', 'app', { idem: true }),
   ep('currentStudy', 'GET', '/v1/study/sessions/current', 'app'),
+  ep('getStudySession', 'GET', '/v1/study/sessions/{id}', 'app'),
   ep('studyHeartbeat', 'POST', '/v1/study/sessions/{id}/heartbeat', 'app'),
   ep('studyStrike', 'POST', '/v1/study/sessions/{id}/strike', 'app', { idem: true }),
   ep('pauseStudy', 'POST', '/v1/study/sessions/{id}/pause', 'app'),
@@ -348,6 +440,7 @@ export const GUARDIAN_ENDPOINTS: readonly EndpointSpec[] = Object.freeze([
   ep('revokeExtension', 'DELETE', '/v1/pairing/extensions/{id}', 'app'),
   ep('getExtRules', 'GET', '/v1/ext/rules', 'ext', { longPoll: true }),
   ep('extHeartbeat', 'POST', '/v1/ext/heartbeat', 'ext'),
+  ep('nuclearHeartbeat', 'POST', '/v1/nuclear/heartbeat', 'app'),
   ep('deleteData', 'POST', '/v1/data/delete', 'app', { idem: true }),
   ep('testClock', 'POST', '/v1/_test/clock', 'app', { testOnly: true }),
 ]);
@@ -387,6 +480,7 @@ export const GUARDIAN_ERROR_STATUS = Object.freeze({
   rewards_locked: 409,
   service_not_blocked: 409,
   insufficient_points: 409,
+  allowance_limit_reached: 409,
   data_delete_blocked: 409,
   pairing_no_code: 409,
   idempotency_conflict: 409,
@@ -402,6 +496,7 @@ export const GUARDIAN_ERROR_STATUS = Object.freeze({
   unknown_id: 422,
   protected_target: 422,
   allow_distraction: 422,
+  too_many_targets: 422,
   invalid_timezone: 422,
   unknown_offer: 422,
   rate_limited: 429,
@@ -414,9 +509,12 @@ export const GUARDIAN_ERROR_CODES = Object.freeze(
   Object.keys(GUARDIAN_ERROR_STATUS) as GuardianErrorCode[],
 );
 
-/** Errors produced by the client itself (no HTTP response, or an unusable one). */
+/**
+ * Errors produced by the client itself (no HTTP response, or an unusable one).
+ * `stale_rules`: signed extension rules older than the version already applied.
+ */
 export type GuardianClientErrorCode =
-  'unreachable' | 'timeout' | 'invalid_response' | 'invalid_signature';
+  'unreachable' | 'timeout' | 'invalid_response' | 'invalid_signature' | 'stale_rules';
 
 /** Body of every non-2xx response. `details` is code-specific (see ARCHITECTURE.md). */
 export interface GuardianErrorBody {
@@ -465,6 +563,7 @@ export interface HealthResponse {
   capabilities: string[];
   schemaVersion: number;
   catalogVersion: number;
+  /** Points rules version (`RULES_VERSION` in points.ts), not the extension rules counter. */
   rulesVersion: number;
   startedAt: IsoUtc;
   serverNow: IsoUtc;
@@ -479,6 +578,12 @@ export interface ClockStatus {
   trust: ClockTrust;
   lastJump: { at: IsoUtc; deltaMs: number; source: ClockJumpSource } | null;
   lastCalibratedAt: IsoUtc | null;
+  /**
+   * After a reboot, blocks whose end passed while the machine was off stay enforced until
+   * the first time check answers or this instant (at most 120 s after boot). The UI shows
+   * «Comprobando la hora…» instead of 0:00 meanwhile. `null` when no hold is active.
+   */
+  bootHoldUntil: IsoUtc | null;
 }
 
 export const HOSTS_STATUSES = [
@@ -493,13 +598,22 @@ export type HostsStatus = (typeof HOSTS_STATUSES)[number];
 
 export interface ExtensionStatus {
   id: ExtensionId;
+  /** Family bound at pairing; heartbeats with another `browser` are refused. */
   browser: BrowserFamily;
   extVersion: string;
+  /** A heartbeat arrived within `extConnectedWindowMs`. */
   connected: boolean;
   lastSeenAt: IsoUtc | null;
   incognitoAllowed: boolean;
   hostPermission: boolean;
-  appliedRulesVersion: number;
+  appliedExtRulesVersion: number;
+  /**
+   * The family counts as protected: connected, `hostPermission`, the current
+   * `extRulesVersion` applied (or changed < `extRulesCurrentGraceMs` ago) and incognito
+   * allowed (or disabled by browser policy). Only protected families spare a browser from
+   * `closeBrowsersWithoutExtension`.
+   */
+  protecting: boolean;
 }
 
 export interface ProtectionStatus {
@@ -554,7 +668,14 @@ export interface GuardianStateResponse {
   nextSchedule: NextScheduleInfo | null;
   points: PointsSummary;
   pendingSettings: PendingSettingChange[];
-  recent: { endedBlocks: EndedBlockNotice[] };
+  recent: {
+    endedBlocks: EndedBlockNotice[];
+    /**
+     * The last study session if it ended within `recentEndedStudyMs` (also when the
+     * guardian ended it: completion, abandonment, third strike, reboot), for «Resumen».
+     */
+    endedStudy: StudySessionDetail | null;
+  };
 }
 
 /** `GET /v1/diagnostics` («Copiar diagnóstico»): no domains, reasons, tasks or usernames. */
@@ -589,6 +710,10 @@ export interface DiagnosticsResponse {
     lastCalibration: { at: IsoUtc; ok: boolean; deltaMs: number; sources: number } | null;
   };
   hosts: {
+    /**
+     * The default path, or the `DataBasePath` override with any user-profile prefix
+     * replaced by `%USERPROFILE%` (`~` on POSIX): diagnostics never carry a username.
+     */
     path: string;
     pathOverridden: boolean;
     status: HostsStatus;
@@ -601,6 +726,7 @@ export interface DiagnosticsResponse {
   processWatcher: { intervalMs: number; lastScanMs: number; kills24h: number };
   extensions: ExtensionStatus[];
   catalogVersion: number;
+  /** Points rules version. */
   rulesVersion: number;
   errors: Array<{ code: string; count: number; lastAt: IsoUtc }>;
 }
@@ -632,14 +758,19 @@ export interface CreateBlockResponse {
 export interface ListBlocksQuery {
   /** Default `active`. */
   status?: 'active' | 'ended';
-  /** For `ended`: return blocks that ended before this instant (pagination cursor). */
-  before?: IsoUtc;
+  /**
+   * For `ended`: the opaque `nextCursor` of the previous page. Pages are ordered by
+   * (trusted `endedAt` desc, id desc), so blocks sharing an `endedAt` are never skipped
+   * or repeated, and clock changes between pages do not matter.
+   */
+  cursor?: string;
   limit?: number;
 }
 
 export interface ListBlocksResponse {
   blocks: Block[];
-  nextBefore: IsoUtc | null;
+  /** `null` on the last page. */
+  nextCursor: string | null;
 }
 
 export interface BlockProgress {
@@ -706,12 +837,18 @@ export interface HeartbeatRequest {
   focusScore: number | null;
   /** Focused milliseconds the app measured since its previous heartbeat. */
   focusedMsSinceLast: number;
+  /** «¿Sigues ahí?» warnings shown since the previous heartbeat (0–100). */
+  warningsSinceLast: number;
   cameraOn: boolean;
 }
 
 export interface HeartbeatResponse {
   duplicate: boolean;
-  /** min(focusedMsSinceLast, work-phase awake time since the previous heartbeat). */
+  /**
+   * min(focusedMsSinceLast, unclaimed work-phase awake time). The accepted amount is
+   * subtracted from the unclaimed time (capped at 10 min), not reset, so tick phase never
+   * loses credit.
+   */
   acceptedFocusMs: number;
   session: StudySession;
   serverNow: IsoUtc;
@@ -727,7 +864,13 @@ export interface StrikeResponse {
   counted: boolean;
   reason: 'cooldown' | 'not_in_work_phase' | null;
   strikeNumber: number;
+  /**
+   * Penalties of this strike: −15, or −115 on the punishing strike (strike + punishment).
+   * Other deltas of the same batch (focus flush, allowance refunds) are not included.
+   */
   pointsDelta: number;
+  /** 0, or −100 when this strike started the punishment. */
+  punishmentPointsDelta: number;
   cooldownUntil: IsoUtc | null;
   /** Set when this strike triggered the punishment (3rd strike). */
   punishment: Punishment | null;
@@ -736,25 +879,50 @@ export interface StrikeResponse {
 
 export interface EndStudyRequest {
   reason: 'user';
+  /** Focus since the last heartbeat, accepted like a heartbeat's (closes the interval). */
+  focusedMsSinceLast: number;
+  /** «¿Sigues ahí?» warnings since the last heartbeat. */
+  warningsSinceLast: number;
 }
 
+/** «Resumen»: the numbers the guardian also logs in `study_ended`. */
 export interface StudySummary {
-  outcome: 'completed' | 'ended_early' | 'abandoned' | 'punished';
+  outcome: StudyOutcome;
   activeMinutes: number;
+  /** Active minutes in `work` phases. */
+  workMinutes: number;
   focusedMinutes: number;
-  /** round(100 × focused / active work minutes), 0 when there was no work time. */
+  /** round(100 × focusedMinutes / workMinutes), 0 when there was no work time. */
   focusPct: number;
   strikes: number;
+  warnings: number;
   attempts: number;
-  /** Net points of the session (focus + bonus − strikes − punishment). */
+  /**
+   * Net points of the session: the recorded points of every event whose data carries
+   * this session (focus minutes, strikes, the clean bonus, the punishment) plus the
+   * attempts counted while it was active. Allowance refunds are not included.
+   */
   pointsTotal: number;
   cleanBonus: number;
 }
 
+/**
+ * `POST …/end` response. Ending a session that already ended (the guardian may have
+ * ended it first) returns 200 with its stored summary.
+ */
 export interface EndStudyResponse {
   session: StudySession;
   summary: StudySummary;
 }
+
+/** One session; `summary` is `null` while it is still active. */
+export interface StudySessionDetail {
+  session: StudySession;
+  summary: StudySummary | null;
+}
+
+/** `GET /v1/study/sessions/{id}`: the current session or one that ended ≤ 7 days ago. */
+export type StudySessionDetailResponse = StudySessionDetail;
 
 export interface StudyOutcomeRequest {
   achieved: Achieved;
@@ -787,6 +955,10 @@ export interface AttemptResponse {
   /** What a new attempt would cost right now (positive). */
   nextPenalty: number;
   serviceId: string | null;
+  /**
+   * The covering block with the latest `endsAt` (ties: the most recently created), since
+   * that is when access actually returns; blocked.html shows its `endsAt` and `reason`.
+   */
   block: { id: BlockId; kind: BlockKind; mode: BlockMode; endsAt: IsoUtc; reason: string } | null;
   reason: 'not_blocked' | 'allowance_active' | null;
 }
@@ -803,11 +975,25 @@ export interface EventsQuery {
   waitMs?: number;
 }
 
+/**
+ * `GET /v1/events`. Event timestamps are trusted time (never converted; display time is
+ * `value + wallOffsetMs`).
+ */
 export interface EventsResponse {
   epoch: EpochId;
   reset: boolean;
+  /**
+   * Ordered by `seq`. A page never splits a batch: it ends on a `txEnd: true` line and
+   * holds at most `limit` events, unless its first batch alone is longer (then exactly
+   * that batch, ≤ `maxBatchEvents`).
+   */
   events: WireEvent[];
+  /**
+   * The app's cursor: the `seq` of the last returned event; when `events` is empty, the
+   * request's `after` (0 on `reset`).
+   */
   lastSeq: number;
+  /** An event with `seq > lastSeq` already exists in this epoch. */
   hasMore: boolean;
 }
 
@@ -818,16 +1004,20 @@ export interface EmergencyPreviewResponse {
   /** Hardcore and exam blocks that stay active regardless. */
   excludedBlockIds: BlockId[];
   countdownMinutes: number | null;
+  /** max(200, floor((balance + allowanceValue) / 2)) if confirmed now. */
   penaltyPoints: number;
   balance: number;
+  /** Points parked in active allowances (they count towards the penalty). */
+  allowanceValue: number;
   streakDays: number;
-  phrase: string;
+  /** The commitment phrase in each UI language; the UI shows its own. */
+  phrases: { es: string; en: string };
 }
 
+/** `phrase` may be typed in either language (`emergencyPhraseMatches`). */
 export interface EmergencyRequest {
   blockIds: BlockId[];
   phrase: string;
-  language: 'es' | 'en';
 }
 
 export interface EmergencyResponse {
@@ -855,7 +1045,8 @@ export interface RewardOfferStatus {
   /** «Te faltan 40 puntos»; 0 when affordable. */
   shortBy: number;
   available: boolean;
-  unavailableReason: 'not_blocked' | 'insufficient_points' | 'locked' | null;
+  /** `allowance_limit`: the service's allowance would exceed `allowanceMaxMinutes`. */
+  unavailableReason: 'not_blocked' | 'insufficient_points' | 'locked' | 'allowance_limit' | null;
 }
 
 export interface RewardsResponse {
@@ -899,6 +1090,12 @@ export interface PairingClaimResponse {
   token: string;
   guardianVersion: string;
   boundOrigin: string | null;
+  /**
+   * base64url SPKI (DER) of the guardian's ECDSA P-256 rules key: the extension verifies
+   * `/v1/ext/rules` with it (`verifyRulesSignature`), so a process that squats the port
+   * cannot forge rules even with the extension token.
+   */
+  rulesPublicKey: string;
 }
 
 export interface PairedExtension {
@@ -927,6 +1124,11 @@ export interface ExtRuleBlock {
   whitelistOnly: boolean;
 }
 
+/**
+ * Exemptions from the **whitelist rule only** (never from `blockDomains`): the
+ * intersection of the active whitelist blocks' allow sets, plus allowance domains and
+ * always-allowed hosts.
+ */
 export interface ExtWhitelistRules {
   /** Allowed hosts; each also allows its subdomains. */
   allowDomains: string[];
@@ -934,10 +1136,25 @@ export interface ExtWhitelistRules {
   allowHostPatterns: string[];
 }
 
+/**
+ * `GET /v1/ext/rules`. DNR priorities, highest first: allow `excludedDomains`,
+ * `127.0.0.1` and `localhost`; redirect `blockDomains`; allow `whitelist` entries;
+ * redirect every other `main_frame` (only while `whitelist` is set). So a whitelist
+ * allowance never reopens a host another block lists explicitly.
+ */
 export interface ExtRulesResponse {
-  rulesVersion: number;
+  /**
+   * Enforcement counter (not the points `rulesVersion`). Persisted and strictly
+   * increasing across restarts and epochs; the extension rejects a lower one.
+   */
+  extRulesVersion: number;
+  /** Echo of the request's `nonce` (inside the signed body: no replays). */
+  nonce: string;
   serverNow: IsoUtc;
-  /** Effective set: every block's domains − allowances − whitelist allow set. */
+  /**
+   * The union of the non-whitelist blocks' resolved domains − allowance domains −
+   * always-allowed hosts. Whitelist allow sets never subtract from it.
+   */
   blockDomains: string[];
   /**
    * Hosts under `blockDomains` that must stay reachable (catalog `excludedSubdomains` and
@@ -950,6 +1167,10 @@ export interface ExtRulesResponse {
   whitelist: ExtWhitelistRules | null;
   blocks: ExtRuleBlock[];
   allowances: Array<{ serviceId: string; endsAt: IsoUtc }>;
+  /**
+   * Summary of the active punishments (they stack): the latest `endsAt` and the highest
+   * `level` (`distractions` < `whitelist` < `nuclear`); `null` without punishments.
+   */
   punishment: { endsAt: IsoUtc; level: PunishmentLevel } | null;
   /** Earliest end among blocks and allowances (the extension sets an alarm). */
   nextChangeAt: IsoUtc | null;
@@ -958,15 +1179,36 @@ export interface ExtRulesResponse {
 
 export interface ExtHeartbeatRequest {
   extVersion: string;
+  /** Must equal the family bound at pairing (403 `insufficient_scope` otherwise). */
   browser: BrowserFamily;
   browserVersion: string;
   incognitoAllowed: boolean;
   hostPermission: boolean;
-  appliedRulesVersion: number;
+  appliedExtRulesVersion: number;
 }
 
 export interface ExtHeartbeatResponse {
-  rulesVersion: number;
+  extRulesVersion: number;
+  serverNow: IsoUtc;
+}
+
+/**
+ * `POST /v1/nuclear/heartbeat`, every `nuclearHeartbeatIntervalMs` while the Nuclear
+ * overlay runs. The guardian only accepts it from a loopback peer whose process image is
+ * the installed app (`config.json` `appPath`) in the console session; without one for
+ * `nuclearLivenessMs` it relaunches the app.
+ */
+export interface NuclearHeartbeatRequest {
+  /** The overlay covers every display right now. */
+  overlayShown: boolean;
+  /** Displays covered (1–16). */
+  displays: number;
+}
+
+export interface NuclearHeartbeatResponse {
+  nuclearActive: boolean;
+  /** Latest end among active Nuclear punishments (display time); `null` when none. */
+  endsAt: IsoUtc | null;
   serverNow: IsoUtc;
 }
 
@@ -1087,6 +1329,14 @@ const SAFE = Number.MAX_SAFE_INTEGER;
 const count = int(0, SAFE);
 const signed = int(-SAFE, SAFE);
 
+/**
+ * Length of a text as every limit counts it: UTF-16 code units (JavaScript `.length`).
+ * Go: `utf16Len(s) = Σ over runes (r ≥ 0x10000 ? 2 : 1)`.
+ */
+export function textLength(text: string): number {
+  return text.length;
+}
+
 function str(opts: {
   min?: number;
   max: number;
@@ -1096,7 +1346,8 @@ function str(opts: {
   const min = opts.min ?? 0;
   return make((v, p) => {
     if (typeof v !== 'string') return issue(p, v === undefined ? 'required' : 'type', 'string');
-    if (v.length < min || v.length > opts.max) {
+    const length = textLength(v);
+    if (length < min || length > opts.max) {
       return issue(p, 'length', `length in [${min}, ${opts.max}]`);
     }
     if (opts.text && UNSAFE_TEXT_RE.test(v)) return issue(p, 'pattern', 'control characters');
@@ -1206,12 +1457,17 @@ function idOf<K extends IdKind>(kind: K): Schema<IdTypes[K]> {
   );
 }
 
-const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
+/**
+ * Exactly `YYYY-MM-DDTHH:MM:SS.sssZ` (what `Date.prototype.toISOString` prints). Go writes
+ * `t.UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")`; its default
+ * RFC 3339 encoding (nanoseconds, offsets) is rejected.
+ */
+const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const iso: Schema<IsoUtc> = make((v, p) => {
   if (typeof v !== 'string') return issue(p, v === undefined ? 'required' : 'type', 'string');
   return ISO_RE.test(v) && Number.isFinite(Date.parse(v))
     ? null
-    : issue(p, 'pattern', 'ISO 8601 UTC timestamp');
+    : issue(p, 'pattern', 'ISO 8601 UTC timestamp with milliseconds');
 });
 
 const localDay = make<string>((v, p) =>
@@ -1250,6 +1506,8 @@ const anyProcessName = make<string>((v, p) => {
 const L = GUARDIAN_LIMITS;
 
 const reasonText = str({ max: L.reasonMaxLength, text: true });
+const taskText = str({ max: L.taskMaxLength, text: true });
+const scheduleNameText = str({ min: 1, max: L.scheduleNameMaxLength, text: true });
 
 function validateWith<T>(schema: Schema<T>, value: unknown, strict: boolean): ValidationResult<T> {
   const r = schema.check(value, '', { strict });
@@ -1278,27 +1536,49 @@ function responseGuard<T>(schema: Schema<T>): (value: unknown) => value is T {
 // Domain schemas
 // ---------------------------------------------------------------------------------------
 
-function targetSpecSchema(process: Schema<string>): Schema<TargetSpec> {
+interface ListCaps {
+  ids: number;
+  domains: number;
+  processes: number;
+}
+
+/** Request caps (what a client may send). */
+const IN_CAPS: ListCaps = {
+  ids: L.maxIdsPerList,
+  domains: L.maxCustomDomains,
+  processes: L.maxCustomProcesses,
+};
+/**
+ * Response caps: far larger, because the guardian legitimately emits more (a
+ * `recovered` block carries the whole hosts section as `customDomains`).
+ */
+const OUT_CAPS: ListCaps = {
+  ids: RESPONSE_LIMITS.ids,
+  domains: RESPONSE_LIMITS.domains,
+  processes: RESPONSE_LIMITS.processes,
+};
+
+function targetSpecSchema(process: Schema<string>, caps: ListCaps): Schema<TargetSpec> {
   return obj<TargetSpec>({
-    serviceIds: arr(catalogId, { max: L.maxIdsPerList, unique: true }),
+    serviceIds: arr(catalogId, { max: caps.ids, unique: true }),
     categoryIds: arr(categoryId, { max: CATEGORY_IDS.length, unique: true }),
-    appIds: arr(catalogId, { max: L.maxIdsPerList, unique: true }),
-    customDomains: arr(domain, { max: L.maxCustomDomains, unique: true }),
-    customProcesses: arr(process, { max: L.maxCustomProcesses, unique: true }),
+    appIds: arr(catalogId, { max: caps.ids, unique: true }),
+    customDomains: arr(domain, { max: caps.domains, unique: true }),
+    customProcesses: arr(process, { max: caps.processes, unique: true }),
   });
 }
 
-function whitelistAllowSchema(process: Schema<string>): Schema<WhitelistAllow> {
+function whitelistAllowSchema(process: Schema<string>, caps: ListCaps): Schema<WhitelistAllow> {
   return obj<WhitelistAllow>({
-    customDomains: arr(domain, { max: L.maxCustomDomains, unique: true }),
-    customProcesses: arr(process, { max: L.maxCustomProcesses, unique: true }),
+    customDomains: arr(domain, { max: caps.domains, unique: true }),
+    customProcesses: arr(process, { max: caps.processes, unique: true }),
   });
 }
 
-const targetSpecIn = targetSpecSchema(processName);
-const targetSpecOut = targetSpecSchema(anyProcessName);
-const allowIn = whitelistAllowSchema(processName);
-const allowOut = whitelistAllowSchema(anyProcessName);
+const targetSpecIn = targetSpecSchema(processName, IN_CAPS);
+const targetSpecOut = targetSpecSchema(anyProcessName, OUT_CAPS);
+const allowIn = whitelistAllowSchema(processName, IN_CAPS);
+const allowOut = whitelistAllowSchema(anyProcessName, OUT_CAPS);
 
 const blockMode = oneOf(BLOCK_MODES);
 const blockKind = oneOf(BLOCK_KINDS);
@@ -1380,6 +1660,7 @@ export const studySessionSchema: Schema<StudySession> = obj<StudySession>({
   nextPauseAvailableAt: nullable(iso),
   lastHeartbeatAt: nullable(iso),
   lastHeartbeatSeq: count,
+  warnings: count,
   policy: punishmentPolicySchema,
   achieved: nullable(oneOf(ACHIEVED_VALUES)),
 });
@@ -1388,6 +1669,7 @@ export const punishmentSchema: Schema<Punishment> = obj<Punishment>({
   id: idOf('punishment'),
   blockId: idOf('block'),
   sessionId: nullable(idOf('study')),
+  task: str({ max: L.taskMaxLength }),
   cause: oneOf(PUNISHMENT_CAUSES),
   level: punishmentLevel,
   minutes: int(1, 1440),
@@ -1397,19 +1679,27 @@ export const punishmentSchema: Schema<Punishment> = obj<Punishment>({
   endedAt: nullable(iso),
 });
 
-export const emergencySchema: Schema<EmergencyUnlock> = obj<EmergencyUnlock>({
-  id: idOf('emergency'),
-  blockIds: arr(idOf('block'), { min: 1, max: L.emergencyMaxBlocks, unique: true }),
-  status: oneOf(EMERGENCY_STATUSES),
-  countdownMinutes: int(1, 1440),
-  requestedAt: iso,
-  readyAt: iso,
-  confirmBy: nullable(iso),
-  penaltyPreview: count,
-  streakDaysAtRisk: count,
-  resolvedAt: nullable(iso),
-  cancelReason: nullable(oneOf(EMERGENCY_CANCEL_REASONS)),
-});
+export const emergencySchema: Schema<EmergencyUnlock> = refine(
+  obj<EmergencyUnlock>({
+    id: idOf('emergency'),
+    blockIds: arr(idOf('block'), { min: 1, max: L.emergencyMaxBlocks, unique: true }),
+    status: oneOf(EMERGENCY_STATUSES),
+    countdownMinutes: int(1, 1440),
+    requestedAt: iso,
+    readyAt: iso,
+    confirmBy: nullable(iso),
+    penaltyPreview: count,
+    streakDaysAtRisk: count,
+    resolvedAt: nullable(iso),
+    cancelReason: nullable(oneOf(EMERGENCY_CANCEL_REASONS)),
+  }),
+  (e) =>
+    (EMERGENCY_STATUS_REASONS[e.status] as readonly (EmergencyCancelReason | null)[]).includes(
+      e.cancelReason,
+    )
+      ? null
+      : { path: 'cancelReason', message: `not allowed with status ${e.status}` },
+);
 
 export const allowanceSchema: Schema<RewardAllowance> = obj<RewardAllowance>({
   id: idOf('allowance'),
@@ -1454,11 +1744,11 @@ function settingsSchema(process: Schema<string>, goal: Schema<number>): Schema<G
 
 const settingsOut = settingsSchema(anyProcessName, dailyGoal);
 
-function pendingField<K extends keyof GuardianSettings>(
-  field: K,
-  value: Schema<GuardianSettings[K]>,
-): Schema<{ field: K; value: GuardianSettings[K]; effectiveAt: IsoUtc }> {
-  return obj<{ field: K; value: GuardianSettings[K]; effectiveAt: IsoUtc }>({
+function pendingField<P extends PendingSettingPath>(
+  field: P,
+  value: Schema<PendingSettingValues[P]>,
+): Schema<{ field: P; value: PendingSettingValues[P]; effectiveAt: IsoUtc }> {
+  return obj<{ field: P; value: PendingSettingValues[P]; effectiveAt: IsoUtc }>({
     field: literal(field),
     value,
     effectiveAt: iso,
@@ -1469,11 +1759,18 @@ export const pendingSettingSchema: Schema<PendingSettingChange> = tagged('field'
   timezone: pendingField('timezone', timezoneOrNull),
   dailyGoalMinutes: pendingField('dailyGoalMinutes', dailyGoal),
   attemptPenalties: pendingField('attemptPenalties', bool),
-  punishment: pendingField('punishment', punishmentPolicySchema),
   closeBrowsersWithoutExtension: pendingField('closeBrowsersWithoutExtension', bool),
   serverTimeCheck: pendingField('serverTimeCheck', bool),
-  studyWhitelist: pendingField('studyWhitelist', studyWhitelistSchema(anyProcessName)),
+  'studyWhitelist.extraDomains': pendingField(
+    'studyWhitelist.extraDomains',
+    arr(domain, { max: L.maxWhitelistExtraDomains, unique: true }),
+  ),
+  'studyWhitelist.extraProcesses': pendingField(
+    'studyWhitelist.extraProcesses',
+    arr(anyProcessName, { max: L.maxWhitelistExtraProcesses, unique: true }),
+  ),
 });
+const pendingList = arr(pendingSettingSchema, { max: 16 });
 
 export const pointsSummarySchema: Schema<PointsSummary> = obj<PointsSummary>({
   balance: signed,
@@ -1489,6 +1786,7 @@ export const pointsSummarySchema: Schema<PointsSummary> = obj<PointsSummary>({
     goalMinutes: dailyGoal,
     goalMet: bool,
   }),
+  pendingFocusMinutes: count,
 });
 
 const escalationSchema: Schema<EscalationState> = obj<EscalationState>({
@@ -1510,8 +1808,9 @@ const recoveryKind = oneOf([
   'empty',
 ] as const);
 
-const blockIdList = arr(idOf('block'), { max: 10_000, unique: true });
-const targetKey = str({ min: 5, max: 300, pattern: /^(?:svc|app|dom|proc):\S+$/ });
+const blockIdList = arr(idOf('block'), { max: RESPONSE_LIMITS.ids, unique: true });
+/** `proc:` keys keep spaces (`proc:my game.exe`); control characters are never allowed. */
+const targetKey = str({ min: 5, max: 300, pattern: /^(?:svc|app|dom|proc):\S.*$/, text: true });
 
 type DataSchemas = { [K in EventType]: Schema<EventDataMap[K]> };
 type Data<K extends EventType> = EventDataMap[K];
@@ -1529,17 +1828,18 @@ const eventDataSchemas: DataSchemas = {
     recovery: recoveryKind,
   }),
   epoch_started: obj<Data<'epoch_started'>>({
-    reason: oneOf(['install', 'data_deleted', 'log_unreadable'] as const),
+    reason: oneOf(['install', 'data_deleted', 'log_unreadable', 'untrusted_key'] as const),
     previousEpoch: nullable(idOf('epoch')),
     carryOverBalance: int(-SAFE, 0),
     escalation: escalationSchema,
     kept: obj<EpochKeptState>({
-      blocks: arr(blockSchema, { max: 10_000 }),
-      punishments: arr(punishmentSchema, { max: 1000 }),
-      allowances: arr(allowanceSchema, { max: 1000 }),
-      schedules: arr(scheduleSchema, { max: 1000 }),
+      blocks: arr(blockSchema, { max: RESPONSE_LIMITS.blocks }),
+      punishments: arr(punishmentSchema, { max: RESPONSE_LIMITS.punishments }),
+      allowances: arr(allowanceSchema, { max: RESPONSE_LIMITS.allowances }),
+      schedules: arr(scheduleSchema, { max: RESPONSE_LIMITS.schedules }),
       settings: settingsOut,
-      pendingSettings: arr(pendingSettingSchema, { max: 16 }),
+      pendingSettings: pendingList,
+      materializedOccurrences: arr(str({ min: 1, max: 128 }), { max: RESPONSE_LIMITS.ids }),
     }),
   }),
   clock_jump: obj<Data<'clock_jump'>>({
@@ -1548,6 +1848,8 @@ const eventDataSchemas: DataSchemas = {
     wallOffsetMs: signed,
     trust: oneOf(CLOCK_TRUST_LEVELS),
     reactivatedBlockIds: blockIdList,
+    shiftedBlockIds: blockIdList,
+    shiftedAllowanceIds: arr(idOf('allowance'), { max: RESPONSE_LIMITS.ids, unique: true }),
   }),
   day_closed: obj<Data<'day_closed'>>({ day: localDay, goalMinutes: dailyGoal }),
   block_created: obj<Data<'block_created'>>({
@@ -1613,9 +1915,14 @@ const eventDataSchemas: DataSchemas = {
     outcome: oneOf(STUDY_OUTCOMES),
     plannedMinutes: int(1, 1440),
     activeMinutes: count,
+    workMinutes: count,
     focusedMinutes: count,
+    focusPct: int(0, 100),
     strikes: count,
+    warnings: count,
     attempts: count,
+    pointsTotal: signed,
+    cleanBonus: count,
   }),
   study_outcome: obj<Data<'study_outcome'>>({
     sessionId: idOf('study'),
@@ -1636,6 +1943,7 @@ const eventDataSchemas: DataSchemas = {
     emergencyId: idOf('emergency'),
     blockIds: blockIdList,
     balanceBefore: signed,
+    allowanceValue: count,
     penalty: count,
     streakDaysLost: count,
     goalMinutes: dailyGoal,
@@ -1644,8 +1952,10 @@ const eventDataSchemas: DataSchemas = {
     allowanceId: idOf('allowance'),
     offerId: catalogId,
     serviceId: catalogId,
-    minutes: int(1, 1440),
-    cost: count,
+    offerMinutes: int(1, 1440),
+    offerCost: count,
+    allowanceMinutes: int(1, 1440),
+    allowanceCost: count,
     endsAt: iso,
     extendedExisting: bool,
   }),
@@ -1664,7 +1974,7 @@ const eventDataSchemas: DataSchemas = {
   schedule_deleted: obj<Data<'schedule_deleted'>>({ scheduleId: idOf('schedule') }),
   settings_changed: obj<Data<'settings_changed'>>({
     settings: settingsOut,
-    pending: arr(pendingSettingSchema, { max: 16 }),
+    pending: pendingList,
   }),
   extension_paired: obj<Data<'extension_paired'>>({
     extensionId: idOf('extension'),
@@ -1673,14 +1983,9 @@ const eventDataSchemas: DataSchemas = {
   }),
   extension_revoked: obj<Data<'extension_revoked'>>({ extensionId: idOf('extension') }),
   tamper_detected: obj<Data<'tamper_detected'>>({
-    kind: oneOf([
-      'hosts',
-      'hosts_locked',
-      'hosts_path_overridden',
-      'state_mac',
-      'ledger_rollback',
-    ] as const),
+    kind: oneOf(TAMPER_KINDS),
     balanceCorrection: int(-SAFE, 0),
+    voidStreak: bool,
   }),
   ledger_repaired: obj<Data<'ledger_repaired'>>({
     droppedFromSeq: int(1, SAFE),
@@ -1705,24 +2010,52 @@ const envelopeSchema: Schema<EventEnvelopeBase> = obj<EventEnvelopeBase>({
   req: nullable(str({ min: 1, max: 128, pattern: /^[0-9a-f]+$/ })),
 });
 
+/** Envelope plus a well-formed `type` and a present `data` (any value). */
+const eventLineSchema: Schema<EventEnvelopeBase & { type: string; data: unknown }> = make(
+  (v, p) => {
+    const r = envelopeSchema.check(v, p, { strict: false });
+    if (r) return r;
+    const record = v as Record<string, unknown>;
+    const type = record['type'];
+    if (typeof type !== 'string' || !EVENT_TYPE_RE.test(type)) {
+      return issue(child(p, 'type'), type === undefined ? 'required' : 'pattern', 'event type');
+    }
+    return hasOwn(record, 'data') ? null : issue(child(p, 'data'), 'required', 'data');
+  },
+);
+
 /**
- * One event line as served by `/v1/events`: the envelope is always checked; the payload
- * is checked for known types and must be an object for unknown (newer) ones.
+ * One fully valid event line: the envelope, and the payload of known types (it must be
+ * an object for unknown, newer ones).
  */
 export const wireEventSchema: Schema<WireEvent> = make((v, p, ctx) => {
-  const r = envelopeSchema.check(v, p, { strict: false });
+  const r = eventLineSchema.check(v, p, ctx);
   if (r) return r;
   const record = v as Record<string, unknown>;
-  const type = record['type'];
-  if (typeof type !== 'string' || !EVENT_TYPE_RE.test(type)) {
-    return issue(child(p, 'type'), type === undefined ? 'required' : 'pattern', 'event type');
-  }
+  const type = record['type'] as string;
   const data = record['data'];
   if (isEventType(type)) {
     return (eventDataSchemas[type] as Schema<unknown>).check(data, child(p, 'data'), ctx);
   }
   return isRecord(data) ? null : issue(child(p, 'data'), 'type', 'object');
 });
+
+/**
+ * Classifies one event line whose envelope is valid (see `eventsResponseSchema`): a known
+ * type with invalid `data` becomes a `MalformedGuardianEvent` instead of failing the page,
+ * so the cursor keeps advancing and the recorded `points`/`xp` still apply.
+ */
+export function classifyWireEvent(
+  line: EventEnvelopeBase & { type: string; data: unknown },
+): WireEvent {
+  const r = wireEventSchema.check(line, '', { strict: false });
+  if (r === null) return line as WireEvent;
+  const malformed: MalformedGuardianEvent = {
+    ...line,
+    malformed: { path: r.path, issue: r.issue, message: r.message },
+  };
+  return malformed;
+}
 
 // ---------------------------------------------------------------------------------------
 // Request schemas
@@ -1796,7 +2129,7 @@ export function scheduleWindowMinutes(start: string, end: string): number {
 
 export const scheduleInputSchema: Schema<ScheduleInput> = refine(
   obj<ScheduleInput>({
-    name: str({ min: 1, max: L.scheduleNameMaxLength, text: true }),
+    name: scheduleNameText,
     enabled: bool,
     days: arr(isoWeekday, { min: 1, max: 7, unique: true }),
     start: clockTime,
@@ -1820,7 +2153,7 @@ export const scheduleInputSchema: Schema<ScheduleInput> = refine(
 );
 
 export const startStudyRequestSchema: Schema<StartStudyRequest> = obj<StartStudyRequest>({
-  task: str({ max: L.taskMaxLength, text: true }),
+  task: taskText,
   plannedMinutes: int(STUDY_RULES.plannedMinutes.min, STUDY_RULES.plannedMinutes.max),
   pomodoro: nullable(pomodoroSchema),
   camera: bool,
@@ -1831,6 +2164,7 @@ export const heartbeatRequestSchema: Schema<HeartbeatRequest> = obj<HeartbeatReq
   state: oneOf(HEARTBEAT_STATES),
   focusScore: nullable(int(0, 100)),
   focusedMsSinceLast: int(0, L.heartbeatMaxFocusMs),
+  warningsSinceLast: int(0, L.heartbeatMaxWarnings),
   cameraOn: bool,
 });
 
@@ -1848,6 +2182,8 @@ export const emptyRequestSchema: Schema<EmptyRequest> = make((v, p, ctx) => {
 
 export const endStudyRequestSchema: Schema<EndStudyRequest> = obj<EndStudyRequest>({
   reason: literal('user'),
+  focusedMsSinceLast: int(0, L.heartbeatMaxFocusMs),
+  warningsSinceLast: int(0, L.heartbeatMaxWarnings),
 });
 
 export const studyOutcomeRequestSchema: Schema<StudyOutcomeRequest> = obj<StudyOutcomeRequest>({
@@ -1872,10 +2208,11 @@ export const attemptRequestSchema: Schema<AttemptRequest> = refine(
       : null,
 );
 
+const phraseText = str({ min: 1, max: L.phraseMaxLength });
+
 export const emergencyRequestSchema: Schema<EmergencyRequest> = obj<EmergencyRequest>({
   blockIds: arr(idOf('block'), { min: 1, max: L.emergencyMaxBlocks, unique: true }),
-  phrase: str({ min: 1, max: L.phraseMaxLength }),
-  language: oneOf(['es', 'en'] as const),
+  phrase: phraseText,
 });
 
 export const confirmEmergencyRequestSchema: Schema<ConfirmEmergencyRequest> =
@@ -1904,8 +2241,14 @@ export const extHeartbeatRequestSchema: Schema<ExtHeartbeatRequest> = obj<ExtHea
   browserVersion: versionString,
   incognitoAllowed: bool,
   hostPermission: bool,
-  appliedRulesVersion: count,
+  appliedExtRulesVersion: count,
 });
+
+export const nuclearHeartbeatRequestSchema: Schema<NuclearHeartbeatRequest> =
+  obj<NuclearHeartbeatRequest>({
+    overlayShown: bool,
+    displays: int(1, 16),
+  });
 
 export const deleteDataRequestSchema: Schema<DeleteDataRequest> = obj<DeleteDataRequest>({
   confirm: str({ min: 1, max: 16, text: true }),
@@ -1967,6 +2310,7 @@ const clockStatusSchema: Schema<ClockStatus> = obj<ClockStatus>({
     }),
   ),
   lastCalibratedAt: nullable(iso),
+  bootHoldUntil: nullable(iso),
 });
 
 const extensionStatusSchema: Schema<ExtensionStatus> = obj<ExtensionStatus>({
@@ -1977,7 +2321,8 @@ const extensionStatusSchema: Schema<ExtensionStatus> = obj<ExtensionStatus>({
   lastSeenAt: nullable(iso),
   incognitoAllowed: bool,
   hostPermission: bool,
-  appliedRulesVersion: count,
+  appliedExtRulesVersion: count,
+  protecting: bool,
 });
 
 const hostsStatus = oneOf(HOSTS_STATUSES);
@@ -2003,7 +2348,25 @@ const endedBlockSchema: Schema<EndedBlockNotice> = obj<EndedBlockNotice>({
   pointsDelta: signed,
 });
 
-const manyBlocks = arr(blockSchema, { max: 10_000 });
+const manyBlocks = arr(blockSchema, { max: RESPONSE_LIMITS.blocks });
+
+const studySummarySchema: Schema<StudySummary> = obj<StudySummary>({
+  outcome: oneOf(STUDY_OUTCOMES),
+  activeMinutes: count,
+  workMinutes: count,
+  focusedMinutes: count,
+  focusPct: int(0, 100),
+  strikes: count,
+  warnings: count,
+  attempts: count,
+  pointsTotal: signed,
+  cleanBonus: count,
+});
+
+const studySessionDetailSchema: Schema<StudySessionDetail> = obj<StudySessionDetail>({
+  session: studySessionSchema,
+  summary: nullable(studySummarySchema),
+});
 
 export const stateResponseSchema: Schema<GuardianStateResponse> = obj<GuardianStateResponse>({
   stateVersion: count,
@@ -2019,11 +2382,11 @@ export const stateResponseSchema: Schema<GuardianStateResponse> = obj<GuardianSt
   clock: clockStatusSchema,
   protection: protectionSchema,
   blocks: manyBlocks,
-  punishments: arr(punishmentSchema, { max: 1000 }),
+  punishments: arr(punishmentSchema, { max: RESPONSE_LIMITS.punishments }),
   nuclearActive: bool,
   study: nullable(studySessionSchema),
   emergency: nullable(emergencySchema),
-  allowances: arr(allowanceSchema, { max: 1000 }),
+  allowances: arr(allowanceSchema, { max: RESPONSE_LIMITS.allowances }),
   rewardsLock: nullable(oneOf(REWARDS_LOCK_REASONS)),
   nextSchedule: nullable(
     obj<NextScheduleInfo>({
@@ -2034,9 +2397,10 @@ export const stateResponseSchema: Schema<GuardianStateResponse> = obj<GuardianSt
     }),
   ),
   points: pointsSummarySchema,
-  pendingSettings: arr(pendingSettingSchema, { max: 16 }),
+  pendingSettings: pendingList,
   recent: obj<GuardianStateResponse['recent']>({
-    endedBlocks: arr(endedBlockSchema, { max: 1000 }),
+    endedBlocks: arr(endedBlockSchema, { max: RESPONSE_LIMITS.blocks }),
+    endedStudy: nullable(studySessionDetailSchema),
   }),
 });
 
@@ -2118,9 +2482,11 @@ export const createBlockResponseSchema: Schema<CreateBlockResponse> = obj<Create
   stateVersion: count,
 });
 
+const cursorText = str({ min: 1, max: 200, pattern: /^[A-Za-z0-9_-]+$/ });
+
 export const listBlocksResponseSchema: Schema<ListBlocksResponse> = obj<ListBlocksResponse>({
   blocks: manyBlocks,
-  nextBefore: nullable(iso),
+  nextCursor: nullable(cursorText),
 });
 
 export const getBlockResponseSchema: Schema<GetBlockResponse> = obj<GetBlockResponse>({
@@ -2139,7 +2505,7 @@ export const scheduleResponseSchema: Schema<ScheduleResponse> = obj<ScheduleResp
 
 export const listSchedulesResponseSchema: Schema<ListSchedulesResponse> =
   obj<ListSchedulesResponse>({
-    schedules: arr(scheduleSchema, { max: 1000 }),
+    schedules: arr(scheduleSchema, { max: RESPONSE_LIMITS.schedules }),
   });
 
 export const studySessionResponseSchema: Schema<StudySessionResponse> = obj<StudySessionResponse>({
@@ -2149,6 +2515,9 @@ export const studySessionResponseSchema: Schema<StudySessionResponse> = obj<Stud
 export const currentStudyResponseSchema: Schema<CurrentStudyResponse> = obj<CurrentStudyResponse>({
   session: nullable(studySessionSchema),
 });
+
+export const studySessionDetailResponseSchema: Schema<StudySessionDetailResponse> =
+  studySessionDetailSchema;
 
 export const heartbeatResponseSchema: Schema<HeartbeatResponse> = obj<HeartbeatResponse>({
   duplicate: bool,
@@ -2163,6 +2532,7 @@ export const strikeResponseSchema: Schema<StrikeResponse> = obj<StrikeResponse>(
   reason: nullable(oneOf(['cooldown', 'not_in_work_phase'] as const)),
   strikeNumber: count,
   pointsDelta: int(-SAFE, 0),
+  punishmentPointsDelta: int(-SAFE, 0),
   cooldownUntil: nullable(iso),
   punishment: nullable(punishmentSchema),
   session: studySessionSchema,
@@ -2170,16 +2540,7 @@ export const strikeResponseSchema: Schema<StrikeResponse> = obj<StrikeResponse>(
 
 export const endStudyResponseSchema: Schema<EndStudyResponse> = obj<EndStudyResponse>({
   session: studySessionSchema,
-  summary: obj<StudySummary>({
-    outcome: oneOf(STUDY_OUTCOMES),
-    activeMinutes: count,
-    focusedMinutes: count,
-    focusPct: int(0, 100),
-    strikes: count,
-    attempts: count,
-    pointsTotal: signed,
-    cleanBonus: count,
-  }),
+  summary: studySummarySchema,
 });
 
 export const attemptResponseSchema: Schema<AttemptResponse> = obj<AttemptResponse>({
@@ -2208,10 +2569,14 @@ export const pointsResponseSchema: Schema<PointsResponse> = obj<PointsResponse>(
   points: pointsSummarySchema,
 });
 
+/**
+ * Checks every envelope but not the payloads: the client then runs `classifyWireEvent`
+ * on each line, so one malformed event never blocks the sync of a whole page.
+ */
 export const eventsResponseSchema: Schema<EventsResponse> = obj<EventsResponse>({
   epoch: idOf('epoch'),
   reset: bool,
-  events: arr(wireEventSchema, { max: L.eventsPageMax }),
+  events: arr(eventLineSchema, { max: L.eventsPageMax }) as unknown as Schema<WireEvent[]>,
   lastSeq: count,
   hasMore: bool,
 });
@@ -2227,8 +2592,9 @@ export const emergencyPreviewResponseSchema: Schema<EmergencyPreviewResponse> =
     countdownMinutes: nullable(int(1, 1440)),
     penaltyPoints: count,
     balance: signed,
+    allowanceValue: count,
     streakDays: count,
-    phrase: str({ min: 1, max: L.phraseMaxLength }),
+    phrases: obj<EmergencyPreviewResponse['phrases']>({ es: phraseText, en: phraseText }),
   });
 
 export const emergencyResponseSchema: Schema<EmergencyResponse> = obj<EmergencyResponse>({
@@ -2257,11 +2623,13 @@ export const rewardsResponseSchema: Schema<RewardsResponse> = obj<RewardsRespons
       affordable: bool,
       shortBy: count,
       available: bool,
-      unavailableReason: nullable(oneOf(['not_blocked', 'insufficient_points', 'locked'] as const)),
+      unavailableReason: nullable(
+        oneOf(['not_blocked', 'insufficient_points', 'locked', 'allowance_limit'] as const),
+      ),
     }),
     { max: 1000 },
   ),
-  allowances: arr(allowanceSchema, { max: 1000 }),
+  allowances: arr(allowanceSchema, { max: RESPONSE_LIMITS.allowances }),
 });
 
 export const redeemRewardResponseSchema: Schema<RedeemRewardResponse> = obj<RedeemRewardResponse>({
@@ -2272,7 +2640,7 @@ export const redeemRewardResponseSchema: Schema<RedeemRewardResponse> = obj<Rede
 
 export const settingsResponseSchema: Schema<SettingsResponse> = obj<SettingsResponse>({
   settings: settingsOut,
-  pending: arr(pendingSettingSchema, { max: 16 }),
+  pending: pendingList,
 });
 
 export const pairingCodeResponseSchema: Schema<PairingCodeResponse> = obj<PairingCodeResponse>({
@@ -2286,6 +2654,7 @@ export const pairingClaimResponseSchema: Schema<PairingClaimResponse> = obj<Pair
   token: str({ min: 20, max: 200, pattern: /^cte_[0-9A-Za-z_-]+$/ }),
   guardianVersion: versionString,
   boundOrigin: nullable(str({ min: 1, max: 200 })),
+  rulesPublicKey: str({ min: 40, max: 400, pattern: /^[A-Za-z0-9_-]+$/ }),
 });
 
 export const pairedExtensionsResponseSchema: Schema<PairedExtensionsResponse> =
@@ -2303,14 +2672,17 @@ export const pairedExtensionsResponseSchema: Schema<PairedExtensionsResponse> =
     ),
   });
 
+const nonceText = str({ min: 16, max: 64, pattern: /^[A-Za-z0-9_-]+$/ });
+
 export const extRulesResponseSchema: Schema<ExtRulesResponse> = obj<ExtRulesResponse>({
-  rulesVersion: count,
+  extRulesVersion: count,
+  nonce: nonceText,
   serverNow: iso,
-  blockDomains: arr(domain, { max: 100_000 }),
-  excludedDomains: arr(domain, { max: 100_000 }),
+  blockDomains: arr(domain, { max: RESPONSE_LIMITS.domains }),
+  excludedDomains: arr(domain, { max: RESPONSE_LIMITS.domains }),
   whitelist: nullable(
     obj<ExtWhitelistRules>({
-      allowDomains: arr(domain, { max: 100_000 }),
+      allowDomains: arr(domain, { max: RESPONSE_LIMITS.domains }),
       allowHostPatterns: arr(str({ min: 1, max: 512 }), { max: 1000 }),
     }),
   ),
@@ -2321,15 +2693,15 @@ export const extRulesResponseSchema: Schema<ExtRulesResponse> = obj<ExtRulesResp
       mode: blockMode,
       endsAt: iso,
       reason: str({ max: L.reasonMaxLength }),
-      serviceIds: arr(catalogId, { max: 10_000 }),
-      domains: arr(domain, { max: 100_000 }),
+      serviceIds: arr(catalogId, { max: RESPONSE_LIMITS.ids }),
+      domains: arr(domain, { max: RESPONSE_LIMITS.domains }),
       whitelistOnly: bool,
     }),
-    { max: 10_000 },
+    { max: RESPONSE_LIMITS.blocks },
   ),
   allowances: arr(
     obj<{ serviceId: string; endsAt: IsoUtc }>({ serviceId: catalogId, endsAt: iso }),
-    { max: 1000 },
+    { max: RESPONSE_LIMITS.allowances },
   ),
   punishment: nullable(
     obj<{ endsAt: IsoUtc; level: PunishmentLevel }>({ endsAt: iso, level: punishmentLevel }),
@@ -2339,16 +2711,23 @@ export const extRulesResponseSchema: Schema<ExtRulesResponse> = obj<ExtRulesResp
 });
 
 export const extHeartbeatResponseSchema: Schema<ExtHeartbeatResponse> = obj<ExtHeartbeatResponse>({
-  rulesVersion: count,
+  extRulesVersion: count,
   serverNow: iso,
 });
+
+export const nuclearHeartbeatResponseSchema: Schema<NuclearHeartbeatResponse> =
+  obj<NuclearHeartbeatResponse>({
+    nuclearActive: bool,
+    endsAt: nullable(iso),
+    serverNow: iso,
+  });
 
 export const deleteDataResponseSchema: Schema<DeleteDataResponse> = obj<DeleteDataResponse>({
   epoch: idOf('epoch'),
   carryOverBalance: int(-SAFE, 0),
   keptBlockIds: blockIdList,
-  keptPunishmentIds: arr(idOf('punishment'), { max: 10_000, unique: true }),
-  keptScheduleIds: arr(idOf('schedule'), { max: 10_000, unique: true }),
+  keptPunishmentIds: arr(idOf('punishment'), { max: RESPONSE_LIMITS.ids, unique: true }),
+  keptScheduleIds: arr(idOf('schedule'), { max: RESPONSE_LIMITS.ids, unique: true }),
 });
 
 export const testClockResponseSchema: Schema<TestClockResponse> = obj<TestClockResponse>({
@@ -2376,6 +2755,7 @@ export const isRedeemRewardRequest = requestGuard(redeemRewardRequestSchema);
 export const isSettingsRequest = requestGuard(settingsRequestSchema);
 export const isPairingClaimRequest = requestGuard(pairingClaimRequestSchema);
 export const isExtHeartbeatRequest = requestGuard(extHeartbeatRequestSchema);
+export const isNuclearHeartbeatRequest = requestGuard(nuclearHeartbeatRequestSchema);
 export const isDeleteDataRequest = requestGuard(deleteDataRequestSchema);
 export const isTestClockRequest = requestGuard(testClockRequestSchema);
 
@@ -2399,6 +2779,7 @@ export const isScheduleResponse = responseGuard(scheduleResponseSchema);
 export const isListSchedulesResponse = responseGuard(listSchedulesResponseSchema);
 export const isStudySessionResponse = responseGuard(studySessionResponseSchema);
 export const isCurrentStudyResponse = responseGuard(currentStudyResponseSchema);
+export const isStudySessionDetailResponse = responseGuard(studySessionDetailResponseSchema);
 export const isHeartbeatResponse = responseGuard(heartbeatResponseSchema);
 export const isStrikeResponse = responseGuard(strikeResponseSchema);
 export const isEndStudyResponse = responseGuard(endStudyResponseSchema);
@@ -2416,13 +2797,16 @@ export const isPairingClaimResponse = responseGuard(pairingClaimResponseSchema);
 export const isPairedExtensionsResponse = responseGuard(pairedExtensionsResponseSchema);
 export const isExtRulesResponse = responseGuard(extRulesResponseSchema);
 export const isExtHeartbeatResponse = responseGuard(extHeartbeatResponseSchema);
+export const isNuclearHeartbeatResponse = responseGuard(nuclearHeartbeatResponseSchema);
 export const isDeleteDataResponse = responseGuard(deleteDataResponseSchema);
 
 // ---------------------------------------------------------------------------------------
-// Extension rules signature (HMAC-SHA256, WebCrypto)
+// Extension rules signature (ECDSA P-256 + SHA-256, WebCrypto)
 // ---------------------------------------------------------------------------------------
 
 const SIGNATURE_PREFIX = 'v1=';
+const ECDSA_KEY = { name: 'ECDSA', namedCurve: 'P-256' } as const;
+const ECDSA_SIGN = { name: 'ECDSA', hash: 'SHA-256' } as const;
 
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = '';
@@ -2444,38 +2828,65 @@ function base64UrlDecode(text: string): Uint8Array<ArrayBuffer> | null {
   }
 }
 
-async function hmacKey(token: string, usage: 'sign' | 'verify'): Promise<CryptoKey> {
-  return globalThis.crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(token),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    [usage],
-  );
+/** A fresh random `nonce` for `GET /v1/ext/rules` (16 bytes, base64url). */
+export function newRulesNonce(): string {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  return base64UrlEncode(bytes);
 }
 
 /**
- * `X-Centrate-Signature` value for a rules body: `v1=` + base64url(HMAC-SHA256(key =
- * UTF-8 token, message = the exact body bytes)). The guardian computes it in Go; this is
- * for tests and the dev harness.
+ * `X-Centrate-Signature` value for a rules body: `v1=` + base64url(ECDSA P-256 / SHA-256
+ * signature over the exact body bytes, raw `r‖s`, 64 bytes; Go signs with
+ * `ecdsa.Sign` and writes r and s as 32-byte big-endian halves, not ASN.1). The guardian
+ * signs with `secret/rules.key`; this is for tests and the dev harness.
  */
-export async function computeRulesSignature(body: string, token: string): Promise<string> {
-  const key = await hmacKey(token, 'sign');
-  const mac = await globalThis.crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body));
-  return SIGNATURE_PREFIX + base64UrlEncode(new Uint8Array(mac));
+export async function computeRulesSignature(body: string, privateKey: CryptoKey): Promise<string> {
+  const sig = await globalThis.crypto.subtle.sign(
+    ECDSA_SIGN,
+    privateKey,
+    new TextEncoder().encode(body),
+  );
+  return SIGNATURE_PREFIX + base64UrlEncode(new Uint8Array(sig));
 }
 
-/** Verifies a rules body against its signature header (constant-time via WebCrypto). */
+/**
+ * Verifies a rules body against its signature header with the rules public key received
+ * at pairing (`PairingClaimResponse.rulesPublicKey`, base64url SPKI). Knowing the
+ * extension token is not enough to forge it.
+ */
 export async function verifyRulesSignature(
   body: string,
   header: string | null,
-  token: string,
+  rulesPublicKey: string,
 ): Promise<boolean> {
   if (header === null || !header.startsWith(SIGNATURE_PREFIX)) return false;
   const signature = base64UrlDecode(header.slice(SIGNATURE_PREFIX.length));
-  if (signature === null || signature.length !== 32) return false;
-  const key = await hmacKey(token, 'verify');
-  return globalThis.crypto.subtle.verify('HMAC', key, signature, new TextEncoder().encode(body));
+  if (signature === null || signature.length !== 64) return false;
+  const spki = base64UrlDecode(rulesPublicKey);
+  if (spki === null || spki.length === 0) return false;
+  let key: CryptoKey;
+  try {
+    key = await globalThis.crypto.subtle.importKey('spki', spki, ECDSA_KEY, false, ['verify']);
+  } catch {
+    return false;
+  }
+  return globalThis.crypto.subtle.verify(
+    ECDSA_SIGN,
+    key,
+    signature,
+    new TextEncoder().encode(body),
+  );
+}
+
+/** A rules key pair as the guardian creates one (tests and the dev harness). */
+export async function generateRulesKeyPair(): Promise<{
+  privateKey: CryptoKey;
+  publicKey: string;
+}> {
+  const pair = await globalThis.crypto.subtle.generateKey(ECDSA_KEY, true, ['sign', 'verify']);
+  const spki = await globalThis.crypto.subtle.exportKey('spki', pair.publicKey);
+  return { privateKey: pair.privateKey, publicKey: base64UrlEncode(new Uint8Array(spki)) };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -2499,6 +2910,8 @@ export interface GuardianClientOptions {
   timeoutMs?: number;
   /** Default `crypto.randomUUID()`. */
   newIdempotencyKey?: () => string;
+  /** Extension only: `PairingClaimResponse.rulesPublicKey`, to verify `/v1/ext/rules`. */
+  rulesPublicKey?: string;
 }
 
 export interface WriteOptions {
@@ -2532,6 +2945,7 @@ export interface GuardianClient {
   deleteSchedule(id: ScheduleId): Promise<void>;
   startStudy(body: StartStudyRequest, options?: WriteOptions): Promise<StudySessionResponse>;
   currentStudy(): Promise<CurrentStudyResponse>;
+  getStudySession(id: StudySessionId): Promise<StudySessionDetailResponse>;
   studyHeartbeat(id: StudySessionId, body: HeartbeatRequest): Promise<HeartbeatResponse>;
   studyStrike(
     id: StudySessionId,
@@ -2548,6 +2962,7 @@ export interface GuardianClient {
   setStudyOutcome(id: StudySessionId, body: StudyOutcomeRequest): Promise<StudySessionResponse>;
   reportAttempt(body: AttemptRequest): Promise<AttemptResponse>;
   getPoints(): Promise<PointsResponse>;
+  /** Events pages; a known event with invalid data comes back as `MalformedGuardianEvent`. */
   getEvents(query?: EventsQuery): Promise<EventsResponse>;
   emergencyPreview(blockIds?: readonly BlockId[]): Promise<EmergencyPreviewResponse>;
   requestEmergency(body: EmergencyRequest, options?: WriteOptions): Promise<EmergencyResponse>;
@@ -2566,15 +2981,19 @@ export interface GuardianClient {
   listExtensions(): Promise<PairedExtensionsResponse>;
   revokeExtension(id: ExtensionId): Promise<void>;
   /**
-   * Extension rules. Verifies `X-Centrate-Signature` with the client token and throws
-   * `invalid_signature` when it does not match: never shrink rules on an unsigned body.
+   * Extension rules. Sends a fresh `nonce`, verifies `X-Centrate-Signature` with
+   * `rulesPublicKey` and the echoed nonce, and throws `invalid_signature` otherwise (never
+   * shrink rules on an unsigned or replayed body) or `stale_rules` when the body is older
+   * than `waitVersion` (the version the extension already applied).
    */
   getExtRules(options?: {
     etag?: string | null;
     waitVersion?: number;
     waitMs?: number;
+    nonce?: string;
   }): Promise<ExtRulesResult>;
   extHeartbeat(body: ExtHeartbeatRequest): Promise<ExtHeartbeatResponse>;
+  nuclearHeartbeat(body: NuclearHeartbeatRequest): Promise<NuclearHeartbeatResponse>;
   deleteData(body: DeleteDataRequest, options?: WriteOptions): Promise<DeleteDataResponse>;
 }
 
@@ -2607,6 +3026,7 @@ export function createGuardianClient(options: GuardianClientOptions = {}): Guard
   const timeoutMs = options.timeoutMs ?? GUARDIAN_LIMITS.requestTimeoutMs;
   const newKey = options.newIdempotencyKey ?? (() => globalThis.crypto.randomUUID());
   const tokenSource = options.token ?? null;
+  const rulesPublicKey = options.rulesPublicKey ?? null;
 
   const resolveToken = async (): Promise<string | null> =>
     typeof tokenSource === 'function' ? await tokenSource() : tokenSource;
@@ -2744,7 +3164,7 @@ export function createGuardianClient(options: GuardianClientOptions = {}): Guard
       value({
         method: 'GET',
         path: P.blocks,
-        query: { status: q?.status, before: q?.before, limit: q?.limit },
+        query: { status: q?.status, cursor: q?.cursor, limit: q?.limit },
         schema: listBlocksResponseSchema,
       }),
 
@@ -2787,6 +3207,13 @@ export function createGuardianClient(options: GuardianClientOptions = {}): Guard
 
     currentStudy: () =>
       value({ method: 'GET', path: P.studyCurrent, schema: currentStudyResponseSchema }),
+
+    getStudySession: (id) =>
+      value({
+        method: 'GET',
+        path: P.studySession(id),
+        schema: studySessionDetailResponseSchema,
+      }),
 
     studyHeartbeat: (id, body) =>
       value({ method: 'POST', path: P.studyHeartbeat(id), body, schema: heartbeatResponseSchema }),
@@ -2838,14 +3265,21 @@ export function createGuardianClient(options: GuardianClientOptions = {}): Guard
 
     getPoints: () => value({ method: 'GET', path: P.points, schema: pointsResponseSchema }),
 
-    getEvents: (q) =>
-      value({
+    async getEvents(q) {
+      const page = await value({
         method: 'GET',
         path: P.events,
         query: { epoch: q?.epoch, after: q?.after, limit: q?.limit, waitMs: q?.waitMs },
         schema: eventsResponseSchema,
         extraTimeoutMs: q?.waitMs ?? 0,
-      }),
+      });
+      return {
+        ...page,
+        events: page.events.map((line) =>
+          classifyWireEvent(line as EventEnvelopeBase & { type: string; data: unknown }),
+        ),
+      };
+    },
 
     emergencyPreview: (blockIds) =>
       value({
@@ -2916,29 +3350,47 @@ export function createGuardianClient(options: GuardianClientOptions = {}): Guard
       noContent({ method: 'DELETE', path: P.pairingExtension(id), schema: null }),
 
     async getExtRules(o) {
+      const nonce = o?.nonce ?? newRulesNonce();
       const r = await call({
         method: 'GET',
         path: P.extRules,
-        query: { waitVersion: o?.waitVersion, waitMs: o?.waitMs },
+        query: { waitVersion: o?.waitVersion, waitMs: o?.waitMs, nonce },
         schema: extRulesResponseSchema,
         ifNoneMatch: o?.etag ?? null,
         extraTimeoutMs: o?.waitMs ?? 0,
       });
       const etag = r.headers.get(GUARDIAN_HEADERS.etag);
       if (r.status === 304) return { notModified: true, etag: etag ?? o?.etag ?? null };
-      const token = await resolveToken();
       const signed =
-        token !== null &&
-        (await verifyRulesSignature(r.text, r.headers.get(GUARDIAN_HEADERS.signature), token));
+        rulesPublicKey !== null &&
+        (await verifyRulesSignature(
+          r.text,
+          r.headers.get(GUARDIAN_HEADERS.signature),
+          rulesPublicKey,
+        ));
       if (!signed) {
         throw new GuardianApiError(r.status, 'invalid_signature', 'unsigned or forged rules');
       }
       if (r.value === null) throw new GuardianApiError(r.status, 'invalid_response', 'no body');
+      if (r.value.nonce !== nonce) {
+        throw new GuardianApiError(r.status, 'invalid_signature', 'replayed rules (nonce)');
+      }
+      if (o?.waitVersion !== undefined && r.value.extRulesVersion < o.waitVersion) {
+        throw new GuardianApiError(r.status, 'stale_rules', 'rules older than the applied ones');
+      }
       return { notModified: false, etag, rules: r.value, body: r.text };
     },
 
     extHeartbeat: (body) =>
       value({ method: 'POST', path: P.extHeartbeat, body, schema: extHeartbeatResponseSchema }),
+
+    nuclearHeartbeat: (body) =>
+      value({
+        method: 'POST',
+        path: P.nuclearHeartbeat,
+        body,
+        schema: nuclearHeartbeatResponseSchema,
+      }),
 
     deleteData: (body, o) =>
       value({
@@ -2955,7 +3407,11 @@ export function createGuardianClient(options: GuardianClientOptions = {}): Guard
 // Helpers for callers
 // ---------------------------------------------------------------------------------------
 
-/** Settings of a fresh install (the guardian embeds them through `apiContractSnapshot`). */
+/**
+ * Settings of a fresh install (the guardian embeds them through `apiContractSnapshot`).
+ * `timezone: null` is a template value: the guardian replaces it with the OS IANA zone at
+ * its first start (see `GuardianSettings.timezone`).
+ */
 export const DEFAULT_GUARDIAN_SETTINGS: Readonly<GuardianSettings> = Object.freeze({
   timezone: null,
   dailyGoalMinutes: POINT_RULES.dailyGoalDefaultMinutes,
@@ -2984,11 +3440,203 @@ export function remainingMs(endsAt: IsoUtc, nowMs: number = Date.now()): number 
   return Math.max(0, Date.parse(endsAt) - nowMs);
 }
 
+// ---------------------------------------------------------------------------------------
+// Semantic checks shared by the app and the guardian (Go ports them; vectors in
+// test/fixtures/catalog-vectors.json)
+// ---------------------------------------------------------------------------------------
+
+/**
+ * The error code a request-shape `ValidationIssue` maps to (§8.1): `unknown_field` → 400
+ * `unknown_field`; `protected_process` → 422 `protected_target`; a `range` issue on
+ * `durationMinutes` → 422 `duration_out_of_range` (details `{minMinutes, maxMinutes}`,
+ * like `endsAt`); a `pattern`, `rule` or `length` issue on a `timezone` → 422
+ * `invalid_timezone`; anything else (type, required, enum, …) → 422 `validation_failed`.
+ */
+export function validationErrorCode(problem: ValidationIssue): GuardianErrorCode {
+  if (problem.issue === 'unknown_field') return 'unknown_field';
+  if (problem.issue === 'protected_process') return 'protected_target';
+  if (problem.path === 'durationMinutes' && problem.issue === 'range') {
+    return 'duration_out_of_range';
+  }
+  if (
+    /(?:^|\.)timezone$/.test(problem.path) &&
+    (problem.issue === 'pattern' || problem.issue === 'rule' || problem.issue === 'length')
+  ) {
+    return 'invalid_timezone';
+  }
+  return 'validation_failed';
+}
+
+/** User text fields and the issue their request validator reports (`null` when valid). */
+export function textFieldIssue(
+  field: 'reason' | 'task' | 'scheduleName' | 'phrase',
+  value: unknown,
+): ValidationIssueKind | null {
+  const schema =
+    field === 'reason'
+      ? reasonText
+      : field === 'task'
+        ? taskText
+        : field === 'scheduleName'
+          ? scheduleNameText
+          : phraseText;
+  return schema.check(value, field, { strict: true })?.issue ?? null;
+}
+
+/**
+ * Generic second-level labels of country-code TLDs (`co.uk`, `com.br`, `gob.es`…). Used
+ * to reject public suffixes as whitelist entries. Follow-up (§17): replace with the
+ * catalog's `MULTI_LABEL_SUFFIXES` once it is exported.
+ */
+const CC_SECOND_LEVEL_LABELS: ReadonlySet<string> = new Set([
+  'ac',
+  'co',
+  'com',
+  'edu',
+  'gob',
+  'gov',
+  'go',
+  'ltd',
+  'mil',
+  'ne',
+  'net',
+  'nom',
+  'or',
+  'org',
+  'plc',
+  'sch',
+]);
+
+/** True for a multi-label public suffix such as `co.uk` or `com.br` (canonical input). */
+export function isPublicSuffixLike(domain: string): boolean {
+  const labels = domain.split('.');
+  return (
+    labels.length === 2 &&
+    /^[a-z]{2}$/.test(labels[1] ?? '') &&
+    CC_SECOND_LEVEL_LABELS.has(labels[0] ?? '')
+  );
+}
+
+/** Domains of catalog services that belong to at least one category (distractions). */
+const DISTRACTION_SERVICE_DOMAINS: ReadonlyArray<{ domain: string; serviceId: string }> =
+  SERVICES.filter((service) => service.categories.length > 0).flatMap((service) =>
+    service.domains.map((domain) => ({ domain, serviceId: service.id })),
+  );
+
+const PLATFORMS: readonly CatalogPlatform[] = ['win', 'mac', 'linux'];
+
+/** Catalog apps blocked by some category: apps of categorized services and category apps. */
+const DISTRACTION_APP_KEYS: Readonly<Record<CatalogPlatform, ReadonlyMap<string, string>>> =
+  (() => {
+    const appIds = new Set<string>();
+    for (const service of SERVICES) {
+      if (service.categories.length > 0) for (const id of service.appIds ?? []) appIds.add(id);
+    }
+    for (const category of CATEGORIES) for (const id of category.appIds ?? []) appIds.add(id);
+    const build = (platform: CatalogPlatform): Map<string, string> => {
+      const map = new Map<string, string>();
+      for (const app of APPS) {
+        if (!appIds.has(app.id)) continue;
+        for (const name of app.processes[platform]) map.set(processNameKey(name, platform), app.id);
+      }
+      return map;
+    };
+    return { win: build('win'), mac: build('mac'), linux: build('linux') };
+  })();
+
+/** Why an allow entry was refused (`details` of 422 `allow_distraction`). */
+export interface AllowDistraction {
+  path: string;
+  reason: 'service_domain' | 'parent_of_service_domain' | 'public_suffix' | 'distraction_app';
+  serviceId: string | null;
+  appId: string | null;
+}
+
+function domainDistraction(d: string, path: string): AllowDistraction | null {
+  if (isPublicSuffixLike(d)) return { path, reason: 'public_suffix', serviceId: null, appId: null };
+  const owner = findServiceByDomain(d);
+  if (owner && owner.categories.length > 0) {
+    return { path, reason: 'service_domain', serviceId: owner.id, appId: null };
+  }
+  for (const entry of DISTRACTION_SERVICE_DOMAINS) {
+    if (entry.domain !== d && isSameOrSubdomain(entry.domain, d)) {
+      return { path, reason: 'parent_of_service_domain', serviceId: entry.serviceId, appId: null };
+    }
+  }
+  return null;
+}
+
+function processDistraction(
+  name: string,
+  path: string,
+  platforms: readonly CatalogPlatform[],
+): AllowDistraction | null {
+  for (const platform of platforms) {
+    const appId = DISTRACTION_APP_KEYS[platform].get(processNameKey(name, platform));
+    if (appId !== undefined) return { path, reason: 'distraction_app', serviceId: null, appId };
+  }
+  return null;
+}
+
+/**
+ * The single «no distractions in a whitelist» check, used for block and schedule `allow`
+ * and for `settings.studyWhitelist` (422 `allow_distraction`). It rejects a domain that
+ * is a multi-label public suffix, equals or is under a domain of a catalog service with
+ * at least one category (a service's `excludedSubdomains` stay allowed), or is a parent
+ * of one (`googleapis.com` would allow `youtubei.googleapis.com`); and a process name of
+ * a catalog app that some category blocks. Processes are checked on every platform
+ * unless `platform` is given (the guardian passes its own). The guardian also re-checks
+ * whitelist snapshots against its embedded catalog and drops offending entries, since a
+ * catalog update can add services.
+ */
+export function findAllowDistraction(
+  entries: { domains: readonly string[]; processes: readonly string[] },
+  paths: { domains: string; processes: string },
+  platform?: CatalogPlatform,
+): AllowDistraction | null {
+  for (let i = 0; i < entries.domains.length; i += 1) {
+    const found = domainDistraction(entries.domains[i] ?? '', `${paths.domains}[${i}]`);
+    if (found) return found;
+  }
+  const platforms = platform === undefined ? PLATFORMS : [platform];
+  for (let i = 0; i < entries.processes.length; i += 1) {
+    const found = processDistraction(
+      entries.processes[i] ?? '',
+      `${paths.processes}[${i}]`,
+      platforms,
+    );
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Dedupe key of an extension detection (`attempt.targetKey`). */
+export function domainTargetKey(host: string): string {
+  const service = findServiceByDomain(host);
+  if (service) return `svc:${service.id}`;
+  return `dom:${host.startsWith('www.') ? host.slice(4) : host}`;
+}
+
+/** Dedupe key of a window-title detection. */
+export function serviceTargetKey(serviceId: string): string {
+  return `svc:${serviceId}`;
+}
+
+/** Dedupe key of a process detection on `platform`. */
+export function processTargetKey(name: string, platform: CatalogPlatform): string {
+  const service = findServiceByProcessName(name, platform);
+  if (service) return `svc:${service.id}`;
+  const app = findAppByProcessName(name, platform);
+  if (app) return `app:${app.id}`;
+  return `proc:${processNameKey(name, platform)}`;
+}
+
 /** Everything about the API the guardian embeds (`guardian/internal/embedded/api.json`). */
 export function apiContractSnapshot(): {
   apiVersion: number;
   defaultPort: number;
   limits: typeof GUARDIAN_LIMITS;
+  responseLimits: typeof RESPONSE_LIMITS;
   endpoints: EndpointSpec[];
   errors: Record<GuardianErrorCode, number>;
   capabilities: string[];
@@ -3002,6 +3650,7 @@ export function apiContractSnapshot(): {
       apiVersion: GUARDIAN_API_VERSION,
       defaultPort: DEFAULT_GUARDIAN_PORT,
       limits: GUARDIAN_LIMITS,
+      responseLimits: RESPONSE_LIMITS,
       endpoints: GUARDIAN_ENDPOINTS,
       errors: GUARDIAN_ERROR_STATUS,
       capabilities: GUARDIAN_CAPABILITIES,

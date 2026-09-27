@@ -9,6 +9,8 @@ import type {
   WireEvent,
 } from '../src/domain';
 import { EVENT_TYPES, isIdOf, isKnownEvent } from '../src/domain';
+import { SERVICES } from '../src/catalog';
+import { REWARD_OFFERS } from '../src/points';
 import type {
   CreateBlockRequest,
   GuardianStateResponse,
@@ -17,19 +19,26 @@ import type {
 } from '../src/guardian-api';
 import {
   DEFAULT_GUARDIAN_PORT,
+  GUARDIAN_CAPABILITIES,
   GUARDIAN_ENDPOINTS,
   GUARDIAN_ERROR_CODES,
   GUARDIAN_ERROR_STATUS,
   GUARDIAN_LIMITS,
   GUARDIAN_PATHS,
+  GUARDIAN_TEST_CAPABILITY,
   GuardianApiError,
+  RESPONSE_LIMITS,
   apiContractSnapshot,
   attemptRequestSchema,
+  blockSchema,
   computeRulesSignature,
   createBlockRequestSchema,
   createGuardianClient,
+  emergencySchema,
   emptyAllow,
   emptyTargets,
+  findAllowDistraction,
+  generateRulesKeyPair,
   guardianBaseUrl,
   isAttemptRequest,
   isBlock,
@@ -37,9 +46,11 @@ import {
   isCreateBlockRequest,
   isEmergencyRequest,
   isEmptyRequest,
+  isEndStudyRequest,
   isEventsResponse,
   isExtendBlockRequest,
   isHeartbeatRequest,
+  isNuclearHeartbeatRequest,
   isPairingClaimRequest,
   isScheduleInput,
   isSettingsRequest,
@@ -55,6 +66,7 @@ import {
   testClockRequestSchema,
   validateRequest,
   validateResponse,
+  validationErrorCode,
   verifyRulesSignature,
   wireEventSchema,
 } from '../src/guardian-api';
@@ -120,6 +132,7 @@ function session(overrides: Partial<StudySession> = {}): StudySession {
     nextPauseAvailableAt: null,
     lastHeartbeatAt: NOW,
     lastHeartbeatSeq: 48,
+    warnings: 2,
     policy: { level: 'distractions', minutes: 60 },
     achieved: null,
     ...overrides,
@@ -136,6 +149,7 @@ function points(): PointsSummary {
     streakDays: 5,
     bestStreakDays: 9,
     today: { day: '2026-09-27', focusMinutes: 42, goalMinutes: 60, goalMet: false },
+    pendingFocusMinutes: 2,
   };
 }
 
@@ -162,7 +176,13 @@ function state(): GuardianStateResponse {
     epoch: EPOCH,
     lastEventSeq: 1843,
     guardian: { version: '0.1.0', apiVersion: 1, mode: 'normal', problems: [] },
-    clock: { wallOffsetMs: 0, trust: 'verified', lastJump: null, lastCalibratedAt: NOW },
+    clock: {
+      wallOffsetMs: 0,
+      trust: 'verified',
+      lastJump: null,
+      lastCalibratedAt: NOW,
+      bootHoldUntil: null,
+    },
     protection: {
       hosts: { ok: true, status: 'ok', entries: 68, lastAppliedAt: NOW },
       processWatcher: { ok: true },
@@ -175,7 +195,8 @@ function state(): GuardianStateResponse {
           lastSeenAt: NOW,
           incognitoAllowed: false,
           hostPermission: true,
-          appliedRulesVersion: 57,
+          appliedExtRulesVersion: 57,
+          protecting: false,
         },
       ],
       browsersWithoutExtension: ['firefox'],
@@ -201,6 +222,7 @@ function state(): GuardianStateResponse {
           pointsDelta: 80,
         },
       ],
+      endedStudy: null,
     },
   };
 }
@@ -282,6 +304,29 @@ describe('constants', () => {
     }
   });
 
+  it('keeps everything the guardian may emit below the response validator caps', () => {
+    const L = GUARDIAN_LIMITS;
+    const catalogDomains = SERVICES.reduce((n, service) => n + service.domains.length, 0);
+    // The hosts section (and every domain list) holds the custom budgets plus the catalog.
+    expect(L.maxActiveCustomHosts + L.maxScheduleCustomHosts + catalogDomains).toBeLessThan(
+      L.hostsMaxDomains,
+    );
+    expect(L.hostsMaxDomains).toBeLessThan(RESPONSE_LIMITS.domains);
+    // One block's custom domains (each expands to at most 2 hosts) always fit the budget.
+    expect(L.maxCustomDomains * 2).toBeLessThanOrEqual(L.maxActiveCustomHosts);
+    // Active blocks: user blocks + one occurrence per schedule + stacked punishments.
+    expect(L.maxActiveBlocks + L.maxSchedules + RESPONSE_LIMITS.punishments).toBeLessThanOrEqual(
+      RESPONSE_LIMITS.blocks,
+    );
+    expect(L.unverifiedCompletionsMax + 1).toBeLessThanOrEqual(L.maxBatchEvents);
+    expect(L.maxBatchEvents).toBeLessThanOrEqual(L.eventsPageMax);
+    expect(L.allowanceMaxMinutes).toBeGreaterThanOrEqual(
+      Math.max(...REWARD_OFFERS.map((offer) => offer.minutes)),
+    );
+    expect(L.allowanceMaxMinutes).toBeLessThanOrEqual(1440);
+    expect(GUARDIAN_CAPABILITIES as readonly string[]).not.toContain(GUARDIAN_TEST_CAPABILITY);
+  });
+
   it('snapshots the contract as plain JSON', () => {
     const snap = apiContractSnapshot();
     expect(snap.defaultPort).toBe(47600);
@@ -325,6 +370,14 @@ describe('route table', () => {
 
   it('encodes id segments', () => {
     expect(GUARDIAN_PATHS.blockExtend('blk_a/b' as BlockId)).toBe('/v1/blocks/blk_a%2Fb/extend');
+  });
+
+  it('has 40 routes; only the test clock is test-only', () => {
+    expect(GUARDIAN_ENDPOINTS).toHaveLength(40);
+    expect(GUARDIAN_ENDPOINTS.filter((e) => e.testOnly).map((e) => e.id)).toEqual(['testClock']);
+    expect(GUARDIAN_ENDPOINTS.map((e) => e.id)).toEqual(
+      expect.arrayContaining(['getStudySession', 'nuclearHeartbeat']),
+    );
   });
 
   it('is fully covered by the client', () => {
@@ -500,6 +553,7 @@ describe('request validators', () => {
       state: 'focused',
       focusScore: 84,
       focusedMsSinceLast: 15_000,
+      warningsSinceLast: 1,
       cameraOn: true,
     };
     expect(isHeartbeatRequest(hb)).toBe(true);
@@ -508,19 +562,26 @@ describe('request validators', () => {
     expect(isHeartbeatRequest({ ...hb, focusScore: 101 })).toBe(false);
     expect(isHeartbeatRequest({ ...hb, focusedMsSinceLast: 600_001 })).toBe(false);
     expect(isHeartbeatRequest({ ...hb, state: 'studying' })).toBe(false);
+    expect(isHeartbeatRequest({ ...hb, warningsSinceLast: 101 })).toBe(false);
+    expect(
+      isEndStudyRequest({ reason: 'user', focusedMsSinceLast: 9_000, warningsSinceLast: 0 }),
+    ).toBe(true);
+    expect(isEndStudyRequest({ reason: 'user' })).toBe(false);
+    expect(isNuclearHeartbeatRequest({ overlayShown: true, displays: 2 })).toBe(true);
+    expect(isNuclearHeartbeatRequest({ overlayShown: true, displays: 0 })).toBe(false);
   });
 
   it('validates emergency requests', () => {
     const req = {
       blockIds: [BLK],
       phrase: 'Acepto romper mi compromiso y perder mis puntos',
-      language: 'es',
     };
     expect(isEmergencyRequest(req)).toBe(true);
     expect(isEmergencyRequest({ ...req, blockIds: [] })).toBe(false);
     expect(isEmergencyRequest({ ...req, blockIds: [BLK, BLK] })).toBe(false);
     expect(isEmergencyRequest({ ...req, blockIds: ['sch_0123456789abcdefABCD'] })).toBe(false);
-    expect(isEmergencyRequest({ ...req, language: 'fr' })).toBe(false);
+    // Either language's phrase is accepted, so the request carries no language.
+    expect(isEmergencyRequest({ ...req, language: 'es' })).toBe(false);
     expect(isConfirmEmergencyRequest({ acknowledge: true })).toBe(true);
     expect(isConfirmEmergencyRequest({ acknowledge: 'true' })).toBe(false);
     expect(isConfirmEmergencyRequest({})).toBe(false);
@@ -546,6 +607,59 @@ describe('request validators', () => {
     expect(
       issueOf(testClockRequestSchema, { advanceMs: 1, suspendMs: 1, jumpMs: null, reboot: false }),
     ).toEqual({ path: '$', issue: 'rule' });
+  });
+
+  it('maps request issues to the documented error codes', () => {
+    const code = (schema: Schema<unknown>, value: unknown): string | null => {
+      const r = validateRequest(schema, value);
+      return r.ok ? null : validationErrorCode(r.issue);
+    };
+    const block = createBlockRequestSchema as Schema<unknown>;
+    expect(code(block, { ...createBlock(), shorten: true })).toBe('unknown_field');
+    expect(code(block, createBlock({ durationMinutes: 4 }))).toBe('duration_out_of_range');
+    expect(code(block, createBlock({ durationMinutes: 60.5 }))).toBe('validation_failed');
+    expect(
+      code(
+        block,
+        createBlock({ targets: { ...emptyTargets(), customProcesses: ['explorer.exe'] } }),
+      ),
+    ).toBe('protected_target');
+    expect(code(block, createBlock({ reason: 'x'.repeat(141) }))).toBe('validation_failed');
+    expect(code(settingsRequestSchema as Schema<unknown>, settings({ timezone: 'Local' }))).toBe(
+      'invalid_timezone',
+    );
+    expect(
+      code(scheduleInputSchema as Schema<unknown>, scheduleInput({ timezone: '../../etc/passwd' })),
+    ).toBe('invalid_timezone');
+    expect(GUARDIAN_ERROR_STATUS.unknown_field).toBe(400);
+    expect(GUARDIAN_ERROR_STATUS.too_many_targets).toBe(422);
+    expect(GUARDIAN_ERROR_STATUS.allowance_limit_reached).toBe(409);
+  });
+
+  it('refuses distractions in whitelist allowances and study whitelist extras', () => {
+    expect(
+      findAllowDistraction(
+        { domains: ['aulavirtual.example.edu'], processes: ['GeoGebra.exe'] },
+        { domains: 'allow.customDomains', processes: 'allow.customProcesses' },
+      ),
+    ).toBeNull();
+    expect(
+      findAllowDistraction(
+        { domains: ['youtube.com'], processes: [] },
+        { domains: 'studyWhitelist.extraDomains', processes: 'studyWhitelist.extraProcesses' },
+      ),
+    ).toEqual({
+      path: 'studyWhitelist.extraDomains[0]',
+      reason: 'service_domain',
+      serviceId: 'youtube',
+      appId: null,
+    });
+    expect(
+      findAllowDistraction(
+        { domains: [], processes: ['steam.exe'] },
+        { domains: 'studyWhitelist.extraDomains', processes: 'studyWhitelist.extraProcesses' },
+      )?.appId,
+    ).toBe('steam');
   });
 
   it('validates pairing, empty bodies and the test clock', () => {
@@ -596,6 +710,108 @@ describe('response validators', () => {
     expect(r.ok ? null : r.issue).toMatchObject({ path: 'blocks[0].mode', issue: 'enum' });
   });
 
+  it('requires millisecond UTC timestamps', () => {
+    expect(isBlock(block({ endsAt: '2026-09-27T17:42:00.000Z' }))).toBe(true);
+    expect(isBlock(block({ endsAt: '2026-09-27T17:42:00Z' }))).toBe(false);
+    expect(isBlock(block({ endsAt: '2026-09-27T17:42:00.000000001Z' }))).toBe(false);
+    expect(isBlock(block({ endsAt: '2026-09-27T19:42:00.000+02:00' }))).toBe(false);
+  });
+
+  it('accepts a recovered block carrying the whole hosts section', () => {
+    const domains = Array.from({ length: 600 }, (_, i) => `d${i}.example.org`);
+    const recovered = block({
+      kind: 'recovered',
+      reason: '',
+      targets: { ...emptyTargets(), customDomains: domains },
+    });
+    expect(validateResponse(blockSchema, recovered).ok).toBe(true);
+    const epochStarted = {
+      v: 1,
+      epoch: EPOCH,
+      seq: 1,
+      at: NOW,
+      wallOffsetMs: 0,
+      day: '2026-09-27',
+      points: 0,
+      xp: 0,
+      txEnd: true,
+      req: null,
+      type: 'epoch_started',
+      data: {
+        reason: 'log_unreadable',
+        previousEpoch: null,
+        carryOverBalance: 0,
+        escalation: { lastCountedAt: null, index: 0 },
+        kept: {
+          blocks: [recovered],
+          punishments: [],
+          allowances: [],
+          schedules: [],
+          settings: settings(),
+          pendingSettings: [],
+          materializedOccurrences: [],
+        },
+      },
+    };
+    expect(validateResponse(wireEventSchema, epochStarted)).toMatchObject({ ok: true });
+  });
+
+  it('keys pending settings by path; punishment changes never wait', () => {
+    const withPending = (pendingSettings: unknown) => ({ ...state(), pendingSettings });
+    expect(
+      isStateResponse(
+        withPending([
+          { field: 'studyWhitelist.extraDomains', value: ['a.example.edu'], effectiveAt: LATER },
+          { field: 'dailyGoalMinutes', value: 30, effectiveAt: LATER },
+        ]),
+      ),
+    ).toBe(true);
+    expect(
+      isStateResponse(
+        withPending([
+          {
+            field: 'punishment',
+            value: { level: 'distractions', minutes: 15 },
+            effectiveAt: LATER,
+          },
+        ]),
+      ),
+    ).toBe(false);
+  });
+
+  it('accepts the last ended study session in the state', () => {
+    const ended = session({ status: 'punished', phase: 'ended', endedAt: LATER });
+    const summary = {
+      outcome: 'punished' as const,
+      activeMinutes: 30,
+      workMinutes: 25,
+      focusedMinutes: 20,
+      focusPct: 80,
+      strikes: 3,
+      warnings: 4,
+      attempts: 1,
+      pointsTotal: -115,
+      cleanBonus: 0,
+    };
+    const s = state();
+    s.recent.endedStudy = { session: ended, summary };
+    expect(isStateResponse(s)).toBe(true);
+    s.recent.endedStudy = { session: ended, summary: { ...summary, outcome: 'gave_up' as never } };
+    expect(isStateResponse(s)).toBe(false);
+  });
+
+  it('allows only the documented emergency status and cancel reason pairs', () => {
+    const e = emergency();
+    expect(validateResponse(emergencySchema, e).ok).toBe(true);
+    const pair = (status: string, cancelReason: string | null) =>
+      validateResponse(emergencySchema, { ...e, status, cancelReason }).ok;
+    expect(pair('expired', 'expired')).toBe(true);
+    expect(pair('cancelled', 'user')).toBe(true);
+    expect(pair('cancelled', 'expired')).toBe(false);
+    expect(pair('expired', null)).toBe(false);
+    expect(pair('counting', 'user')).toBe(false);
+  });
+
   it('checks study sessions and nested pomodoro limits', () => {
     expect(isStudySession(session())).toBe(true);
     expect(isStudySession(session({ pomodoro: { workMinutes: 4, breakMinutes: 5 } }))).toBe(false);
@@ -633,6 +849,12 @@ describe('response validators', () => {
     };
     expect(isWireEvent(attempt)).toBe(true);
     expect(isWireEvent({ ...attempt, data: { ...attempt.data, targetKey: 'youtube' } })).toBe(
+      false,
+    );
+    expect(
+      isWireEvent({ ...attempt, data: { ...attempt.data, targetKey: 'proc:my game.exe' } }),
+    ).toBe(true);
+    expect(isWireEvent({ ...attempt, data: { ...attempt.data, targetKey: 'proc:a\u0007' } })).toBe(
       false,
     );
     expect(isWireEvent({ ...attempt, day: '2026-02-30' })).toBe(false);
@@ -762,6 +984,7 @@ describe('createGuardianClient', () => {
           token: 'cte_abcdefghijklmnopqrstuvwxyz',
           guardianVersion: '0.1.0',
           boundOrigin: 'chrome-extension://dlabilkpafinafimngfclcfmeghilcah',
+          rulesPublicKey: 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE' + 'A'.repeat(88),
         });
       }
       return json(200, { epoch: EPOCH, reset: true, events: [], lastSeq: 0, hasMore: false });
@@ -872,6 +1095,79 @@ describe('createGuardianClient', () => {
     ]);
   });
 
+  it('keeps syncing when one event of a page is malformed', async () => {
+    const line = (seq: number, type: string, data: unknown, points = 0) => ({
+      v: 1,
+      epoch: EPOCH,
+      seq,
+      at: NOW,
+      wallOffsetMs: 0,
+      day: '2026-09-27',
+      points,
+      xp: 0,
+      txEnd: true,
+      req: null,
+      type,
+      data,
+    });
+    const page = {
+      epoch: EPOCH,
+      reset: false,
+      events: [
+        line(1, 'day_closed', { day: '2026-09-26', goalMinutes: 60 }),
+        line(2, 'attempt', { attemptId: 'nope' }, -10),
+        line(3, 'pet_grew', { stage: 2 }),
+      ],
+      lastSeq: 3,
+      hasMore: false,
+    };
+    const { fetch } = fakeFetch(() => json(200, page));
+    const client = createGuardianClient({ token: 'cta_x', fetch });
+    const res = await client.getEvents({ epoch: EPOCH, after: 0 });
+    expect(res.lastSeq).toBe(3);
+    expect(res.events.map((e) => isKnownEvent(e))).toEqual([true, false, false]);
+    expect(res.events[1]).toMatchObject({
+      seq: 2,
+      points: -10,
+      malformed: { path: 'data.attemptId', issue: 'pattern' },
+    });
+    expect(res.events[2]).not.toHaveProperty('malformed');
+    // A broken envelope still fails: its points could not be applied.
+    const broken = fakeFetch(() =>
+      json(200, { ...page, events: [{ ...line(1, 'day_closed', {}), points: 1.5 }] }),
+    );
+    await expect(
+      createGuardianClient({ token: 'cta_x', fetch: broken.fetch }).getEvents(),
+    ).rejects.toMatchObject({ code: 'invalid_response' });
+  });
+
+  it('reaches the study history, Nuclear heartbeat and block cursor routes', async () => {
+    const { fetch, calls } = fakeFetch((req) => {
+      if (req.url.pathname === '/v1/nuclear/heartbeat') {
+        return json(200, { nuclearActive: true, endsAt: LATER, serverNow: NOW });
+      }
+      if (req.url.pathname === '/v1/blocks') {
+        return json(200, { blocks: [], nextCursor: 'MTc1OTAwMDAwMDAwMF9ibGs' });
+      }
+      return json(200, {
+        session: session({ status: 'completed', phase: 'ended' }),
+        summary: null,
+      });
+    });
+    const client = createGuardianClient({ token: 'cta_x', fetch });
+    await client.getStudySession(STU);
+    expect(calls[0]?.url.pathname).toBe(`/v1/study/sessions/${STU}`);
+    const nuclear = await client.nuclearHeartbeat({ overlayShown: true, displays: 2 });
+    expect(nuclear.nuclearActive).toBe(true);
+    const page = await client.listBlocks({ status: 'ended', cursor: 'abc_-1', limit: 10 });
+    expect(page.nextCursor).toBe('MTc1OTAwMDAwMDAwMF9ibGs');
+    expect(Object.fromEntries(calls[2]?.url.searchParams ?? [])).toEqual({
+      status: 'ended',
+      cursor: 'abc_-1',
+      limit: '10',
+    });
+  });
+
   it('returns nothing for 204 deletes', async () => {
     const { fetch, calls } = fakeFetch(() => new Response(null, { status: 204 }));
     const client = createGuardianClient({ token: 'cta_x', fetch });
@@ -879,10 +1175,13 @@ describe('createGuardianClient', () => {
     expect(calls[0]?.method).toBe('DELETE');
   });
 
-  it('verifies the extension rules signature', async () => {
+  it('verifies the extension rules signature, nonce and version', async () => {
     const token = 'cte_extension_token_value';
-    const rules = {
-      rulesVersion: 57,
+    const { privateKey, publicKey } = await generateRulesKeyPair();
+    const other = await generateRulesKeyPair();
+    const rules = (nonce: string, extRulesVersion = 57) => ({
+      extRulesVersion,
+      nonce,
       serverNow: NOW,
       blockDomains: ['youtube.com', 'www.youtube.com'],
       excludedDomains: ['accounts.youtube.com'],
@@ -903,34 +1202,60 @@ describe('createGuardianClient', () => {
       punishment: null,
       nextChangeAt: LATER,
       penaltiesEnabled: true,
-    };
-    const body = JSON.stringify(rules);
-    const signature = await computeRulesSignature(body, token);
-    expect(signature).toMatch(/^v1=[A-Za-z0-9_-]{43}$/);
-    expect(await verifyRulesSignature(body, signature, token)).toBe(true);
-    expect(await verifyRulesSignature(`${body} `, signature, token)).toBe(false);
-    expect(await verifyRulesSignature(body, signature, 'cte_other')).toBe(false);
-    expect(await verifyRulesSignature(body, null, token)).toBe(false);
-    expect(await verifyRulesSignature(body, 'v1=***', token)).toBe(false);
+    });
+    const nonce = 'AAAAAAAAAAAAAAAAAAAAAA';
+    const body = JSON.stringify(rules(nonce));
+    const signature = await computeRulesSignature(body, privateKey);
+    expect(signature).toMatch(/^v1=[A-Za-z0-9_-]{86}$/);
+    expect(await verifyRulesSignature(body, signature, publicKey)).toBe(true);
+    expect(await verifyRulesSignature(`${body} `, signature, publicKey)).toBe(false);
+    expect(await verifyRulesSignature(body, signature, other.publicKey)).toBe(false);
+    expect(await verifyRulesSignature(body, null, publicKey)).toBe(false);
+    expect(await verifyRulesSignature(body, 'v1=***', publicKey)).toBe(false);
+    expect(await verifyRulesSignature(body, signature, 'not-a-key')).toBe(false);
 
-    const signed = fakeFetch(
+    // A server that echoes the nonce and signs with the guardian key.
+    const guardian = fakeFetch(async (req) => {
+      const echoed = JSON.stringify(rules(req.url.searchParams.get('nonce') ?? ''));
+      return new Response(echoed, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Centrate-Signature': await computeRulesSignature(echoed, privateKey),
+        },
+      });
+    });
+    const ext = createGuardianClient({ token, fetch: guardian.fetch, rulesPublicKey: publicKey });
+    const ok = await ext.getExtRules({ waitVersion: 56, waitMs: 25_000 });
+    expect(ok.notModified).toBe(false);
+    expect(ok.notModified ? null : ok.rules.extRulesVersion).toBe(57);
+    expect(guardian.calls[0]?.url.searchParams.get('waitVersion')).toBe('56');
+    expect(guardian.calls[0]?.url.searchParams.get('nonce')).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    await expect(ext.getExtRules({ waitVersion: 58 })).rejects.toMatchObject({
+      code: 'stale_rules',
+    });
+
+    // Valid signature but an old nonce: a replayed body.
+    const replay = fakeFetch(
       () =>
         new Response(body, {
           status: 200,
           headers: { 'Content-Type': 'application/json', 'X-Centrate-Signature': signature },
         }),
     );
-    const ok = await createGuardianClient({ token, fetch: signed.fetch }).getExtRules({
-      waitVersion: 56,
-      waitMs: 25_000,
-    });
-    expect(ok.notModified).toBe(false);
-    expect(ok.notModified ? null : ok.rules.rulesVersion).toBe(57);
-    expect(signed.calls[0]?.url.searchParams.get('waitVersion')).toBe('56');
-
-    const forged = fakeFetch(() => json(200, { ...rules, blockDomains: [] }));
     await expect(
-      createGuardianClient({ token, fetch: forged.fetch }).getExtRules(),
+      createGuardianClient({ token, fetch: replay.fetch, rulesPublicKey: publicKey }).getExtRules(),
+    ).rejects.toMatchObject({ code: 'invalid_signature' });
+
+    // Knowing the token is not enough: an unsigned body, or no pinned key.
+    const forged = fakeFetch(() => json(200, { ...rules(nonce), blockDomains: [] }));
+    await expect(
+      createGuardianClient({ token, fetch: forged.fetch, rulesPublicKey: publicKey }).getExtRules({
+        nonce,
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_signature' });
+    await expect(
+      createGuardianClient({ token, fetch: replay.fetch }).getExtRules({ nonce }),
     ).rejects.toMatchObject({ code: 'invalid_signature' });
   });
 });
