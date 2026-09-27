@@ -1,0 +1,8 @@
+---
+// STUB: owned by SECTIONS. Placeholder from the BASE builder so index.astro builds; the owner overwrites this file.
+import { copy } from '../../content/copy';
+---
+
+<section id={copy.numbers.id} data-surface="alt" class="section-block gutter" aria-label={copy.numbers.ariaLabel}>
+  {copy.numbers.items.map((item) => <h2 class="text-hero" data-reveal>{item.headline}</h2>)}
+</section>

@@ -1,0 +1,11 @@
+---
+// STUB: owned by SECTIONS. Placeholder from the BASE builder so index.astro builds; the owner overwrites this file.
+import { copy, footnoteList } from '../../content/copy';
+---
+
+<section id={copy.footnotes.id} aria-labelledby="notas-titulo">
+  <h2 id="notas-titulo" class="sr-only">{copy.footnotes.title}</h2>
+  <ol class="list-decimal ps-4 max-w-lead">
+    {footnoteList.map((note) => <li id={`nota-${note.n}`}>{note.text}</li>)}
+  </ol>
+</section>

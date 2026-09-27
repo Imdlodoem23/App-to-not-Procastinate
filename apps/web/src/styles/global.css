@@ -1,1 +1,258 @@
+/*
+ * Global styles of the Céntrate website. Imported once, by src/layouts/Base.astro.
+ *
+ * 1. Tailwind 4, then the design tokens (tokens.css turns them into utilities and removes
+ *    Tailwind's default palette, type scale, radii, shadows and breakpoints).
+ * 2. Inter variable with the optical-size axis (opsz 14-32 + wght), self-hosted from
+ *    @fontsource-variable/inter (OFL-1.1). font-display: swap comes with the package; Base.astro
+ *    preloads the latin file. 'Inter Fallback' (tokens.css) keeps the swap from moving layout.
+ * 3. Base typography, links, focus rings and the reveal-on-scroll states.
+ *
+ * Shared utilities defined here (use them like any Tailwind class, variants included):
+ * - `gutter`: padding-inline that leaves the content column (87.5 %, max 1260 px) inside a
+ *   full-width element.
+ * - `section-block`: the stepped vertical padding of a section (160 / 128 / 96).
+ * - `link`: a standalone link (link color of the surface, underline on hover).
+ * - `link-inline`: a link inside running text (always underlined, as WCAG 1.4.1 needs).
+ * - `button-pill`: the blue pill button (44 px, 17 px text); `button-pill-compact`: the 28 px
+ *   one of the navigation bar.
+ * - `sentence-lines`: one sentence per line in two-beat headlines (wrap each sentence in a
+ *   <span> and put this on the headline; `sm:sentence-lines` keeps them inline on phones).
+ */
+
 @import 'tailwindcss';
+@import './tokens.css';
+@import '@fontsource-variable/inter/opsz.css';
+
+/* Base ---------------------------------------------------------------------------------------- */
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    /* Anchors land below the sticky 52 px bar. Scrolling itself is always the browser's own. */
+    scroll-padding-top: var(--nav-height);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    min-height: 100svh;
+    background-color: var(--surface);
+    color: var(--text);
+    font-family: var(--family-sans);
+    font-size: var(--type-body-size);
+    line-height: var(--type-body-lh);
+    letter-spacing: var(--type-body-ls);
+    font-weight: var(--weight-regular);
+    font-optical-sizing: auto;
+    /* Only two weights exist: never fake a bold. (The oblique of the app's motive line is the
+       one synthetic style allowed, so font-synthesis-style stays on.) */
+    font-synthesis-weight: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  main {
+    flex: 1 0 auto;
+  }
+
+  /* Every section declares its surface; its background and text follow. Utilities (bg-raised…)
+     and component styles override this. */
+  [data-surface] {
+    background-color: var(--surface);
+    color: var(--text);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-weight: var(--weight-semibold);
+    text-wrap: balance;
+  }
+
+  p,
+  li,
+  dd,
+  figcaption,
+  blockquote {
+    text-wrap: pretty;
+  }
+
+  /* Tailwind's preflight says «bolder», which is 700 here: the site has only 400 and 600. */
+  b,
+  strong {
+    font-weight: var(--weight-semibold);
+  }
+
+  /* Links stay unstyled like in Tailwind; use the `link` / `link-inline` utilities. */
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  summary,
+  label[for] {
+    cursor: pointer;
+  }
+
+  /* Focus: 2 px ring in the surface's focus color, 3 px away, only for keyboard focus. */
+  :focus-visible {
+    outline: var(--focus-width) solid var(--focus);
+    outline-offset: var(--focus-offset);
+  }
+
+  /* Programmatic focus targets (skip link destination, headings moved to) get no ring. */
+  [tabindex='-1']:focus {
+    outline: none;
+  }
+
+  ::selection {
+    background-color: color-mix(in srgb, var(--palette-blue) 22%, transparent);
+  }
+
+  /* Reduced motion: everything static (tokens.css also zeroes every duration). The important
+     flags here stop any stray animation or transition; nothing on the site autoplays. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-delay: 0s !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      transition-delay: 0s !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* Components ---------------------------------------------------------------------------------- */
+
+@layer components {
+  /* «Saltar al contenido»: off-screen until it gets the keyboard focus (Base.astro). */
+  .skip-link {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: var(--z-skip-link);
+    translate: 0 calc(-100% - 24px);
+
+    &:focus,
+    &:focus-visible {
+      translate: none;
+    }
+  }
+}
+
+/* Utilities ----------------------------------------------------------------------------------- */
+
+@utility gutter {
+  padding-inline: var(--page-gutter);
+}
+
+@utility section-block {
+  padding-block: var(--section-pad-block);
+}
+
+@utility link {
+  color: var(--link);
+  text-decoration-line: none;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+
+  &:hover {
+    text-decoration-line: underline;
+  }
+}
+
+@utility link-inline {
+  color: var(--link);
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
+@utility button-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--button-h);
+  padding-inline: var(--button-pad-inline);
+  /* Transparent border: Windows high contrast paints it, so the pill keeps its shape. */
+  border: 1px solid transparent;
+  border-radius: var(--shape-pill);
+  background-color: var(--palette-blue);
+  color: var(--palette-white);
+  font-size: var(--type-body-size);
+  line-height: 1.17648;
+  letter-spacing: var(--type-body-ls);
+  font-weight: var(--weight-regular);
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 100ms linear;
+
+  &:hover {
+    background-color: var(--palette-blue-hover);
+    text-decoration: none;
+  }
+
+  &:active {
+    background-color: var(--palette-blue-active);
+  }
+}
+
+@utility button-pill-compact {
+  min-height: var(--nav-pill-h);
+  padding-inline: var(--nav-pill-pad-inline);
+  font-size: var(--type-nav-link-size);
+  line-height: 1.33337;
+  letter-spacing: -0.01em;
+}
+
+@utility sentence-lines {
+  text-wrap: balance;
+
+  & > span {
+    display: block;
+  }
+}
+
+/* Reveal on scroll (src/scripts/reveal.ts, design plan § 6.2) ---------------------------------- */
+
+/* Unlayered on purpose: the hidden state must win over component styles until the reveal. The
+   `translate` property composes with any `transform` a component sets. `.no-reveal` is the
+   failsafe Base.astro sets if reveal.ts never runs. */
+@media (prefers-reduced-motion: no-preference) {
+  html.js:not(.no-reveal) [data-reveal]:not([data-revealed]) {
+    opacity: 0;
+    translate: 0 var(--reveal-distance);
+  }
+
+  html.js [data-reveal][data-revealed='animating'] {
+    transition:
+      translate var(--reveal-duration-transform) var(--curve-reveal),
+      opacity var(--reveal-duration-opacity) var(--curve-reveal);
+    transition-delay: calc(var(--reveal-index, 0) * var(--reveal-stagger));
+  }
+}
+
+@media print {
+  [data-reveal] {
+    opacity: 1 !important;
+    translate: none !important;
+  }
+}

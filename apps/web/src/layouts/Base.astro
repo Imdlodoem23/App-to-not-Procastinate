@@ -1,0 +1,108 @@
+---
+/**
+ * Page shell for every page: <head> (meta, canonical, Open Graph, favicon, font preload), the
+ * skip link, the navigation bar, <main id="contenido">, and the footer.
+ *
+ * Slots:
+ * - default: the page content, inside <main>. Each section sets data-surface.
+ * - `head`: extra tags for <head> (structured data, a preload for a page's hero image…).
+ * - `footnotes`: the page's numbered notes, rendered at the top of the footer.
+ */
+import '../styles/global.css';
+import interLatinUrl from '@fontsource-variable/inter/files/inter-latin-opsz-normal.woff2?url';
+import NavBar from '../components/NavBar.astro';
+import Footer from '../components/Footer.astro';
+import { copy } from '../content/copy';
+import { site, type PageKey } from '../lib/site';
+
+interface Props {
+  /** <title>, from copy.meta.<page>.title. */
+  title: string;
+  /** Meta and Open Graph description, from copy.meta.<page>.description. */
+  description: string;
+  /** Open Graph title when it differs from <title> (copy.meta.home.ogTitle). */
+  ogTitle?: string;
+  /** Which page this is: the home page makes the bar's «Descargar» pill jump to #descargar. */
+  page?: PageKey;
+  /** Keep the page out of search results, without a canonical URL (the 404). */
+  noindex?: boolean;
+}
+
+const { title, description, ogTitle, page, noindex = false } = Astro.props;
+
+const siteUrl = Astro.site ?? new URL(Astro.url.origin);
+// Canonical URLs never end in a slash (except the home page), like every internal link.
+const path = Astro.url.pathname.replace(/\/(index)?(\.html)?$/, '') || '/';
+const canonical = new URL(path, siteUrl).href;
+const ogImage = new URL(site.ogImage.path, siteUrl).href;
+const hasFootnotes = Astro.slots.has('footnotes');
+---
+
+<!doctype html>
+<html lang="es" dir="ltr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {
+      /* The reveal's hidden state only exists under html.js (global.css). If reveal.ts has not
+         run 4 s later (blocked or failed script), .no-reveal shows everything instead. */
+    }
+    <script is:inline>
+      document.documentElement.classList.add('js');
+      setTimeout(function () {
+        if (!window.__centrateReveal) document.documentElement.classList.add('no-reveal');
+      }, 4000);
+    </script>
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    {
+      noindex ? (
+        <meta name="robots" content="noindex" />
+      ) : (
+        <link rel="canonical" href={canonical} />
+      )
+    }
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content={site.themeColor} />
+    <meta name="format-detection" content="telephone=no" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="sitemap" href="/sitemap-index.xml" />
+    <link rel="preload" href={interLatinUrl} as="font" type="font/woff2" crossorigin />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={copy.meta.siteName} />
+    <meta property="og:locale" content={copy.meta.locale} />
+    <meta property="og:title" content={ogTitle ?? title} />
+    <meta property="og:description" content={description} />
+    {!noindex && <meta property="og:url" content={canonical} />}
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:type" content={site.ogImage.type} />
+    <meta property="og:image:width" content={String(site.ogImage.width)} />
+    <meta property="og:image:height" content={String(site.ogImage.height)} />
+    <meta property="og:image:alt" content={copy.meta.ogImageAlt} />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <slot name="head" />
+  </head>
+  <body>
+    <a class="skip-link button-pill button-pill-compact" href="#contenido">{copy.ui.skipLink}</a>
+    <NavBar page={page} />
+    <main id="contenido" tabindex="-1">
+      <slot />
+    </main>
+    {
+      hasFootnotes ? (
+        <Footer>
+          <slot name="footnotes" slot="footnotes" />
+        </Footer>
+      ) : (
+        <Footer />
+      )
+    }
+    <script>
+      import { initReveal } from '../scripts/reveal';
+
+      initReveal();
+    </script>
+  </body>
+</html>

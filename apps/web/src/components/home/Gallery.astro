@@ -1,0 +1,197 @@
+---
+/**
+ * Horizontal gallery of the chapters (design plan § 4.6): a full-width scroller whose gutter
+ * padding leaves exactly the content column, so each card snaps to the column's left edge and
+ * the next ones run out to the viewport edge. Cards come in the default slot as
+ * `<li data-gallery-item>` (Chapter.astro renders them).
+ *
+ * - Scrolling is the browser's own; `scroll-snap` exists only here (brief § 11).
+ * - The scroller is a named region, focusable, so the keyboard arrows scroll it natively.
+ * - Previous / next are real buttons with visually hidden text. They move one card (smooth,
+ *   instant with reduced motion) and turn `aria-disabled` at the ends (they keep the focus).
+ *   Without JavaScript they stay hidden and the scrollbar stays visible instead.
+ * - The whole track is revealed once (not card by card).
+ */
+import { copy } from '../../content/copy';
+
+interface Props {
+  /** Accessible name of the region: fill(copy.ui.gallery, { name }). */
+  label: string;
+}
+
+const { label } = Astro.props;
+const { ui } = copy;
+---
+
+<div class="gallery" data-gallery>
+  <div
+    class="gallery-scroller gutter"
+    role="region"
+    aria-label={label}
+    tabindex="0"
+    data-gallery-scroller
+    data-reveal
+  >
+    <ul class="gallery-track" role="list">
+      <slot />
+    </ul>
+  </div>
+
+  <div class="gallery-controls gutter" data-gallery-controls hidden>
+    <button type="button" class="gallery-paddle" data-gallery-step="-1" aria-disabled="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
+      <span class="sr-only">{ui.prev}</span>
+    </button>
+    <button type="button" class="gallery-paddle" data-gallery-step="1">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+      <span class="sr-only">{ui.next}</span>
+    </button>
+  </div>
+</div>
+
+<style>
+  /* Positioned, so each card's offsetLeft is measured from the scroller (script). */
+  .gallery-scroller {
+    position: relative;
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: var(--page-gutter);
+  }
+
+  /* With the paddles available, the scrollbar goes (the gesture and the keyboard stay). */
+  :global(html.js) .gallery-scroller {
+    scrollbar-width: none;
+  }
+
+  :global(html.js) .gallery-scroller::-webkit-scrollbar {
+    display: none;
+  }
+
+  .gallery-scroller:focus-visible {
+    outline-offset: -2px;
+  }
+
+  .gallery-track {
+    display: flex;
+    flex: none;
+    gap: var(--gallery-gap);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  /* Paddles: right edge of the content column, 32 / 32 / 24 under the cards. */
+  .gallery-controls {
+    display: flex;
+    justify-content: flex-end;
+    gap: 16px;
+    margin-block-start: var(--space-gallery-controls);
+  }
+
+  .gallery-controls[hidden] {
+    display: none;
+  }
+
+  .gallery-paddle {
+    display: grid;
+    place-items: center;
+    width: var(--gallery-paddle);
+    height: var(--gallery-paddle);
+    padding: 0;
+    /* Transparent border: Windows high contrast paints it, so the circle keeps its shape. */
+    border: 1px solid transparent;
+    border-radius: 50%;
+    background-color: var(--fill);
+    color: var(--text);
+    transition:
+      background-color 100ms linear,
+      opacity 100ms linear;
+  }
+
+  .gallery-paddle:hover:not([aria-disabled='true']) {
+    background-color: var(--fill-hover);
+  }
+
+  .gallery-paddle[aria-disabled='true'] {
+    opacity: 0.42;
+    cursor: default;
+  }
+
+  .gallery-paddle svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+</style>
+
+<script>
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  function initGallery(root: HTMLElement): void {
+    const scroller = root.querySelector<HTMLElement>('[data-gallery-scroller]');
+    const controls = root.querySelector<HTMLElement>('[data-gallery-controls]');
+    const paddles = Array.from(root.querySelectorAll<HTMLButtonElement>('[data-gallery-step]'));
+    if (!scroller || !controls || paddles.length === 0) return;
+
+    const items = (): HTMLElement[] =>
+      Array.from(scroller.querySelectorAll<HTMLElement>('[data-gallery-item]'));
+
+    /** scrollLeft that snaps each card to the start of the column. */
+    const snapPoints = (): number[] => {
+      const pad = Number.parseFloat(getComputedStyle(scroller).scrollPaddingInlineStart) || 0;
+      const max = scroller.scrollWidth - scroller.clientWidth;
+      return items().map((item) => Math.min(Math.max(item.offsetLeft - pad, 0), max));
+    };
+
+    const update = (): void => {
+      const max = scroller.scrollWidth - scroller.clientWidth;
+      // Nothing to scroll (very wide screens): no paddles.
+      controls.hidden = max <= 1;
+      for (const paddle of paddles) {
+        const back = paddle.dataset.galleryStep === '-1';
+        const atEnd = back ? scroller.scrollLeft <= 1 : scroller.scrollLeft >= max - 1;
+        if (atEnd) paddle.setAttribute('aria-disabled', 'true');
+        else paddle.removeAttribute('aria-disabled');
+      }
+    };
+
+    const step = (direction: number): void => {
+      const current = scroller.scrollLeft;
+      const points = snapPoints();
+      const target =
+        direction > 0
+          ? points.find((left) => left > current + 1)
+          : points.findLast((left) => left < current - 1);
+      if (target === undefined) return;
+      scroller.scrollTo({ left: target, behavior: reducedMotion.matches ? 'instant' : 'smooth' });
+    };
+
+    for (const paddle of paddles) {
+      paddle.addEventListener('click', () => {
+        if (paddle.getAttribute('aria-disabled') === 'true') return;
+        step(Number(paddle.dataset.galleryStep));
+      });
+    }
+
+    let frame = 0;
+    const schedule = (): void => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        update();
+      });
+    };
+    scroller.addEventListener('scroll', schedule, { passive: true });
+    if (typeof ResizeObserver === 'function') new ResizeObserver(schedule).observe(scroller);
+    else window.addEventListener('resize', schedule);
+    update();
+  }
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-gallery]')) initGallery(root);
+</script>

@@ -1,0 +1,644 @@
+---
+/**
+ * «Lo más destacado.» (design plan § 4.3 and § 6.4): four cards as wide as the content column,
+ * in a horizontal gallery with scroll snapping; the next card peeks into the right margin.
+ * Each card pairs its text with the Céntrate window in the state it describes; the fourth one
+ * is black (and will carry the Study Mode video).
+ *
+ * Auto-advance: 5 s per card, one pass, then «Repetir». It runs only while the gallery is at
+ * least half visible and the tab is shown, pauses while focus is inside, and stops for good
+ * on any manual navigation (dot, swipe, wheel, keyboard). The Pausar / Reanudar button lives
+ * in a sticky glass pill with the dots, always visible while the gallery is on screen; an
+ * explicit pause is remembered in localStorage. With reduced motion it never advances on its
+ * own (the pill keeps only the dots) and slides are instant. Without JavaScript it is a plain
+ * snapping gallery and the pill is hidden.
+ */
+import AppWindow from '../AppWindow.astro';
+import {
+  copy,
+  fill,
+  footnoteNumber,
+  type AppWindowState,
+  type FootnoteId,
+} from '../../content/copy';
+
+const { highlights, ui } = copy;
+
+/**
+ * What each card shows, in order, and where it sits. The windows rise from the bottom edge,
+ * cropped under the Progreso section (a clean cut: the footer is not the point of any card);
+ * the short blocked page sits centered.
+ */
+const CROP = ['block', 'study', 'progress'] as const;
+const visuals: readonly {
+  state: AppWindowState;
+  place: 'bleed' | 'center';
+  parts?: typeof CROP;
+}[] = [
+  { state: 'typing', place: 'bleed', parts: CROP },
+  { state: 'countdown', place: 'bleed', parts: CROP },
+  { state: 'blocked-page', place: 'center' },
+  { state: 'study', place: 'bleed', parts: CROP },
+];
+
+const cards = highlights.cards.map((card, i) => {
+  const note: FootnoteId | undefined = 'note' in card ? card.note : undefined;
+  return {
+    title: card.title,
+    text: card.text,
+    dark: 'dark' in card && card.dark,
+    note: note && { id: note, n: footnoteNumber(note) },
+    visual: visuals[i] ?? visuals[0]!,
+  };
+});
+const total = cards.length;
+---
+
+<section id={highlights.id} data-surface="alt" class="highlights section-block">
+  <div class="gutter" data-reveal-group>
+    <h2 class="text-section" data-reveal>{highlights.headline}</h2>
+  </div>
+
+  <div class="hl" data-highlights>
+    <div
+      class="hl-scroller gutter"
+      role="region"
+      aria-label={fill(ui.gallery, { name: highlights.headline.replace(/\.$/, '') })}
+      tabindex="0"
+      data-reveal
+      data-hl-scroller
+    >
+      <ul class="hl-track" role="list">
+        {
+          cards.map((card) => (
+            <li
+              class:list={['hl-card', card.dark ? 'bg-surface' : 'bg-raised']}
+              data-surface={card.dark ? 'dark' : undefined}
+              data-hl-card
+            >
+              <div class="hl-text">
+                <h3 class="hl-title text-lead font-semibold">{card.title}</h3>
+                <p class="hl-body text-body text-secondary">
+                  {card.text}
+                  {card.note && (
+                    <sup class="hl-ref">
+                      <a
+                        href={`#nota-${card.note.n}`}
+                        id={`ref-${card.note.id}-1`}
+                        aria-label={fill(ui.footnoteRef, { n: card.note.n })}
+                      >
+                        {card.note.n}
+                      </a>
+                    </sup>
+                  )}
+                </p>
+              </div>
+              <div class="hl-visual" data-place={card.visual.place}>
+                <AppWindow
+                  state={card.visual.state}
+                  parts={card.visual.parts}
+                  class="hl-window"
+                />
+              </div>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+
+    <div class="hl-controls" data-hl-controls hidden>
+      <div class="hl-pill hl-dots">
+        {
+          cards.map((_, i) => (
+            <button
+              type="button"
+              class="hl-dot"
+              aria-label={fill(ui.cardPosition, { n: i + 1, total })}
+              aria-current={i === 0 ? 'true' : undefined}
+              data-hl-dot={i}
+            >
+              <span class="hl-dot-track">
+                <span class="hl-dot-fill" />
+              </span>
+            </button>
+          ))
+        }
+      </div>
+      <button
+        type="button"
+        class="hl-pill hl-toggle"
+        data-hl-toggle
+        data-state="playing"
+        data-label-pause={highlights.pause}
+        data-label-resume={highlights.resume}
+        data-label-replay={ui.replay}
+        data-aria-pause={highlights.pauseAria}
+        data-aria-resume={highlights.resumeAria}
+        aria-label={highlights.pauseAria}
+      >
+        <svg class="hl-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <g data-icon="pause"
+            ><rect x="14" y="3" width="5" height="18" rx="1"></rect><rect
+              x="5"
+              y="3"
+              width="5"
+              height="18"
+              rx="1"></rect></g
+          >
+          <g data-icon="resume"
+            ><path
+              d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"
+            ></path></g
+          >
+          <g data-icon="replay"
+            ><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"
+            ></path></g
+          >
+        </svg>
+        <span data-hl-toggle-label>{highlights.pause}</span>
+      </button>
+    </div>
+  </div>
+</section>
+
+<style>
+  .highlights > .gutter {
+    margin-block-end: var(--space-header-content);
+  }
+
+  /* Gallery ------------------------------------------------------------------------------- */
+  .hl {
+    position: relative;
+  }
+
+  /* A full-width scroller: its gutter padding leaves exactly the content column, and the
+     same value snaps each card to the column's left edge. It is a size container, so 100cqi
+     is the column width (cards as wide as the column, the next one peeking in the margin). */
+  .hl-scroller {
+    container-type: inline-size;
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: var(--page-gutter);
+    scrollbar-width: none;
+  }
+
+  .hl-scroller::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hl-scroller:focus-visible {
+    outline-offset: -2px;
+  }
+
+  .hl-track {
+    display: flex;
+    flex: none;
+    gap: var(--gallery-gap);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  /* Card: text on the left, the window on the right, bleeding out of the bottom edge. */
+  .hl-card {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 400px) minmax(0, 1fr);
+    column-gap: 40px;
+    flex: 0 0 100cqi;
+    height: var(--highlight-card-h);
+    padding: var(--highlight-pad-block) var(--highlight-visual-inset) 0
+      var(--highlight-pad-inline);
+    overflow: clip;
+    border-radius: var(--shape-card);
+    scroll-snap-align: start;
+  }
+
+  .hl-text {
+    align-self: start;
+  }
+
+  .hl-body {
+    margin-block-start: 12px;
+  }
+
+  /* Footnote reference: the text color, underlined on hover. */
+  .hl-ref {
+    margin-inline-start: 1px;
+    font-size: 0.6em;
+    line-height: 0;
+  }
+
+  .hl-ref a {
+    color: var(--text);
+    text-underline-offset: 0.18em;
+  }
+
+  .hl-ref a:hover {
+    text-decoration-line: underline;
+  }
+
+  .hl-visual {
+    --aw-zoom: var(--aw-zoom-highlight);
+    display: flex;
+    justify-content: flex-end;
+    min-width: 0;
+  }
+
+  /* Past the bottom edge by the window's own bottom padding and corner radius. */
+  .hl-visual[data-place='bleed'] {
+    align-self: end;
+    margin-block-end: -24px;
+  }
+
+  .hl-visual[data-place='center'] {
+    align-self: center;
+    /* Centered in the card, not in what is left under the top padding. */
+    margin-block-start: calc(-1 * var(--highlight-pad-block));
+  }
+
+  /* On black the window gets a hairline rim instead of a shadow. */
+  .hl-card[data-surface='dark'] :global(.hl-window) {
+    box-shadow: var(--rim-window-dark);
+  }
+
+  /* Medium and small: text on top, the window centered below it, cut by the bottom edge. */
+  @media (max-width: 1068px) {
+    .hl-card {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
+      row-gap: 40px;
+      padding: var(--highlight-pad-block) var(--highlight-pad-inline) 0;
+    }
+
+    .hl-text {
+      max-width: var(--measure-text);
+    }
+
+    .hl-visual {
+      justify-content: center;
+    }
+
+    /* Anchored to the bottom edge; if the text runs long, the window moves down under it
+       and is cut instead of covering it (safe). */
+    .hl-visual[data-place='bleed'] {
+      align-self: safe end;
+    }
+
+    .hl-visual[data-place='center'] {
+      align-self: safe center;
+      margin-block-start: 0;
+    }
+  }
+
+  @media (max-width: 734px) {
+    .hl-card {
+      row-gap: 28px;
+    }
+
+    .hl-body {
+      margin-block-start: 8px;
+    }
+  }
+
+  /* Controls: a sticky glass pill with the dots and Pausar / Reanudar. -------------------- */
+  .hl-controls {
+    position: sticky;
+    bottom: 32px;
+    z-index: var(--z-sticky-control);
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-block-start: var(--space-gallery-controls);
+    pointer-events: none;
+  }
+
+  .hl-controls[hidden] {
+    display: none;
+  }
+
+  .hl-pill {
+    display: flex;
+    align-items: center;
+    height: var(--pill-control-h);
+    border: 1px solid transparent;
+    border-radius: var(--shape-pill);
+    background-color: var(--palette-glass-control);
+    -webkit-backdrop-filter: var(--nav-backdrop);
+    backdrop-filter: var(--nav-backdrop);
+    color: var(--palette-ink);
+    pointer-events: auto;
+  }
+
+  .hl-dots {
+    padding-inline: 16px;
+  }
+
+  /* Each dot is a 24 px target around an 8 px dot; the current one stretches to 48 px and
+     fills from the left while its card is shown. */
+  .hl-dot {
+    display: grid;
+    place-items: center;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: var(--shape-pill);
+    background: none;
+    color: inherit;
+  }
+
+  .hl-dot:focus-visible {
+    outline-offset: 0;
+  }
+
+  .hl-dot-track {
+    position: relative;
+    display: block;
+    width: var(--dot);
+    height: var(--dot);
+    overflow: hidden;
+    border-radius: var(--shape-pill);
+    background-color: var(--palette-dot);
+  }
+
+  .hl-dot[aria-current='true'] .hl-dot-track {
+    width: var(--dot-active-w);
+  }
+
+  .hl-dot-fill {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-color: var(--palette-ink);
+    transform: scaleX(0);
+    transform-origin: left center;
+  }
+
+  .hl-dot[aria-current='true'] .hl-dot-fill {
+    animation: hl-fill var(--highlight-interval) linear forwards;
+  }
+
+  [data-playing='false'] .hl-dot-fill {
+    animation-play-state: paused !important;
+  }
+
+  .hl-dot[data-complete] .hl-dot-fill {
+    animation: none;
+    transform: none;
+  }
+
+  @keyframes hl-fill {
+    to {
+      transform: none;
+    }
+  }
+
+  .hl-toggle {
+    gap: 8px;
+    padding-inline: 20px 24px;
+    font-size: var(--type-body-size);
+    letter-spacing: var(--type-body-ls);
+    transition: background-color 100ms linear;
+  }
+
+  .hl-toggle[hidden] {
+    display: none;
+  }
+
+  .hl-toggle:hover {
+    background-color: var(--palette-glass-control-hover);
+  }
+
+  .hl-toggle-icon {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .hl-toggle-icon [data-icon] {
+    display: none;
+  }
+
+  .hl-toggle[data-state='playing'] [data-icon='pause'],
+  .hl-toggle[data-state='paused'] [data-icon='resume'],
+  .hl-toggle[data-state='ended'] [data-icon='replay'] {
+    display: inline;
+  }
+
+  .hl-toggle[data-state='playing'] [data-icon='pause'],
+  .hl-toggle[data-state='paused'] [data-icon='resume'] {
+    fill: currentColor;
+    stroke: none;
+  }
+</style>
+
+<script>
+  const STORAGE_KEY = 'centrate:highlights-paused';
+
+  function readPaused(): boolean {
+    try {
+      return window.localStorage.getItem(STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  function writePaused(paused: boolean): void {
+    try {
+      if (paused) window.localStorage.setItem(STORAGE_KEY, 'true');
+      else window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Storage blocked: the choice lasts for this visit only.
+    }
+  }
+
+  type State = 'playing' | 'paused' | 'ended';
+
+  function setup(root: HTMLElement): void {
+    const scroller = root.querySelector<HTMLElement>('[data-hl-scroller]');
+    const controls = root.querySelector<HTMLElement>('[data-hl-controls]');
+    const toggle = root.querySelector<HTMLButtonElement>('[data-hl-toggle]');
+    const toggleLabel = toggle?.querySelector<HTMLElement>('[data-hl-toggle-label]');
+    const cards = Array.from(root.querySelectorAll<HTMLElement>('[data-hl-card]'));
+    const dots = Array.from(root.querySelectorAll<HTMLButtonElement>('[data-hl-dot]'));
+    if (!scroller || !controls || !toggle || cards.length === 0) return;
+
+    const reducedQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let index = 0;
+    let state: State = reducedQuery.matches || readPaused() ? 'paused' : 'playing';
+    let visible = false;
+    let focusInside = false;
+
+    const last = cards.length - 1;
+    const step = (): number =>
+      cards.length > 1 ? cards[1]!.offsetLeft - cards[0]!.offsetLeft : scroller.clientWidth;
+
+    /** The fill only runs while playing, on screen, unfocused and in a visible tab. */
+    function sync(): void {
+      const running = state === 'playing' && visible && !focusInside && !document.hidden;
+      root.dataset.playing = String(running);
+      const key = state === 'playing' ? 'Pause' : state === 'paused' ? 'Resume' : 'Replay';
+      toggle!.dataset.state = state;
+      const aria = toggle!.dataset[`aria${key}`];
+      if (aria) toggle!.setAttribute('aria-label', aria);
+      else toggle!.removeAttribute('aria-label');
+      if (toggleLabel) toggleLabel.textContent = toggle!.dataset[`label${key}`] ?? '';
+    }
+
+    /** Marks the current dot; `complete` shows it full (no timer running on it). */
+    function mark(next: number, complete: boolean): void {
+      index = next;
+      dots.forEach((dot, i) => {
+        const current = i === next;
+        if (current) {
+          dot.setAttribute('aria-current', 'true');
+          // Restart the fill animation from zero.
+          const fill = dot.querySelector<HTMLElement>('.hl-dot-fill');
+          if (fill) {
+            fill.style.animation = 'none';
+            void fill.offsetWidth;
+            fill.style.animation = '';
+          }
+        } else {
+          dot.removeAttribute('aria-current');
+        }
+        dot.toggleAttribute('data-complete', current && complete);
+      });
+    }
+
+    function slideTo(next: number): void {
+      scroller!.scrollTo({
+        left: next * step(),
+        behavior: reducedQuery.matches ? 'instant' : 'smooth',
+      });
+    }
+
+    /** Any manual navigation stops the auto-advance for this visit (not remembered). */
+    function stopByUser(): void {
+      if (state !== 'playing') return;
+      state = 'paused';
+      dots[index]?.setAttribute('data-complete', '');
+      sync();
+    }
+
+    // The fill finished: next card, or the end of the single pass.
+    root.addEventListener('animationend', (event) => {
+      if (state !== 'playing' || !(event.target as Element).classList.contains('hl-dot-fill')) {
+        return;
+      }
+      if (index < last) {
+        mark(index + 1, false);
+        slideTo(index);
+      } else {
+        state = 'ended';
+        dots[index]?.setAttribute('data-complete', '');
+      }
+      sync();
+    });
+
+    dots.forEach((dot, i) => {
+      dot.addEventListener('click', () => {
+        stopByUser();
+        mark(i, true);
+        slideTo(i);
+        sync();
+      });
+    });
+
+    toggle.addEventListener('click', () => {
+      if (state === 'playing') {
+        state = 'paused';
+        writePaused(true);
+      } else if (state === 'paused') {
+        state = 'playing';
+        writePaused(false);
+        // A full dot means nothing was timing it: time the current card from zero.
+        if (dots[index]?.hasAttribute('data-complete')) mark(index, false);
+      } else {
+        state = 'playing';
+        mark(0, false);
+        slideTo(0);
+      }
+      sync();
+    });
+
+    // Swipes, horizontal wheels and keys on the gallery are manual navigation.
+    scroller.addEventListener('pointerdown', stopByUser, { passive: true });
+    scroller.addEventListener('keydown', stopByUser);
+    scroller.addEventListener(
+      'wheel',
+      (event) => {
+        if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) stopByUser();
+      },
+      { passive: true },
+    );
+
+    // After any scroll settles, the dot follows the card in view.
+    let settle = 0;
+    const onSettled = (): void => {
+      const nearest = Math.max(0, Math.min(last, Math.round(scroller.scrollLeft / step())));
+      if (nearest !== index) {
+        mark(nearest, state !== 'playing');
+        sync();
+      }
+    };
+    if ('onscrollend' in window) {
+      scroller.addEventListener('scrollend', onSettled);
+    } else {
+      scroller.addEventListener(
+        'scroll',
+        () => {
+          window.clearTimeout(settle);
+          settle = window.setTimeout(onSettled, 150);
+        },
+        { passive: true },
+      );
+    }
+
+    // Focus inside the gallery (not on the controls) pauses while it lasts.
+    scroller.addEventListener('focusin', () => {
+      focusInside = true;
+      sync();
+    });
+    scroller.addEventListener('focusout', (event) => {
+      if (!scroller.contains(event.relatedTarget as Node | null)) {
+        focusInside = false;
+        sync();
+      }
+    });
+
+    // Runs only while at least half of the gallery is on screen.
+    new IntersectionObserver(
+      ([entry]) => {
+        visible = (entry?.intersectionRatio ?? 0) >= 0.5;
+        sync();
+      },
+      { threshold: [0, 0.5, 1] },
+    ).observe(scroller);
+    document.addEventListener('visibilitychange', sync);
+
+    // With reduced motion there is no auto-advance at all: the dots stay, the toggle goes.
+    reducedQuery.addEventListener('change', () => {
+      toggle.hidden = reducedQuery.matches;
+      if (reducedQuery.matches && state !== 'paused') {
+        state = 'paused';
+        dots[index]?.setAttribute('data-complete', '');
+        sync();
+      }
+    });
+
+    mark(0, state !== 'playing');
+    sync();
+    toggle.hidden = reducedQuery.matches;
+    controls.hidden = false;
+  }
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-highlights]')) setup(root);
+</script>

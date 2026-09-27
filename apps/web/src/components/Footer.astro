@@ -1,0 +1,105 @@
+---
+/**
+ * Site footer (design plan § 4.12), on the `alt` surface: the numbered footnotes of the page
+ * when there are any (named slot `footnotes`, filled by the SECTIONS Footnotes component on the
+ * home page), a hairline, the links, and the legal lines. Padding 40 on top and 32 below.
+ */
+import { copy } from '../content/copy';
+import { site } from '../lib/site';
+
+const { footer } = copy;
+const links = [
+  footer.links.download,
+  footer.links.changelog,
+  footer.links.privacy,
+  { label: footer.links.source.label, href: site.repoUrl },
+  { label: footer.links.issues.label, href: site.issuesUrl },
+];
+const hasNotes = Astro.slots.has('footnotes');
+---
+
+<footer class="site-footer" data-surface="alt">
+  {
+    hasNotes && (
+      <div class="site-footer__notes">
+        <slot name="footnotes" />
+      </div>
+    )
+  }
+  <ul class="site-footer__links" role="list">
+    {
+      links.map((link) => (
+        <li>
+          <a class="site-footer__link" href={link.href}>
+            {link.label}
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+  <div class="site-footer__legal">
+    <p>{footer.license} {footer.cookies}</p>
+    <p>{footer.trademarks}</p>
+    <p>{footer.copyright}</p>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    padding-block: 40px 32px;
+    padding-inline: var(--page-gutter);
+    font-size: var(--type-note-size);
+    line-height: var(--type-note-lh);
+    letter-spacing: var(--type-note-ls);
+    color: var(--text-secondary);
+  }
+
+  .site-footer__notes {
+    padding-bottom: 20px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .site-footer__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .site-footer__link {
+    /* 24 px tall target for a 12 px link. */
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    color: var(--text);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.18em;
+  }
+
+  .site-footer__link:hover {
+    text-decoration-line: underline;
+  }
+
+  .site-footer__legal {
+    margin-top: 12px;
+    max-width: var(--measure-lead);
+  }
+
+  .site-footer__legal p + p {
+    margin-top: 4px;
+  }
+
+  @media (max-width: 734px) {
+    .site-footer__links {
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .site-footer__link {
+      min-height: 32px;
+    }
+  }
+</style>

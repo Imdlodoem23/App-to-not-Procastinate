@@ -1,0 +1,18 @@
+---
+// STUB: owned by SECTIONS. Placeholder from the BASE builder so index.astro builds; the owner overwrites this file.
+import { copy } from '../../content/copy';
+
+const chapters = [copy.chapters.block, copy.chapters.study, copy.chapters.progress];
+---
+
+{
+  chapters.map((chapter) => (
+    <section id={chapter.id} data-surface="alt" class="section-block gutter">
+      <div data-reveal-group>
+        <p class="text-lead font-semibold" data-reveal>{chapter.eyebrow}</p>
+        <h2 class="text-hero" data-reveal>{chapter.headline}</h2>
+        <p class="text-lead text-secondary max-w-lead" data-reveal>{chapter.lead}</p>
+      </div>
+    </section>
+  ))
+}
