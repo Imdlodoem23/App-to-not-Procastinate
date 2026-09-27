@@ -1,0 +1,205 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+    branches: [main]
+    paths: ['apps/desktop/package.json']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (X.Y.Z). Empty = version in apps/desktop/package.json'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare version and tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      proceed: ${{ steps.v.outputs.proceed }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: v
+        name: Resolve version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="$(node -p "require('./apps/desktop/package.json').version")"
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version: $VERSION"; exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          PROCEED=true
+          if [[ "${GITHUB_REF}" != refs/tags/v* ]]; then
+            if [[ "$VERSION" == "0.0.0" ]]; then
+              echo "Version 0.0.0 is never released"; PROCEED=false
+            elif git rev-parse "v$VERSION" >/dev/null 2>&1; then
+              echo "Tag v$VERSION already exists: nothing to release"; PROCEED=false
+            else
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git tag -a "v$VERSION" -m "Céntrate v$VERSION"
+              git push origin "v$VERSION"
+            fi
+          fi
+          echo "proceed=$PROCEED" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build (${{ matrix.os }})
+    needs: prepare
+    if: needs.prepare.outputs.proceed == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            builder: --win
+          - os: macos-latest
+            builder: --mac
+          - os: ubuntu-latest
+            builder: --linux
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: v${{ needs.prepare.outputs.version }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: guardian/go.mod
+          cache-dependency-path: guardian/go.sum
+      - run: npm ci
+      - name: Set version
+        shell: bash
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version -w apps/desktop
+      - name: Build guardian
+        shell: bash
+        run: node scripts/build-guardian.mjs --version "$VERSION" --out apps/desktop/resources/guardian
+      - name: Build app
+        run: npm run build -w apps/desktop
+      - name: Package
+        shell: bash
+        working-directory: apps/desktop
+        run: npx electron-builder ${{ matrix.builder }} --publish never
+      - name: Verify macOS signature
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          APP="$(find apps/desktop/release -maxdepth 2 -name '*.app' -path '*universal*' | head -n1)"
+          echo "Checking $APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          lipo -archs "$APP/Contents/Resources/guardian/centrate-guardian"
+      - name: Upload installers
+        uses: actions/upload-artifact@v5
+        with:
+          name: installers-${{ runner.os }}
+          if-no-files-found: error
+          path: |
+            apps/desktop/release/Centrate-Setup.exe
+            apps/desktop/release/Centrate-Setup.exe.blockmap
+            apps/desktop/release/Centrate.dmg
+            apps/desktop/release/Centrate.dmg.blockmap
+            apps/desktop/release/Centrate-mac-universal.zip
+            apps/desktop/release/Centrate-mac-universal.zip.blockmap
+            apps/desktop/release/Centrate.AppImage
+            apps/desktop/release/Centrate.deb
+            apps/desktop/release/latest*.yml
+
+  extension:
+    name: Extension
+    needs: prepare
+    if: needs.prepare.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+      AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: v${{ needs.prepare.outputs.version }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build and zip
+        run: npm run package -w apps/extension -- --version "$VERSION"
+      - name: Sign for Firefox (unlisted)
+        if: env.AMO_JWT_ISSUER != ''
+        run: npm run sign:firefox -w apps/extension
+      - uses: actions/upload-artifact@v5
+        with:
+          name: extension
+          if-no-files-found: error
+          path: |
+            apps/extension/release/Centrate-extension.zip
+            apps/extension/release/*.xpi
+
+  publish:
+    name: Publish release
+    needs: [prepare, build, extension]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: v${{ needs.prepare.outputs.version }}
+      - uses: actions/download-artifact@v6
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums and notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          ls -la
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          cd ..
+          node scripts/release-notes.mjs "$VERSION" > notes.md
+      - name: Create release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            gh release upload "v$VERSION" dist/* --clobber
+            gh release edit "v$VERSION" --draft=false --latest
+          else
+            gh release create "v$VERSION" dist/* --title "Céntrate v$VERSION" --notes-file notes.md --latest
+          fi
+
+  verify-links:
+    name: Verify download links
+    needs: [prepare, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check latest download URLs
+        run: node scripts/check-download-links.mjs
