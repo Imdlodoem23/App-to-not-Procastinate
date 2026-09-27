@@ -1,0 +1,13 @@
+node_modules
+dist
+out
+release
+.astro
+coverage
+package-lock.json
+PROMPT.md
+.claude
+guardian
+docs/ui
+*.min.js
+apps/desktop/resources

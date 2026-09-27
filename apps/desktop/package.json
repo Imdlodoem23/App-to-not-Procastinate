@@ -1,0 +1,38 @@
+{
+  "name": "@centrate/desktop",
+  "productName": "Céntrate",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Céntrate: blocks distractions, even when the app is closed.",
+  "author": "Imdlodoem23",
+  "license": "MIT",
+  "homepage": "https://github.com/imdlodoem23/app-to-not-procastinate",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc -p tsconfig.node.json && tsc -p tsconfig.web.json",
+    "test": "vitest run --passWithNoTests",
+    "dist": "electron-vite build && electron-builder --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
+  "devDependencies": {
+    "@centrate/shared": "*",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.1.4",
+    "electron": "44.4.5",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "lucide-react": "^1.48.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "recharts": "^3.10.1",
+    "tailwindcss": "^4.3.3",
+    "vite": "^7.3.6",
+    "zustand": "^5.0.15"
+  }
+}
