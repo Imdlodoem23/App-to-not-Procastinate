@@ -1,0 +1,78 @@
+/*
+ * Tailwind v4 theme for Céntrate. It does not import Tailwind itself; apps write:
+ *
+ *   @import 'tailwindcss';
+ *   @import '@centrate/shared/design/tailwind-theme.css';
+ *
+ * This file brings tokens.css in, so that second import is all an app needs. Colors are mapped
+ * with `inline` to the theme-aware variables of tokens.css (bg-bg, bg-tile, text-fg-muted,
+ * border-border, border-control, text-red-text, outline-focus-ring, bg-accent-tint…), so they
+ * follow data-theme and prefers-color-scheme. Static values are literal (kept equal to
+ * tokens.ts by test/tokens.test.ts).
+ */
+
+@import './tokens.css';
+
+/* Only design tokens: Tailwind's default palette (bg-red-500, text-white…) does not exist. */
+@theme {
+  --color-*: initial;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-tile: var(--tile);
+  --color-tile-2: var(--tile-2);
+  --color-tile-hover: var(--tile-hover);
+  --color-tile-active: var(--tile-active);
+  --color-tile-2-hover: var(--tile-2-hover);
+  --color-tile-2-active: var(--tile-2-active);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-border: var(--border);
+  --color-control: var(--control);
+  --color-green: var(--green);
+  --color-blue: var(--blue);
+  --color-orange: var(--orange);
+  --color-red: var(--red);
+  --color-red-text: var(--red-text);
+  --color-neutral: var(--neutral);
+  --color-on-accent: var(--on-accent);
+  --color-focus-ring: var(--focus-ring);
+  --color-accent: var(--accent);
+  --color-accent-top: var(--accent-top);
+  --color-accent-tint: var(--accent-tint);
+  --color-accent-text: var(--accent-text);
+  --color-osd-bg: var(--osd-bg);
+  --color-osd-fg: var(--osd-fg);
+
+  --default-transition-duration: var(--duration-hover);
+}
+
+@theme {
+  --font-sans:
+    'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, 'SF Pro Text', Ubuntu,
+    'Noto Sans', sans-serif;
+
+  /* text-11 … text-72 */
+  --text-11: 11px;
+  --text-12: 12px;
+  --text-13: 13px;
+  --text-15: 15px;
+  --text-20: 20px;
+  --text-28: 28px;
+  --text-40: 40px;
+  --text-48: 48px;
+  --text-72: 72px;
+  --tracking-countdown: -0.02em;
+
+  /* rounded-sm/md/lg, and by use: rounded-pill, rounded-tile, rounded-osd */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-pill: 4px;
+  --radius-tile: 6px;
+  --radius-osd: 8px;
+
+  /* p-1 = 4px, p-2 = 8px, p-3 = 12px, p-4 = 16px */
+  --spacing: 4px;
+}
