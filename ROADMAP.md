@@ -5,8 +5,9 @@
 
 ## Estado actual
 
-- **En curso:** Fase 0 · Esqueleto.
-- **Siguiente paso:** abrir el PR de la Fase 0 hacia `main`, fusionarlo con el CI en verde y empezar la Fase 1 (diseño del contrato del guardián y de `packages/shared`).
+- **Hecho:** Fase 0 fusionada en `main` (PR #1). Configuración de instaladores (`electron-builder.yml`, NSIS, `.deb`) y `release.yml` preparados; el `.deb` y el AppImage se han generado en local.
+- **En curso (Fase 1 y adelanto de la 2):** contrato del guardián (`docs/ARCHITECTURE.md`, tipos y puntos en `packages/shared`), catálogo + parser + tokens, capa de plataforma del guardián (servicio, reloj, hosts, procesos) y la web estilo Apple.
+- **Siguiente paso:** motor y API del guardián sobre el contrato, y la app de escritorio (bandeja, ventana de 440 px, confirmación, cuenta atrás, arnés de estados).
 
 ## Fase 0 · Esqueleto
 
@@ -16,7 +17,7 @@
 - [x] Esqueleto de Electron (electron-vite + React + Tailwind), extensión MV3 (esbuild) y web (Astro + Tailwind)
 - [x] `ci.yml` en Windows, macOS y Linux
 - [x] `README.md`, `ROADMAP.md`, `DECISIONS.md`, `PENDIENTE_PARA_MI.md`, `CHANGELOG.md`, `PRIVACY.md` y `LICENSE`
-- [ ] CI en verde en los 3 sistemas y PR fusionado en `main`
+- [x] CI en verde en los 3 sistemas y PR fusionado en `main`
 
 ## Fase 1 · Núcleo de bloqueo
 
