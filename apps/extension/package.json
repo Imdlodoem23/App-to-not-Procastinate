@@ -7,11 +7,14 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "package": "node package.mjs",
+    "sign:firefox": "node sign-firefox.mjs"
   },
   "devDependencies": {
     "@centrate/shared": "*",
     "@types/chrome": "^0.3.0",
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "fflate": "^0.8.2"
   }
 }
