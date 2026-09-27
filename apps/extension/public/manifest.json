@@ -11,6 +11,10 @@
   "permissions": ["declarativeNetRequest", "storage", "alarms"],
   "host_permissions": ["<all_urls>"],
   "browser_specific_settings": {
-    "gecko": { "id": "centrate@imdlodoem23.github.io", "strict_min_version": "128.0" }
-  }
+    "gecko": {
+      "id": "centrate@imdlodoem23.github.io",
+      "strict_min_version": "128.0"
+    }
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmigVIRFxKhUTPDy9ipGLFEk76HUatd+5weOZOW0bV0VJjVSDtK9r6dlFyRbcg65JoriuM4zLH8wqYTrpeAt7zdgIvsOYigG3zkfEdXVBWrYF2YbsrGAAB9AoI213W4KHyZv6Hx5qP8kYJVBMgp0qMLZx2Nvp/n6P7M3euHW8Jwm1fe3Nh+Zw0krDpNcrDaw3EqirPeKrVqBXb02yUZJebIE38tCgA48wplTk7oP8Kb4S2U3T7E5nhsoU5JcJV1A1Kr+eQJoFIwxSAJyGw3BhRQoBd56qU2PkgnJEWuuCp/NH2WCBBi0fHZZcKADJLA6Sqt/5NsJ+SK2K0JLP0H8ffwIDAQAB"
 }

@@ -28,3 +28,11 @@ Al crear el Static Site `centrate`, Render respondió: «Hobby Tier is limited t
 3. La URL será `https://centrate.onrender.com` (o parecida si el nombre está cogido).
 
 Si prefieres no borrar nada, la siguiente sesión de trabajo volverá a intentar crearlo con el conector de Render en cuanto haya un hueco.
+
+## 4. Firmar la extensión para Firefox (opcional)
+
+Sin firma, Firefox borra la extensión al cerrarse. Para que `release.yml` la firme como «unlisted»:
+
+1. Entra en <https://addons.mozilla.org/developers/addon/api/key/> con tu cuenta de Firefox y genera las credenciales.
+2. En GitHub: **Settings → Secrets and variables → Actions → New repository secret**, crea `AMO_JWT_ISSUER` (el «JWT issuer») y `AMO_JWT_SECRET` (el «JWT secret»).
+3. La siguiente release incluirá el `.xpi` firmado.
