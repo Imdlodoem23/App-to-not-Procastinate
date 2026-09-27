@@ -142,11 +142,15 @@ const { ui } = copy;
     const items = (): HTMLElement[] =>
       Array.from(scroller.querySelectorAll<HTMLElement>('[data-gallery-item]'));
 
-    /** scrollLeft that snaps each card to the start of the column. */
+    /**
+     * scrollLeft that puts each card at the start of the column. The first card sits there at
+     * scrollLeft 0 (the gutter padding equals the scroll padding), so it is the reference.
+     */
     const snapPoints = (): number[] => {
-      const pad = Number.parseFloat(getComputedStyle(scroller).scrollPaddingInlineStart) || 0;
+      const list = items();
+      const origin = list[0]?.offsetLeft ?? 0;
       const max = scroller.scrollWidth - scroller.clientWidth;
-      return items().map((item) => Math.min(Math.max(item.offsetLeft - pad, 0), max));
+      return list.map((item) => Math.min(Math.max(item.offsetLeft - origin, 0), max));
     };
 
     const update = (): void => {

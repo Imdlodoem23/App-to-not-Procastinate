@@ -1,0 +1,205 @@
+---
+/**
+ * /novedades: the changelog (design plan § 5), resolved at BUILD time by release-history.ts:
+ * GitHub Releases (5 s timeout) or, if that fails or there is none yet, CHANGELOG.md. Notes are
+ * rendered by markdown-lite, which never outputs HTML from the source.
+ *
+ * One article per version: on large screens the version, date, «Última versión» pill and
+ * actions sit on the left (sticky) and the notes on the right, in the content columns of the
+ * other document pages. Empty and error states are one sentence with a way forward.
+ */
+import Base from '../layouts/Base.astro';
+import DocPage from '../components/pages/DocPage.astro';
+import Markdown from '../components/pages/Markdown.astro';
+import { loadReleaseHistory, type ReleaseEntry } from '../components/pages/release-history';
+import { copy, fill } from '../content/copy';
+import { routes, site } from '../lib/site';
+
+const n = copy.pages.novedades;
+const history = await loadReleaseHistory();
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+function formatDate(iso: string): string {
+  const dateOnly = DATE_ONLY.test(iso);
+  return new Intl.DateTimeFormat('es-ES', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: dateOnly ? 'UTC' : 'Europe/Madrid',
+  }).format(new Date(dateOnly ? `${iso}T00:00:00Z` : iso));
+}
+
+const entries: ReleaseEntry[] = [
+  ...history.releases,
+  ...(history.unreleased ? [history.unreleased] : []),
+];
+const state =
+  history.releases.length > 0 ? 'list' : history.source === 'none' ? 'error' : 'empty';
+
+const articles = entries.map((entry) => ({
+  ...entry,
+  headingId: `${entry.anchor}-titulo`,
+  title: entry.version ? fill(n.version, { version: entry.version }) : (entry.label ?? ''),
+  published: entry.date ? fill(n.published, { date: formatDate(entry.date) }) : null,
+}));
+---
+
+<Base
+  title={copy.meta.novedades.title}
+  description={copy.meta.novedades.description}
+  page="novedades"
+>
+  <DocPage headline={n.headline} lead={n.lead}>
+    {
+      state !== 'list' && (
+        <div class="status">
+          <p class="text-lead">{state === 'error' ? n.error : n.empty}</p>
+          {state === 'error' && (
+            <p class="status-action text-body">
+              <a class="link" href={site.releasesUrl}>{n.errorAction}</a>
+            </p>
+          )}
+        </div>
+      )
+    }
+
+    {
+      articles.map((release) => (
+        <article class="release" id={release.anchor} aria-labelledby={release.headingId}>
+          <header class="release-head">
+            <div class="release-sticky">
+              <h2 id={release.headingId} class="text-section">
+                {release.title}
+              </h2>
+              {release.name && <p class="release-name text-title">{release.name}</p>}
+              {(release.latest || release.published) && (
+                <p class="release-meta text-small text-secondary">
+                  {release.latest && <span class="pill">{n.latestPill}</span>}
+                  {release.published && <time datetime={release.date}>{release.published}</time>}
+                </p>
+              )}
+              {(release.latest || release.url) && (
+                <p class="release-actions">
+                  {release.latest && (
+                    <a class="button-pill" href={routes.download}>{n.cta}</a>
+                  )}
+                  {release.url && (
+                    <a class="link text-body" href={release.url}>{n.viewOnGitHub}</a>
+                  )}
+                </p>
+              )}
+            </div>
+          </header>
+          <div class="release-notes">
+            <Markdown blocks={release.notes} />
+          </div>
+        </article>
+      ))
+    }
+
+    {
+      state === 'list' && (
+        <p class="all-releases text-body">
+          <a class="link" href={site.releasesUrl}>{copy.pages.descargar.closing.releases}</a>
+        </p>
+      )
+    }
+  </DocPage>
+</Base>
+
+<style>
+  .status {
+    max-width: var(--measure-lead);
+    padding-bottom: var(--space-doc-section);
+  }
+
+  .status-action {
+    margin-top: 16px;
+  }
+
+  /* One version per row: the heading block in columns 1–4, the notes in 5–12. */
+  .release {
+    display: grid;
+    grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
+    column-gap: var(--grid-gap);
+    padding-block: var(--space-doc-section);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .release-head {
+    grid-column: 1 / span 4;
+  }
+
+  .release-sticky {
+    position: sticky;
+    top: calc(var(--nav-height) + 24px);
+  }
+
+  .release-notes {
+    grid-column: 5 / -1;
+    min-width: 0;
+  }
+
+  .release-name {
+    margin-top: 12px;
+    color: var(--text-secondary);
+  }
+
+  .release-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin-top: 16px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* «Última versión»: a label, not an action, so it is grey rather than blue. */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding-inline: 10px;
+    border: 1px solid transparent;
+    border-radius: var(--shape-pill);
+    background-color: var(--fill);
+    color: var(--text);
+    font-size: var(--type-note-size);
+    line-height: var(--type-note-lh);
+    letter-spacing: var(--type-note-ls);
+    font-weight: var(--weight-semibold);
+  }
+
+  .release-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px 24px;
+    margin-top: 28px;
+  }
+
+  .all-releases {
+    padding-top: var(--space-doc-section);
+    border-top: 1px solid var(--hairline);
+  }
+
+  @media (max-width: 1068px) {
+    .release {
+      display: block;
+    }
+
+    .release-sticky {
+      position: static;
+    }
+
+    .release-notes {
+      margin-top: 40px;
+    }
+  }
+
+  @media (max-width: 734px) {
+    .release-notes {
+      margin-top: 32px;
+    }
+  }
+</style>

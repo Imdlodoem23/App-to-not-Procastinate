@@ -1,10 +1,128 @@
 ---
-// STUB: owned by SECTIONS. Placeholder from the BASE builder so index.astro builds; the owner overwrites this file.
-import { copy } from '../../content/copy';
+/**
+ * «Preguntas frecuentes.» (design plan § 4.10) on the `alt` surface: a native accordion of
+ * <details>/<summary> (no JavaScript), 840 px wide, with hairlines between questions. Each
+ * question is an <h3> inside its <summary>; the + turns into − with a 0.3 s rotation when it
+ * opens (a reply to the user's action; instant with reduced motion). Answers may contain
+ * links, rendered from copy.ts with inline(). Only the headline is revealed.
+ */
+import { copy, inline } from '../../content/copy';
+
+const { faq } = copy;
+const headingId = `${faq.id}-titulo`;
+const items = faq.items.map((item) => ({ q: item.q, a: inline(item.a) }));
 ---
 
-<section id={copy.faq.id} data-surface="alt" class="section-block gutter">
-  <div data-reveal-group>
-    <h2 class="text-section" data-reveal>{copy.faq.headline}</h2>
+<section
+  id={faq.id}
+  data-surface="alt"
+  class="faq section-block gutter"
+  aria-labelledby={headingId}
+>
+  <div class="faq-header" data-reveal-group>
+    <h2 id={headingId} class="text-section" data-reveal>{faq.headline}</h2>
+  </div>
+
+  <div class="faq-list max-w-lead">
+    {
+      items.map((item) => (
+        <details class="faq-item">
+          <summary class="faq-question">
+            <h3 class="text-title font-semibold">{item.q}</h3>
+            <svg class="faq-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 12h14" />
+              <path class="faq-icon-v" d="M12 5v14" />
+            </svg>
+          </summary>
+          <p class="faq-answer text-body">
+            {item.a.map((token) =>
+              token.kind === 'link' ? (
+                <a class="link-inline" href={token.href}>
+                  {token.text}
+                </a>
+              ) : token.kind === 'strong' ? (
+                <strong>{token.text}</strong>
+              ) : token.kind === 'code' ? (
+                <code>{token.text}</code>
+              ) : (
+                token.text
+              ),
+            )}
+          </p>
+        </details>
+      ))
+    }
   </div>
 </section>
+
+<style>
+  .faq-header {
+    margin-block-end: 64px;
+  }
+
+  .faq-item {
+    border-block-start: 1px solid var(--hairline);
+  }
+
+  .faq-item:last-child {
+    border-block-end: 1px solid var(--hairline);
+  }
+
+  .faq-question {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding-block: 24px;
+    list-style: none;
+  }
+
+  .faq-question::-webkit-details-marker {
+    display: none;
+  }
+
+  .faq-question:focus-visible {
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  .faq-question h3 {
+    margin: 0;
+    text-wrap: pretty;
+  }
+
+  .faq-icon {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+  }
+
+  /* + → −: the vertical stroke turns flat onto the horizontal one. */
+  .faq-icon-v {
+    transform-origin: 12px 12px;
+    transition: transform var(--duration-ui) var(--curve-ui);
+  }
+
+  .faq-item[open] .faq-icon-v {
+    transform: rotate(90deg);
+  }
+
+  .faq-answer {
+    max-width: var(--measure-text);
+    padding-block-end: 32px;
+  }
+
+  @media (max-width: 734px) {
+    .faq-header {
+      margin-block-end: var(--space-header-content);
+    }
+
+    .faq-question {
+      padding-block: 20px;
+    }
+  }
+</style>

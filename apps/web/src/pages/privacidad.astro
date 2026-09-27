@@ -1,0 +1,112 @@
+---
+/**
+ * /privacidad: the privacy policy, adapted to the GDPR (design plan § 5). All text comes from
+ * copy.pages.privacidad: the summary in a raised card (radius 28), then one section per topic
+ * with its <h2> in the lead size, next to the same sticky index as /descargar.
+ */
+import Base from '../layouts/Base.astro';
+import DocPage from '../components/pages/DocPage.astro';
+import DocSection from '../components/pages/DocSection.astro';
+import Inline from '../components/pages/Inline.astro';
+import { copy } from '../content/copy';
+
+const p = copy.pages.privacidad;
+
+// Index labels are the section titles without their closing period (labels carry none).
+const toc = {
+  label: copy.pages.descargar.tocLabel,
+  items: p.sections.map(({ id, title }) => ({ id, label: title.replace(/\.$/, '') })),
+};
+const summaryId = 'resumen';
+---
+
+<Base
+  title={copy.meta.privacidad.title}
+  description={copy.meta.privacidad.description}
+  page="privacidad"
+>
+  <DocPage headline={p.headline} lead={p.lead} toc={toc}>
+    <p slot="meta" class="updated text-small text-secondary">{p.updated}</p>
+
+    <section class="summary" aria-labelledby={summaryId}>
+      <h2 id={summaryId} class="text-title">{p.summary.title}</h2>
+      <ul class="summary-list">
+        {p.summary.items.map((item) => <li>{item}</li>)}
+      </ul>
+    </section>
+
+    {
+      p.sections.map((section) => (
+        <DocSection id={section.id} title={section.title} size="lead">
+          {section.blocks.map((block) =>
+            typeof block === 'string' ? (
+              <p class="policy-text">
+                <Inline text={block} />
+              </p>
+            ) : (
+              <ul class="policy-list">
+                {block.list.map((item) => (
+                  <li>
+                    <Inline text={item} />
+                  </li>
+                ))}
+              </ul>
+            ),
+          )}
+        </DocSection>
+      ))
+    }
+  </DocPage>
+</Base>
+
+<style>
+  .updated {
+    margin-top: 16px;
+  }
+
+  .summary {
+    max-width: var(--measure-text);
+    margin-bottom: var(--space-block);
+    padding: 40px;
+    border-radius: var(--shape-card);
+    background-color: var(--surface-raised);
+  }
+
+  .summary-list {
+    margin-top: 20px;
+    padding-inline-start: 1.25em;
+    list-style: disc;
+  }
+
+  .summary-list > li + li {
+    margin-top: 12px;
+  }
+
+  .summary-list > li::marker,
+  .policy-list > li::marker {
+    color: var(--text-secondary);
+  }
+
+  .policy-text,
+  .policy-list {
+    max-width: var(--measure-text);
+    font-size: var(--type-body-size);
+    line-height: var(--type-body-lh);
+    letter-spacing: var(--type-body-ls);
+  }
+
+  .policy-list {
+    padding-inline-start: 1.25em;
+    list-style: disc;
+  }
+
+  .policy-list > li + li {
+    margin-top: 10px;
+  }
+
+  @media (max-width: 734px) {
+    .summary {
+      padding: 28px 24px;
+    }
+  }
+</style>

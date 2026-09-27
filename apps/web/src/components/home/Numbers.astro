@@ -1,8 +1,44 @@
 ---
-// STUB: owned by SECTIONS. Placeholder from the BASE builder so index.astro builds; the owner overwrites this file.
+/**
+ * Numbers as headlines (design plan § 4.8) on the `alt` surface: each figure is a whole
+ * sentence at headline size, never «big number + label». No visible section heading (the
+ * section is named by copy.numbers.ariaLabel). Each block is revealed on its own.
+ */
+import FootnoteRef from './FootnoteRef.astro';
 import { copy } from '../../content/copy';
+
+const { numbers } = copy;
+
+/** Second reference of each note on the page (the first ones come earlier). */
+const OCCURRENCE = 2;
 ---
 
-<section id={copy.numbers.id} data-surface="alt" class="section-block gutter" aria-label={copy.numbers.ariaLabel}>
-  {copy.numbers.items.map((item) => <h2 class="text-hero" data-reveal>{item.headline}</h2>)}
+<section
+  id={numbers.id}
+  data-surface="alt"
+  class="numbers section-block gutter"
+  aria-label={numbers.ariaLabel}
+>
+  {
+    numbers.items.map((item) => (
+      <div class="numbers-block" data-reveal-group>
+        <h2 class="text-hero" data-reveal>
+          {item.headline}
+        </h2>
+        <p class="numbers-text text-lead text-secondary max-w-lead" data-reveal>
+          {item.text}<FootnoteRef id={item.note} k={OCCURRENCE} />
+        </p>
+      </div>
+    ))
+  }
 </section>
+
+<style>
+  .numbers-block + .numbers-block {
+    margin-block-start: var(--space-block);
+  }
+
+  .numbers-text {
+    margin-block-start: var(--space-headline-lead);
+  }
+</style>

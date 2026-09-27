@@ -1,0 +1,136 @@
+---
+/**
+ * A command to type in a terminal, with its label and a «Copiar» button (design plan § 5):
+ * system monospace at 14 px on the raised surface, radius 18. The button only appears when
+ * the script can copy; the result is announced to screen readers.
+ */
+import { copy, fill } from '../../content/copy';
+
+interface Props {
+  label: string;
+  command: string;
+}
+
+const { label, command } = Astro.props;
+const { ui } = copy;
+---
+
+<figure class="command" data-command>
+  <figcaption class="command-label text-small text-secondary">{label}</figcaption>
+  <div class="command-box">
+    <code class="command-code" data-command-text>{command}</code>
+    <button
+      type="button"
+      class="command-copy"
+      data-command-copy
+      data-label-copy={ui.copy}
+      data-label-copied={ui.copied}
+      aria-label={fill(ui.copyAria, { what: command })}
+      hidden
+    >
+      {ui.copy}
+    </button>
+    <span class="sr-only" role="status" data-command-status></span>
+  </div>
+</figure>
+
+<style>
+  .command {
+    margin: 0;
+  }
+
+  .command-label {
+    margin-bottom: 8px;
+  }
+
+  .command-box {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-height: 56px;
+    padding: 12px 12px 12px 20px;
+    border-radius: var(--shape-tile);
+    background-color: var(--surface-raised);
+  }
+
+  .command-code {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--family-mono);
+    font-size: var(--type-small-size);
+    line-height: var(--type-small-lh);
+    letter-spacing: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .command-copy {
+    flex: none;
+    min-width: 76px;
+    min-height: 32px;
+    padding-inline: 14px;
+    /* Transparent border: Windows high contrast paints it, so the pill keeps its shape. */
+    border: 1px solid transparent;
+    border-radius: var(--shape-pill);
+    background-color: var(--fill);
+    color: var(--text);
+    font-size: var(--type-note-size);
+    line-height: var(--type-note-lh);
+    letter-spacing: var(--type-note-ls);
+    transition: background-color 100ms linear;
+  }
+
+  .command-copy:hover {
+    background-color: var(--fill-hover);
+  }
+</style>
+
+<script>
+  const COPIED_MS = 2000;
+
+  async function writeClipboard(text: string): Promise<boolean> {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Selects the command so it can be copied by hand when the clipboard is not available. */
+  function selectText(el: Element): void {
+    const selection = window.getSelection();
+    if (!selection) return;
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  for (const block of document.querySelectorAll<HTMLElement>('[data-command]')) {
+    const button = block.querySelector<HTMLButtonElement>('[data-command-copy]');
+    const code = block.querySelector<HTMLElement>('[data-command-text]');
+    const status = block.querySelector<HTMLElement>('[data-command-status]');
+    if (!button || !code) continue;
+
+    const labelCopy = button.dataset.labelCopy ?? '';
+    const labelCopied = button.dataset.labelCopied ?? '';
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    button.hidden = false;
+    button.addEventListener('click', async () => {
+      const copied = await writeClipboard(code.textContent ?? '');
+      if (!copied) {
+        selectText(code);
+        return;
+      }
+      button.textContent = labelCopied;
+      if (status) status.textContent = labelCopied;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        button.textContent = labelCopy;
+        if (status) status.textContent = '';
+      }, COPIED_MS);
+    });
+  }
+</script>

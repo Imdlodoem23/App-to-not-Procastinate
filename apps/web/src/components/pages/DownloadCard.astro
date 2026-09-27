@@ -1,0 +1,121 @@
+---
+/**
+ * Download tile of a document page: what it is for (optional <h3> title and a sentence) on the
+ * left, the blue pill with the fixed, version-less link on the right and, once the GitHub API
+ * answers, the file size beside the pill (it grows sideways, so nothing below moves).
+ *
+ * `asset` names the release file whose size the /descargar script fills in
+ * ([data-asset-size]); leave it out for links that are not a file (Firefox → GitHub).
+ */
+import { copy } from '../../content/copy';
+import type { AssetKey } from '../../lib/downloads';
+
+interface Props {
+  title?: string;
+  text?: string;
+  button: string;
+  href: string;
+  asset?: AssetKey;
+}
+
+const { title, text, button, href, asset } = Astro.props;
+---
+
+<div class="dl-card doc-block">
+  <div class="dl-card-text">
+    {title && <h3 class="dl-card-title text-title">{title}</h3>}
+    {text && <p class="dl-card-body">{text}</p>}
+  </div>
+  <div class="dl-card-action">
+    <a class="button-pill dl-card-button" href={href}>{button}</a>
+    {
+      asset && (
+        <p class="dl-card-size text-small text-secondary" data-asset-size={asset} data-empty>
+          <span class="sr-only">{copy.ui.size}</span>
+          <span data-asset-size-value />
+        </p>
+      )
+    }
+  </div>
+</div>
+
+<style>
+  /* Text left, pill right; when the text would get too narrow, the pill drops under it (still
+     at the right edge). */
+  .dl-card {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px 32px;
+    padding: 28px 32px;
+    border-radius: var(--shape-tile);
+    background-color: var(--surface-raised);
+  }
+
+  .dl-card-text {
+    flex: 1 1 260px;
+    min-width: 0;
+    max-width: 440px;
+  }
+
+  .dl-card-title + .dl-card-body {
+    margin-top: 6px;
+  }
+
+  /* The size sits left of the pill, in a slot that is always there: when the API answers,
+     only the text appears, so nothing moves or rewraps. */
+  .dl-card-action {
+    display: flex;
+    flex: none;
+    flex-direction: row-reverse;
+    align-items: center;
+    gap: 16px;
+    margin-inline-start: auto;
+  }
+
+  .dl-card-size {
+    min-width: 5.5em;
+    text-align: end;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .dl-card-size[data-empty] {
+    visibility: hidden;
+  }
+
+  /* Phones: no tile. The page is a single column already, and the full column keeps the
+     longest pill («Descargar Centrate-extension.zip») on one line. The size gets its own
+     line under the pill, kept empty until it is known. */
+  @media (max-width: 734px) {
+    .dl-card {
+      flex-direction: column;
+      align-items: flex-start;
+      padding: 0;
+      border-radius: 0;
+      background-color: transparent;
+    }
+
+    .dl-card-text {
+      flex: none;
+    }
+
+    .dl-card-action {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+      margin-inline-start: 0;
+    }
+
+    .dl-card-button {
+      white-space: normal;
+    }
+
+    .dl-card-size {
+      min-width: 0;
+      min-height: calc(var(--type-small-size) * var(--type-small-lh));
+      text-align: start;
+    }
+  }
+</style>

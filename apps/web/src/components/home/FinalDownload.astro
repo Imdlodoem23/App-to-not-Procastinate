@@ -1,10 +1,249 @@
 ---
-// STUB: owned by SECTIONS. Placeholder from the BASE builder so index.astro builds; the owner overwrites this file.
+/**
+ * «Céntrate es gratis.» (design plan § 4.11) on the `dark` surface, the target of the bar's
+ * «Descargar» pill: one tile per system with the fixed, version-less links to the latest
+ * GitHub release, the extension, the requirements and the way to the install guide.
+ *
+ * - The static HTML highlights Windows (the priority, brief § 1); the script moves the
+ *   highlight to the visitor's system, or removes it on phones and unknown systems. Same
+ *   size either way, so nothing moves.
+ * - The version is asked to the GitHub API when the section gets close to the screen; until
+ *   then, and if it fails, it reads copy.ui.versionFallback.
+ */
+import FootnoteRef from './FootnoteRef.astro';
 import { copy } from '../../content/copy';
+import { DEFAULT_OS, downloadUrl, primaryAsset, type AssetKey } from '../../lib/downloads';
+
+const { download, ui } = copy;
+const headingId = `${download.id}-titulo`;
+
+const tileKeys = ['windows', 'mac', 'deb', 'appImage'] as const satisfies readonly AssetKey[];
+const tiles = tileKeys.map((key) => ({
+  key,
+  href: downloadUrl(key),
+  label: download.buttons[key].label,
+  file: download.buttons[key].file,
+}));
+const detected = primaryAsset[DEFAULT_OS];
 ---
 
-<section id={copy.download.id} data-surface="dark" class="section-block gutter">
-  <div data-reveal-group>
-    <h2 class="text-section" data-reveal>{copy.download.headline}</h2>
+<section
+  id={download.id}
+  data-surface="dark"
+  class="download section-block gutter"
+  aria-labelledby={headingId}
+  data-final-download
+>
+  <div class="download-header" data-reveal-group>
+    <h2 id={headingId} class="text-section" data-reveal>{download.headline}</h2>
+    <p class="download-lead text-lead text-secondary" data-reveal>{download.lead}</p>
+  </div>
+
+  <ul class="download-tiles" role="list">
+    {
+      tiles.map((tile) => (
+        <li>
+          <a
+            class="download-tile"
+            href={tile.href}
+            data-asset={tile.key}
+            data-detected={tile.key === detected ? '' : undefined}
+          >
+            <span class="download-tile-label">{tile.label}</span>
+            <span class="download-tile-file">{tile.file}</span>
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+
+  <p class="download-version text-small text-secondary">
+    <span data-latest-version={ui.version}>{ui.versionFallback}</span>
+  </p>
+
+  <p class="download-extension">
+    <a class="link text-body" href={downloadUrl('extension')}>{download.extension.label}</a>
+    <span class="download-tile-file">{download.extension.file}</span>
+  </p>
+
+  <div class="download-requirements">
+    <h3 class="text-body font-semibold">{download.requirementsTitle}</h3>
+    <ul class="download-requirements-list text-small text-secondary" role="list">
+      {download.requirements.map((line) => <li>{line}</li>)}
+    </ul>
+    <p class="download-unsigned text-small text-secondary">
+      {download.unsigned.text}<FootnoteRef id={download.unsigned.note} k={1} />
+    </p>
+    <p class="download-links text-body">
+      <a class="link" href={download.guide.href}>{download.guide.label}</a>
+      <a class="link" href={download.changelog.href}>{download.changelog.label}</a>
+    </p>
   </div>
 </section>
+
+<style>
+  .download {
+    text-align: center;
+  }
+
+  .download-lead {
+    margin-block-start: var(--space-headline-lead);
+  }
+
+  /* One tile per system: 4 in a row, 2 × 2 on medium screens, stacked on phones. */
+  .download-tiles {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--grid-gap);
+    margin: 64px 0 0;
+    padding: 0;
+    list-style: none;
+    text-align: start;
+  }
+
+  .download-tile {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    height: 100%;
+    min-height: var(--download-tile-h);
+    padding: 20px 24px;
+    /* Transparent border: Windows high contrast paints it, so the tile keeps its shape. */
+    border: 1px solid transparent;
+    border-radius: var(--shape-tile);
+    background-color: var(--surface-raised);
+    color: var(--text);
+    transition: background-color 100ms linear;
+  }
+
+  .download-tile:hover {
+    background-color: var(--fill-hover);
+  }
+
+  /* The visitor's system: the one blue action on the section. */
+  .download-tile[data-detected] {
+    background-color: var(--palette-blue);
+    color: var(--palette-white);
+  }
+
+  .download-tile[data-detected]:hover {
+    background-color: var(--palette-blue-hover);
+  }
+
+  .download-tile[data-detected]:active {
+    background-color: var(--palette-blue-active);
+  }
+
+  .download-tile-label {
+    font-size: var(--type-body-size);
+    line-height: 1.2353;
+    letter-spacing: var(--type-body-ls);
+    font-weight: var(--weight-semibold);
+  }
+
+  .download-tile-file {
+    display: block;
+    font-size: var(--type-note-size);
+    line-height: var(--type-note-lh);
+    letter-spacing: var(--type-note-ls);
+    color: var(--text-secondary);
+  }
+
+  .download-tile[data-detected] .download-tile-file {
+    color: inherit;
+  }
+
+  .download-version {
+    margin-block-start: 24px;
+  }
+
+  .download-extension {
+    margin-block-start: 24px;
+  }
+
+  .download-extension .download-tile-file {
+    margin-block-start: 2px;
+  }
+
+  /* Requirements: a left-aligned box of 840 in the middle, two columns of short lines. */
+  .download-requirements {
+    max-width: var(--measure-lead);
+    margin: 64px auto 0;
+    padding-block-start: 32px;
+    border-block-start: 1px solid var(--hairline);
+    text-align: start;
+  }
+
+  .download-requirements-list {
+    columns: 2;
+    column-gap: var(--grid-gap);
+    margin: 12px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .download-requirements-list li {
+    break-inside: avoid;
+    padding-block-end: 6px;
+  }
+
+  .download-unsigned {
+    margin-block-start: 12px;
+  }
+
+  .download-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    margin-block-start: 20px;
+  }
+
+  @media (max-width: 1068px) {
+    .download-tiles {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 734px) {
+    .download-tiles {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 12px;
+      margin-block-start: var(--space-header-content);
+    }
+
+    .download-requirements-list {
+      columns: 1;
+    }
+  }
+</style>
+
+<script>
+  import { detectPlatform, hydrateLatestVersion, primaryAsset } from '../../lib/downloads';
+
+  const section = document.querySelector<HTMLElement>('[data-final-download]');
+  if (section) {
+    // Highlight the visitor's system (none on phones and unknown systems).
+    const detected = primaryAsset[detectPlatform().os];
+    for (const tile of section.querySelectorAll<HTMLElement>('[data-asset]')) {
+      tile.toggleAttribute('data-detected', tile.dataset.asset === detected);
+    }
+
+    // Ask GitHub for the version only when the section is about a screen away.
+    const load = (): void => void hydrateLatestVersion(section);
+    if (typeof IntersectionObserver !== 'function') {
+      load();
+    } else {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((entry) => entry.isIntersecting)) {
+            observer.disconnect();
+            load();
+          }
+        },
+        { rootMargin: '0px 0px 100% 0px' },
+      );
+      observer.observe(section);
+    }
+  }
+</script>

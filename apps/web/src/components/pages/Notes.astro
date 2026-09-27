@@ -1,0 +1,32 @@
+---
+/**
+ * Small print under a block of steps: one short paragraph per note, in the secondary color.
+ */
+import Inline from './Inline.astro';
+
+interface Props {
+  notes: readonly string[];
+}
+
+const { notes } = Astro.props;
+---
+
+<div class="notes">
+  {
+    notes.map((note) => (
+      <p class="text-small text-secondary">
+        <Inline text={note} />
+      </p>
+    ))
+  }
+</div>
+
+<style>
+  .notes {
+    max-width: var(--measure-text);
+  }
+
+  .notes > p + p {
+    margin-top: 8px;
+  }
+</style>

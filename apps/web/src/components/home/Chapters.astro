@@ -1,18 +1,10 @@
 ---
-// STUB: owned by SECTIONS. Placeholder from the BASE builder so index.astro builds; the owner overwrites this file.
-import { copy } from '../../content/copy';
-
-const chapters = [copy.chapters.block, copy.chapters.study, copy.chapters.progress];
+/**
+ * The three chapters of the home page, Bloqueo, Study Mode and Progreso (design plan § 4.6),
+ * one after the other on the `alt` surface. Texts: copy.chapters; visuals: ./chapters.ts.
+ */
+import Chapter from './Chapter.astro';
+import { chapters } from './chapters';
 ---
 
-{
-  chapters.map((chapter) => (
-    <section id={chapter.id} data-surface="alt" class="section-block gutter">
-      <div data-reveal-group>
-        <p class="text-lead font-semibold" data-reveal>{chapter.eyebrow}</p>
-        <h2 class="text-hero" data-reveal>{chapter.headline}</h2>
-        <p class="text-lead text-secondary max-w-lead" data-reveal>{chapter.lead}</p>
-      </div>
-    </section>
-  ))
-}
+{chapters.map((chapter) => <Chapter chapter={chapter} />)}

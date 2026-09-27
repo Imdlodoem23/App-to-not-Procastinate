@@ -79,24 +79,30 @@ const crop = (
 
 const compose = (kind: CompositionKind): CardVisualSpec => ({ kind });
 
+/**
+ * Window crops keep the title bar and stop under the Progreso section (the footer is not the
+ * point of any card), like «Lo más destacado».
+ */
+const CROP = ['block', 'study', 'progress'] as const satisfies readonly AppWindowPart[];
+
 /** Visual of each card, in the order of copy.ts. */
 const visuals = {
   block: [
-    crop('typing', ['block'], true),
-    crop('confirm', ['block'], true),
+    crop('typing', CROP, true),
+    crop('confirm', CROP, true),
     compose('services'),
-    crop('countdown', ['block'], true),
+    crop('countdown', CROP, true),
     compose('emergency'),
   ],
   study: [
     compose('calibration'),
-    crop('study', ['study']),
+    crop('study', CROP, true),
     compose('learn'),
     compose('punishment'),
     compose('no-camera'),
   ],
   progress: [
-    crop('progress', undefined, true),
+    crop('progress', CROP, true),
     compose('rewards'),
     compose('streak'),
     compose('pet'),

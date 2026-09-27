@@ -25,7 +25,11 @@ const { id, k = 1 } = Astro.props;
 const n = footnoteNumber(id);
 ---
 
-<sup class="fn-ref"><a href={`#nota-${n}`} id={`ref-${id}-${k}`} aria-label={fill(copy.ui.footnoteRef, { n })}>{n}</a></sup>
+<sup class="fn-ref"
+  ><a href={`#nota-${n}`} id={`ref-${id}-${k}`} aria-label={fill(copy.ui.footnoteRef, { n })}
+    >{n}</a
+  ></sup
+>
 
 <style>
   /* Raised without growing the line box. */

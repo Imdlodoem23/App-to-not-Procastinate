@@ -1,0 +1,100 @@
+---
+/**
+ * One chapter of the home page (design plan § 4.6) on the `alt` surface: eyebrow, a two-beat
+ * headline, a grey lead (max 840 px) and a horizontal gallery of white cards, 580 px tall and
+ * 28 px round, each with a bold lead-in and one sentence under it.
+ *
+ * Headline beats sit one per line from 735 px up and flow inline (balanced) on phones, where
+ * forced lines would leave orphans («Cada minuto / suma.»). The header is revealed as a group
+ * (eyebrow, headline, lead, 0.15 s apart); the gallery track is revealed on its own.
+ */
+import Gallery from './Gallery.astro';
+import CardVisual from './CardVisual.astro';
+import FootnoteRef from './FootnoteRef.astro';
+import { copy, fill } from '../../content/copy';
+import type { ChapterData } from './chapters';
+
+interface Props {
+  chapter: ChapterData;
+}
+
+const { chapter } = Astro.props;
+const beats = chapter.headline.split(/(?<=\.)\s+/);
+const headingId = `${chapter.id}-titulo`;
+---
+
+<section id={chapter.id} data-surface="alt" class="chapter" aria-labelledby={headingId}>
+  <header class="chapter-header gutter" data-reveal-group>
+    <p class="chapter-eyebrow text-lead font-semibold" data-reveal>{chapter.eyebrow}</p>
+    <h2 id={headingId} class="chapter-headline text-hero sm:sentence-lines" data-reveal>
+      {beats.map((beat, i) => (i > 0 ? <> <span>{beat}</span></> : <span>{beat}</span>))}
+    </h2>
+    <p class="chapter-lead text-lead text-secondary max-w-lead" data-reveal>
+      {chapter.lead}{
+        chapter.leadNote && <FootnoteRef id={chapter.leadNote.id} k={chapter.leadNote.k} />
+      }
+    </p>
+  </header>
+
+  <Gallery label={fill(copy.ui.gallery, { name: chapter.eyebrow })}>
+    {
+      chapter.cards.map((card) => (
+        <li class="chapter-card" data-gallery-item>
+          <div class="chapter-card-visual bg-raised">
+            <CardVisual visual={card.visual} />
+          </div>
+          <p class="chapter-card-caption text-body text-secondary">
+            <strong class="text-primary">{card.title}</strong> {card.text}{
+              card.note && <FootnoteRef id={card.note.id} k={card.note.k} />
+            }
+          </p>
+        </li>
+      ))
+    }
+  </Gallery>
+</section>
+
+<style>
+  /* Three chapters in a row share the same grey: the first one gets the full section padding
+     on top, the next ones start after the previous gallery's own padding. */
+  .chapter {
+    padding-block: var(--section-pad-block);
+  }
+
+  .chapter + .chapter {
+    padding-block-start: 0;
+    /* Anchors (#study-mode from the bar) still land with air above the eyebrow. */
+    scroll-margin-block-start: calc(var(--section-pad-block) / 2);
+  }
+
+  .chapter-header {
+    margin-block-end: var(--space-header-content);
+  }
+
+  .chapter-eyebrow {
+    margin-block-end: var(--space-eyebrow);
+  }
+
+  .chapter-lead {
+    margin-block-start: var(--space-headline-lead);
+  }
+
+  .chapter-card {
+    flex: none;
+    width: var(--gallery-card-w);
+    scroll-snap-align: start;
+  }
+
+  /* The white card: the app piece floats in it; it clips at the rounded edge. */
+  .chapter-card-visual {
+    position: relative;
+    height: var(--gallery-card-h);
+    overflow: clip;
+    border-radius: var(--shape-card);
+  }
+
+  .chapter-card-caption {
+    margin-block-start: var(--space-card-caption);
+    padding-inline-end: 8px;
+  }
+</style>

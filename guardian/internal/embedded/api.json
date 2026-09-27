@@ -1,0 +1,533 @@
+{
+  "data": {
+    "apiVersion": 1,
+    "capabilities": [
+      "blocks",
+      "schedules",
+      "study",
+      "attempts",
+      "emergency",
+      "rewards",
+      "settings",
+      "pairing",
+      "ext_rules_signed",
+      "events_longpoll",
+      "data_delete",
+      "study_history",
+      "nuclear_heartbeat"
+    ],
+    "chromiumExtensionId": "dlabilkpafinafimngfclcfmeghilcah",
+    "dataDeleteConfirmWords": [
+      "BORRAR",
+      "DELETE"
+    ],
+    "defaultPort": 47600,
+    "defaultSettings": {
+      "attemptPenalties": true,
+      "closeBrowsersWithoutExtension": false,
+      "dailyGoalMinutes": 60,
+      "punishment": {
+        "level": "distractions",
+        "minutes": 60
+      },
+      "serverTimeCheck": true,
+      "studyWhitelist": {
+        "extraDomains": [],
+        "extraProcesses": []
+      },
+      "timezone": null
+    },
+    "endpoints": [
+      {
+        "auth": "none",
+        "id": "health",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "GET",
+        "path": "/v1/health",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "getState",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "GET",
+        "path": "/v1/state",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "diagnostics",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "GET",
+        "path": "/v1/diagnostics",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "createBlock",
+        "idempotencyKey": true,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/blocks",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "listBlocks",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "GET",
+        "path": "/v1/blocks",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "getBlock",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "GET",
+        "path": "/v1/blocks/{id}",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "extendBlock",
+        "idempotencyKey": true,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/blocks/{id}/extend",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "listSchedules",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "GET",
+        "path": "/v1/schedules",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "createSchedule",
+        "idempotencyKey": true,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/schedules",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "updateSchedule",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "PUT",
+        "path": "/v1/schedules/{id}",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "deleteSchedule",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "DELETE",
+        "path": "/v1/schedules/{id}",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "startStudy",
+        "idempotencyKey": true,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/study/sessions",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "currentStudy",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "GET",
+        "path": "/v1/study/sessions/current",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "getStudySession",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "GET",
+        "path": "/v1/study/sessions/{id}",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "studyHeartbeat",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/study/sessions/{id}/heartbeat",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "studyStrike",
+        "idempotencyKey": true,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/study/sessions/{id}/strike",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "pauseStudy",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/study/sessions/{id}/pause",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "resumeStudy",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/study/sessions/{id}/resume",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "endStudy",
+        "idempotencyKey": true,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/study/sessions/{id}/end",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "setStudyOutcome",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/study/sessions/{id}/outcome",
+        "testOnly": false
+      },
+      {
+        "auth": "app_or_ext",
+        "id": "reportAttempt",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/attempts",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "getPoints",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "GET",
+        "path": "/v1/points",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "getEvents",
+        "idempotencyKey": false,
+        "longPoll": true,
+        "method": "GET",
+        "path": "/v1/events",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "emergencyPreview",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "GET",
+        "path": "/v1/emergency/preview",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "requestEmergency",
+        "idempotencyKey": true,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/emergency",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "cancelEmergency",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/emergency/{id}/cancel",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "confirmEmergency",
+        "idempotencyKey": true,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/emergency/{id}/confirm",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "listRewards",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "GET",
+        "path": "/v1/rewards",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "redeemReward",
+        "idempotencyKey": true,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/rewards/redeem",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "getSettings",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "GET",
+        "path": "/v1/settings",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "updateSettings",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "PUT",
+        "path": "/v1/settings",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "createPairingCode",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/pairing/code",
+        "testOnly": false
+      },
+      {
+        "auth": "none",
+        "id": "claimPairing",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/pairing/claim",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "listExtensions",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "GET",
+        "path": "/v1/pairing/extensions",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "revokeExtension",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "DELETE",
+        "path": "/v1/pairing/extensions/{id}",
+        "testOnly": false
+      },
+      {
+        "auth": "ext",
+        "id": "getExtRules",
+        "idempotencyKey": false,
+        "longPoll": true,
+        "method": "GET",
+        "path": "/v1/ext/rules",
+        "testOnly": false
+      },
+      {
+        "auth": "ext",
+        "id": "extHeartbeat",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/ext/heartbeat",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "nuclearHeartbeat",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/nuclear/heartbeat",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "deleteData",
+        "idempotencyKey": true,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/data/delete",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "testClock",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/_test/clock",
+        "testOnly": true
+      }
+    ],
+    "errors": {
+      "allow_distraction": 422,
+      "allowance_limit_reached": 409,
+      "already_paused": 409,
+      "bad_query": 400,
+      "block_not_active": 409,
+      "body_too_large": 413,
+      "confirm_word_mismatch": 422,
+      "confirmation_required": 422,
+      "data_delete_blocked": 409,
+      "duration_out_of_range": 422,
+      "emergency_expired": 409,
+      "emergency_in_progress": 409,
+      "emergency_moot": 409,
+      "emergency_not_available": 409,
+      "emergency_not_ready": 409,
+      "extension_exceeds_max": 422,
+      "host_not_allowed": 403,
+      "idempotency_conflict": 409,
+      "insufficient_points": 409,
+      "insufficient_scope": 403,
+      "internal": 500,
+      "invalid_json": 400,
+      "invalid_timezone": 422,
+      "method_not_allowed": 405,
+      "not_extendable": 409,
+      "not_found": 404,
+      "not_paused": 409,
+      "origin_not_allowed": 403,
+      "outcome_already_set": 409,
+      "outcome_window_closed": 409,
+      "pairing_code_expired": 410,
+      "pairing_code_invalid": 401,
+      "pairing_no_code": 409,
+      "pause_quota_exhausted": 409,
+      "phrase_mismatch": 422,
+      "protected_target": 422,
+      "rate_limited": 429,
+      "read_only": 503,
+      "rewards_locked": 409,
+      "schedule_in_progress": 409,
+      "schedule_starting_soon": 409,
+      "service_not_blocked": 409,
+      "study_already_active": 409,
+      "study_not_active": 409,
+      "too_many_targets": 422,
+      "unauthorized": 401,
+      "unknown_field": 400,
+      "unknown_id": 422,
+      "unknown_offer": 422,
+      "unsupported_media_type": 415,
+      "validation_failed": 422
+    },
+    "limits": {
+      "allowanceMaxMinutes": 60,
+      "blockMaxMinutes": 1440,
+      "blockMinMinutes": 5,
+      "blocksPageMax": 100,
+      "browserWithoutExtensionGraceMs": 60000,
+      "emergencyMaxBlocks": 50,
+      "eventsPageDefault": 500,
+      "eventsPageMax": 1000,
+      "extConnectedWindowMs": 90000,
+      "extHeartbeatIntervalMs": 30000,
+      "extRulesAlarmMs": 30000,
+      "extRulesCurrentGraceMs": 60000,
+      "extendMaxAddMinutes": 1440,
+      "heartbeatMaxFocusMs": 600000,
+      "heartbeatMaxWarnings": 100,
+      "hostsMaxDomains": 20000,
+      "idempotencyKeyMaxLength": 128,
+      "idempotencyMaxEntries": 256,
+      "idempotencyTtlMs": 600000,
+      "longBlockConfirmMinutes": 240,
+      "longPollMaxMs": 25000,
+      "maxActiveBlocks": 32,
+      "maxActiveCustomHosts": 1000,
+      "maxBatchEvents": 256,
+      "maxBodyBytes": 65536,
+      "maxCustomDomains": 200,
+      "maxCustomProcesses": 50,
+      "maxIdsPerList": 64,
+      "maxScheduleCustomHosts": 1000,
+      "maxSchedules": 50,
+      "maxWhitelistExtraDomains": 100,
+      "maxWhitelistExtraProcesses": 50,
+      "nuclearHeartbeatIntervalMs": 3000,
+      "nuclearLivenessMs": 10000,
+      "pairingClaimWindowMs": 600000,
+      "pairingClaimsPerWindow": 20,
+      "pairingCodeTtlMs": 300000,
+      "pairingMaxFailures": 5,
+      "phraseMaxLength": 400,
+      "reasonMaxLength": 140,
+      "recentEndedBlocksMs": 120000,
+      "recentEndedStudyMs": 120000,
+      "requestTimeoutMs": 3000,
+      "scheduleFreezeMinutes": 10,
+      "scheduleNameMaxLength": 60,
+      "settingsWeakeningDelayMs": 86400000,
+      "statePollIntervalMs": 2000,
+      "studyHistoryMs": 604800000,
+      "taskMaxLength": 80,
+      "unverifiedCompletionsMax": 200
+    },
+    "problems": [
+      "hosts_write_failed",
+      "hosts_contested",
+      "hosts_unwritable",
+      "hosts_locked",
+      "hosts_path_overridden",
+      "process_watcher_failed",
+      "schema_too_new",
+      "safe_mode",
+      "ledger_repaired",
+      "rollback_detected",
+      "disk_full",
+      "clock_unverified"
+    ],
+    "responseLimits": {
+      "allowances": 1000,
+      "blocks": 10000,
+      "domains": 100000,
+      "ids": 10000,
+      "processes": 10000,
+      "punishments": 1000,
+      "schedules": 1000
+    }
+  },
+  "generatedBy": "scripts/gen-guardian-data.mjs",
+  "sourceSha256": "6118382af642ee109c6b4501b6f596aee85b8ce83577767ce83313f263f49216"
+}

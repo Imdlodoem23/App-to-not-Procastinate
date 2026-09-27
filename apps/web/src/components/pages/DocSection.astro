@@ -1,0 +1,74 @@
+---
+/**
+ * One section of a document page: an anchor target with its <h2>, separated from the previous
+ * section by a hairline and the stepped document spacing (64 / 56 / 48 on each side).
+ *
+ * `size`: 'section' (56 / 48 / 32, /descargar) or 'lead' (28 / 24 / 21 in 600, /privacidad).
+ * Children are spaced by the section itself; see the rhythm rules below.
+ */
+interface Props {
+  id: string;
+  title: string;
+  size?: 'section' | 'lead';
+}
+
+const { id, title, size = 'section' } = Astro.props;
+const headingId = `${id}-titulo`;
+---
+
+<section id={id} class:list={['doc-section', `doc-section--${size}`]} aria-labelledby={headingId}>
+  <h2
+    id={headingId}
+    class:list={['doc-section-title', size === 'section' ? 'text-section' : 'text-lead font-semibold']}
+  >
+    {title}
+  </h2>
+  <slot />
+</section>
+
+<style>
+  /* Jumps from the index land a little below the bar, not glued to it. */
+  .doc-section {
+    scroll-margin-top: 32px;
+  }
+
+  .doc-section + .doc-section {
+    margin-top: var(--space-doc-section);
+    padding-top: var(--space-doc-section);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .doc-section-title {
+    margin-bottom: var(--space-headline-lead);
+  }
+
+  .doc-section--section > .doc-section-title {
+    margin-bottom: 32px;
+  }
+
+  /* Rhythm inside a section: 20 between paragraphs of text, 40 around bigger blocks. */
+  .doc-section > :global(* + *) {
+    margin-top: 20px;
+  }
+
+  .doc-section > :global(.doc-block + *),
+  .doc-section > :global(* + .doc-block) {
+    margin-top: 40px;
+  }
+
+  @media (max-width: 734px) {
+    .doc-section--section > .doc-section-title {
+      margin-bottom: 24px;
+    }
+
+    .doc-section > :global(.doc-block + *),
+    .doc-section > :global(* + .doc-block) {
+      margin-top: 32px;
+    }
+  }
+
+  /* The headline's own margin sets the first gap (last, so it wins over the rules above). */
+  .doc-section > :global(.doc-section-title + *) {
+    margin-top: 0;
+  }
+</style>
