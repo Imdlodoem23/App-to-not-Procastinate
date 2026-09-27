@@ -3,9 +3,11 @@ import type { Service } from '../types';
 /*
  * Video and streaming.
  * - The first eight YouTube domains are the ones from the product brief; the rest are
- *   hosts used only by YouTube (thumbnails, avatars, YouTube Kids, login redirect).
- *   Video streams come from *.googlevideo.com, which cannot be enumerated; blocking the
- *   pages is enough.
+ *   hosts used only by YouTube (thumbnails, avatars, YouTube Kids). Video streams come
+ *   from *.googlevideo.com, which cannot be enumerated; blocking the pages is enough.
+ * - accounts.youtube.com is never listed: it is a step of Google's sign-in flow, so
+ *   blocking it breaks the login to Classroom and Drive. It is in ALWAYS_ALLOWED_HOSTS
+ *   (./always-allowed.ts), which the extension exempts from its youtube.com rule.
  * - Prime Video is also reachable at amazon.es/gp/video. The hosts file cannot block a
  *   path, so that route is left to the extension.
  * - RTVE Play and Vimeo live in opt-in.ts: RTVE Play shares www.rtve.es with public news
@@ -27,7 +29,6 @@ export const VIDEO_SERVICES: readonly Service[] = [
       'youtubei.googleapis.com',
       'tv.youtube.com',
       'studio.youtube.com',
-      'accounts.youtube.com',
       'youtube.googleapis.com',
       'youtubekids.com',
       'www.youtubekids.com',
@@ -185,7 +186,7 @@ export const VIDEO_SERVICES: readonly Service[] = [
       'sso.crunchyroll.com',
       'beta-api.crunchyroll.com',
     ],
-    aliases: ['crunchyroll', 'crunchy', 'crunchiroll', 'cruncyroll', 'crunchy roll'],
+    aliases: ['crunchyroll', 'crunchy', 'crunchiroll', 'cruncyroll', 'crunchy roll', 'anime'],
     monogram: 'CR',
   },
   {

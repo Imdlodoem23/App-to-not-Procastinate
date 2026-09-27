@@ -6,19 +6,24 @@ import type { App } from '../types';
  * Names are executable base names as the OS reports them:
  * - Windows: the image name with `.exe` (Task Manager «Details» tab).
  * - macOS: the bundle executable (`Foo.app/Contents/MacOS/<name>`), which may differ from
- *   the app name.
- * - Linux: the base name of /proc/<pid>/exe or argv[0]. /proc/<pid>/comm is cut to 15
- *   characters, so the guardian must not compare against it alone.
+ *   the app name. The guardian also compares the name of the innermost `.app` bundle
+ *   (guardian/internal/procwatch/matcher.go), so a bundle name such as `Minecraft`
+ *   targets an app whose executable has a generic name.
+ * - Linux: the base name of /proc/<pid>/exe or argv[0]. The guardian also compares
+ *   /proc/<pid>/comm, which is cut to 15 bytes and is where Windows games run through
+ *   Wine or Proton show their `.exe` name (`GTA5.exe`); only names of up to 15 bytes
+ *   can match there.
  * Matching is case-insensitive on Windows and macOS and exact on Linux.
  *
  * Deliberate gaps:
  * - Generic executables are never listed, even when an app uses them: the macOS
- *   Minecraft launcher runs as `launcher`, Minecraft: Java Edition as `javaw.exe`/`java`,
- *   Microsoft Store Roblox as `Windows10Universal.exe` and store apps such as Netflix
- *   inside `WWAHost.exe`. Killing those names would hit unrelated programs; the hosts
- *   file still cuts them off.
- * - Roblox Studio (`RobloxStudioBeta.exe`) and Minecraft Education are not listed: they
- *   are used to learn.
+ *   Minecraft launcher runs as `launcher` (its bundle `Minecraft` is listed instead),
+ *   Minecraft: Java Edition as `javaw.exe`/`java`, Microsoft Store Roblox as
+ *   `Windows10Universal.exe` and store apps such as Netflix inside `WWAHost.exe`.
+ *   Killing those names would hit unrelated programs; the hosts file still cuts them off.
+ * - Roblox Studio (`RobloxStudioBeta.exe`) and Minecraft Education are never closed: they
+ *   are used to learn. While Roblox is blocked, Studio stays open but cannot sign in,
+ *   update or publish, because it shares the player's hosts (see games.ts).
  * - Apps with no official build for a platform have an empty list there.
  */
 export const APP_DATA: readonly App[] = [
@@ -86,7 +91,8 @@ export const APP_DATA: readonly App[] = [
     processes: {
       // Minecraft.exe: Xbox/Microsoft Store launcher. Minecraft.Windows.exe: Bedrock.
       win: ['MinecraftLauncher.exe', 'Minecraft.exe', 'Minecraft.Windows.exe'],
-      mac: [],
+      // Bundle name of /Applications/Minecraft.app, whose executable is `launcher`.
+      mac: ['Minecraft'],
       linux: ['minecraft-launcher'],
     },
   },
@@ -133,7 +139,12 @@ export const APP_DATA: readonly App[] = [
     name: 'Riot Client',
     processes: {
       // Never add vgc.exe/vgk (Riot Vanguard): it is a kernel anti-cheat service.
-      win: ['RiotClientServices.exe', 'Riot Client.exe', 'RiotClientUx.exe', 'RiotClientUxRender.exe'],
+      win: [
+        'RiotClientServices.exe',
+        'Riot Client.exe',
+        'RiotClientUx.exe',
+        'RiotClientUxRender.exe',
+      ],
       mac: ['Riot Client', 'RiotClientServices'],
       linux: [],
     },
@@ -157,6 +168,15 @@ export const APP_DATA: readonly App[] = [
     },
   },
   {
+    id: 'ea-sports-fc',
+    name: 'EA SPORTS FC',
+    processes: {
+      win: ['FC24.exe', 'FC25.exe', 'FC26.exe'],
+      mac: [],
+      linux: [],
+    },
+  },
+  {
     id: 'ubisoft-connect',
     name: 'Ubisoft Connect',
     processes: {
@@ -175,6 +195,15 @@ export const APP_DATA: readonly App[] = [
     },
   },
   {
+    id: 'geforce-now',
+    name: 'GeForce NOW',
+    processes: {
+      win: ['GeForceNOW.exe'],
+      mac: ['GeForceNOW'],
+      linux: [],
+    },
+  },
+  {
     // Closing a launcher does not close a game that is already running, so the games
     // category also targets the most played PC games directly.
     id: 'popular-pc-games',
@@ -185,6 +214,7 @@ export const APP_DATA: readonly App[] = [
         'dota2.exe',
         'RocketLeague.exe',
         'GTA5.exe',
+        'GTA5_Enhanced.exe',
         'PlayGTAV.exe',
         'r5apex.exe',
         'r5apex_dx12.exe',
@@ -201,7 +231,17 @@ export const APP_DATA: readonly App[] = [
         'cod.exe',
       ],
       mac: [],
-      linux: ['cs2', 'dota2'],
+      // Native builds, then Proton/Wine games by their comm (Windows names up to 15 bytes).
+      linux: [
+        'cs2',
+        'dota2',
+        'GTA5.exe',
+        'PlayGTAV.exe',
+        'Overwatch.exe',
+        'Among Us.exe',
+        'Terraria.exe',
+        'Brawlhalla.exe',
+      ],
     },
   },
   // Opt-in.

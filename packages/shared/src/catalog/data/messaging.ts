@@ -4,7 +4,10 @@ import type { Service } from '../types';
  * Messaging (web clients and desktop apps).
  * - Telegram Desktop talks to raw IP addresses (MTProto), so the hosts file cannot stop
  *   it: the process watcher does. The *.web.telegram.org hosts are the web client's
- *   data centers.
+ *   data centers: Web K opens WebSockets to kws1-5 and Web A to zws1-5 (plus `-1` media
+ *   variants), and pluto…flora are the HTTP fallback. A web client already cached by its
+ *   service worker loads without contacting web.telegram.org, so the socket hosts must
+ *   be listed for the hosts file to cut it off.
  * - WhatsApp media hosts use per-region names under whatsapp.net that cannot be
  *   enumerated; the pages and the desktop app are what matters.
  */
@@ -65,6 +68,7 @@ export const MESSAGING_SERVICES: readonly Service[] = [
       'wa',
     ],
     monogram: 'WA',
+    titleHints: ['WhatsApp Web'],
   },
   {
     id: 'telegram',
@@ -74,12 +78,40 @@ export const MESSAGING_SERVICES: readonly Service[] = [
       'telegram.org',
       'www.telegram.org',
       'web.telegram.org',
+      'webk.telegram.org',
+      'webz.telegram.org',
+      'weba.telegram.org',
       'desktop.telegram.org',
       'pluto.web.telegram.org',
       'venus.web.telegram.org',
       'aurora.web.telegram.org',
       'vesta.web.telegram.org',
       'flora.web.telegram.org',
+      'pluto-1.web.telegram.org',
+      'venus-1.web.telegram.org',
+      'aurora-1.web.telegram.org',
+      'vesta-1.web.telegram.org',
+      'flora-1.web.telegram.org',
+      'kws1.web.telegram.org',
+      'kws2.web.telegram.org',
+      'kws3.web.telegram.org',
+      'kws4.web.telegram.org',
+      'kws5.web.telegram.org',
+      'kws1-1.web.telegram.org',
+      'kws2-1.web.telegram.org',
+      'kws3-1.web.telegram.org',
+      'kws4-1.web.telegram.org',
+      'kws5-1.web.telegram.org',
+      'zws1.web.telegram.org',
+      'zws2.web.telegram.org',
+      'zws3.web.telegram.org',
+      'zws4.web.telegram.org',
+      'zws5.web.telegram.org',
+      'zws1-1.web.telegram.org',
+      'zws2-1.web.telegram.org',
+      'zws3-1.web.telegram.org',
+      'zws4-1.web.telegram.org',
+      'zws5-1.web.telegram.org',
       't.me',
       'telegram.me',
       'telesco.pe',

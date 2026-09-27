@@ -1,5 +1,6 @@
 import { join } from 'node:path';
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, nativeTheme } from 'electron';
+import { colors } from '@centrate/shared/design/tokens';
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -9,7 +10,7 @@ function createWindow(): BrowserWindow {
     resizable: false,
     maximizable: false,
     fullscreenable: false,
-    backgroundColor: '#1C1C1C',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? colors.dark.bg : colors.light.bg,
     title: 'Céntrate',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

@@ -5,9 +5,11 @@ import type { Service } from '../types';
  * - Amazon image hosts (m.media-amazon.com, ssl-images-amazon.com) are shared with Prime
  *   Video and many other sites, and alicdn.com is shared by all Alibaba shops: none is
  *   listed. Never add amazonaws.com (AWS): half of the internet runs on it.
- * - An extension rule that matches subdomains of amazon.com also catches aws.amazon.com
- *   and Prime Video's atv-ps.amazon.com while a shopping block is active. That is
- *   accepted: hosts entries are exact, so the hosts layer never does it.
+ * - The extension matches catalog hosts together with their subdomains, so amazon.com
+ *   also covers AWS (aws.amazon.com: docs, console, sign-in) and the Kindle Cloud Reader
+ *   (read.amazon.com, leer.amazon.es). Those are `excludedSubdomains`: they stay
+ *   reachable during a shopping block. Prime Video's atv-ps.amazon.com is still caught,
+ *   which is fine (it is a distraction too).
  */
 export const SHOPPING_SERVICES: readonly Service[] = [
   {
@@ -33,6 +35,7 @@ export const SHOPPING_SERVICES: readonly Service[] = [
       'amzn.eu',
       'a.co',
     ],
+    excludedSubdomains: ['aws.amazon.com', 'read.amazon.com', 'leer.amazon.es'],
     aliases: ['amazon', 'amazon.es', 'amazon.com', 'amazn', 'amazom', 'amason'],
     monogram: 'AZ',
     titleHints: ['Amazon.es', 'Amazon.com'],

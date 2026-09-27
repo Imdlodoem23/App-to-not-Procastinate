@@ -38,5 +38,10 @@ export default tseslint.config(
       'no-implied-eval': 'error',
     },
   },
+  {
+    files: ['**/*.cjs'],
+    languageOptions: { sourceType: 'commonjs' },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
   prettier,
 );

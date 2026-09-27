@@ -51,9 +51,18 @@ export interface Service {
   readonly educationalCapable?: boolean;
   /**
    * Extra window-title segments that identify the service (the name is always used).
-   * See `findServiceByWindowTitle`.
+   * A hint may span several segments («TikTok - Make Your Day»): it then has to be the
+   * whole title. See `findServiceByWindowTitle`.
    */
   readonly titleHints?: readonly string[];
+  /**
+   * Subdomains of `domains` that must stay reachable while the service is blocked
+   * because they serve learning or sign-in for unrelated sites (aws.amazon.com,
+   * dev.epicgames.com). The hosts file lists exact names, so it never blocks them; the
+   * extension matches catalog hosts together with their subdomains and must exempt them
+   * (`excludedRequestDomains`). See `ResolvedTargets.excludedDomains`.
+   */
+  readonly excludedSubdomains?: readonly string[];
 }
 
 /** Executable base names per platform, exactly as they appear in the process list. */
@@ -71,6 +80,14 @@ export interface StudySite {
   readonly name: string;
   /** Each entry also allows all of its subdomains. */
   readonly domains: readonly string[];
+  /**
+   * Hosts that cannot be listed one by one, as regular expression sources matched against
+   * the whole canonical host (anchored with `^…$`), e.g. Drive download hosts such as
+   * `doc-0s-8c-docs.googleusercontent.com`. They live under shared parents that the
+   * whitelist never allows as a whole. RE2 syntax only (no lookarounds or
+   * backreferences): the extension turns them into `regexFilter` allow rules.
+   */
+  readonly hostPatterns?: readonly string[];
 }
 
 /** What the user chose to block (from the parser or the advanced form). */
@@ -87,6 +104,13 @@ export interface TargetSelection {
 export interface ResolvedTargets {
   /** Unique, sorted hosts ready for the hosts file and the extension. */
   domains: string[];
+  /**
+   * Unique, sorted hosts under `domains` that must stay reachable (the selected services'
+   * `excludedSubdomains` and the catalog's always-allowed hosts). The hosts file ignores
+   * them (its entries are exact); the extension, which also matches subdomains, puts them
+   * in `excludedRequestDomains` or a higher-priority allow rule.
+   */
+  excludedDomains: string[];
   /** Unique, sorted process names for the given platform. */
   processes: string[];
 }
@@ -104,9 +128,10 @@ export interface CatalogSnapshot {
     monogram: string;
     educationalCapable: boolean;
     titleHints: string[];
+    excludedSubdomains: string[];
   }>;
   apps: Array<{ id: string; name: string; processes: Record<CatalogPlatform, string[]> }>;
-  studyWhitelist: Array<{ id: string; name: string; domains: string[] }>;
+  studyWhitelist: Array<{ id: string; name: string; domains: string[]; hostPatterns: string[] }>;
   studyAppWhitelist: Array<{
     id: string;
     name: string;
@@ -114,4 +139,9 @@ export interface CatalogSnapshot {
   }>;
   /** Process names the guardian must never kill (compared case-insensitively). */
   protectedProcesses: string[];
+  /**
+   * Hosts that are never blocked, in any mode, together with their subdomains (see
+   * `ALWAYS_ALLOWED_HOSTS`). Whitelist mode allows them too.
+   */
+  alwaysAllowedHosts: string[];
 }

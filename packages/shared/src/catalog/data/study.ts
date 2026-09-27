@@ -14,6 +14,13 @@ import type { App, StudySite } from '../types';
  * - General web search is left out on purpose; the user can add it.
  * - Khan Academy embeds YouTube videos (youtube-nocookie.com), which stay blocked in
  *   whitelist mode unless the extension allows embeds started from a whitelisted page.
+ * - Hosts that cannot be enumerated (Drive download hosts, Docs image hosts) are
+ *   `hostPatterns`, anchored regular expressions the extension turns into `regexFilter`
+ *   allow rules. Whitelist mode also allows ALWAYS_ALLOWED_HOSTS (./always-allowed.ts),
+ *   such as accounts.youtube.com, a step of Google's sign-in flow.
+ * - Regional platforms cover the largest education departments; a school's own Moodle
+ *   (aulavirtual.<school>.es, the Basque Country's per-school sites…) is added by the
+ *   user.
  */
 export const STUDY_SITE_DATA: readonly StudySite[] = [
   {
@@ -35,6 +42,16 @@ export const STUDY_SITE_DATA: readonly StudySite[] = [
       'meet.google.com',
       'usercontent.google.com',
       'docs.googleusercontent.com',
+      // Internal APIs of Drive, Docs and Classroom.
+      'clients6.google.com',
+    ],
+    hostPatterns: [
+      // Exports and downloads: doc-0s-8c-docs.googleusercontent.com.
+      '^[a-z0-9-]+-docs\\.googleusercontent\\.com$',
+      // Images in Docs and Slides, avatars in Classroom: lh3, lh7-rt, lh7-us….
+      '^lh[3-7](?:-[a-z]+)?\\.googleusercontent\\.com$',
+      // Drive thumbnails: lh3.google.com/u/0/d/<id>.
+      '^lh[3-7]\\.google\\.com$',
     ],
   },
   {
@@ -78,9 +95,19 @@ export const STUDY_SITE_DATA: readonly StudySite[] = [
       'sharepoint.com',
       'onenote.com',
       'www.onenote.com',
-      'res.cdn.office.net',
-      'aadcdn.msauth.net',
-      'aadcdn.msftauth.net',
+      // Office and Teams static files: res.cdn.office.net, res-1.cdn.office.net,
+      // statics.teams.cdn.office.net.
+      'cdn.office.net',
+      // SharePoint and OneDrive for Business static files (static2.sharepointonline.com).
+      'sharepointonline.com',
+      // Microsoft sign-in (aadcdn.msauth.net, logincdn.msftauth.net, acctcdn.msauth.net).
+      'msauth.net',
+      'msftauth.net',
+      'account.live.com',
+      // OneDrive share links and downloads.
+      '1drv.ms',
+      '1drv.com',
+      'microsoftpersonalcontent.com',
     ],
   },
   {
@@ -150,21 +177,113 @@ export const STUDY_SITE_DATA: readonly StudySite[] = [
   {
     id: 'school-platforms',
     name: 'Plataformas educativas',
-    domains: ['educa.madrid.org', 'aules.edu.gva.es', 'xtec.cat', 'educa.jcyl.es', 'blinklearning.com'],
+    domains: [
+      // Madrid: EducaMadrid and Raíces.
+      'educa.madrid.org',
+      'educa2.madrid.org',
+      'raices.madrid.org',
+      // Andalucía: Moodle Centros and Séneca/iPasen.
+      'educacionadistancia.juntadeandalucia.es',
+      'seneca.juntadeandalucia.es',
+      // Comunitat Valenciana, Catalunya, Castilla y León.
+      'aules.edu.gva.es',
+      'xtec.cat',
+      'edu365.cat',
+      'educa.jcyl.es',
+      // Galicia, Aragón, Castilla-La Mancha, Región de Murcia, Extremadura.
+      'edu.xunta.gal',
+      'aeducar.es',
+      'educamosclm.castillalamancha.es',
+      'murciaeduca.es',
+      'educarex.es',
+      // Asturias, Cantabria, Canarias (EVAGD and Medusa), Illes Balears.
+      'educastur.es',
+      'educantabria.es',
+      'www3.gobiernodecanarias.org',
+      'educaib.eu',
+    ],
+  },
+  {
+    id: 'publishers',
+    name: 'Libros digitales de editoriales',
+    domains: ['blinklearning.com', 'smsavia.com', 'anayaeducacion.es', 'oupe.es'],
+  },
+  {
+    id: 'class-tools',
+    name: 'Herramientas de clase',
+    domains: ['liveworksheets.com', 'quizlet.com', 'kahoot.it', 'genial.ly', 'zoom.us'],
   },
   {
     id: 'notion',
     name: 'Notion',
-    domains: ['notion.so', 'www.notion.so', 'notion.site'],
+    domains: [
+      'notion.so',
+      'www.notion.so',
+      'notion.site',
+      'notion.com',
+      'notion-static.com',
+      'notionusercontent.com',
+    ],
   },
 ];
 
 /*
- * Default study apps (never closed by the whitelist punishment). Same process-name
- * conventions as APP_DATA. Editable by the user later.
- * - macOS VS Code runs as `Electron` in older builds and `Code` in newer ones.
+ * Default study apps (never closed by the whitelist punishment and exam mode). Same
+ * process-name conventions as APP_DATA. The user can add more.
+ *
+ * What the catalog assumes about whitelist mode (to confirm in the guardian): it closes
+ * only apps outside this list and never a protected process (protected.ts, which
+ * includes accessibility tools such as the on-screen keyboard and screen readers); and,
+ * on macOS, a process counts as allowed when its name, its bundle or any `.app` bundle on
+ * its path is listed, because browser helpers run from nested bundles
+ * (Google Chrome.app/…/Google Chrome Helper (Renderer).app).
+ *
+ * - Browsers are listed: the study websites are only reachable through them, and the
+ *   extension enforces the site whitelist inside them.
+ * - macOS VS Code runs as `Code` (older builds as the generic `Electron`, so its bundle
+ *   name `Visual Studio Code` is listed instead).
  */
 export const STUDY_APP_DATA: readonly App[] = [
+  {
+    id: 'browsers',
+    name: 'Navegadores',
+    processes: {
+      // msedgewebview2.exe: Edge WebView2, which the new Teams, Outlook and Office
+      // add-ins render with.
+      win: [
+        'chrome.exe',
+        'msedge.exe',
+        'msedgewebview2.exe',
+        'firefox.exe',
+        'brave.exe',
+        'opera.exe',
+        'vivaldi.exe',
+      ],
+      mac: [
+        'Google Chrome',
+        'Microsoft Edge',
+        'firefox',
+        'Brave Browser',
+        'Safari',
+        'Opera',
+        'Vivaldi',
+        'Arc',
+        'Chromium',
+      ],
+      linux: [
+        'chrome',
+        'chromium',
+        'chromium-browser',
+        'msedge',
+        'firefox',
+        'firefox-bin',
+        'firefox-esr',
+        'brave',
+        'opera',
+        'vivaldi-bin',
+      ],
+    },
+  },
   {
     id: 'word',
     name: 'Microsoft Word',
@@ -188,7 +307,11 @@ export const STUDY_APP_DATA: readonly App[] = [
   {
     id: 'teams',
     name: 'Microsoft Teams',
-    processes: { win: ['ms-teams.exe', 'Teams.exe'], mac: ['MSTeams', 'Microsoft Teams'], linux: [] },
+    processes: {
+      win: ['ms-teams.exe', 'Teams.exe'],
+      mac: ['MSTeams', 'Microsoft Teams'],
+      linux: [],
+    },
   },
   {
     id: 'notion',
@@ -226,12 +349,17 @@ export const STUDY_APP_DATA: readonly App[] = [
   {
     id: 'vscode',
     name: 'Visual Studio Code',
-    processes: { win: ['Code.exe'], mac: ['Code', 'Electron'], linux: ['code'] },
+    processes: { win: ['Code.exe'], mac: ['Code', 'Visual Studio Code'], linux: ['code'] },
   },
   {
     id: 'geogebra',
     name: 'GeoGebra',
     processes: { win: ['GeoGebra.exe'], mac: ['GeoGebra'], linux: ['geogebra'] },
+  },
+  {
+    id: 'zoom',
+    name: 'Zoom',
+    processes: { win: ['Zoom.exe'], mac: ['zoom.us'], linux: ['zoom'] },
   },
   {
     id: 'anki',

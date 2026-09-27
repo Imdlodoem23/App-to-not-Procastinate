@@ -48,7 +48,7 @@ export const OPT_IN_SERVICES: readonly Service[] = [
     name: 'Chess.com',
     categories: [],
     domains: ['chess.com', 'www.chess.com', 'chesscomfiles.com', 'images.chesscomfiles.com'],
-    aliases: ['chess.com', 'chess', 'chesscom'],
+    aliases: ['chess.com', 'chess', 'chesscom', 'ajedrez'],
     monogram: 'CH',
   },
   {

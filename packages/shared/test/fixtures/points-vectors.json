@@ -1,0 +1,2509 @@
+{
+  "$comment": [
+    "Shared points parity vectors (PROMPT.md section 7). Run by packages/shared/test/points.test.ts (vitest) and by the guardian Go tests; both must pass unchanged.",
+    "functions: call fn(...args) with the default rules and compare with expect (deep equality; blockCompletionPoints compares its total).",
+    "sequences: start from initialLedgerState(); for each step convert input.at (ISO UTC) to epoch ms (and escalation.lastCountedAt when present), apply applyLedgerInput, and compare every key present in expect: points and xp are the step deltas, balance is the balance after the step, the rest are LedgerOutcome fields (null means the field is null).",
+    "Then summarizeLedger(state, summary) must match expectFinal (todayFocusMinutes = today.focusMinutes, todayGoalMet = today.goalMet).",
+    "Expectations were written by hand from the rules; never regenerate them from either implementation."
+  ],
+  "formatVersion": 1,
+  "rulesVersion": 1,
+  "functions": [
+    {
+      "name": "attempt penalty index 0",
+      "fn": "attemptPenalty",
+      "args": [0],
+      "expect": 10
+    },
+    {
+      "name": "attempt penalty index 1",
+      "fn": "attemptPenalty",
+      "args": [1],
+      "expect": 20
+    },
+    {
+      "name": "attempt penalty index 2",
+      "fn": "attemptPenalty",
+      "args": [2],
+      "expect": 40
+    },
+    {
+      "name": "attempt penalty index 3",
+      "fn": "attemptPenalty",
+      "args": [3],
+      "expect": 80
+    },
+    {
+      "name": "attempt penalty index 4",
+      "fn": "attemptPenalty",
+      "args": [4],
+      "expect": 80
+    },
+    {
+      "name": "attempt penalty index 10",
+      "fn": "attemptPenalty",
+      "args": [10],
+      "expect": 80
+    },
+    {
+      "name": "emergency penalty balance 1240",
+      "fn": "emergencyPenalty",
+      "args": [1240],
+      "expect": 620
+    },
+    {
+      "name": "emergency penalty balance 402",
+      "fn": "emergencyPenalty",
+      "args": [402],
+      "expect": 201
+    },
+    {
+      "name": "emergency penalty balance 401",
+      "fn": "emergencyPenalty",
+      "args": [401],
+      "expect": 200
+    },
+    {
+      "name": "emergency penalty balance 400",
+      "fn": "emergencyPenalty",
+      "args": [400],
+      "expect": 200
+    },
+    {
+      "name": "emergency penalty balance 399",
+      "fn": "emergencyPenalty",
+      "args": [399],
+      "expect": 200
+    },
+    {
+      "name": "emergency penalty balance 150",
+      "fn": "emergencyPenalty",
+      "args": [150],
+      "expect": 200
+    },
+    {
+      "name": "emergency penalty balance 0",
+      "fn": "emergencyPenalty",
+      "args": [0],
+      "expect": 200
+    },
+    {
+      "name": "emergency penalty balance -50",
+      "fn": "emergencyPenalty",
+      "args": [-50],
+      "expect": 200
+    },
+    {
+      "name": "emergency penalty balance 1000001",
+      "fn": "emergencyPenalty",
+      "args": [1000001],
+      "expect": 500000
+    },
+    {
+      "name": "emergency countdown normal",
+      "fn": "emergencyCountdownMinutes",
+      "args": [["normal"]],
+      "expect": 10
+    },
+    {
+      "name": "emergency countdown strict",
+      "fn": "emergencyCountdownMinutes",
+      "args": [["strict"]],
+      "expect": 30
+    },
+    {
+      "name": "emergency countdown normal+strict",
+      "fn": "emergencyCountdownMinutes",
+      "args": [["normal", "strict"]],
+      "expect": 30
+    },
+    {
+      "name": "emergency countdown hardcore",
+      "fn": "emergencyCountdownMinutes",
+      "args": [["hardcore"]],
+      "expect": null
+    },
+    {
+      "name": "emergency countdown normal+exam",
+      "fn": "emergencyCountdownMinutes",
+      "args": [["normal", "exam"]],
+      "expect": null
+    },
+    {
+      "name": "emergency countdown none",
+      "fn": "emergencyCountdownMinutes",
+      "args": [[]],
+      "expect": null
+    },
+    {
+      "name": "level for 0 xp",
+      "fn": "levelForXp",
+      "args": [0],
+      "expect": 1
+    },
+    {
+      "name": "level for 59 xp",
+      "fn": "levelForXp",
+      "args": [59],
+      "expect": 1
+    },
+    {
+      "name": "level for 60 xp",
+      "fn": "levelForXp",
+      "args": [60],
+      "expect": 2
+    },
+    {
+      "name": "level for 179 xp",
+      "fn": "levelForXp",
+      "args": [179],
+      "expect": 2
+    },
+    {
+      "name": "level for 180 xp",
+      "fn": "levelForXp",
+      "args": [180],
+      "expect": 3
+    },
+    {
+      "name": "level for 1259 xp",
+      "fn": "levelForXp",
+      "args": [1259],
+      "expect": 6
+    },
+    {
+      "name": "level for 1260 xp",
+      "fn": "levelForXp",
+      "args": [1260],
+      "expect": 7
+    },
+    {
+      "name": "level for 11400 xp",
+      "fn": "levelForXp",
+      "args": [11400],
+      "expect": 20
+    },
+    {
+      "name": "level for -5 xp",
+      "fn": "levelForXp",
+      "args": [-5],
+      "expect": 1
+    },
+    {
+      "name": "xp for level 1",
+      "fn": "xpForLevel",
+      "args": [1],
+      "expect": 0
+    },
+    {
+      "name": "xp for level 2",
+      "fn": "xpForLevel",
+      "args": [2],
+      "expect": 60
+    },
+    {
+      "name": "xp for level 3",
+      "fn": "xpForLevel",
+      "args": [3],
+      "expect": 180
+    },
+    {
+      "name": "xp for level 7",
+      "fn": "xpForLevel",
+      "args": [7],
+      "expect": 1260
+    },
+    {
+      "name": "xp for level 20",
+      "fn": "xpForLevel",
+      "args": [20],
+      "expect": 11400
+    },
+    {
+      "name": "allowance refund [150, 900000, 300000]",
+      "fn": "allowanceRefund",
+      "args": [150, 900000, 300000],
+      "expect": 50
+    },
+    {
+      "name": "allowance refund [150, 900000, 0]",
+      "fn": "allowanceRefund",
+      "args": [150, 900000, 0],
+      "expect": 0
+    },
+    {
+      "name": "allowance refund [150, 900000, 900000]",
+      "fn": "allowanceRefund",
+      "args": [150, 900000, 900000],
+      "expect": 150
+    },
+    {
+      "name": "allowance refund [150, 900000, 1000000]",
+      "fn": "allowanceRefund",
+      "args": [150, 900000, 1000000],
+      "expect": 150
+    },
+    {
+      "name": "allowance refund [280, 1800000, 1]",
+      "fn": "allowanceRefund",
+      "args": [280, 1800000, 1],
+      "expect": 0
+    },
+    {
+      "name": "allowance refund [280, 1800000, -5]",
+      "fn": "allowanceRefund",
+      "args": [280, 1800000, -5],
+      "expect": 0
+    },
+    {
+      "name": "allowance refund [100, 0, 0]",
+      "fn": "allowanceRefund",
+      "args": [100, 0, 0],
+      "expect": 0
+    },
+    {
+      "name": "allowance refund [7, 3, 1]",
+      "fn": "allowanceRefund",
+      "args": [7, 3, 1],
+      "expect": 2
+    },
+    {
+      "name": "block completion ['manual', 60, 0]",
+      "fn": "blockCompletionPoints",
+      "args": ["manual", 60, 0],
+      "expect": 80
+    },
+    {
+      "name": "block completion ['schedule', 24, 0]",
+      "fn": "blockCompletionPoints",
+      "args": ["schedule", 24, 0],
+      "expect": 24
+    },
+    {
+      "name": "block completion ['schedule', 25, 0]",
+      "fn": "blockCompletionPoints",
+      "args": ["schedule", 25, 0],
+      "expect": 45
+    },
+    {
+      "name": "block completion ['manual', 60, 2]",
+      "fn": "blockCompletionPoints",
+      "args": ["manual", 60, 2],
+      "expect": 60
+    },
+    {
+      "name": "block completion ['punishment', 60, 0]",
+      "fn": "blockCompletionPoints",
+      "args": ["punishment", 60, 0],
+      "expect": 0
+    },
+    {
+      "name": "block completion ['recovered', 60, 0]",
+      "fn": "blockCompletionPoints",
+      "args": ["recovered", 60, 0],
+      "expect": 0
+    },
+    {
+      "name": "block completion ['manual', 0, 0]",
+      "fn": "blockCompletionPoints",
+      "args": ["manual", 0, 0],
+      "expect": 0
+    },
+    {
+      "name": "study end bonus ['completed', 0, 0, 50]",
+      "fn": "studyEndBonus",
+      "args": ["completed", 0, 0, 50],
+      "expect": 20
+    },
+    {
+      "name": "study end bonus ['completed', 1, 0, 50]",
+      "fn": "studyEndBonus",
+      "args": ["completed", 1, 0, 50],
+      "expect": 0
+    },
+    {
+      "name": "study end bonus ['completed', 0, 1, 50]",
+      "fn": "studyEndBonus",
+      "args": ["completed", 0, 1, 50],
+      "expect": 0
+    },
+    {
+      "name": "study end bonus ['ended_early', 0, 0, 50]",
+      "fn": "studyEndBonus",
+      "args": ["ended_early", 0, 0, 50],
+      "expect": 0
+    },
+    {
+      "name": "study end bonus ['completed', 0, 0, 24]",
+      "fn": "studyEndBonus",
+      "args": ["completed", 0, 0, 24],
+      "expect": 0
+    },
+    {
+      "name": "study end bonus ['punished', 0, 0, 50]",
+      "fn": "studyEndBonus",
+      "args": ["punished", 0, 0, 50],
+      "expect": 0
+    },
+    {
+      "name": "emergency phrase \"Acepto romper mi compromiso y perder mis puntos\"",
+      "fn": "emergencyPhraseMatches",
+      "args": ["Acepto romper mi compromiso y perder mis puntos"],
+      "expect": true
+    },
+    {
+      "name": "emergency phrase \"  acepto   ROMPER mi compromiso y perder mis puntos. \"",
+      "fn": "emergencyPhraseMatches",
+      "args": ["  acepto   ROMPER mi compromiso y perder mis puntos. "],
+      "expect": true
+    },
+    {
+      "name": "emergency phrase \"ACEPTO ROMPER MI COMPROMISO Y PERDER MIS PUNTOS\"",
+      "fn": "emergencyPhraseMatches",
+      "args": ["ACEPTO ROMPER MI COMPROMISO Y PERDER MIS PUNTOS"],
+      "expect": true
+    },
+    {
+      "name": "emergency phrase \"Acepto\\tromper\\nmi compromiso y perder mis puntos\"",
+      "fn": "emergencyPhraseMatches",
+      "args": ["Acepto\tromper\nmi compromiso y perder mis puntos"],
+      "expect": true
+    },
+    {
+      "name": "emergency phrase \"Acepto\\u00a0romper mi compromiso y perder mis puntos\"",
+      "fn": "emergencyPhraseMatches",
+      "args": ["Acepto romper mi compromiso y perder mis puntos"],
+      "expect": true
+    },
+    {
+      "name": "emergency phrase \"I accept breaking my commitment and losing my points\"",
+      "fn": "emergencyPhraseMatches",
+      "args": ["I accept breaking my commitment and losing my points"],
+      "expect": true
+    },
+    {
+      "name": "emergency phrase \"Acepto romper mi compromiso y perder mis puntos..\"",
+      "fn": "emergencyPhraseMatches",
+      "args": ["Acepto romper mi compromiso y perder mis puntos.."],
+      "expect": false
+    },
+    {
+      "name": "emergency phrase \"Acepto romper mi compromiso\"",
+      "fn": "emergencyPhraseMatches",
+      "args": ["Acepto romper mi compromiso"],
+      "expect": false
+    },
+    {
+      "name": "emergency phrase \"Acepto romper mi compromiso y perder mis p\\u00fantos\"",
+      "fn": "emergencyPhraseMatches",
+      "args": ["Acepto romper mi compromiso y perder mis púntos"],
+      "expect": false
+    },
+    {
+      "name": "emergency phrase \"Acepto romper mi compromiso y perder mis puntos\\u2003\"",
+      "fn": "emergencyPhraseMatches",
+      "args": ["Acepto romper mi compromiso y perder mis puntos "],
+      "expect": false
+    },
+    {
+      "name": "emergency phrase \"\"",
+      "fn": "emergencyPhraseMatches",
+      "args": [""],
+      "expect": false
+    },
+    {
+      "name": "normalize phrase \" Hola  MUNDO. \"",
+      "fn": "normalizePhrase",
+      "args": [" Hola  MUNDO. "],
+      "expect": "hola mundo"
+    },
+    {
+      "name": "normalize phrase \"a . \"",
+      "fn": "normalizePhrase",
+      "args": ["a . "],
+      "expect": "a"
+    },
+    {
+      "name": "normalize phrase \"\\u00c1RBOL\"",
+      "fn": "normalizePhrase",
+      "args": ["ÁRBOL"],
+      "expect": "Árbol"
+    },
+    {
+      "name": "add days ['2026-09-27', 1]",
+      "fn": "addDays",
+      "args": ["2026-09-27", 1],
+      "expect": "2026-09-28"
+    },
+    {
+      "name": "add days ['2026-12-31', 1]",
+      "fn": "addDays",
+      "args": ["2026-12-31", 1],
+      "expect": "2027-01-01"
+    },
+    {
+      "name": "add days ['2028-02-28', 1]",
+      "fn": "addDays",
+      "args": ["2028-02-28", 1],
+      "expect": "2028-02-29"
+    },
+    {
+      "name": "add days ['2026-03-01', -1]",
+      "fn": "addDays",
+      "args": ["2026-03-01", -1],
+      "expect": "2026-02-28"
+    },
+    {
+      "name": "add days ['2026-09-27', -7]",
+      "fn": "addDays",
+      "args": ["2026-09-27", -7],
+      "expect": "2026-09-20"
+    }
+  ],
+  "sequences": [
+    {
+      "name": "block completed without attempts earns minutes plus the clean bonus",
+      "steps": [
+        {
+          "input": {
+            "type": "block_completed",
+            "at": "2026-09-27T12:00:00.000Z",
+            "day": "2026-09-27",
+            "kind": "manual",
+            "creditedMinutes": 60,
+            "attemptsCounted": 0
+          },
+          "expect": {
+            "points": 80,
+            "xp": 0,
+            "cleanBonus": 20,
+            "balance": 80
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 80,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "block with a counted attempt earns minutes but no clean bonus",
+      "steps": [
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:00:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -10,
+            "counted": true,
+            "merged": false,
+            "escalationIndex": 0,
+            "penalty": 10,
+            "balance": -10
+          }
+        },
+        {
+          "input": {
+            "type": "block_completed",
+            "at": "2026-09-27T11:00:00.000Z",
+            "day": "2026-09-27",
+            "kind": "manual",
+            "creditedMinutes": 45,
+            "attemptsCounted": 1
+          },
+          "expect": {
+            "points": 45,
+            "cleanBonus": 0,
+            "balance": 35
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 35,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "clean bonus needs at least 25 credited minutes",
+      "steps": [
+        {
+          "input": {
+            "type": "block_completed",
+            "at": "2026-09-27T10:10:00.000Z",
+            "day": "2026-09-27",
+            "kind": "manual",
+            "creditedMinutes": 10,
+            "attemptsCounted": 0
+          },
+          "expect": {
+            "points": 10,
+            "cleanBonus": 0,
+            "balance": 10
+          }
+        },
+        {
+          "input": {
+            "type": "block_completed",
+            "at": "2026-09-27T11:00:00.000Z",
+            "day": "2026-09-27",
+            "kind": "schedule",
+            "creditedMinutes": 25,
+            "attemptsCounted": 0
+          },
+          "expect": {
+            "points": 45,
+            "cleanBonus": 20,
+            "balance": 55
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 55,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "punishment and recovered blocks earn nothing",
+      "steps": [
+        {
+          "input": {
+            "type": "block_completed",
+            "at": "2026-09-27T12:00:00.000Z",
+            "day": "2026-09-27",
+            "kind": "punishment",
+            "creditedMinutes": 60,
+            "attemptsCounted": 0
+          },
+          "expect": {
+            "points": 0,
+            "xp": 0,
+            "balance": 0
+          }
+        },
+        {
+          "input": {
+            "type": "block_completed",
+            "at": "2026-09-27T13:00:00.000Z",
+            "day": "2026-09-27",
+            "kind": "recovered",
+            "creditedMinutes": 30,
+            "attemptsCounted": 0
+          },
+          "expect": {
+            "points": 0,
+            "xp": 0,
+            "balance": 0
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 0,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "attempts within 5 minutes of the previous one double the penalty",
+      "steps": [
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:00:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -10,
+            "counted": true,
+            "escalationIndex": 0,
+            "balance": -10
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:01:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:tiktok",
+            "penalized": true
+          },
+          "expect": {
+            "points": -20,
+            "counted": true,
+            "escalationIndex": 1,
+            "balance": -30
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:03:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -40,
+            "counted": true,
+            "escalationIndex": 2,
+            "balance": -70
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:07:59.000Z",
+            "day": "2026-09-27",
+            "key": "svc:instagram",
+            "penalized": true
+          },
+          "expect": {
+            "points": -80,
+            "counted": true,
+            "escalationIndex": 3,
+            "balance": -150
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": -150,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "attempt penalty is capped at 80",
+      "steps": [
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:00:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -10,
+            "escalationIndex": 0
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:01:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -20,
+            "escalationIndex": 1
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:02:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -40,
+            "escalationIndex": 2
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:03:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -80,
+            "escalationIndex": 3
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:04:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -80,
+            "escalationIndex": 3
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:08:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -80,
+            "escalationIndex": 3,
+            "balance": -310
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": -310,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "escalation resets when 5 minutes pass without a counted attempt",
+      "steps": [
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:00:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -10,
+            "escalationIndex": 0
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:05:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -10,
+            "escalationIndex": 0
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:09:59.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -20,
+            "escalationIndex": 1
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:20:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -10,
+            "escalationIndex": 0,
+            "balance": -50
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": -50,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "re-detections within a sliding 30 s window are one attempt",
+      "steps": [
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:00:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -10,
+            "counted": true,
+            "merged": false
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:00:10.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": 0,
+            "counted": false,
+            "merged": true,
+            "escalationIndex": null,
+            "penalty": 0
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:00:25.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": 0,
+            "counted": false,
+            "merged": true
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:00:50.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": 0,
+            "counted": false,
+            "merged": true
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:01:20.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -20,
+            "counted": true,
+            "merged": false,
+            "escalationIndex": 1,
+            "balance": -30
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": -30,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "several layers detecting the same service at once count once",
+      "steps": [
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:00:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -10,
+            "counted": true
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:00:00.400Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": 0,
+            "merged": true
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:00:01.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": 0,
+            "merged": true,
+            "balance": -10
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": -10,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "different targets within 30 s are separate attempts",
+      "steps": [
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:00:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -10,
+            "counted": true,
+            "escalationIndex": 0
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:00:05.000Z",
+            "day": "2026-09-27",
+            "key": "dom:example.org",
+            "penalized": true
+          },
+          "expect": {
+            "points": -20,
+            "counted": true,
+            "escalationIndex": 1,
+            "balance": -30
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": -30,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "strikes and a punishment can take the balance negative",
+      "steps": [
+        {
+          "input": {
+            "type": "strike",
+            "at": "2026-09-27T10:10:00.000Z",
+            "day": "2026-09-27"
+          },
+          "expect": {
+            "points": -15,
+            "penalty": 15,
+            "balance": -15
+          }
+        },
+        {
+          "input": {
+            "type": "strike",
+            "at": "2026-09-27T10:20:00.000Z",
+            "day": "2026-09-27"
+          },
+          "expect": {
+            "points": -15,
+            "balance": -30
+          }
+        },
+        {
+          "input": {
+            "type": "strike",
+            "at": "2026-09-27T10:30:00.000Z",
+            "day": "2026-09-27"
+          },
+          "expect": {
+            "points": -15,
+            "balance": -45
+          }
+        },
+        {
+          "input": {
+            "type": "punishment_started",
+            "at": "2026-09-27T10:30:00.000Z",
+            "day": "2026-09-27"
+          },
+          "expect": {
+            "points": -100,
+            "penalty": 100,
+            "balance": -145
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": -145,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "emergency takes half of a large balance and the whole streak",
+      "steps": [
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-25T18:00:00.000Z",
+            "day": "2026-09-25",
+            "minutes": 60
+          },
+          "expect": {
+            "points": 120,
+            "xp": 60,
+            "balance": 120
+          }
+        },
+        {
+          "input": {
+            "type": "day_closed",
+            "at": "2026-09-26T00:00:05.000Z",
+            "day": "2026-09-26",
+            "closedDay": "2026-09-25",
+            "goalMinutes": 60
+          },
+          "expect": {
+            "points": 0,
+            "met": true
+          }
+        },
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-26T18:00:00.000Z",
+            "day": "2026-09-26",
+            "minutes": 60
+          },
+          "expect": {
+            "points": 120,
+            "xp": 60,
+            "balance": 240
+          }
+        },
+        {
+          "input": {
+            "type": "day_closed",
+            "at": "2026-09-27T00:00:05.000Z",
+            "day": "2026-09-27",
+            "closedDay": "2026-09-26",
+            "goalMinutes": 60
+          },
+          "expect": {
+            "points": 0,
+            "met": true
+          }
+        },
+        {
+          "input": {
+            "type": "block_completed",
+            "at": "2026-09-27T12:00:00.000Z",
+            "day": "2026-09-27",
+            "kind": "manual",
+            "creditedMinutes": 860,
+            "attemptsCounted": 0
+          },
+          "expect": {
+            "points": 880,
+            "cleanBonus": 20,
+            "balance": 1120
+          }
+        },
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-27T16:00:00.000Z",
+            "day": "2026-09-27",
+            "minutes": 60
+          },
+          "expect": {
+            "points": 120,
+            "xp": 60,
+            "balance": 1240
+          }
+        },
+        {
+          "input": {
+            "type": "emergency_confirmed",
+            "at": "2026-09-27T17:00:00.000Z",
+            "day": "2026-09-27",
+            "goalMinutes": 60
+          },
+          "expect": {
+            "points": -620,
+            "xp": 0,
+            "penalty": 620,
+            "streakDaysLost": 3,
+            "balance": 620
+          }
+        },
+        {
+          "input": {
+            "type": "day_closed",
+            "at": "2026-09-28T00:00:05.000Z",
+            "day": "2026-09-28",
+            "closedDay": "2026-09-27",
+            "goalMinutes": 60
+          },
+          "expect": {
+            "points": 0,
+            "met": false
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-28",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 620,
+        "xp": 180,
+        "level": 3,
+        "streakDays": 0,
+        "bestStreakDays": 2,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "emergency costs at least 200 points",
+      "steps": [
+        {
+          "input": {
+            "type": "block_completed",
+            "at": "2026-09-27T12:00:00.000Z",
+            "day": "2026-09-27",
+            "kind": "manual",
+            "creditedMinutes": 130,
+            "attemptsCounted": 0
+          },
+          "expect": {
+            "points": 150,
+            "balance": 150
+          }
+        },
+        {
+          "input": {
+            "type": "emergency_confirmed",
+            "at": "2026-09-27T13:00:00.000Z",
+            "day": "2026-09-27",
+            "goalMinutes": 60
+          },
+          "expect": {
+            "points": -200,
+            "penalty": 200,
+            "streakDaysLost": 0,
+            "balance": -50
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": -50,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "emergency with a negative balance still costs 200",
+      "steps": [
+        {
+          "input": {
+            "type": "punishment_started",
+            "at": "2026-09-27T10:00:00.000Z",
+            "day": "2026-09-27"
+          },
+          "expect": {
+            "points": -100,
+            "balance": -100
+          }
+        },
+        {
+          "input": {
+            "type": "emergency_confirmed",
+            "at": "2026-09-27T11:00:00.000Z",
+            "day": "2026-09-27",
+            "goalMinutes": 60
+          },
+          "expect": {
+            "points": -200,
+            "penalty": 200,
+            "balance": -300
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": -300,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "emergency penalty rounds half the balance down",
+      "steps": [
+        {
+          "input": {
+            "type": "block_completed",
+            "at": "2026-09-27T12:00:00.000Z",
+            "day": "2026-09-27",
+            "kind": "manual",
+            "creditedMinutes": 382,
+            "attemptsCounted": 0
+          },
+          "expect": {
+            "points": 402,
+            "balance": 402
+          }
+        },
+        {
+          "input": {
+            "type": "emergency_confirmed",
+            "at": "2026-09-27T13:00:00.000Z",
+            "day": "2026-09-27",
+            "goalMinutes": 60
+          },
+          "expect": {
+            "points": -201,
+            "penalty": 201,
+            "balance": 201
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 201,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "clean study session earns 2 per focused minute plus the bonus",
+      "steps": [
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-27T10:25:00.000Z",
+            "day": "2026-09-27",
+            "minutes": 25
+          },
+          "expect": {
+            "points": 50,
+            "xp": 25
+          }
+        },
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-27T10:55:00.000Z",
+            "day": "2026-09-27",
+            "minutes": 25
+          },
+          "expect": {
+            "points": 50,
+            "xp": 25
+          }
+        },
+        {
+          "input": {
+            "type": "study_ended",
+            "at": "2026-09-27T10:55:00.000Z",
+            "day": "2026-09-27",
+            "outcome": "completed",
+            "strikes": 0,
+            "attempts": 0,
+            "plannedMinutes": 50
+          },
+          "expect": {
+            "points": 20,
+            "xp": 0,
+            "cleanBonus": 20,
+            "balance": 120
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 120,
+        "xp": 50,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 50,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "a strike removes the study clean bonus",
+      "steps": [
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-27T10:30:00.000Z",
+            "day": "2026-09-27",
+            "minutes": 30
+          },
+          "expect": {
+            "points": 60,
+            "xp": 30
+          }
+        },
+        {
+          "input": {
+            "type": "strike",
+            "at": "2026-09-27T10:31:00.000Z",
+            "day": "2026-09-27"
+          },
+          "expect": {
+            "points": -15
+          }
+        },
+        {
+          "input": {
+            "type": "study_ended",
+            "at": "2026-09-27T10:50:00.000Z",
+            "day": "2026-09-27",
+            "outcome": "completed",
+            "strikes": 1,
+            "attempts": 0,
+            "plannedMinutes": 50
+          },
+          "expect": {
+            "points": 0,
+            "cleanBonus": 0,
+            "balance": 45
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 45,
+        "xp": 30,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 30,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "only completed study sessions of at least 25 planned minutes earn the bonus",
+      "steps": [
+        {
+          "input": {
+            "type": "study_ended",
+            "at": "2026-09-27T10:00:00.000Z",
+            "day": "2026-09-27",
+            "outcome": "ended_early",
+            "strikes": 0,
+            "attempts": 0,
+            "plannedMinutes": 50
+          },
+          "expect": {
+            "points": 0
+          }
+        },
+        {
+          "input": {
+            "type": "study_ended",
+            "at": "2026-09-27T11:00:00.000Z",
+            "day": "2026-09-27",
+            "outcome": "completed",
+            "strikes": 0,
+            "attempts": 0,
+            "plannedMinutes": 20
+          },
+          "expect": {
+            "points": 0
+          }
+        },
+        {
+          "input": {
+            "type": "study_ended",
+            "at": "2026-09-27T12:00:00.000Z",
+            "day": "2026-09-27",
+            "outcome": "completed",
+            "strikes": 0,
+            "attempts": 0,
+            "plannedMinutes": 25
+          },
+          "expect": {
+            "points": 20
+          }
+        },
+        {
+          "input": {
+            "type": "study_ended",
+            "at": "2026-09-27T13:00:00.000Z",
+            "day": "2026-09-27",
+            "outcome": "abandoned",
+            "strikes": 0,
+            "attempts": 0,
+            "plannedMinutes": 60
+          },
+          "expect": {
+            "points": 0
+          }
+        },
+        {
+          "input": {
+            "type": "study_ended",
+            "at": "2026-09-27T14:00:00.000Z",
+            "day": "2026-09-27",
+            "outcome": "completed",
+            "strikes": 0,
+            "attempts": 1,
+            "plannedMinutes": 60
+          },
+          "expect": {
+            "points": 0,
+            "balance": 20
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 20,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "streak counts consecutive met days and breaks on a missed day",
+      "steps": [
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-24T18:00:00.000Z",
+            "day": "2026-09-24",
+            "minutes": 60
+          },
+          "expect": {
+            "points": 120,
+            "xp": 60
+          }
+        },
+        {
+          "input": {
+            "type": "day_closed",
+            "at": "2026-09-25T00:00:01.000Z",
+            "day": "2026-09-25",
+            "closedDay": "2026-09-24",
+            "goalMinutes": 60
+          },
+          "expect": {
+            "met": true
+          }
+        },
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-25T18:00:00.000Z",
+            "day": "2026-09-25",
+            "minutes": 70
+          },
+          "expect": {
+            "points": 140,
+            "xp": 70
+          }
+        },
+        {
+          "input": {
+            "type": "day_closed",
+            "at": "2026-09-26T00:00:01.000Z",
+            "day": "2026-09-26",
+            "closedDay": "2026-09-25",
+            "goalMinutes": 60
+          },
+          "expect": {
+            "met": true
+          }
+        },
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-26T18:00:00.000Z",
+            "day": "2026-09-26",
+            "minutes": 30
+          },
+          "expect": {
+            "points": 60,
+            "xp": 30
+          }
+        },
+        {
+          "input": {
+            "type": "day_closed",
+            "at": "2026-09-27T00:00:01.000Z",
+            "day": "2026-09-27",
+            "closedDay": "2026-09-26",
+            "goalMinutes": 60
+          },
+          "expect": {
+            "met": false
+          }
+        },
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-27T18:00:00.000Z",
+            "day": "2026-09-27",
+            "minutes": 60
+          },
+          "expect": {
+            "points": 120,
+            "xp": 60,
+            "balance": 440
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 440,
+        "xp": 220,
+        "level": 3,
+        "streakDays": 1,
+        "bestStreakDays": 2,
+        "todayFocusMinutes": 60,
+        "todayGoalMet": true
+      }
+    },
+    {
+      "name": "a gap of missing days breaks the streak",
+      "steps": [
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-20T18:00:00.000Z",
+            "day": "2026-09-20",
+            "minutes": 60
+          },
+          "expect": {
+            "points": 120
+          }
+        },
+        {
+          "input": {
+            "type": "day_closed",
+            "at": "2026-09-21T00:00:01.000Z",
+            "day": "2026-09-21",
+            "closedDay": "2026-09-20",
+            "goalMinutes": 60
+          },
+          "expect": {
+            "met": true
+          }
+        },
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-21T18:00:00.000Z",
+            "day": "2026-09-21",
+            "minutes": 60
+          },
+          "expect": {
+            "points": 120
+          }
+        },
+        {
+          "input": {
+            "type": "day_closed",
+            "at": "2026-09-22T00:00:01.000Z",
+            "day": "2026-09-22",
+            "closedDay": "2026-09-21",
+            "goalMinutes": 60
+          },
+          "expect": {
+            "met": true
+          }
+        },
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-24T18:00:00.000Z",
+            "day": "2026-09-24",
+            "minutes": 60
+          },
+          "expect": {
+            "points": 120
+          }
+        },
+        {
+          "input": {
+            "type": "day_closed",
+            "at": "2026-09-25T00:00:01.000Z",
+            "day": "2026-09-25",
+            "closedDay": "2026-09-24",
+            "goalMinutes": 60
+          },
+          "expect": {
+            "met": true,
+            "balance": 360
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 360,
+        "xp": 180,
+        "level": 3,
+        "streakDays": 0,
+        "bestStreakDays": 2,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "day_closed uses the goal snapshot it carries",
+      "steps": [
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-26T18:00:00.000Z",
+            "day": "2026-09-26",
+            "minutes": 60
+          },
+          "expect": {
+            "points": 120
+          }
+        },
+        {
+          "input": {
+            "type": "day_closed",
+            "at": "2026-09-27T00:00:01.000Z",
+            "day": "2026-09-27",
+            "closedDay": "2026-09-26",
+            "goalMinutes": 60
+          },
+          "expect": {
+            "met": true
+          }
+        },
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-27T18:00:00.000Z",
+            "day": "2026-09-27",
+            "minutes": 30
+          },
+          "expect": {
+            "points": 60,
+            "xp": 30
+          }
+        },
+        {
+          "input": {
+            "type": "day_closed",
+            "at": "2026-09-28T00:00:01.000Z",
+            "day": "2026-09-28",
+            "closedDay": "2026-09-27",
+            "goalMinutes": 30
+          },
+          "expect": {
+            "met": true,
+            "balance": 180
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-28",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 180,
+        "xp": 90,
+        "level": 2,
+        "streakDays": 2,
+        "bestStreakDays": 2,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "streak shows yesterday until today's goal is met",
+      "steps": [
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-26T18:00:00.000Z",
+            "day": "2026-09-26",
+            "minutes": 60
+          },
+          "expect": {
+            "points": 120
+          }
+        },
+        {
+          "input": {
+            "type": "day_closed",
+            "at": "2026-09-27T00:00:01.000Z",
+            "day": "2026-09-27",
+            "closedDay": "2026-09-26",
+            "goalMinutes": 60
+          },
+          "expect": {
+            "met": true
+          }
+        },
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-27T09:00:00.000Z",
+            "day": "2026-09-27",
+            "minutes": 30
+          },
+          "expect": {
+            "points": 60,
+            "xp": 30,
+            "balance": 180
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 180,
+        "xp": 90,
+        "level": 2,
+        "streakDays": 1,
+        "bestStreakDays": 1,
+        "todayFocusMinutes": 30,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "closing the same day twice is ignored",
+      "steps": [
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-26T18:00:00.000Z",
+            "day": "2026-09-26",
+            "minutes": 60
+          },
+          "expect": {
+            "points": 120
+          }
+        },
+        {
+          "input": {
+            "type": "day_closed",
+            "at": "2026-09-27T00:00:01.000Z",
+            "day": "2026-09-27",
+            "closedDay": "2026-09-26",
+            "goalMinutes": 60
+          },
+          "expect": {
+            "met": true
+          }
+        },
+        {
+          "input": {
+            "type": "day_closed",
+            "at": "2026-09-27T00:00:02.000Z",
+            "day": "2026-09-27",
+            "closedDay": "2026-09-26",
+            "goalMinutes": 60
+          },
+          "expect": {
+            "points": 0,
+            "met": null,
+            "balance": 120
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 120,
+        "xp": 60,
+        "level": 2,
+        "streakDays": 1,
+        "bestStreakDays": 1,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "xp only comes from focused minutes and drives the level",
+      "steps": [
+        {
+          "input": {
+            "type": "block_completed",
+            "at": "2026-09-27T08:00:00.000Z",
+            "day": "2026-09-27",
+            "kind": "manual",
+            "creditedMinutes": 300,
+            "attemptsCounted": 0
+          },
+          "expect": {
+            "points": 320,
+            "xp": 0
+          }
+        },
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-27T10:00:00.000Z",
+            "day": "2026-09-27",
+            "minutes": 59
+          },
+          "expect": {
+            "points": 118,
+            "xp": 59
+          }
+        },
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-27T10:01:00.000Z",
+            "day": "2026-09-27",
+            "minutes": 1
+          },
+          "expect": {
+            "points": 2,
+            "xp": 1,
+            "balance": 440
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 440,
+        "xp": 60,
+        "level": 2,
+        "streakDays": 1,
+        "bestStreakDays": 1,
+        "todayFocusMinutes": 60,
+        "todayGoalMet": true
+      }
+    },
+    {
+      "name": "revoked allowance refunds the unused share, expired refunds nothing",
+      "steps": [
+        {
+          "input": {
+            "type": "block_completed",
+            "at": "2026-09-27T08:00:00.000Z",
+            "day": "2026-09-27",
+            "kind": "manual",
+            "creditedMinutes": 180,
+            "attemptsCounted": 0
+          },
+          "expect": {
+            "points": 200
+          }
+        },
+        {
+          "input": {
+            "type": "reward_redeemed",
+            "at": "2026-09-27T10:00:00.000Z",
+            "day": "2026-09-27",
+            "cost": 150
+          },
+          "expect": {
+            "points": -150,
+            "balance": 50
+          }
+        },
+        {
+          "input": {
+            "type": "reward_ended",
+            "at": "2026-09-27T10:10:00.000Z",
+            "day": "2026-09-27",
+            "reason": "revoked",
+            "cost": 150,
+            "totalMs": 900000,
+            "remainingMs": 300000
+          },
+          "expect": {
+            "points": 50,
+            "refund": 50,
+            "balance": 100
+          }
+        },
+        {
+          "input": {
+            "type": "reward_redeemed",
+            "at": "2026-09-27T11:00:00.000Z",
+            "day": "2026-09-27",
+            "cost": 100
+          },
+          "expect": {
+            "points": -100,
+            "balance": 0
+          }
+        },
+        {
+          "input": {
+            "type": "reward_ended",
+            "at": "2026-09-27T11:15:00.000Z",
+            "day": "2026-09-27",
+            "reason": "expired",
+            "cost": 100,
+            "totalMs": 900000,
+            "remainingMs": 0
+          },
+          "expect": {
+            "points": 0,
+            "refund": 0,
+            "balance": 0
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 0,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "a reactivated block gives back the points of its early completion",
+      "steps": [
+        {
+          "input": {
+            "type": "block_completed",
+            "at": "2026-09-27T12:00:00.000Z",
+            "day": "2026-09-27",
+            "kind": "manual",
+            "creditedMinutes": 60,
+            "attemptsCounted": 0
+          },
+          "expect": {
+            "points": 80
+          }
+        },
+        {
+          "input": {
+            "type": "block_reactivated",
+            "at": "2026-09-27T12:30:00.000Z",
+            "day": "2026-09-27",
+            "revertPoints": 80
+          },
+          "expect": {
+            "points": -80,
+            "balance": 0
+          }
+        },
+        {
+          "input": {
+            "type": "block_completed",
+            "at": "2026-09-27T14:00:00.000Z",
+            "day": "2026-09-27",
+            "kind": "manual",
+            "creditedMinutes": 60,
+            "attemptsCounted": 0
+          },
+          "expect": {
+            "points": 80,
+            "balance": 80
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 80,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "a new epoch carries a negative balance and the attempt escalation",
+      "steps": [
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:00:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -10
+          }
+        },
+        {
+          "input": {
+            "type": "punishment_started",
+            "at": "2026-09-27T10:01:00.000Z",
+            "day": "2026-09-27"
+          },
+          "expect": {
+            "points": -100,
+            "balance": -110
+          }
+        },
+        {
+          "input": {
+            "type": "epoch_started",
+            "at": "2026-09-27T10:02:00.000Z",
+            "day": "2026-09-27",
+            "carryOverBalance": -110,
+            "escalation": {
+              "lastCountedAt": "2026-09-27T10:00:00.000Z",
+              "index": 0
+            }
+          },
+          "expect": {
+            "points": -110,
+            "xp": 0,
+            "balance": -110
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:03:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:tiktok",
+            "penalized": true
+          },
+          "expect": {
+            "points": -20,
+            "escalationIndex": 1,
+            "balance": -130
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": -130,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "a new epoch drops a positive balance and all xp",
+      "steps": [
+        {
+          "input": {
+            "type": "block_completed",
+            "at": "2026-09-27T08:00:00.000Z",
+            "day": "2026-09-27",
+            "kind": "manual",
+            "creditedMinutes": 100,
+            "attemptsCounted": 0
+          },
+          "expect": {
+            "points": 120
+          }
+        },
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-27T10:00:00.000Z",
+            "day": "2026-09-27",
+            "minutes": 10
+          },
+          "expect": {
+            "points": 20,
+            "xp": 10,
+            "balance": 140
+          }
+        },
+        {
+          "input": {
+            "type": "epoch_started",
+            "at": "2026-09-27T10:02:00.000Z",
+            "day": "2026-09-27",
+            "carryOverBalance": 0,
+            "escalation": {
+              "lastCountedAt": null,
+              "index": 0
+            }
+          },
+          "expect": {
+            "points": 0,
+            "xp": 0,
+            "balance": 0
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 0,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "with penalties off attempts are counted and escalate but cost nothing",
+      "steps": [
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:00:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": false
+          },
+          "expect": {
+            "points": 0,
+            "counted": true,
+            "escalationIndex": 0,
+            "penalty": 0
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:01:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:tiktok",
+            "penalized": true
+          },
+          "expect": {
+            "points": -20,
+            "counted": true,
+            "escalationIndex": 1,
+            "balance": -20
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": -20,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "logged attempt events replay without dedupe and feed later dedupe",
+      "steps": [
+        {
+          "input": {
+            "type": "attempt",
+            "at": "2026-09-27T10:00:00.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -10,
+            "counted": true,
+            "escalationIndex": 0
+          }
+        },
+        {
+          "input": {
+            "type": "attempt",
+            "at": "2026-09-27T10:00:40.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": -20,
+            "counted": true,
+            "escalationIndex": 1
+          }
+        },
+        {
+          "input": {
+            "type": "attempt_detected",
+            "at": "2026-09-27T10:00:50.000Z",
+            "day": "2026-09-27",
+            "key": "svc:youtube",
+            "penalized": true
+          },
+          "expect": {
+            "points": 0,
+            "merged": true,
+            "balance": -30
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": -30,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "tamper corrections move the balance",
+      "steps": [
+        {
+          "input": {
+            "type": "block_completed",
+            "at": "2026-09-27T08:00:00.000Z",
+            "day": "2026-09-27",
+            "kind": "manual",
+            "creditedMinutes": 100,
+            "attemptsCounted": 0
+          },
+          "expect": {
+            "points": 120
+          }
+        },
+        {
+          "input": {
+            "type": "balance_correction",
+            "at": "2026-09-27T09:00:00.000Z",
+            "day": "2026-09-27",
+            "amount": -50
+          },
+          "expect": {
+            "points": -50,
+            "balance": 70
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-27",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 70,
+        "xp": 0,
+        "level": 1,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    },
+    {
+      "name": "focus logged after its day closed counts for points and xp but not the streak",
+      "steps": [
+        {
+          "input": {
+            "type": "day_closed",
+            "at": "2026-09-28T00:00:01.000Z",
+            "day": "2026-09-28",
+            "closedDay": "2026-09-27",
+            "goalMinutes": 60
+          },
+          "expect": {
+            "met": false
+          }
+        },
+        {
+          "input": {
+            "type": "focus_minutes",
+            "at": "2026-09-28T00:00:02.000Z",
+            "day": "2026-09-27",
+            "minutes": 60
+          },
+          "expect": {
+            "points": 120,
+            "xp": 60,
+            "balance": 120
+          }
+        }
+      ],
+      "summary": {
+        "today": "2026-09-28",
+        "goalMinutes": 60
+      },
+      "expectFinal": {
+        "balance": 120,
+        "xp": 60,
+        "level": 2,
+        "streakDays": 0,
+        "bestStreakDays": 0,
+        "todayFocusMinutes": 0,
+        "todayGoalMet": false
+      }
+    }
+  ]
+}

@@ -6,6 +6,8 @@ import type { Service } from '../types';
  *   loaded by third-party sites («Login with Facebook»): neither is listed.
  * - LinkedIn lives in opt-in.ts: it is rarely a distraction for students and is used
  *   for jobs and LinkedIn Learning.
+ * - The hosts file matches exact names, so every host that serves the full web app is
+ *   listed (Facebook's locale hosts, Pinterest's country hosts and domains).
  */
 export const SOCIAL_SERVICES: readonly Service[] = [
   {
@@ -23,8 +25,19 @@ export const SOCIAL_SERVICES: readonly Service[] = [
       'tiktokcdn-us.com',
       'ttwstatic.com',
     ],
-    aliases: ['tiktok', 'tik tok', 'tik-tok', 'tictoc', 'tic toc', 'tiktoc', 'tictok', 'tiktk'],
+    aliases: [
+      'tiktok',
+      'tik tok',
+      'tik-tok',
+      'tictoc',
+      'tic toc',
+      'tiktoc',
+      'tictok',
+      'tiktk',
+      'tt',
+    ],
     monogram: 'TT',
+    titleHints: ['TikTok - Make Your Day'],
   },
   {
     id: 'instagram',
@@ -102,6 +115,12 @@ export const SOCIAL_SERVICES: readonly Service[] = [
       'mbasic.facebook.com',
       'l.facebook.com',
       'lm.facebook.com',
+      // Localized and lightweight full-site hosts.
+      'es-es.facebook.com',
+      'es-la.facebook.com',
+      'd.facebook.com',
+      'x.facebook.com',
+      'free.facebook.com',
       'fb.com',
       'www.fb.com',
       'fb.me',
@@ -176,6 +195,21 @@ export const SOCIAL_SERVICES: readonly Service[] = [
       'es.pinterest.com',
       'pinterest.es',
       'www.pinterest.es',
+      // Country hosts that serve the full app (Latin America and Europe).
+      'mx.pinterest.com',
+      'ar.pinterest.com',
+      'co.pinterest.com',
+      'cl.pinterest.com',
+      'pe.pinterest.com',
+      'uk.pinterest.com',
+      'fr.pinterest.com',
+      'de.pinterest.com',
+      'it.pinterest.com',
+      'br.pinterest.com',
+      'pinterest.com.mx',
+      'www.pinterest.com.mx',
+      'pinterest.co.uk',
+      'www.pinterest.co.uk',
       'api.pinterest.com',
       'pin.it',
       'pinimg.com',

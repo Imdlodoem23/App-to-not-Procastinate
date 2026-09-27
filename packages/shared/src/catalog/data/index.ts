@@ -1,4 +1,5 @@
 import type { App, Category, Service, StudySite } from '../types';
+import { ALWAYS_ALLOWED_HOST_DATA } from './always-allowed';
 import { APP_DATA } from './apps';
 import { CATEGORY_DATA } from './categories';
 import { GAMES_SERVICES } from './games';
@@ -17,7 +18,7 @@ export { CATEGORY_IDS } from './categories';
  * Bump whenever catalog data changes. The guardian embeds the snapshot together with this
  * number, so stale generated data is easy to spot.
  */
-export const CATALOG_VERSION = 1;
+export const CATALOG_VERSION = 2;
 
 function deepFreeze<T>(value: T): T {
   if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -49,3 +50,9 @@ export const STUDY_APP_WHITELIST: readonly App[] = deepFreeze(STUDY_APP_DATA);
 
 /** Processes the guardian must never kill. */
 export const PROTECTED_PROCESS_NAMES: readonly string[] = deepFreeze(PROTECTED_PROCESS_DATA);
+
+/**
+ * Hosts that are never blocked in any mode, together with their subdomains (see
+ * ./always-allowed.ts). Whitelist mode allows them too.
+ */
+export const ALWAYS_ALLOWED_HOSTS: readonly string[] = deepFreeze(ALWAYS_ALLOWED_HOST_DATA);

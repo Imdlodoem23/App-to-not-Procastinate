@@ -5,7 +5,8 @@ import type { Service } from '../types';
  * - General newspapers (El País, El Mundo, 20minutos, ABC, La Vanguardia, elDiario.es,
  *   El Confidencial) are included: this category is only blocked when the user picks it
  *   or by the level-1 punishment, and scrolling news is a classic way to procrastinate.
- * - Xataka (tech news blog network) is included for the same reason.
+ * - Xataka (tech news blog network) and the live-score sites (Flashscore, Sofascore,
+ *   BeSoccer) are included for the same reason.
  * - RTVE lives in opt-in.ts (public service news and educational content share its host).
  * - Unidad Editorial's CDN (uecdn.es) is shared by Marca, El Mundo and Expansión: not
  *   listed.
@@ -80,6 +81,30 @@ export const NEWS_SERVICES: readonly Service[] = [
     ],
     aliases: ['transfermarkt', 'transfer market', 'transfermark'],
     monogram: 'TM',
+  },
+  {
+    id: 'flashscore',
+    name: 'Flashscore',
+    categories: ['news'],
+    domains: ['flashscore.es', 'www.flashscore.es', 'flashscore.com', 'www.flashscore.com'],
+    aliases: ['flashscore', 'flash score', 'flashcore'],
+    monogram: 'FS',
+  },
+  {
+    id: 'sofascore',
+    name: 'Sofascore',
+    categories: ['news'],
+    domains: ['sofascore.com', 'www.sofascore.com', 'api.sofascore.com'],
+    aliases: ['sofascore', 'sofa score', 'sofascor'],
+    monogram: 'SS',
+  },
+  {
+    id: 'besoccer',
+    name: 'BeSoccer',
+    categories: ['news'],
+    domains: ['besoccer.com', 'www.besoccer.com'],
+    aliases: ['besoccer', 'be soccer'],
+    monogram: 'BE',
   },
   {
     id: 'el-pais',

@@ -9,6 +9,16 @@
  * - no data-theme, or data-theme="system": follows prefers-color-scheme (in Electron,
  *   nativeTheme.themeSource drives it);
  * - data-theme="light" / data-theme="dark": forced.
+ * Density: data-density="compact" (same places) switches tile height, countdown and section gap.
+ *
+ * Where each color may go (the header of tokens.ts has the ratios behind these rules):
+ * - text: --fg anywhere; --fg-muted on --bg, --tile and --tile-2; accent text (--green, --blue,
+ *   --orange, --red-text, --accent-text) on --bg and --tile only. Labels inside tiles are --fg.
+ *   --red, --neutral and --accent are not text colors (use --red-text, --fg-muted, --accent-text).
+ * - --control borders on --bg and --tile only.
+ * - outlines, bars, dots: accents and --focus-ring on --bg, --tile, --tile-2 and hovered tiles.
+ *   Offset the focus ring by --focus-ring-offset. A tile with an accent outline (selected, or
+ *   «¿Seguro?») keeps its resting background: no --tile-hover / --tile-active.
  */
 
 /* Theme-independent tokens ----------------------------------------------------------------- */
@@ -22,17 +32,66 @@
     'Noto Sans', sans-serif;
 
   /* 11 pills · 12 help line and footer · 13 almost everything · 15 main field · 20 mini timer,
-     reason on the blocked page · 28 OSD · 40 compact countdown · 48 countdown · 72 Nuclear. */
+     reason on the blocked page · 28 OSD · 32 pairing code · 40 compact countdown · 48 countdown ·
+     72 Nuclear. */
   --font-size-11: 11px;
   --font-size-12: 12px;
   --font-size-13: 13px;
   --font-size-15: 15px;
   --font-size-20: 20px;
   --font-size-28: 28px;
+  --font-size-32: 32px;
   --font-size-40: 40px;
   --font-size-48: 48px;
   --font-size-72: 72px;
+  /* Line height per font size; the countdowns are set solid. */
+  --line-height-11: 16px;
+  --line-height-12: 16px;
+  --line-height-13: 18px;
+  --line-height-15: 20px;
+  --line-height-20: 24px;
+  --line-height-28: 32px;
+  --line-height-32: 40px;
+  --line-height-40: 40px;
+  --line-height-48: 48px;
+  --line-height-72: 72px;
+  /* 400 body text · 600 titles, pills, countdown, OSD. */
+  --font-weight-normal: 400;
+  --font-weight-semibold: 600;
   --tracking-countdown: -0.02em;
+  /* Countdown seconds (4.35:1 over light --bg: large text only). */
+  --countdown-seconds-opacity: 0.6;
+
+  /* lucide-react icons: 16 headers and footer · 20 tiles · 24 empty states; stroke 1.75. */
+  --icon-size-header: 16px;
+  --icon-size-tile: 20px;
+  --icon-size-empty: 24px;
+  --icon-stroke: 1.75;
+
+  /* Fixed component sizes. */
+  --size-header: 20px;
+  --size-tile-door: 40px;
+  --size-tile-text: 32px;
+  --size-field: 44px;
+  --size-block-row: 28px;
+  --size-settings-row: 48px;
+  --size-min-target: 32px;
+  --size-border: 1px;
+  --size-mode-bar: 3px;
+  --size-meter: 6px;
+  --size-goal-bar: 4px;
+  --size-status-dot: 8px;
+
+  /* Density-dependent sizes (regular; compact below). */
+  --tile-height: 56px;
+  --countdown-size: 48px;
+  --section-gap: 12px;
+
+  /* Layout: main window (and blocked.html / popup column), detail windows, margins, tile gap. */
+  --layout-main-width: 440px;
+  --layout-detail-width: 600px;
+  --layout-margin: 12px;
+  --layout-tile-gap: 4px;
 
   /* sm: pills, checkboxes · md: tiles, fields · lg: OSD, mini timer. */
   --radius-sm: 4px;
@@ -59,6 +118,7 @@
   --selected-width: 2px;
   --disabled-opacity: 0.45;
   --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
 
   /* OSD: black pill at 60 % with white text, in both themes. */
   --osd-bg: #00000099;
@@ -67,6 +127,13 @@
 
 [data-theme='system'] {
   color-scheme: light dark;
+}
+
+/* Compact density: 40 px tiles (icon left of the label), 40 px countdown, 8 px between sections. */
+[data-density='compact'] {
+  --tile-height: 40px;
+  --countdown-size: 40px;
+  --section-gap: 8px;
 }
 
 /* Light theme (default) -------------------------------------------------------------------- */
@@ -88,6 +155,8 @@
   --red-text: #c81e1e;
   --neutral: #767676;
   --on-accent: #ffffff;
+  /* Light neutral keeps a flat selected outline: 15 % lighter it is 2.99:1 against --bg. */
+  --neutral-top-lighten: 0%;
 }
 
 [data-theme='light'] {
@@ -112,6 +181,7 @@
   --red-text: #ff6464;
   --neutral: #a8a8a8;
   --on-accent: #111111;
+  --neutral-top-lighten: var(--selected-top-lighten);
 }
 
 /* No data-theme (or "system") follows the OS. Same values as [data-theme='dark']. */
@@ -132,6 +202,7 @@
     --red-text: #ff6464;
     --neutral: #a8a8a8;
     --on-accent: #111111;
+    --neutral-top-lighten: var(--selected-top-lighten);
   }
 }
 
@@ -150,6 +221,11 @@
  * on the element (or an ancestor) exposes --accent, --accent-top (selected outline top edge),
  * --accent-tint (selected tint) and --accent-text (the accent as text).
  */
+[data-accent] {
+  --accent-top: color-mix(in srgb, #ffffff var(--selected-top-lighten), var(--accent));
+  --accent-tint: color-mix(in srgb, var(--accent) var(--selected-tint), transparent);
+}
+
 [data-accent='green'] {
   --accent: var(--green);
   --accent-text: var(--green);
@@ -170,15 +246,12 @@
   --accent-text: var(--red-text);
 }
 
-/* Neutral is an outline color only; its text stays muted. */
+/* Neutral is an outline color only; its text stays muted. Its top edge follows the theme (flat in
+   light), so this rule comes after [data-accent], which has the same specificity. */
 [data-accent='neutral'] {
   --accent: var(--neutral);
   --accent-text: var(--fg-muted);
-}
-
-[data-accent] {
-  --accent-top: color-mix(in srgb, #ffffff var(--selected-top-lighten), var(--accent));
-  --accent-tint: color-mix(in srgb, var(--accent) var(--selected-tint), transparent);
+  --accent-top: color-mix(in srgb, #ffffff var(--neutral-top-lighten), var(--accent));
 }
 
 /* Motion: with reduced motion nothing animates. */

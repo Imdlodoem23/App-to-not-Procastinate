@@ -5,6 +5,21 @@
  * Values come from PROMPT.md section 10 ("Estilo visual") and mirror `tokens.css` one to one;
  * `test/tokens.test.ts` fails if the two files drift apart, and also checks WCAG contrast.
  * This module has no DOM or Node dependencies, so it runs in every process.
+ *
+ * Where each color may go (every pair below is checked in both themes by test/tokens.test.ts;
+ * anything else drops under the brief's minimums in at least one theme):
+ * - Text (>= 4.5:1): `fg` on every surface, hovered and pressed tiles included. `fgMuted` on
+ *   `bg`, `tile` and `tile2`. Accent text (`green`, `blue`, `orange`, `redText`,
+ *   `accentColors().text`) on `bg` and `tile` only: on light `tile2` it falls under 4.5:1.
+ *   Labels inside tiles and buttons are always `fg` (the selected state never recolors text).
+ * - Control borders (>= 3:1): `control` on `bg` and `tile` only. Fields and checkboxes never sit
+ *   on `tile2` (2.69:1 in light) or on a hovered or pressed tile.
+ * - Outlines, bars and dots (>= 3:1): the accents and `focusRing` on `bg`, `tile`, `tile2` and
+ *   hovered tiles; `focusRing` also on pressed tiles. Draw the focus ring with
+ *   `interaction.focusRingOffset` so it sits on the background, not on a filled blue button.
+ * - A tile with an accent outline (selected, or the red «¿Seguro?» state) keeps its resting
+ *   background: no hover or pressed mix. Hovered, the dark red outline would fall to 2.97:1
+ *   against its tinted interior, and to 2.79:1 against a pressed tile.
  */
 
 export type ThemeName = 'light' | 'dark';
@@ -16,15 +31,15 @@ export interface ThemeColors {
   readonly bg: string;
   /** Tiles and fields. */
   readonly tile: string;
-  /** Doors ("…" tiles) and secondary buttons. */
+  /** Doors ("…" tiles) and secondary buttons. Only `fg`/`fgMuted` text on it (see the header). */
   readonly tile2: string;
   /** Text. */
   readonly fg: string;
-  /** Help line and secondary data. */
+  /** Help line and secondary data, outside tiles. */
   readonly fgMuted: string;
   /** Tile border. */
   readonly border: string;
-  /** Field and checkbox border (>= 3:1 against bg and tile). */
+  /** Field and checkbox border (>= 3:1 against bg and tile; never on tile-2 or tile states). */
   readonly control: string;
   /** Focused, completed, guardian OK. */
   readonly green: string;
@@ -32,11 +47,17 @@ export interface ThemeColors {
   readonly blue: string;
   /** Strict mode, warning, "¿Sigues ahí?", strike. */
   readonly orange: string;
-  /** Hardcore, exam, punishment, lost points, camera on, error (fills, bars, outlines). */
+  /**
+   * Hardcore, exam, punishment, lost points, camera on, error (fills, bars, outlines, icons).
+   * Not a text color: dark `red` is 3.54:1 on `tile`. Text uses `redText`.
+   */
   readonly red: string;
   /** Red used as text (the dark `red` is too dim for small text). */
   readonly redText: string;
-  /** Selected state for options with no "better" choice (durations, sounds). */
+  /**
+   * Selected state for options with no "better" choice (durations, sounds). Outline only, never
+   * text: light `neutral` is 3.99:1 on `bg`.
+   */
   readonly neutral: string;
   /** Text on the filled blue confirm button. */
   readonly onAccent: string;
@@ -127,14 +148,113 @@ export const fontFamily =
 
 /**
  * Font sizes in px: 11 pills · 12 help line and footer · 13 almost everything · 15 main field ·
- * 20 mini timer and reason on the blocked page · 28 OSD · 40 compact countdown · 48 countdown ·
- * 72 Nuclear countdown.
+ * 20 mini timer and reason on the blocked page · 28 OSD · 32 pairing code (onboarding) ·
+ * 40 compact countdown · 48 countdown · 72 Nuclear countdown.
  */
-export const fontSizes = [11, 12, 13, 15, 20, 28, 40, 48, 72] as const;
+export const fontSizes = [11, 12, 13, 15, 20, 28, 32, 40, 48, 72] as const;
 export type FontSize = (typeof fontSizes)[number];
+
+/**
+ * Line height in px for each font size (even values); the countdowns (40, 48, 72) are set
+ * solid so their row is exactly as tall as the digits.
+ */
+export const lineHeights = {
+  11: 16,
+  12: 16,
+  13: 18,
+  15: 20,
+  20: 24,
+  28: 32,
+  32: 40,
+  40: 40,
+  48: 48,
+  72: 72,
+} as const satisfies Readonly<Record<FontSize, number>>;
+
+/** Font weights: 400 for body text, 600 for titles, pills, the countdown and the OSD. */
+export const fontWeights = { normal: 400, semibold: 600 } as const;
 
 /** Countdown letter spacing (with `tabular-nums`, weight 600). */
 export const countdownTracking = '-0.02em';
+
+/**
+ * Opacity of the countdown seconds. Over `bg` that is 4.35:1 in light: fine for 40–72 px digits
+ * (large text needs 3:1), so keep it to the countdown.
+ */
+export const countdownSecondsOpacity = 0.6;
+
+/** Icon sizes in px (lucide-react, `currentColor`): 16 headers and footer · 20 tiles · 24 empty states. */
+export const iconSizes = { header: 16, tile: 20, empty: 24 } as const;
+
+/** Icon stroke width (lucide-react `strokeWidth`). */
+export const iconStroke = 1.75;
+
+/** Fixed component sizes in px. The regular tile height and the countdown depend on `density`. */
+export const sizes = {
+  /** Section header row (16 px icon, 13 px title). */
+  header: 20,
+  /** Progreso's doors (Estadísticas… | Recompensas… | Logros…). */
+  tileDoor: 40,
+  /** Text-only tiles and the footer's secondary buttons. */
+  tileText: 32,
+  /** Main field «¿Qué quieres hacer?». */
+  field: 44,
+  /** Rows of the extra blocks under the big countdown. */
+  blockRow: 28,
+  /** Ajustes rows. */
+  settingsRow: 48,
+  /** Minimum click target (width and height). */
+  minTarget: 32,
+  /** Tile and field border width. */
+  border: 1,
+  /** Bar under the countdown, in the color of the mode. */
+  modeBar: 3,
+  /** Study Mode meter. */
+  meter: 6,
+  /** Daily goal bar in Progreso. */
+  goalBar: 4,
+  /** Status dots (footer, strikes, camera). */
+  statusDot: 8,
+} as const;
+
+export type Density = 'regular' | 'compact';
+
+/**
+ * Sizes that change with density. The main window switches to compact on its own when its
+ * content does not fit: 40 px tiles with the icon left of the label, 40 px countdown, 8 px
+ * between sections. `[data-density='compact']` in tokens.css.
+ */
+export const density = {
+  regular: { tileHeight: 56, countdownSize: 48, sectionGap: 12 },
+  compact: { tileHeight: 40, countdownSize: 40, sectionGap: 8 },
+} as const satisfies Readonly<
+  Record<Density, { tileHeight: number; countdownSize: FontSize; sectionGap: number }>
+>;
+
+/** Window layout in px (DIP). The CSS side (tokens.css) mirrors the first four. */
+export const layout = {
+  /** Main window width; also the column of blocked.html and the extension popup. */
+  mainWidth: 440,
+  /** Detail windows (what the doors open). */
+  detailWidth: 600,
+  /** Side margin inside every window. */
+  margin: 12,
+  /** Gap between tiles in a row. */
+  tileGap: 4,
+  /** Minimum height of a detail window. */
+  detailMinHeight: 480,
+  /** Gap between the main window and a detail window. */
+  detailGap: 6,
+  /** Distance from the edges of the tray display's work area. */
+  screenInset: 10,
+  /** Content height targets: at rest and in any state. */
+  restMaxHeight: 540,
+  maxHeight: 600,
+  /** Mini timer window. */
+  miniTimer: { width: 180, height: 44 },
+  /** OSD distance from the bottom of the screen. */
+  osdBottom: 300,
+} as const;
 
 /** Corner radii in px: sm pills and checkboxes · md tiles and fields · lg OSD and mini timer. */
 export const radii = { sm: 4, md: 6, lg: 8 } as const;
@@ -155,7 +275,10 @@ export const interaction = {
   selectedTint: 0.12,
   /** …that fades out over the first 20 % of the height. */
   selectedTintStop: 0.2,
-  /** Selected outline is 15 % lighter on top. */
+  /**
+   * Selected outline is 15 % lighter on top, except `neutral` in the light theme (it stays flat:
+   * lighter, it falls to 2.99:1 against `bg`). `accentColors()` applies the exception.
+   */
   selectedTopLighten: 0.15,
   /** Disabled controls. */
   disabledOpacity: 0.45,
@@ -163,6 +286,11 @@ export const interaction = {
   selectedWidth: 2,
   /** Focus ring width in px (`:focus-visible` only). */
   focusRingWidth: 2,
+  /**
+   * Focus ring offset in px: the ring sits on the background around the control. Without it, the
+   * blue ring on the filled blue confirm button would be 1:1.
+   */
+  focusRingOffset: 2,
 } as const;
 
 /** Every token in one object. */
@@ -171,7 +299,15 @@ export const tokens = {
   osd,
   fontFamily,
   fontSizes,
+  lineHeights,
+  fontWeights,
   countdownTracking,
+  countdownSecondsOpacity,
+  iconSizes,
+  iconStroke,
+  sizes,
+  density,
+  layout,
   radii,
   spacing,
   durations,
@@ -317,7 +453,7 @@ export function stateColors(theme: ThemeName): StateColors {
 export interface AccentColors {
   /** Outline, bar, dot. */
   readonly base: string;
-  /** Top edge of the selected outline (15 % lighter). */
+  /** Top edge of the selected outline (15 % lighter; flat for light `neutral`). */
   readonly top: string;
   /** Selected tint (accent at 12 % alpha). */
   readonly tint: string;
@@ -325,12 +461,20 @@ export interface AccentColors {
   readonly text: string;
 }
 
+/**
+ * How much lighter the top edge of a selected outline is: `interaction.selectedTopLighten`, or 0
+ * for `neutral` in the light theme (`--neutral-top-lighten` in tokens.css).
+ */
+export function selectedTopLighten(theme: ThemeName, accent: Accent): number {
+  return theme === 'light' && accent === 'neutral' ? 0 : interaction.selectedTopLighten;
+}
+
 export function accentColors(theme: ThemeName, accent: Accent): AccentColors {
   const c = colors[theme];
   const base = c[accent];
   return {
     base,
-    top: lighten(base, interaction.selectedTopLighten),
+    top: lighten(base, selectedTopLighten(theme, accent)),
     tint: withAlpha(base, interaction.selectedTint),
     text: accent === 'red' ? c.redText : accent === 'neutral' ? c.fgMuted : base,
   };

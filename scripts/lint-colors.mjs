@@ -7,10 +7,26 @@
 //                 (default: $LINT_COLORS_ROOT, else the repository root)
 //   path ...      files or folders to scan instead of the default targets
 //
-// Flags hex colors (#rgb, #rgba, #rrggbb, #rrggbbaa), rgb()/rgba()/hsl()/hsla() (and hwb, lab,
-// lch, oklab, oklch) literals, CSS named colors used as values of color properties, style props
-// and color attributes, and Tailwind's default palette classes. Comments are ignored. A line
-// containing `// allow-color`, `/* allow-color */` or `<!-- allow-color -->` is skipped.
+// Flags:
+// - hex colors (#rgb, #rgba, #rrggbb, #rrggbbaa) and rgb()/hsl()/hwb()/lab()/lch()/oklab()/
+//   oklch()/color(<space> …) literals;
+// - CSS named colors used as values: CSS declarations (CSS files, <style>, style="…", and CSS
+//   inside JS strings and templates), color attributes (fill=red, <font color>, theme-color
+//   <meta>), JS values after a color-ish key or assignment ({ color: a ? 'white' : 'black' },
+//   ctx.fillStyle = 'red', el.style['color'] = …, setAttribute('fill', …), setProperty(…));
+// - Tailwind's default palette classes and arbitrary values/properties with a named color
+//   (bg-[red], shadow-[0_0_0_2px_red], [color:red]);
+// - token classes and variables that fail 4.5:1 as text: text-red, text-neutral, text-accent…
+//   and color: var(--red) (use text-red-text / text-fg-muted / text-accent-text).
+//
+// Not flagged: references that look like hex (url(#fade), href="#add", querySelector('#fab'),
+// CSS id selectors, private #fields), 3–4 digit numbers in prose ('Logro #100') unless they sit
+// in a color context, and values typed with `as`/`satisfies` ('green' as Accent). Props that
+// take an accent name are called `accent` or `tone`, never `color`: a `color` prop or key is
+// always treated as a real color (lucide icons, SVG, style objects).
+//
+// Comments are ignored (JSX text is not a comment: <p>https://…</p>). A line whose comment
+// contains `// allow-color`, `/* allow-color */` or `<!-- allow-color -->` is skipped.
 // Files under packages/shared/src/design are never checked.
 //
 // Exit code: 0 clean, 1 loose colors found, 2 usage error.
@@ -22,6 +38,7 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const SCRIPT_EXTS = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs']);
+const JSX_EXTS = new Set(['.tsx', '.jsx']);
 const STYLE_EXTS = new Set(['.css']);
 const MARKUP_EXTS = new Set(['.html', '.htm', '.svg']);
 const ALL_EXTS = new Set([...SCRIPT_EXTS, ...STYLE_EXTS, ...MARKUP_EXTS]);
@@ -64,87 +81,313 @@ const TW_COLOR_UTILITIES =
   'bg|text|border(?:-[xytrblse])?|outline|ring|ring-offset|fill|stroke|decoration|divide|caret|' +
   'accent|shadow|inset-shadow|drop-shadow|placeholder|from|via|to';
 
+// Tokens that are not text colors (under 4.5:1 in a theme) and what text uses instead.
+const NOT_TEXT = {
+  red: 'red-text',
+  neutral: 'fg-muted',
+  accent: 'accent-text',
+  'accent-top': 'accent-text',
+  'accent-tint': 'accent-text',
+  control: 'fg-muted',
+  border: 'fg-muted',
+};
+const NOT_TEXT_NAMES = 'red|neutral|accent-top|accent-tint|accent|control|border';
+
 // ---------------------------------------------------------------------------------------------
 // Detection
 // ---------------------------------------------------------------------------------------------
 
 const HEX_RE = /(?<![\w&#$.\\-])#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})(?![\w-])/gi;
-const FUNCTION_RE = /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(/gi;
+const SHORT_DIGITS_RE = /^#\d{3,4}$/;
+const FUNCTION_RE =
+  /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(|\bcolor\(\s*(?:srgb(?:-linear)?|display-p3|a98-rgb|prophoto-rgb|rec2020|xyz(?:-d50|-d65)?|--[\w-]+)(?![\w-])/gi;
 const TW_PALETTE_RE = new RegExp(
   `(?<![\\w-])(?:${TW_COLOR_UTILITIES})-(?:white|black|(?:${TW_PALETTE})-\\d{2,3})(?![\\w-])`,
   'g',
 );
-const TW_ARBITRARY_RE = /-\[(?:color:)?([a-z]+)\]/gi;
-// CSS declarations of color properties (CSS files, <style>, style="…" attributes).
-const CSS_DECL_RE =
-  /(?<![\w-])((?:-webkit-)?(?:color|background(?:-color)?|border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-color)?|outline(?:-color)?|fill|stroke|stop-color|flood-color|lighting-color|caret-color|accent-color|column-rule(?:-color)?|text-decoration(?:-color)?|text-emphasis(?:-color)?|box-shadow|text-shadow|scrollbar-color)|--[\w-]+)\s*:\s*([^;{}"'<>]*)/gi;
-const STYLE_ATTR_RE = /\bstyle\s*=\s*(["'])(.*?)\1/gi;
-// Markup and JSX attributes that take a color.
-const COLOR_ATTR_RE =
-  /(?<![\w-])(?:color|bgcolor|fill|stroke|stop-color|flood-color|lighting-color|stopColor|floodColor|lightingColor|backgroundColor)\s*=\s*\{?\s*(["'`])(.*?)\1/g;
-// Object properties with a color-ish key and a string value: { backgroundColor: 'white' }.
-const STYLE_PROP_RE =
-  /(?<![\w$-])["']?([\w-]*(?:color|Color|background|Background|border|Border|outline|Outline|fill|Fill|stroke|Stroke|shadow|Shadow))["']?\s*:\s*(["'`])(.*?)\2/g;
-const STYLE_ASSIGN_RE = /\.style\.\w+\s*=\s*(["'`])(.*?)\1/g;
-const SET_PROPERTY_RE = /\.setProperty\(\s*(["'])[^"']*\1\s*,\s*(["'`])(.*?)\2/g;
+// Arbitrary values (bg-[…], shadow-[0_0_0_2px_red]) and properties ([color:red]). Arbitrary
+// variants (data-[state=red]:…, supports-[…]:…) end in ':' and are not values.
+const TW_ARBITRARY_VALUE_RE = /(?<=[a-z0-9])-\[([^\]\s]+)\](?!:)/dgi;
+const TW_ARBITRARY_PROP_RE = /(?<![\w\]-])\[(-{0,2}[a-z][\w-]*:[^\]\s]+)\](?!:)/dgi;
+const TW_TEXT_TOKEN_RE = new RegExp(`(?<![\\w-])text-(${NOT_TEXT_NAMES})(?![\\w-])`, 'g');
+const VAR_NOT_TEXT_RE = new RegExp(`var\\(\\s*--(${NOT_TEXT_NAMES})\\s*[,)]`, 'g');
+const CSSVAR_NOT_TEXT_RE = /\bcssVar\(\s*(["'`])(red|neutral|control|border)\1\s*\)/g;
 
-/** First named color in a CSS value, ignoring url(…) and var(--…) names. */
+// CSS declarations of color properties (CSS files, <style>, style="…", CSS in JS strings).
+const CSS_PROPS =
+  'color|background(?:-color|-image)?|border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-color)?|' +
+  'border-image(?:-source)?|outline(?:-color)?|fill|stroke|stop-color|flood-color|lighting-color|' +
+  'caret-color|accent-color|column-rule(?:-color)?|text-decoration(?:-color)?|' +
+  'text-emphasis(?:-color)?|box-shadow|text-shadow|scrollbar-color|(?:backdrop-)?filter|' +
+  'text-fill-color|text-stroke(?:-color)?|tap-highlight-color';
+const CSS_DECL_RE = new RegExp(
+  `(?<![\\w-])((?:-webkit-)?(?:${CSS_PROPS})|--[\\w-]+)\\s*:\\s*([^;{}"'<>]*)`,
+  'dgi',
+);
+const TEXT_PROP_RE = /^(?:-webkit-)?(?:color|text-fill-color)$|^WebkitTextFillColor$/i;
+const STYLE_ATTR_RE = /\bstyle\s*=\s*(["'])(.*?)\1/dgi;
+
+// Markup attributes that take a color.
+const ATTR_NAMES = 'color|bgcolor|fill|stroke|stop-color|flood-color|lighting-color';
+const QUOTED_ATTR_RE = new RegExp(`(?<![\\w:-])(?:${ATTR_NAMES})\\s*=\\s*(["'])(.*?)\\1`, 'dgi');
+const UNQUOTED_ATTR_RE = new RegExp(
+  `(?<![\\w:-])(?:${ATTR_NAMES})\\s*=\\s*([^\\s"'\`=<>{}]+)`,
+  'dgi',
+);
+const META_RE = /<meta\b[^>]*>/gi;
+
+// Color-ish JS names: CSS properties (camelCase or kebab-case), SVG attributes, canvas styles.
+const COLOR_KEY =
+  '[\\w-]*(?:[Cc]olor|[Bb]ackground|[Bb]order(?:-?(?:[Tt]op|[Rr]ight|[Bb]ottom|[Ll]eft|[Bb]lock|[Ii]nline)(?:-?(?:[Ss]tart|[Ee]nd))?)?|' +
+  '[Oo]utline|[Ff]ill|[Ss]troke|[Ss]hadow|[Ff]ilter|[Dd]ecoration)|fillStyle|strokeStyle|bgcolor|' +
+  '(?:background|border|mask|listStyle)-?[Ii]mage';
+const COLOR_KEY_RE = new RegExp(`^(?:${COLOR_KEY})$`);
+// { color: … } and { 'background-color': … }
+const KEY_PROP_RE = new RegExp(`(?<![\\w$-])(["']?)(${COLOR_KEY})\\1\\s*:(?!:)\\s*`, 'dg');
+// fill="…", fill={…}, const color = …
+const ASSIGN_RE = new RegExp(`(?<![\\w$.-])(${COLOR_KEY})\\s*=(?![=>])\\s*`, 'dg');
+// ctx.fillStyle = …, el.style['color'] = …
+const MEMBER_ASSIGN_RE = /(?:\.\s*([\w$]+)|\[\s*(["'`])([\w-]+)\2\s*\])\s*=(?![=>])\s*/dg;
+const SET_PROPERTY_RE = /\.setProperty\(\s*(["'`])[^"'`]*\1\s*,\s*/dg;
+const SET_ATTRIBUTE_RE = new RegExp(
+  `\\.setAttribute(?:NS)?\\(\\s*(?:[^,()"'\`]*,\\s*)?(["'\`])(?:${ATTR_NAMES})\\1\\s*,\\s*`,
+  'dgi',
+);
+const TYPED_AFTER_RE = /^\s*(?:as|satisfies)\s+(?!const\b)[\w$]/;
+
+const isDataOrAria = (name) => /^(?:data|aria)-/i.test(name);
+
+/** First named color in a CSS value (ignoring url(…), var(--…) and file names), with its offset. */
 function namedColorIn(value) {
-  const cleaned = value.replace(/url\([^)]*\)/gi, ' ');
-  for (const word of cleaned.match(/-*[a-z][\w-]*/gi) ?? []) {
-    if (NAMED_COLORS.has(word.toLowerCase())) return word;
+  for (const m of value.matchAll(/(?<![\w./-])-*[a-z][\w-]*(?![\w./])/gi)) {
+    if (NAMED_COLORS.has(m[0].toLowerCase())) return { word: m[0], index: m.index };
   }
   return undefined;
 }
 
-/** @typedef {{ line: number, column: number, message: string }} Finding */
+const blankUrls = (value) => value.replace(/url\([^)]*\)/gi, (s) => ' '.repeat(s.length));
 
-/** @returns {Finding[]} */
-function findInLine(line, lineNumber, kind) {
-  /** @type {Finding[]} */
-  const findings = [];
-  const add = (index, message) => findings.push({ line: lineNumber, column: index + 1, message });
-
-  for (const m of line.matchAll(HEX_RE)) add(m.index, `hex color ${m[0]}`);
-  for (const m of line.matchAll(FUNCTION_RE)) add(m.index, `color function ${m[0]}…)`);
-  for (const m of line.matchAll(TW_PALETTE_RE)) add(m.index, `Tailwind palette class ${m[0]}`);
-  for (const m of line.matchAll(TW_ARBITRARY_RE)) {
-    if (NAMED_COLORS.has(m[1].toLowerCase())) add(m.index, `named color ${m[1]} in ${m[0]}`);
+/**
+ * Reads the JS expression that starts at `from` (after `key:` or `=`) up to the `,`, `;` or
+ * closing bracket that ends it, and returns the string literals it may evaluate to. Strings
+ * inside calls and index brackets (cssVar('red'), colors['red']) are arguments, not values.
+ * `isType` is set when a top-level `|` shows a union type ({ color: 'red' | 'blue' }).
+ */
+function scanExpr(src, from) {
+  const strings = [];
+  const stack = []; // true: grouping, array, object (values count); false: call or index
+  const keep = () => !stack.includes(false);
+  const limit = Math.min(src.length, from + 400);
+  let prev = '';
+  let isType = false;
+  let i = from;
+  while (i < limit) {
+    const c = src[i];
+    if (c === '"' || c === "'") {
+      let j = i + 1;
+      while (j < src.length && src[j] !== c && src[j] !== '\n') j += src[j] === '\\' ? 2 : 1;
+      if (keep()) strings.push({ start: i + 1, value: src.slice(i + 1, j), end: j + 1 });
+      i = j + 1;
+      prev = c;
+      continue;
+    }
+    if (c === '`') {
+      let j = i + 1;
+      let part = j;
+      while (j < src.length && src[j] !== '`') {
+        if (src[j] === '\\') {
+          j += 2;
+        } else if (src[j] === '$' && src[j + 1] === '{') {
+          if (keep()) strings.push({ start: part, value: src.slice(part, j), end: j });
+          let depth = 1;
+          j += 2;
+          while (j < src.length && depth > 0) {
+            if (src[j] === '{') depth++;
+            else if (src[j] === '}') depth--;
+            j++;
+          }
+          part = j;
+        } else j++;
+      }
+      if (keep()) strings.push({ start: part, value: src.slice(part, j), end: j + 1 });
+      i = j + 1;
+      prev = '`';
+      continue;
+    }
+    if (c === '(' || c === '[') stack.push(!/[\w$)\]]/.test(prev));
+    else if (c === '{') stack.push(true);
+    else if (c === ')' || c === ']' || c === '}') {
+      if (!stack.length) break;
+      stack.pop();
+    } else if (!stack.length && (c === ',' || c === ';')) break;
+    else if (!stack.length && c === '|' && src[i + 1] !== '|' && src[i - 1] !== '|') isType = true;
+    if (!/\s/.test(c)) prev = c;
+    i++;
   }
+  return {
+    strings: strings.filter((s) => !TYPED_AFTER_RE.test(src.slice(s.end, s.end + 40))),
+    end: i,
+    isType,
+  };
+}
 
-  const checkCss = (text, offset) => {
-    for (const m of text.matchAll(CSS_DECL_RE)) {
-      const named = namedColorIn(m[2]);
-      if (named) add(offset + m.index, `named color ${named} in ${m[1]}`);
+/**
+ * @typedef {{ kind: 'script' | 'style' | 'markup', text: string, masked: string,
+ *   strings: string | null, strMask: Uint8Array | null }} Source
+ */
+
+/** Finds loose colors; returns Map<offset, message> (first message per offset wins). */
+function detect(/** @type {Source} */ src) {
+  const { kind, text, masked, strings, strMask } = src;
+  // Where literal text lives: string contents for scripts, the masked source otherwise.
+  const tv = strings ?? masked;
+  const found = new Map();
+  const add = (offset, message) => {
+    if (!found.has(offset)) found.set(offset, message);
+  };
+  const inString = (offset) => strMask !== null && strMask[offset] === 1;
+
+  const checkValue = (start, value, where, textProp = false) => {
+    const cleaned = blankUrls(value);
+    const named = namedColorIn(cleaned);
+    if (named) add(start + named.index, `named color ${named.word} in ${where}`);
+    for (const m of cleaned.matchAll(HEX_RE)) add(start + m.index, `hex color ${m[0]}`);
+    if (textProp) {
+      for (const m of cleaned.matchAll(VAR_NOT_TEXT_RE)) {
+        add(
+          start + m.index,
+          `var(--${m[1]}) is not a text color (under 4.5:1): use var(--${NOT_TEXT[m[1]]})`,
+        );
+      }
     }
   };
-  const checkValue = (index, what, value) => {
-    const named = namedColorIn(value);
-    if (named) add(index, `named color ${named} in ${what}`);
+  const checkCss = (view, offset = 0) => {
+    for (const m of view.matchAll(CSS_DECL_RE)) {
+      checkValue(offset + m.indices[2][0], m[2], m[1], TEXT_PROP_RE.test(m[1]));
+    }
+  };
+  const checkExpr = (from, where) => {
+    const expr = scanExpr(masked, from);
+    if (expr.isType) return;
+    for (const s of expr.strings) checkValue(s.start, s.value, where, TEXT_PROP_RE.test(where));
+    if (where === 'color') {
+      for (const m of masked.slice(from, expr.end).matchAll(CSSVAR_NOT_TEXT_RE)) {
+        add(
+          from + m.index,
+          `cssVar('${m[2]}') is not a text color (under 4.5:1): use cssVar('${m[2] === 'red' ? 'redText' : 'fgMuted'}')`,
+        );
+      }
+    }
   };
 
-  if (kind === 'style') checkCss(line, 0);
-  for (const m of line.matchAll(STYLE_ATTR_RE)) checkCss(m[2], m.index + m[0].indexOf(m[2]));
-  if (kind === 'markup') checkCss(line.replace(STYLE_ATTR_RE, (s) => ' '.repeat(s.length)), 0);
-  if (kind !== 'style') {
-    for (const m of line.matchAll(COLOR_ATTR_RE)) checkValue(m.index, 'color attribute', m[2]);
+  // Hex: skip references (url(#id), href="#id", selectors) and prose numbers ('Logro #100').
+  const isReference = (at, length) => {
+    const before = masked.slice(Math.max(0, at - 120), at);
+    if (/url\(\s*["']?$/i.test(before)) return true;
+    if (/\b(?:xlink:)?href\s*=\s*\{?\s*["'`]?$/i.test(before)) return true;
+    if (/\.(?:querySelector(?:All)?|closest|matches)\(\s*["'`][^"'`\n]*$/.test(before)) return true;
+    for (let k = at + length; k < tv.length; k++) {
+      const c = tv[k];
+      if (c === '{') return true; // CSS selector: #fab { … }
+      if (c === ';' || c === '}' || c === '<') return false;
+    }
+    return false;
+  };
+  for (const m of tv.matchAll(HEX_RE)) {
+    const hex = m[0];
+    if (SHORT_DIGITS_RE.test(hex)) {
+      // #123 is a color in CSS, or as a whole JS string ('#123'); elsewhere it is a number.
+      const q = text[m.index - 1];
+      const whole = (q === '"' || q === "'" || q === '`') && text[m.index + hex.length] === q;
+      if (kind === 'markup' || (kind === 'script' && !whole)) continue;
+    }
+    if (!isReference(m.index, hex.length)) add(m.index, `hex color ${hex}`);
   }
+  for (const m of masked.matchAll(FUNCTION_RE)) add(m.index, `color function ${m[0]}…)`);
+
+  // Tailwind.
+  for (const m of tv.matchAll(TW_PALETTE_RE)) add(m.index, `Tailwind palette class ${m[0]}`);
+  for (const re of [TW_ARBITRARY_VALUE_RE, TW_ARBITRARY_PROP_RE]) {
+    for (const m of tv.matchAll(re)) {
+      const value = m[1]
+        .replace(/_/g, ' ')
+        .replace(/(["'])(?:(?!\1).)*\1/g, (s) => ' '.repeat(s.length));
+      checkValue(m.indices[1][0], value, m[0]);
+    }
+  }
+  for (const m of tv.matchAll(TW_TEXT_TOKEN_RE)) {
+    const token = m[1];
+    const icons = ['red', 'neutral', 'accent'].includes(token)
+      ? `; icons can use stroke-${token}`
+      : '';
+    add(
+      m.index,
+      `text-${token} is not a text color (under 4.5:1): use text-${NOT_TEXT[token]}${icons}`,
+    );
+  }
+
+  // CSS declarations and style="…" attributes.
+  for (const m of masked.matchAll(STYLE_ATTR_RE)) checkCss(m[2], m.indices[2][0]);
+  if (kind === 'style') checkCss(masked);
+  else if (kind === 'markup') checkCss(masked.replace(STYLE_ATTR_RE, (s) => ' '.repeat(s.length)));
+  else checkCss(tv);
+
+  if (kind === 'markup') {
+    for (const m of masked.matchAll(QUOTED_ATTR_RE)) checkValue(m.indices[2][0], m[2], 'attribute');
+    for (const m of masked.matchAll(UNQUOTED_ATTR_RE))
+      checkValue(m.indices[1][0], m[1], 'attribute');
+    for (const m of masked.matchAll(META_RE)) {
+      if (!/\bname\s*=\s*["']?[\w-]*colou?r/i.test(m[0])) continue;
+      const content = /\bcontent\s*=\s*(?:(["'])(.*?)\1|([^\s"'>]+))/d.exec(m[0]);
+      if (!content) continue;
+      const [start] = content.indices[2] ?? content.indices[3];
+      checkValue(m.index + start, content[2] ?? content[3], 'theme color');
+    }
+  }
+
   if (kind === 'script') {
-    for (const m of line.matchAll(STYLE_PROP_RE)) {
-      // `color: 'red' | 'blue'` is a string-literal type, not a value.
-      if (!/^\s*\|/.test(line.slice(m.index + m[0].length))) checkValue(m.index, m[1], m[3]);
+    for (const m of masked.matchAll(KEY_PROP_RE)) {
+      if (inString(m.index) || isDataOrAria(m[2])) continue;
+      checkExpr(m.index + m[0].length, m[2]);
     }
-    for (const m of line.matchAll(STYLE_ASSIGN_RE)) checkValue(m.index, 'style assignment', m[2]);
-    for (const m of line.matchAll(SET_PROPERTY_RE)) checkValue(m.index, 'setProperty', m[3]);
+    for (const m of masked.matchAll(ASSIGN_RE)) {
+      const name = m[1];
+      // type TileColor = 'green' | 'blue' is a type, not a value.
+      if (
+        isDataOrAria(name) ||
+        /\btype\s+$/.test(masked.slice(Math.max(0, m.index - 12), m.index))
+      ) {
+        continue;
+      }
+      const at = m.index + m[0].length;
+      const q = masked[at];
+      if (q === '"' || q === "'") {
+        // fill="red" (JSX, or markup inside a string) or const fill = 'red'.
+        const close = masked.indexOf(q, at + 1);
+        const end = close === -1 ? masked.length : close;
+        const value = masked.slice(at + 1, end);
+        if (!value.includes('\n')) checkValue(at + 1, value, name, TEXT_PROP_RE.test(name));
+      } else if (!inString(m.index)) {
+        checkExpr(q === '{' ? at + 1 : at, name);
+      }
+    }
+    for (const m of masked.matchAll(MEMBER_ASSIGN_RE)) {
+      const name = m[1] ?? m[3];
+      if (!COLOR_KEY_RE.test(name) || inString(m.index)) continue;
+      checkExpr(m.index + m[0].length, name);
+    }
+    for (const re of [SET_PROPERTY_RE, SET_ATTRIBUTE_RE]) {
+      for (const m of masked.matchAll(re)) {
+        if (!inString(m.index)) checkExpr(m.index + m[0].length, 'attribute');
+      }
+    }
   }
-
-  // One report per position.
-  const seen = new Set();
-  return findings.filter((f) => !seen.has(f.column) && seen.add(f.column));
+  return found;
 }
 
 // ---------------------------------------------------------------------------------------------
-// Comment masking: comments become spaces (newlines kept) so line/column numbers stay valid.
+// Masking: comments become spaces (newlines kept) so offsets stay valid. Scripts also get a
+// string mask (string, template and JSX text contents), the only place a color literal can be.
 // ---------------------------------------------------------------------------------------------
 
 function blank(chars, from, to) {
@@ -170,12 +413,38 @@ const REGEX_AFTER_WORDS = new Set([
   'new',
 ]);
 
-/** Masks // and /* comments in JS/TS, skipping strings, template literals and regex literals. */
-function maskScript(text, chars = text.split(''), start = 0, end = text.length) {
+/**
+ * Masks // and /* comments in JS/TS, skipping strings, template literals and regex literals,
+ * and (with `jsx`) JSX text and attribute strings, where // and /* are just text.
+ */
+function maskScript(text, options = {}) {
+  const { jsx = false, start = 0, end = text.length } = options;
+  const chars = options.chars ?? text.split('');
+  const strMask = options.strMask ?? new Uint8Array(text.length);
+  const markString = (from, to) => {
+    if (to > from) strMask.fill(1, from, Math.min(to, end));
+  };
+
   const precedingWord = (i) => {
     let j = i;
     while (j > start && /[\w$]/.test(text[j - 1])) j--;
     return text.slice(j, i);
+  };
+  const skipSpace = (j) => {
+    while (j < end && /\s/.test(text[j])) j++;
+    return j;
+  };
+  const lineComment = (i) => {
+    let j = i;
+    while (j < end && text[j] !== '\n') j++;
+    blank(chars, i, j);
+    return j;
+  };
+  const blockComment = (i) => {
+    const close = text.indexOf('*/', i + 2);
+    const j = close === -1 || close + 2 > end ? end : close + 2;
+    blank(chars, i, j);
+    return j;
   };
 
   const quoted = (i, quote) => {
@@ -183,10 +452,12 @@ function maskScript(text, chars = text.split(''), start = 0, end = text.length) 
     while (j < end) {
       const c = text[j];
       if (c === '\\') j += 2;
-      else if (c === quote) return j + 1;
-      else if (c === '\n') return j;
-      else j++;
+      else if (c === quote || c === '\n') {
+        markString(i + 1, j);
+        return c === quote ? j + 1 : j;
+      } else j++;
     }
+    markString(i + 1, end);
     return end;
   };
 
@@ -210,24 +481,90 @@ function maskScript(text, chars = text.split(''), start = 0, end = text.length) 
     return end;
   };
 
-  // Scans code from i; with untilBrace, stops after the `}` that closes a template `${`.
+  // JSX: returns the index after the element or fragment at `i` (a '<'), or -1 if it is not one.
+  const element = (i) => {
+    let j = skipSpace(i + 1);
+    if (text[j] === '>') return children(j + 1); // <>…</>
+    if (!/[A-Za-z_$]/.test(text[j] ?? '')) return -1;
+    while (j < end && /[\w$.:-]/.test(text[j])) j++;
+    j = skipSpace(j);
+    // Generic arrow functions in .tsx: <T,>(x) => …, <T extends U>(x) => …
+    if (text[j] === ',' || /^extends\b/.test(text.slice(j, j + 8))) return -1;
+    let attributes = 0;
+    for (;;) {
+      j = skipSpace(j);
+      if (j >= end) return end;
+      const c = text[j];
+      if (c === '/' && text[j + 1] === '/') j = lineComment(j);
+      else if (c === '/' && text[j + 1] === '*') j = blockComment(j);
+      else if (c === '/' && text[j + 1] === '>') return j + 2;
+      else if (c === '>') {
+        if (attributes === 0 && text[j + 1] === '(') return -1; // <T>(x) => … in a type
+        return children(j + 1);
+      } else if (c === '{') {
+        j = code(j + 1, true);
+        attributes++;
+      } else if (/[A-Za-z_$]/.test(c)) {
+        while (j < end && /[\w$.:-]/.test(text[j])) j++;
+        attributes++;
+        j = skipSpace(j);
+        if (text[j] !== '=') continue; // boolean attribute
+        j = skipSpace(j + 1);
+        const v = text[j];
+        if (v === '"' || v === "'") {
+          const close = text.indexOf(v, j + 1);
+          const k = close === -1 || close >= end ? end : close;
+          markString(j + 1, k);
+          j = k + 1;
+        } else if (v === '{') j = code(j + 1, true);
+        else if (v === '<') {
+          const k = element(j);
+          if (k === -1) return -1;
+          j = k;
+        } else return -1;
+      } else return -1;
+    }
+  };
+
+  // JSX children up to and including the closing tag.
+  const children = (i) => {
+    let j = i;
+    let from = i;
+    while (j < end) {
+      const c = text[j];
+      if (c === '{') {
+        markString(from, j);
+        j = code(j + 1, true);
+        from = j;
+      } else if (c === '<') {
+        markString(from, j);
+        if (text[skipSpace(j + 1)] === '/') {
+          const close = text.indexOf('>', j);
+          return close === -1 || close >= end ? end : close + 1;
+        }
+        const k = element(j);
+        j = k === -1 ? j + 1 : k;
+        from = j;
+      } else j++;
+    }
+    markString(from, end);
+    return end;
+  };
+
+  // Scans code from i; with untilBrace, stops after the `}` that closes a `${` or JSX `{`.
   const code = (i, untilBrace) => {
     let depth = 0;
     let prev = '';
     let prevEnd = i;
+    const exprStart = () =>
+      prev === '' || REGEX_AFTER_CHARS.has(prev) || REGEX_AFTER_WORDS.has(precedingWord(prevEnd));
     while (i < end) {
       const c = text[i];
       const next = text[i + 1];
       if (c === '/' && next === '/') {
-        let j = i;
-        while (j < end && text[j] !== '\n') j++;
-        blank(chars, i, j);
-        i = j;
+        i = lineComment(i);
       } else if (c === '/' && next === '*') {
-        const close = text.indexOf('*/', i + 2);
-        const j = close === -1 || close + 2 > end ? end : close + 2;
-        blank(chars, i, j);
-        i = j;
+        i = blockComment(i);
       } else if (c === '"' || c === "'") {
         i = quoted(i, c);
         prev = c;
@@ -236,14 +573,15 @@ function maskScript(text, chars = text.split(''), start = 0, end = text.length) 
         i = template(i + 1);
         prev = '`';
         prevEnd = i;
-      } else if (
-        c === '/' &&
-        (prev === '' ||
-          REGEX_AFTER_CHARS.has(prev) ||
-          REGEX_AFTER_WORDS.has(precedingWord(prevEnd)))
-      ) {
+      } else if (c === '/' && exprStart()) {
         i = regex(i);
         prev = '/';
+        prevEnd = i;
+      } else if (jsx && c === '<' && exprStart()) {
+        const after = element(i);
+        // -1: a comparison or a generic (<T,>), not JSX.
+        i = after === -1 ? i + 1 : after;
+        prev = after === -1 ? c : ')';
         prevEnd = i;
       } else {
         if (untilBrace && c === '{') depth++;
@@ -263,18 +601,25 @@ function maskScript(text, chars = text.split(''), start = 0, end = text.length) 
 
   const template = (i) => {
     let j = i;
+    let from = i;
     while (j < end) {
       const c = text[j];
       if (c === '\\') j += 2;
-      else if (c === '`') return j + 1;
-      else if (c === '$' && text[j + 1] === '{') j = code(j + 2, true);
-      else j++;
+      else if (c === '`') {
+        markString(from, j);
+        return j + 1;
+      } else if (c === '$' && text[j + 1] === '{') {
+        markString(from, j);
+        j = code(j + 2, true);
+        from = j;
+      } else j++;
     }
+    markString(from, end);
     return end;
   };
 
   code(start, false);
-  return chars;
+  return { chars, strMask };
 }
 
 /** Masks /* comments in CSS, skipping strings. */
@@ -299,7 +644,9 @@ function maskStyle(text, chars = text.split(''), start = 0, end = text.length) {
 /** Masks <!-- --> comments, plus comments inside <style> and <script> elements. */
 function maskMarkup(text) {
   const chars = text.split('');
-  for (const m of text.matchAll(/<!--[\s\S]*?(?:-->|$)/g)) blank(chars, m.index, m.index + m[0].length);
+  for (const m of text.matchAll(/<!--[\s\S]*?(?:-->|$)/g)) {
+    blank(chars, m.index, m.index + m[0].length);
+  }
   const masked = chars.join('');
   for (const m of masked.matchAll(/(<style\b[^>]*>)([\s\S]*?)<\/style>/gi)) {
     const from = m.index + m[1].length;
@@ -307,7 +654,7 @@ function maskMarkup(text) {
   }
   for (const m of masked.matchAll(/(<script\b[^>]*>)([\s\S]*?)<\/script>/gi)) {
     const from = m.index + m[1].length;
-    maskScript(text, chars, from, from + m[2].length);
+    maskScript(text, { chars, start: from, end: from + m[2].length });
   }
   return chars;
 }
@@ -319,16 +666,49 @@ function kindOf(file) {
   return 'markup';
 }
 
+/** @typedef {{ line: number, column: number, message: string }} Finding */
+
 /** @returns {Finding[]} */
-function lintText(text, kind) {
-  const masked = (
-    kind === 'script' ? maskScript(text) : kind === 'style' ? maskStyle(text) : maskMarkup(text)
-  ).join('');
-  const rawLines = text.split('\n');
-  const lines = masked.split('\n');
-  return lines.flatMap((line, i) =>
-    ALLOW_MARKER.test(rawLines[i] ?? '') ? [] : findInLine(line.replace(/\r$/, ''), i + 1, kind),
+function lintText(text, kind, jsx = false) {
+  let chars;
+  let strMask = null;
+  if (kind === 'script') ({ chars, strMask } = maskScript(text, { jsx }));
+  else chars = kind === 'style' ? maskStyle(text) : maskMarkup(text);
+  const masked = chars.join('');
+  // String contents only; code becomes ';' so CSS values and selectors end at string edges.
+  const strings =
+    strMask &&
+    Array.from(text, (ch, k) => (strMask[k] === 1 || ch === '\n' || ch === '\r' ? ch : ';')).join(
+      '',
+    );
+  const found = detect({ kind, text, masked, strings, strMask });
+
+  // Allow markers count only inside comments: a string that says '// allow-color' does not.
+  const comments = Array.from(text, (ch, k) => (ch === '\n' || chars[k] !== ch ? ch : ' ')).join(
+    '',
   );
+  const commentLines = comments.split('\n');
+  const lineStarts = [0];
+  for (let k = 0; k < text.length; k++) if (text[k] === '\n') lineStarts.push(k + 1);
+  const lineOf = (offset) => {
+    let lo = 0;
+    let hi = lineStarts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (lineStarts[mid] <= offset) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  };
+
+  /** @type {Finding[]} */
+  const findings = [];
+  for (const [offset, message] of [...found].sort((a, b) => a[0] - b[0])) {
+    const line = lineOf(offset);
+    if (ALLOW_MARKER.test(commentLines[line] ?? '')) continue;
+    findings.push({ line: line + 1, column: offset - lineStarts[line] + 1, message });
+  }
+  return findings;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -336,6 +716,7 @@ function lintText(text, kind) {
 // ---------------------------------------------------------------------------------------------
 
 const toPosix = (p) => p.split(sep).join('/');
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 function isExcluded(root, file) {
   const rel = toPosix(relative(root, file));
@@ -411,24 +792,28 @@ function main() {
     collect(root, abs, target.exts, files);
   }
 
+  // Same order and separators on every OS.
+  const entries = files
+    .map((file) => ({ file, rel: toPosix(relative(root, file)) }))
+    .sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
   let count = 0;
-  for (const file of files.sort()) {
-    const findings = lintText(readFileSync(file, 'utf8'), kindOf(file));
-    for (const f of findings) {
-      console.log(`${toPosix(relative(root, file))}:${f.line}:${f.column}: ${f.message}`);
-    }
+  for (const { file, rel } of entries) {
+    const jsx = JSX_EXTS.has(extname(file).toLowerCase());
+    const findings = lintText(readFileSync(file, 'utf8'), kindOf(file), jsx);
+    for (const f of findings) console.log(`${rel}:${f.line}:${f.column}: ${f.message}`);
     count += findings.length;
   }
 
   if (count > 0) {
     console.log(
-      `\nlint-colors: ${count} loose color${count === 1 ? '' : 's'} in ${files.length} files. ` +
+      `\nlint-colors: ${plural(count, 'loose color')} in ${plural(files.length, 'file')}. ` +
         'Use the tokens from @centrate/shared/design/tokens.css (var(--…), Tailwind classes) or ' +
-        "tokens.ts; mark a deliberate exception with '// allow-color'.",
+        'tokens.ts; name accent props `accent` or `tone`, never `color`; mark a deliberate ' +
+        "exception with '// allow-color'.",
     );
     return 1;
   }
-  console.log(`lint-colors: no loose colors in ${files.length} files.`);
+  console.log(`lint-colors: no loose colors in ${plural(files.length, 'file')}.`);
   return 0;
 }
 

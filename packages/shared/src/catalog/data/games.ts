@@ -1,15 +1,23 @@
 import type { Service } from '../types';
 
 /*
- * Games: browser game portals and PC launchers.
- * - Roblox Studio and create.roblox.com are left out on purpose: Studio is used to learn
- *   programming. Minecraft Education (education.minecraft.net, Minecraft.Education.exe)
- *   is also left out. Note that an extension rule that matches subdomains of
- *   minecraft.net would still catch education.minecraft.net.
+ * Games: browser game portals, cloud gaming and PC launchers.
+ * - Learning sites that live under a games domain are `excludedSubdomains`: the hosts
+ *   file lists exact names and never blocks them, and the extension exempts them from
+ *   its subdomain rules. create.roblox.com (Creator Hub and Luau docs),
+ *   education.minecraft.net (Minecraft Education), dev.epicgames.com (Unreal Engine docs
+ *   and forums) and www.epicgames.com (the Epic account login used by Fab, Sketchfab and
+ *   the Unreal forums; the store is store.epicgames.com).
+ * - Roblox Studio is never closed (its process is not listed), but while Roblox is
+ *   blocked it cannot sign in, update or publish: it shares www/auth/apis.roblox.com and
+ *   setup.rbxcdn.com with the player. Accepted: a block is chosen by the user and ends.
+ * - Cloud gaming (GeForce NOW, Xbox Cloud Gaming, now.gg, Boosteroid) runs Fortnite,
+ *   Roblox and other games in a browser tab without contacting their own hosts, so each
+ *   one is a service here. Xbox Cloud Gaming lives at www.xbox.com/play: the hosts file
+ *   cannot block a path, so the whole www.xbox.com is blocked with the games.
  * - Riot login hosts (auth.riotgames.com…) live only in `riot-client`, the launcher that
  *   League of Legends and VALORANT share, so no domain belongs to two services.
  * - Chess.com and Lichess live in opt-in.ts: chess is often used for learning.
- * - Epic's Unreal Engine sites are not listed (Unreal is used to learn game development).
  */
 export const GAMES_SERVICES: readonly Service[] = [
   // Browser game portals.
@@ -78,6 +86,14 @@ export const GAMES_SERVICES: readonly Service[] = [
     monogram: 'MJ',
   },
   {
+    id: '1001juegos',
+    name: '1001Juegos',
+    categories: ['games'],
+    domains: ['1001juegos.com', 'www.1001juegos.com'],
+    aliases: ['1001juegos', '1001 juegos', '1001juegos.com'],
+    monogram: '1J',
+  },
+  {
     id: 'coolmath-games',
     name: 'Coolmath Games',
     categories: ['games'],
@@ -92,6 +108,40 @@ export const GAMES_SERVICES: readonly Service[] = [
     domains: ['itch.io', 'itch.zone', 'img.itch.zone'],
     aliases: ['itch', 'itch.io', 'itchio'],
     monogram: 'IT',
+  },
+  // Cloud gaming (games streamed to a browser tab or a thin app).
+  {
+    id: 'geforce-now',
+    name: 'GeForce NOW',
+    categories: ['games'],
+    domains: ['geforcenow.com', 'www.geforcenow.com', 'play.geforcenow.com'],
+    appIds: ['geforce-now'],
+    aliases: ['geforce now', 'geforcenow', 'geforce now cloud', 'nvidia geforce now'],
+    monogram: 'GN',
+  },
+  {
+    id: 'xbox-cloud-gaming',
+    name: 'Xbox Cloud Gaming',
+    categories: ['games'],
+    domains: ['www.xbox.com'],
+    aliases: ['xbox cloud gaming', 'xbox cloud', 'xcloud', 'x cloud', 'cloud gaming de xbox'],
+    monogram: 'XC',
+  },
+  {
+    id: 'now-gg',
+    name: 'now.gg',
+    categories: ['games'],
+    domains: ['now.gg', 'www.now.gg'],
+    aliases: ['now.gg', 'nowgg', 'now gg'],
+    monogram: 'NG',
+  },
+  {
+    id: 'boosteroid',
+    name: 'Boosteroid',
+    categories: ['games'],
+    domains: ['boosteroid.com', 'www.boosteroid.com', 'cloud.boosteroid.com'],
+    aliases: ['boosteroid', 'busteroid'],
+    monogram: 'BO',
   },
   // PC games and launchers (web + desktop app).
   {
@@ -114,6 +164,7 @@ export const GAMES_SERVICES: readonly Service[] = [
       'css.rbxcdn.com',
       'tr.rbxcdn.com',
     ],
+    excludedSubdomains: ['create.roblox.com'],
     appIds: ['roblox'],
     aliases: ['roblox', 'roblos', 'robox', 'rolox', 'robloks', 'rovlox'],
     monogram: 'RB',
@@ -159,11 +210,11 @@ export const GAMES_SERVICES: readonly Service[] = [
     categories: ['games'],
     domains: [
       'epicgames.com',
-      'www.epicgames.com',
       'store.epicgames.com',
       'launcher.store.epicgames.com',
       'epicgames-download1.akamaized.net',
     ],
+    excludedSubdomains: ['www.epicgames.com', 'dev.epicgames.com'],
     appIds: ['epic-games-launcher'],
     aliases: [
       'epic',
@@ -175,6 +226,7 @@ export const GAMES_SERVICES: readonly Service[] = [
       'epic games launcher',
     ],
     monogram: 'EG',
+    titleHints: ['Epic Games Launcher'],
   },
   {
     id: 'minecraft',
@@ -197,6 +249,7 @@ export const GAMES_SERVICES: readonly Service[] = [
       'piston-data.mojang.com',
       'sessionserver.mojang.com',
     ],
+    excludedSubdomains: ['education.minecraft.net'],
     appIds: ['minecraft-launcher'],
     aliases: [
       'minecraft',
@@ -205,8 +258,10 @@ export const GAMES_SERVICES: readonly Service[] = [
       'minecraf',
       'mine craft',
       'minecraft launcher',
+      'mine',
     ],
     monogram: 'MC',
+    titleHints: ['Minecraft Launcher'],
   },
   {
     id: 'fortnite',
@@ -296,6 +351,26 @@ export const GAMES_SERVICES: readonly Service[] = [
     appIds: ['ea-app'],
     aliases: ['ea', 'ea app', 'ea games', 'electronic arts', 'origin'],
     monogram: 'EA',
+  },
+  {
+    // The Ultimate Team web app lives at www.ea.com/ea-sports-fc (a path of `ea-app`).
+    id: 'ea-sports-fc',
+    name: 'EA SPORTS FC',
+    categories: ['games'],
+    domains: ['easports.com', 'www.easports.com'],
+    appIds: ['ea-sports-fc'],
+    aliases: [
+      'ea sports fc',
+      'ea fc',
+      'eafc',
+      'fc',
+      'fc 24',
+      'fc 25',
+      'fc 26',
+      'fifa',
+      'ea sports',
+    ],
+    monogram: 'EF',
   },
   {
     id: 'ubisoft-connect',
