@@ -1,0 +1,21 @@
+{
+  "name": "@centrate/study-ai",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "1.0.1"
+  },
+  "devDependencies": {
+    "@centrate/shared": "*"
+  }
+}
