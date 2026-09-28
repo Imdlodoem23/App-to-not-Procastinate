@@ -2,7 +2,6 @@ package procwatch
 
 import (
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -199,14 +198,25 @@ func TestMatcherProtectedProcessWithUserTarget(t *testing.T) {
 	}
 }
 
+// TestMatcherProtectDir simulates each OS with that OS's paths, whatever OS
+// runs the test.
 func TestMatcherProtectDir(t *testing.T) {
-	withProtectedDirs(t, "/opt/Céntrate")
-	m := NewMatcherFor("linux", []string{"chrome_crashpad_handler"})
-	if _, ok := m.Match(Process{PID: 50, Name: "chrome_crashpad_handler", Path: "/opt/Céntrate/chrome_crashpad_handler"}); ok && runtime.GOOS != "windows" {
-		t.Error("Céntrate's own crash handler matched")
+	tests := []struct {
+		goos, dir, own, other string
+	}{
+		{"linux", "/opt/Céntrate", "/opt/Céntrate/chrome_crashpad_handler", "/opt/discord/chrome_crashpad_handler"},
+		{"darwin", "/Applications/Céntrate.app", "/Applications/Céntrate.app/Contents/Frameworks/chrome_crashpad_handler", "/Applications/Discord.app/Contents/Frameworks/chrome_crashpad_handler"},
+		{"windows", `C:\Program Files\Céntrate`, `C:\Program Files\Céntrate\chrome_crashpad_handler.exe`, `C:\Users\ana\AppData\Local\Discord\app-1.0\chrome_crashpad_handler.exe`},
 	}
-	if _, ok := m.Match(Process{PID: 51, Name: "chrome_crashpad_handler", Path: "/opt/discord/chrome_crashpad_handler"}); !ok {
-		t.Error("another app's crash handler did not match")
+	for _, tc := range tests {
+		withProtectedDirs(t, tc.goos, tc.dir)
+		m := NewMatcherFor(tc.goos, []string{"chrome_crashpad_handler"})
+		if target, ok := m.Match(Process{PID: 50, Name: baseName(tc.own), Path: tc.own}); ok {
+			t.Errorf("%s: Céntrate's own crash handler matched %q", tc.goos, target)
+		}
+		if _, ok := m.Match(Process{PID: 51, Name: baseName(tc.other), Path: tc.other}); !ok {
+			t.Errorf("%s: another app's crash handler did not match", tc.goos)
+		}
 	}
 }
 

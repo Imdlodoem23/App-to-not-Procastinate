@@ -21,11 +21,23 @@ import (
 // the tests (see TestMain).
 const helperEnv = "PROCWATCH_TEST_HELPER"
 
+// fakeSelfPID stands for the guardian's own PID in tests that describe
+// processes with made-up PIDs (100, 800…). With the test binary's real PID,
+// a fixture that happens to use it would describe a second process with the
+// guardian's PID, which is protected, and the test would fail at random:
+// Windows hands out low PIDs again and again, and containers count from 1.
+// fakeSelfPID is odd, which no Windows PID is (they are multiples of 4), and
+// above the PID limits of Linux (2^22) and macOS (99 999), so it is never a
+// real process either. Tests of the real OS protect the real PID instead (see
+// supportedOS).
+const fakeSelfPID = 1<<22 + 1
+
 func TestMain(m *testing.M) {
 	if mode := os.Getenv(helperEnv); mode != "" {
 		runHelper(mode)
 		return
 	}
+	selfPID = fakeSelfPID
 	os.Exit(m.Run())
 }
 
@@ -39,6 +51,8 @@ func runHelper(mode string) {
 	os.Exit(3)
 }
 
+// supportedOS starts a test of the real processes: it skips the test where
+// listing them is not implemented, and runs it with the real PID protected.
 func supportedOS(t *testing.T) {
 	t.Helper()
 	switch runtime.GOOS {
@@ -46,6 +60,15 @@ func supportedOS(t *testing.T) {
 	default:
 		t.Skip("process listing is not implemented on", runtime.GOOS)
 	}
+	useRealSelfPID(t)
+}
+
+// useRealSelfPID protects the test binary's real PID, as production protects
+// the guardian's, until the test ends (see fakeSelfPID).
+func useRealSelfPID(t *testing.T) {
+	t.Helper()
+	selfPID = os.Getpid()
+	t.Cleanup(func() { selfPID = fakeSelfPID })
 }
 
 // helperName is the executable name of the helper copies: not the test
@@ -87,6 +110,7 @@ func startHelperAs(t *testing.T, mode, arg0 string) *exec.Cmd {
 // spawnHelper starts the helper whatever account the tests run as.
 func spawnHelper(t *testing.T, mode, arg0 string) *exec.Cmd {
 	t.Helper()
+	useRealSelfPID(t)
 	exe, err := os.Executable()
 	if err != nil {
 		t.Skip("os.Executable:", err)
@@ -308,6 +332,7 @@ func TestKillGoneProcess(t *testing.T) {
 }
 
 func TestKillRefusesProtected(t *testing.T) {
+	useRealSelfPID(t)
 	tests := []struct {
 		pid  int
 		name string
