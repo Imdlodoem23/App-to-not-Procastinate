@@ -64,9 +64,11 @@ async function checkLayout(
   );
   soft(probe.column, `${where}: no section column ([data-scroll-root])`).not.toBeNull();
   if (probe.column) {
-    soft(probe.column.scrollHeight, `${where}: section column scrollHeight`).toBeLessThanOrEqual(
-      probe.column.clientHeight,
-    );
+    const geometry = `${probe.column.geometry}; main ${JSON.stringify(bounds.main)}, work area ${JSON.stringify(bounds.display.workArea)}`;
+    soft(
+      probe.column.scrollHeight,
+      `${where}: section column scrollHeight (${geometry})`,
+    ).toBeLessThanOrEqual(probe.column.clientHeight);
   }
   soft(probe.clipped, `${where}: clipped text`).toEqual([]);
 
