@@ -303,13 +303,53 @@ test('emergency: phrase by hand (paste refused) → waiting → ready → «¿Se
   // «Desbloquear» asks «¿Seguro?» in place; the second press confirms.
   const unlock = detail.getByRole('button', { name: /Desbloquear/ });
   await expect(unlock).toBeVisible();
+  // What the page sees around the two presses (anything that disarms or skips a press), for
+  // the failure message: the Windows runner once saw the second press confirm nothing.
+  await detail.evaluate(() => {
+    const w = window as unknown as { __unlockLog: string[] };
+    const t0 = performance.now();
+    const name = (t: EventTarget | null): string =>
+      t instanceof HTMLElement
+        ? (t.dataset['tileId'] ?? (t.id || t.tagName.toLowerCase()))
+        : t === window
+          ? 'window'
+          : 'document';
+    w.__unlockLog = [];
+    const types = ['pointerdown', 'click', 'mouseleave', 'focusout', 'blur', 'visibilitychange'];
+    for (const type of types) {
+      window.addEventListener(
+        type,
+        (e) => {
+          const detail = e instanceof MouseEvent ? ` detail=${e.detail}` : '';
+          w.__unlockLog.push(
+            `${Math.round(performance.now() - t0)} ${type} ${name(e.target)}${detail}`,
+          );
+        },
+        true,
+      );
+    }
+  });
   await unlock.click();
   await expect(unlock).toHaveAccessibleName(/¿Seguro\?/);
   expect(callsOf(await app.harness.guardianCalls(), 'confirmEmergency')).toHaveLength(0);
   await unlock.click();
-  await expect
-    .poll(async () => callsOf(await app!.harness.guardianCalls(), 'confirmEmergency').length)
-    .toBe(1);
+  try {
+    await expect
+      .poll(async () => callsOf(await app!.harness.guardianCalls(), 'confirmEmergency').length)
+      .toBe(1);
+  } catch (error) {
+    const seen = await detail.evaluate(
+      () => (window as unknown as { __unlockLog: string[] }).__unlockLog,
+    );
+    const now = await unlock.evaluateAll((els) =>
+      els.map((el) => `${el.textContent} (${el.getAttribute('aria-description')})`),
+    );
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}\n` +
+        `«Desbloquear» now: ${now.join(', ') || 'gone'}; page events: ${seen.join(' | ')}`,
+      { cause: error },
+    );
+  }
   await expect(detail.getByText(/^Has perdido/)).toBeVisible();
   await expect(main.getByRole('heading', { name: /^Bloqueo: ninguno/ })).toBeVisible();
 });
