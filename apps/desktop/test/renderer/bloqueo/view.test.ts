@@ -713,6 +713,8 @@ describe('active', () => {
     expect(a.bootHold).toBe('Comprobando la hora…');
     expect(a.extend).toBeNull();
     expect(a.emergency).toBeNull();
+    // Unknown time: an empty track, never a full bar that reads as «finished».
+    expect(a.bar.value).toBe(0);
   });
 
   it('«Nuevo» opens the field and the templates under the block', () => {

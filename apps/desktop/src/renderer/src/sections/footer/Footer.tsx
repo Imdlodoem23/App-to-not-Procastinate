@@ -1,9 +1,10 @@
 /**
  * Section 5 «Pie»: the protection status line («● Guardián activo · ● Extensión conectada», or
  * «● Guardián detenido · Reparar»), the version on the right («Actualizar a vX» in blue when
- * there is one), and three equal 32 px secondary buttons: Mini temporizador (with its flag) |
- * Ajustes… | Salir. «Salir» explains that blocks stay active. Outside `<main>`, so it is the
- * window's `contentinfo` and never scrolls with the sections.
+ * there is one), and equal 32 px secondary buttons filling the row: Mini temporizador (with its
+ * flag) | Ajustes… | Salir, so two buttons split the width while the flag is off. «Salir»
+ * explains that blocks stay active. Outside `<main>`, so it is the window's `contentinfo` and
+ * never scrolls with the sections.
  */
 import { LogOut, Settings, Timer } from 'lucide-react';
 import { Fragment, useMemo } from 'react';
@@ -56,7 +57,11 @@ export function Footer(): React.JSX.Element {
   }
 
   return (
-    <footer className="main-footer" data-measure="">
+    <footer
+      className="main-footer"
+      data-measure=""
+      style={{ '--footer-cols': view.buttons.length } as React.CSSProperties}
+    >
       <div className="footer-status">
         <div className="footer-status-items" data-fit="">
           {statusItems.map((item, index) => (
@@ -82,9 +87,6 @@ export function Footer(): React.JSX.Element {
         helpTone={repair.message?.tone ?? 'muted'}
         helpLive="polite"
       >
-        {Array.from({ length: Math.max(0, 3 - view.buttons.length) }, (_, i) => (
-          <span key={`spacer-${i}`} className="footer-spacer" aria-hidden="true" />
-        ))}
         {view.buttons.map((button) => (
           <Tile
             key={button}

@@ -4,7 +4,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import type { Result as AxeResult, run as axeRun } from 'axe-core';
 import {
   initialMainLocal,
@@ -268,4 +268,18 @@ export function formatViolations(violations: readonly AxeViolation[]): string {
         v.nodes.map((n) => `    ${n.target}: ${n.summary}`).join('\n'),
     )
     .join('\n');
+}
+
+/**
+ * Text locators must skip the `.sr-only` live regions: they repeat visible copy once (for
+ * screen readers), so a bare `getByText` matches twice and trips strict mode. Use this for any
+ * copy that can also be announced.
+ */
+export function visibleText(page: Page, text: string | RegExp): Locator {
+  return page.getByText(text).and(page.locator(':not(.sr-only):not(.sr-only *)'));
+}
+
+/** The Bloqueo section's one-time polite announcer (BloqueoSection). */
+export function bloqueoAnnouncer(page: Page): Locator {
+  return page.locator('[data-section="bloqueo"] > .sr-only[aria-live]');
 }

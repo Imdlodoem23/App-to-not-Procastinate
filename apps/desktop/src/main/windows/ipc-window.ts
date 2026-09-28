@@ -36,14 +36,14 @@ export function createSendHandlers(options: WindowIpcOptions): SendHandlers {
       if (ctx.window === 'main') shell.applyLayout(report);
     },
     'window:show-ack': (payload, ctx) => {
-      if (ctx.window === 'main') shell.handleShowAck(payload.seq, payload.layout);
+      shell.handleShowAck(payload.seq, payload.layout, ctx.window);
     },
     'window:ready': (payload, ctx) => shell.markReady(ctx.window, payload.stateId),
     'window:hide': (_payload, ctx) => {
       if (ctx.window === 'main') shell.hideAll();
       else shell.closeDetail();
     },
-    'window:open-detail': (request) => shell.openDetail(request, { show: true }),
+    'window:open-detail': (request) => void shell.openDetail(request, { show: true }),
     'window:close-detail': () => shell.closeDetail(),
     'window:confirm-draft': ({ draft }) => {
       // The card must be in the renderer before it measures itself for the show.

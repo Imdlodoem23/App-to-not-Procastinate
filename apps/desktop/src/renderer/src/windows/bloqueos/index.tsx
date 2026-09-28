@@ -11,7 +11,8 @@
  *
  * Opened seeded («con lo que sí entendió») it focuses what is missing: the duration row when the
  * phrase named what to block but not for how long, else the search; with `focus` it scrolls
- * there. One polite region, there from the start, announces results and the search count.
+ * there and focuses that section (the search for the form); a plain door (footer, tray) focuses
+ * the search, so the focus never starts on <body>. One polite region, there from the start, announces results and the search count.
  * `data-loading` marks the root while the schedules are being fetched (the harness waits for it
  * to go before a screenshot).
  */
@@ -56,8 +57,14 @@ export default function BloqueosWindow(): React.JSX.Element {
     if (request.focus) scrollToSection(FOCUS_SECTIONS[request.focus]);
     if (request.seed && missing.current === 'duration') {
       presetTabStop()?.focus({ preventScroll: true });
-    } else if (request.seed || request.focus === 'form') {
+    } else if (request.seed || !request.focus || request.focus === 'form') {
+      // A plain door (footer, tray) also lands on the search, never on <body>.
       document.getElementById(BLOQUEOS_IDS.search)?.focus({ preventScroll: true });
+    } else {
+      // A door to a list lands on that section's root (focusable, tabIndex -1).
+      document
+        .querySelector<HTMLElement>(`[data-section="${FOCUS_SECTIONS[request.focus]}"]`)
+        ?.focus({ preventScroll: true });
     }
   }, [request]);
 

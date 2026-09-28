@@ -11,10 +11,22 @@
  *
  * A 304 only confirms the link (nothing is published). A body older than the highest
  * `stateVersion` a write returned (`VersionFloor`) is dropped, so a poll that raced a write
- * never shows the pre-write state. `apiVersion !== 1` sets the link `down` / `incompatible`.
+ * never shows the pre-write state. The floor only holds for `VERSION_FLOOR_TTL_MS` after the
+ * write and only within the epoch it was raised in: a guardian that restarted with a lower
+ * version (lazy save, reinstall, recovered log) is shown again within seconds.
+ * `apiVersion !== 1` sets the link `down` / `incompatible`.
+ *
+ * Link watchdog (the «guardian down → warning within 5 s» budget): while a window is visible
+ * and the link is `ok`, a run that has not answered `LINK_WATCHDOG_MS` after the last success
+ * (and at least `LINK_WATCHDOG_MIN_MS` after it started) sets the link `down` / `timeout`
+ * without waiting for the request's own 3 s timeout. A run started when the last success is
+ * older than the visible cadence (a show after a hidden period) sets the link `connecting`
+ * («Conectando…») if it has not answered `CHECKING_DELAY_MS` later, so the footer and the
+ * tray never claim «Guardián activo» on stale knowledge.
  */
 import {
   GUARDIAN_API_VERSION,
+  GuardianApiError,
   type GuardianClient,
   type GuardianStateResponse,
   type HealthResponse,
@@ -25,14 +37,57 @@ import { withTimeout } from './client';
 import { incompatibleLink, linkOnFailure, linkOnSuccess } from './link';
 import type { SnapshotStore } from './store';
 
-/** Highest `stateVersion` returned by a write (201 create, extend, emergency…). */
+/** A write's floor only guards polls that could have raced it (a few seconds). */
+export const VERSION_FLOOR_TTL_MS = 10_000;
+
+export interface VersionFloorDeps {
+  /** Wall clock (the core's clock). */
+  now(): number;
+  /** Epoch of the state the app holds when the write returns (`null`: none yet). */
+  epoch(): string | null;
+}
+
+const DEFAULT_FLOOR_DEPS: VersionFloorDeps = { now: () => Date.now(), epoch: () => null };
+
+/**
+ * Highest `stateVersion` returned by a write (201 create, extend, emergency…), tied to the
+ * epoch it was raised in and expiring `VERSION_FLOOR_TTL_MS` after the last raise, so a
+ * guardian whose version went backwards (restart after a lazy save, reinstall, new epoch) is
+ * never hidden for long.
+ */
 export class VersionFloor {
   private value = 0;
+  private epoch: string | null = null;
+  private raisedAt: number | null = null;
+
+  constructor(private readonly deps: VersionFloorDeps = DEFAULT_FLOOR_DEPS) {}
+
+  /** The floor value while it still applies, else 0. */
   get(): number {
-    return this.value;
+    return this.live(this.deps.now()) ? this.value : 0;
   }
+
   raise(version: number): void {
-    if (version > this.value) this.value = version;
+    const now = this.deps.now();
+    const epoch = this.deps.epoch();
+    const fresh = this.live(now) && (this.epoch === null || epoch === null || epoch === this.epoch);
+    if (fresh && version <= this.value) return;
+    this.value = version;
+    this.epoch = epoch;
+    this.raisedAt = now;
+  }
+
+  /** `false` when `state` predates a write that may have raced the poll that fetched it. */
+  admits(state: Pick<GuardianStateResponse, 'stateVersion' | 'epoch'>): boolean {
+    if (!this.live(this.deps.now())) return true;
+    if (this.epoch !== null && state.epoch !== this.epoch) return true;
+    return state.stateVersion >= this.value;
+  }
+
+  private live(now: number): boolean {
+    return (
+      this.raisedAt !== null && now - this.raisedAt <= VERSION_FLOOR_TTL_MS && now >= this.raisedAt
+    );
   }
 }
 
@@ -56,6 +111,12 @@ export interface PollerDeps {
 export const HEALTH_INTERVAL_MS = 60_000;
 /** Hidden with the guardian down: look again this often, so the tray recovers quickly. */
 export const HIDDEN_DOWN_POLL_MS = 10_000;
+/** Visible and `ok`: no answer this long after the last success → `down` / `timeout`. */
+export const LINK_WATCHDOG_MS = 4_000;
+/** …but never sooner than this after the run started (a show after a hidden period). */
+export const LINK_WATCHDOG_MIN_MS = 2_000;
+/** A run on stale knowledge unanswered this long → `connecting` («Conectando…»). */
+export const CHECKING_DELAY_MS = 300;
 
 export class Poller {
   private timer: TimerHandle | null = null;
@@ -67,6 +128,10 @@ export class Poller {
   private etag: string | null = null;
   private lastHealthAt: number | null = null;
   private lastRunAt: number | null = null;
+  /** Last answer from the guardian (health or state, 200 or 304). */
+  private lastSuccessAt: number | null = null;
+  private watchdog: TimerHandle | null = null;
+  private checking: TimerHandle | null = null;
 
   constructor(private readonly deps: PollerDeps) {}
 
@@ -79,6 +144,7 @@ export class Poller {
   stop(): void {
     this.stopped = true;
     this.clearTimer();
+    this.clearWatchdog();
   }
 
   /** Harness: the seeded snapshot already holds this ETag's state (first poll is a 304). */
@@ -136,9 +202,42 @@ export class Poller {
     }, this.nextDelay());
   }
 
+  private clearWatchdog(): void {
+    for (const t of [this.watchdog, this.checking]) {
+      if (t !== null) this.deps.clock.clearTimeout(t);
+    }
+    this.watchdog = null;
+    this.checking = null;
+  }
+
+  /** See «Link watchdog» in the header. Only while visible with the link `ok`. */
+  private armWatchdog(startedAt: number): void {
+    const { clock, store } = this.deps;
+    this.clearWatchdog();
+    if (!this.deps.visible() || store.get().link.status !== 'ok') return;
+    const lastOk = this.lastSuccessAt ?? startedAt;
+    const deadline = Math.max(lastOk + LINK_WATCHDOG_MS, startedAt + LINK_WATCHDOG_MIN_MS);
+    this.watchdog = clock.setTimeout(() => {
+      this.watchdog = null;
+      if (this.stopped || !this.inflight) return;
+      this.fail(new GuardianApiError(0, 'timeout', 'guardian did not answer in time'));
+    }, deadline - startedAt);
+    if (startedAt - lastOk <= UI_TIMINGS.statePollVisibleMs + UI_TIMINGS.linkRetryMs) return;
+    this.checking = clock.setTimeout(() => {
+      this.checking = null;
+      if (this.stopped || !this.inflight) return;
+      store.update((s) =>
+        s.link.status !== 'ok'
+          ? s
+          : { ...s, link: { ...s.link, status: 'connecting', reason: null, since: clock.now() } },
+      );
+    }, CHECKING_DELAY_MS);
+  }
+
   private async run(reason: RefreshReason): Promise<void> {
     this.inflight = true;
     this.lastRunAt = this.deps.clock.now();
+    this.armWatchdog(this.lastRunAt);
     try {
       if (this.healthDue(reason)) {
         const healthy = await this.pollHealth();
@@ -146,6 +245,7 @@ export class Poller {
       }
       await this.pollState();
     } finally {
+      this.clearWatchdog();
       this.inflight = false;
       if (!this.stopped) {
         const again = this.again;
@@ -160,9 +260,7 @@ export class Poller {
     if (reason === 'start' || this.lastHealthAt === null) return true;
     const snapshot = this.deps.store.get();
     if (snapshot.link.status !== 'ok') return true;
-    return (
-      this.deps.visible() && this.deps.clock.now() - this.lastHealthAt >= HEALTH_INTERVAL_MS
-    );
+    return this.deps.visible() && this.deps.clock.now() - this.lastHealthAt >= HEALTH_INTERVAL_MS;
   }
 
   /** `false` when the state call should be skipped (failure or incompatible API). */
@@ -178,6 +276,7 @@ export class Poller {
     }
     if (this.stopped) return false;
     this.lastHealthAt = clock.now();
+    this.lastSuccessAt = this.lastHealthAt;
     const compatible = health.apiVersion === GUARDIAN_API_VERSION;
     store.update((s) => {
       const sameHealth = s.health !== null && sameHealthIgnoringClock(s.health, health);
@@ -203,6 +302,7 @@ export class Poller {
     }
     if (this.stopped) return;
     const now = clock.now();
+    this.lastSuccessAt = now;
     const current = store.get();
     const wasUp = current.link.status === 'ok';
     this.retryPending = false;
@@ -210,8 +310,8 @@ export class Poller {
     this.failures = step.failures;
     let link = step.link;
     let next: GuardianStateResponse | null = null;
-    // A body older than a write's `stateVersion` raced that write: keep the newer state.
-    if (!result.notModified && result.state.stateVersion >= floor.get()) {
+    // A body older than a recent write's `stateVersion` raced that write: keep the newer state.
+    if (!result.notModified && floor.admits(result.state)) {
       next = result.state;
       this.etag = result.etag;
       if (next.guardian.apiVersion !== GUARDIAN_API_VERSION) link = incompatibleLink(link, now);

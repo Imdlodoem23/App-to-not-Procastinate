@@ -7,7 +7,11 @@
  * - nothing is shown while the main window is visible and focused (the UI already shows it):
  *   the queue is dropped instead;
  * - «Quedan 5 min» comes from a single timer at the next `endsAt − 5 min`, recomputed on
- *   every new state;
+ *   every new state and on resume. Timers count monotonic time (suspend does not advance
+ *   them on Linux and macOS), so the wait is cut into steps of at most
+ *   `FIVE_MINUTES_STEP_MS` that re-read the wall clock; a mark more than
+ *   `FIVE_MINUTES_LATE_MS` in the past (the machine slept through it) is skipped, since the
+ *   text says «5 min»;
  * - the one-time close hint bypasses the wait (it still counts as the minute's
  *   notification, so the next one waits).
  */
@@ -26,6 +30,10 @@ import {
 import type { NotificationContent, Notifier } from './types';
 
 export const SHOWN_HISTORY_MAX = 100;
+/** Longest single wait of the five-minute timer before the wall clock is read again. */
+export const FIVE_MINUTES_STEP_MS = 60_000;
+/** A five-minute mark reached this late is skipped (the notice would lie). */
+export const FIVE_MINUTES_LATE_MS = 60_000;
 
 export interface NotificationSchedulerDeps {
   clock: Clock;
@@ -158,11 +166,25 @@ export class NotificationScheduler {
     const now = this.deps.clock.now();
     const next = nextFiveMinuteDue(state, this.fired, now);
     if (!next) return;
-    this.fiveTimer = this.deps.clock.setTimeout(() => {
-      this.fiveTimer = null;
-      this.fired.add(next.key);
-      this.enqueue([next.notice]);
-      this.armFiveMinutes(this.deps.getState());
-    }, next.dueAt - now);
+    const wait = (): void => {
+      const at = this.deps.clock.now();
+      this.fiveTimer = this.deps.clock.setTimeout(
+        () => {
+          this.fiveTimer = null;
+          if (this.stopped) return;
+          const firedAt = this.deps.clock.now();
+          // Woken early by the step, or the wall clock went back: keep waiting.
+          if (firedAt < next.dueAt) {
+            wait();
+            return;
+          }
+          this.fired.add(next.key);
+          if (firedAt - next.dueAt <= FIVE_MINUTES_LATE_MS) this.enqueue([next.notice]);
+          this.armFiveMinutes(this.deps.getState());
+        },
+        Math.min(next.dueAt - at, FIVE_MINUTES_STEP_MS),
+      );
+    };
+    wait();
   }
 }

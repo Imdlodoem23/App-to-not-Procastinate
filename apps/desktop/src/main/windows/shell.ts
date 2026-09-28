@@ -107,6 +107,13 @@ const RECREATE_WINDOW_MS = 60_000;
 const RECREATE_MAX = 3;
 /** Linux: the detail window follows a dragged main window once `move` events stop this long. */
 const MOVE_FOLLOW_MS = 120;
+/**
+ * A door opened before the detail renderer finished its first render (within the pre-warm
+ * delay after launch, or right after a crash): wait at most this for its `window:ready`.
+ */
+const DETAIL_FIRST_RENDER_TIMEOUT_MS = 3_000;
+/** Round trip through the detail renderer: every IPC message sent before it was handled. */
+const RENDERER_BARRIER = '0';
 
 export class WindowShell implements WindowHost, CoreHost {
   private attached: ShellAttachments | null = null;
@@ -115,6 +122,13 @@ export class WindowShell implements WindowHost, CoreHost {
   private readonly registry = new Map<number, WindowKind>();
   private readonly frames = new Map<WindowKind, FrameInsets>();
   private readonly showAck: ShowAckWaiter<LayoutReport>;
+  /** The detail window's own `ui:prepare-show` answers (separate from main's show). */
+  private readonly detailAck: ShowAckWaiter<LayoutReport>;
+  /** Increases on every door and on every close or hide, so a stale door never shows. */
+  private detailOpenSeq = 0;
+  /** The current detail renderer reported `window:ready` at least once (its first render). */
+  private detailRendered = false;
+  private detailRenderedWaiters: Array<() => void> = [];
   private showInFlight: Promise<ShowResult> | null = null;
 
   private placement: Placement | null = null;
@@ -141,10 +155,13 @@ export class WindowShell implements WindowHost, CoreHost {
   private readonly crashes: number[] = [];
 
   constructor(private readonly options: WindowShellOptions) {
-    this.showAck = new ShowAckWaiter<LayoutReport>({
-      setTimeout: (fn, ms) => setTimeout(fn, ms),
-      clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-    });
+    const timers = {
+      setTimeout: (fn: () => void, ms: number): unknown => setTimeout(fn, ms),
+      clearTimeout: (handle: unknown): void =>
+        clearTimeout(handle as ReturnType<typeof setTimeout>),
+    };
+    this.showAck = new ShowAckWaiter<LayoutReport>(timers);
+    this.detailAck = new ShowAckWaiter<LayoutReport>(timers);
   }
 
   attach(attachments: ShellAttachments): void {
@@ -237,6 +254,7 @@ export class WindowShell implements WindowHost, CoreHost {
     if (existing) return existing;
     const win = createShellWindow('detail', this.factory());
     this.detail = win;
+    this.detailRendered = false;
     this.register(win, 'detail');
     win.on('close', (event) => {
       if (this.options.isQuitting()) return;
@@ -272,8 +290,9 @@ export class WindowShell implements WindowHost, CoreHost {
     } else {
       this.detail = null;
       const request = this.detailRequest;
-      const win = this.prewarmDetail();
-      if (wasVisible && request) win.once('ready-to-show', () => this.openDetail(request));
+      this.prewarmDetail();
+      // `openDetail` waits for the new renderer's first render before it shows the window.
+      if (wasVisible && request) void this.openDetail(request, { show: true });
     }
   }
 
@@ -600,8 +619,15 @@ export class WindowShell implements WindowHost, CoreHost {
     win.once('focus', onFocus);
   }
 
-  /** `window:show-ack`; a late answer still carries the height, so it is applied. */
-  handleShowAck(seq: number, layout: LayoutReport): void {
+  /**
+   * `window:show-ack` from `kind`. Main: a late answer still carries the height, so it is
+   * applied. Detail: only ends the wait (the detail window has no auto-height).
+   */
+  handleShowAck(seq: number, layout: LayoutReport, kind: WindowKind = 'main'): void {
+    if (kind === 'detail') {
+      this.detailAck.ack(seq, layout);
+      return;
+    }
     if (!this.showAck.ack(seq, layout)) this.applyLayout(layout);
   }
 
@@ -646,6 +672,7 @@ export class WindowShell implements WindowHost, CoreHost {
 
   /** X, Esc with nothing left to back out of, tray toggle: hide main and detail. */
   hideAll(): void {
+    this.detailOpenSeq += 1;
     this.window('detail')?.hide();
     this.window('main')?.hide();
   }
@@ -654,26 +681,74 @@ export class WindowShell implements WindowHost, CoreHost {
   // Detail window
   // -------------------------------------------------------------------------------------
 
-  /** A door: retarget the one detail window, place it next to main, show and focus it. */
-  openDetail(request: DetailRequest, options: { show?: boolean } = {}): void {
+  /**
+   * A door: retarget the one detail window, place it next to main, show and focus it.
+   *
+   * Same show path as main (no stale frame): the detail renderer was hidden, so its clock is
+   * frozen and it still shows the previous door. Before `show()` it gets `ui:detail` and then
+   * `ui:prepare-show` (synchronous render with a fresh clock); main waits for its
+   * `window:show-ack`, or for a round trip proving both were handled, at most
+   * `UI_TIMINGS.showAckTimeoutMs`. A door opened before the renderer's first render waits
+   * for it (no empty window). Resolves once shown, or once superseded, closed or hidden.
+   */
+  async openDetail(request: DetailRequest, options: { show?: boolean } = {}): Promise<void> {
     const detail = this.prewarmDetail();
     this.detailRequest = request;
+    this.detailOpenSeq += 1;
+    const token = this.detailOpenSeq;
     this.push('detail', 'ui:detail', request);
     detail.setTitle(WINDOWS_ES.detailTitles[request.name]);
     const show = options.show ?? this.window('main')?.isVisible() ?? false;
     if (!show) return;
-    const present = (): void => {
-      if (detail.isDestroyed() || this.detailRequest !== request) return;
-      this.placeDetail();
-      detail.show();
-      detail.focus();
-    };
+    const current = (): boolean =>
+      !detail.isDestroyed() && this.detail === detail && this.detailOpenSeq === token;
+
     // Glue it to where the main window ends up, not to where it is before its show.
-    if (this.showInFlight) void this.showInFlight.then(present);
-    else present();
+    if (this.showInFlight) await this.showInFlight;
+    await this.whenDetailRendered(DETAIL_FIRST_RENDER_TIMEOUT_MS);
+    if (!current()) return;
+    await this.prepareDetail(detail);
+    if (!current()) return;
+    this.placeDetail();
+    detail.show();
+    detail.focus();
+  }
+
+  /** `ui:prepare-show` to the detail renderer; resolves on its ack, a round trip or 50 ms. */
+  private async prepareDetail(detail: BrowserWindow): Promise<void> {
+    if (!this.attached) return;
+    const layout = this.currentPlacement().layout;
+    this.pushLayout('detail', layout);
+    const seq = this.detailAck.next();
+    this.push('detail', 'ui:prepare-show', { seq, layout });
+    // IPC to one renderer is ordered and `ui:prepare-show` renders synchronously
+    // (`flushSync`), so a script evaluated after it runs once the new page is in the DOM.
+    const barrier = detail.webContents
+      .executeJavaScript(RENDERER_BARRIER)
+      .then(() => undefined)
+      .catch(() => undefined);
+    await Promise.race([this.detailAck.wait(seq, UI_TIMINGS.showAckTimeoutMs), barrier]);
+  }
+
+  /** Resolves once the current detail renderer rendered for the first time (or on timeout). */
+  private whenDetailRendered(timeoutMs: number): Promise<void> {
+    if (this.detailRendered) return Promise.resolve();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.detailRenderedWaiters = this.detailRenderedWaiters.filter((w) => w !== done);
+        this.options.log.warn('detail_first_render_timeout', { ms: timeoutMs });
+        resolve();
+      }, timeoutMs);
+      const done = (): void => {
+        clearTimeout(timer);
+        resolve();
+      };
+      this.detailRenderedWaiters.push(done);
+    });
   }
 
   closeDetail(): void {
+    this.detailOpenSeq += 1;
     const detail = this.window('detail');
     if (!detail?.isVisible()) return;
     detail.hide();
@@ -725,6 +800,12 @@ export class WindowShell implements WindowHost, CoreHost {
   /** `window:ready`. */
   markReady(kind: WindowKind, stateId: string | null): void {
     this.readyIds.set(kind, stateId);
+    if (kind === 'detail' && !this.detailRendered) {
+      this.detailRendered = true;
+      const rendered = this.detailRenderedWaiters;
+      this.detailRenderedWaiters = [];
+      for (const waiter of rendered) waiter();
+    }
     const waiters = this.readyWaiters;
     this.readyWaiters = [];
     for (const waiter of waiters) waiter();

@@ -2,7 +2,13 @@ import { GuardianApiError } from '@centrate/shared/guardian-api';
 import { describe, expect, it } from 'vitest';
 import { createManualClock } from '../../../src/main/guardian/clock';
 import { MockGuardian } from '../../../src/main/guardian/mock';
-import { Poller, VersionFloor, nextEndDue } from '../../../src/main/guardian/poller';
+import {
+  CHECKING_DELAY_MS,
+  Poller,
+  VERSION_FLOOR_TTL_MS,
+  VersionFloor,
+  nextEndDue,
+} from '../../../src/main/guardian/poller';
 import { createSnapshotStore } from '../../../src/main/guardian/store';
 import { HARNESS_NOW, harnessFixture, type HarnessStateId } from '../../../src/shared/fixtures';
 import type { UiSnapshot } from '../../../src/shared/ui-state';
@@ -63,8 +69,10 @@ describe('poller cadence', () => {
 
   it('looks every 10 s while hidden and the guardian is down', async () => {
     const t = setup('idle', { visible: false });
-    t.spy.overrides.getState = () => Promise.reject(new GuardianApiError(0, 'unreachable', 'refused'));
-    t.spy.overrides.health = () => Promise.reject(new GuardianApiError(0, 'unreachable', 'refused'));
+    t.spy.overrides.getState = () =>
+      Promise.reject(new GuardianApiError(0, 'unreachable', 'refused'));
+    t.spy.overrides.health = () =>
+      Promise.reject(new GuardianApiError(0, 'unreachable', 'refused'));
     t.poller.start();
     await run(t.clock, 1_000);
     expect(t.store.get().link.status).toBe('down');
@@ -139,8 +147,10 @@ describe('guardian link', () => {
     expect(t.published.some((s) => s.link.status === 'down')).toBe(false);
     // The guardian stops for good.
     const stoppedAt = t.clock.now();
-    t.spy.overrides.getState = () => Promise.reject(new GuardianApiError(0, 'unreachable', 'refused'));
-    t.spy.overrides.health = () => Promise.reject(new GuardianApiError(0, 'unreachable', 'refused'));
+    t.spy.overrides.getState = () =>
+      Promise.reject(new GuardianApiError(0, 'unreachable', 'refused'));
+    t.spy.overrides.health = () =>
+      Promise.reject(new GuardianApiError(0, 'unreachable', 'refused'));
     let downAt: number | null = null;
     t.store.subscribe((s) => {
       if (downAt === null && s.link.status === 'down') downAt = t.clock.now();
@@ -175,6 +185,54 @@ describe('guardian link', () => {
     t.poller.stop();
   });
 
+  it('the watchdog flags a hang 4 s after the last answer, before the 3 s request timeout', async () => {
+    const t = setup();
+    t.poller.start();
+    await run(t.clock, 2_000);
+    const lastOkAt = t.clock.now();
+    t.spy.overrides.getState = () => never();
+    let downAt: number | null = null;
+    t.store.subscribe((s) => {
+      if (downAt === null && s.link.status === 'down') downAt = t.clock.now();
+    });
+    await run(t.clock, 6_000);
+    expect(t.store.get().link).toMatchObject({ status: 'down', reason: 'timeout' });
+    expect((downAt ?? Infinity) - lastOkAt).toBeLessThanOrEqual(4_000);
+    t.poller.stop();
+  });
+
+  it('a show after a hidden period says «connecting» until the guardian answers', async () => {
+    const t = setup('idle', { visible: false });
+    t.poller.start();
+    await run(t.clock, 30_000);
+    expect(t.store.get().link.status).toBe('ok');
+    t.spy.overrides.getState = () => never();
+    t.spy.overrides.health = () => never();
+    t.view.visible = true;
+    t.poller.refreshNow('show');
+    await run(t.clock, CHECKING_DELAY_MS - 1);
+    expect(t.store.get().link.status).toBe('ok');
+    await run(t.clock, 1);
+    expect(t.store.get().link.status).toBe('connecting');
+    await run(t.clock, 2_000);
+    expect(t.store.get().link).toMatchObject({ status: 'down', reason: 'timeout' });
+    t.poller.stop();
+  });
+
+  it('a quick answer after a show never flickers to «connecting»', async () => {
+    const t = setup('idle', { visible: false });
+    t.poller.start();
+    await run(t.clock, 30_000);
+    const statuses: string[] = [];
+    t.store.subscribe((s) => statuses.push(s.link.status));
+    t.view.visible = true;
+    t.poller.refreshNow('show');
+    await run(t.clock, 2_000);
+    expect(statuses).not.toContain('connecting');
+    expect(t.store.get().link.status).toBe('ok');
+    t.poller.stop();
+  });
+
   it('marks the link not installed when client.json is missing', async () => {
     const t = setup('idle');
     const poller = new Poller({
@@ -185,7 +243,8 @@ describe('guardian link', () => {
       tokenMissing: () => true,
       visible: () => true,
     });
-    t.spy.overrides.health = () => Promise.reject(new GuardianApiError(0, 'unreachable', 'refused'));
+    t.spy.overrides.health = () =>
+      Promise.reject(new GuardianApiError(0, 'unreachable', 'refused'));
     poller.start();
     await settle();
     expect(t.store.get().link).toMatchObject({ status: 'down', reason: 'not_installed' });
@@ -213,5 +272,53 @@ describe('no stale overwrite', () => {
     await settle();
     expect(t.store.get().state).toBeNull();
     t.poller.stop();
+  });
+
+  it('publishes a lower version from a restarted guardian once the floor expires', async () => {
+    const t = setup('idle');
+    const floor = new VersionFloor({ now: () => t.clock.now(), epoch: () => null });
+    const poller = new Poller({
+      clock: t.clock,
+      client: t.spy.client,
+      store: t.store,
+      floor,
+      tokenMissing: () => false,
+      visible: () => true,
+    });
+    const base = t.fixture.snapshot.state;
+    if (!base) throw new Error('no state');
+    t.store.update((s) => ({ ...s, state: { ...base, stateVersion: 50 } }));
+    floor.raise(50);
+    // The guardian restarted and reloaded an older version from disk.
+    const restarted = { ...base, stateVersion: 3 };
+    t.spy.overrides.getState = async () => ({
+      notModified: false,
+      state: restarted,
+      etag: '"s-3"',
+    });
+    poller.start();
+    await settle();
+    expect(t.store.get().state?.stateVersion).toBe(50); // could still be a racing poll
+    await run(t.clock, VERSION_FLOOR_TTL_MS + 2_000);
+    expect(t.store.get().state?.stateVersion).toBe(3);
+    poller.stop();
+  });
+
+  it('ignores the floor for a state from another epoch', () => {
+    let now = 0;
+    let epoch: string | null = 'ep_a';
+    const floor = new VersionFloor({ now: () => now, epoch: () => epoch });
+    floor.raise(50);
+    expect(floor.admits({ stateVersion: 3, epoch: 'ep_a' as never })).toBe(false);
+    expect(floor.admits({ stateVersion: 3, epoch: 'ep_b' as never })).toBe(true);
+    expect(floor.admits({ stateVersion: 50, epoch: 'ep_a' as never })).toBe(true);
+    // A write to the new guardian starts a new floor even with a lower version.
+    epoch = 'ep_b';
+    floor.raise(4);
+    expect(floor.get()).toBe(4);
+    expect(floor.admits({ stateVersion: 3, epoch: 'ep_b' as never })).toBe(false);
+    now = VERSION_FLOOR_TTL_MS + 1;
+    expect(floor.admits({ stateVersion: 3, epoch: 'ep_b' as never })).toBe(true);
+    expect(floor.get()).toBe(0);
   });
 });

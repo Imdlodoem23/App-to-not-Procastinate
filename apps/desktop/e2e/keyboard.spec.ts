@@ -20,7 +20,7 @@ import type { RecordedGuardianCall } from '../src/main/contracts';
 import { DISPLAY_PRESETS, type HarnessFixture } from '../src/shared/fixtures';
 import { SHARED_ES } from '../src/shared/i18n/es';
 import { advanceInSteps, launchApp, type LaunchedApp } from './support/app';
-import { settleMain } from './support/checks';
+import { bloqueoAnnouncer, settleMain, visibleText } from './support/checks';
 import {
   auditKeyboard,
   auditProblems,
@@ -184,8 +184,9 @@ test('Esc cascade in the card: consequence → edit → card closed → text cle
   const confirm = main.getByRole('button', { name: /^Bloquear / });
   await expect(confirm).toBeFocused();
   await main.keyboard.press('Enter');
-  const consequence = main.getByText(/^6 h: termina .* y solo se puede ampliar$/);
+  const consequence = visibleText(main, /^6 h: termina .* y solo se puede ampliar$/);
   await expect(consequence).toBeVisible();
+  await expect(bloqueoAnnouncer(main)).toHaveText(/^6 h: termina .* y solo se puede ampliar$/);
 
   // 3. Back from the consequence step: the card stays, the red line goes.
   await main.keyboard.press('Escape');
@@ -358,7 +359,7 @@ test('a create that times out keeps the focus on the card', async () => {
   const pending = main.getByRole('button', { name: 'Bloqueando…' });
   await expect(pending).toBeFocused();
   await launched.harness.advance(3_100);
-  await expect(main.getByText(/El guardián no responde/)).toBeVisible();
+  await expect(visibleText(main, /El guardián no responde/)).toBeVisible();
   await expectFocusSomewhere(main, 'after the create timed out');
 });
 

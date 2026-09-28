@@ -129,7 +129,7 @@ export function createHarnessApi(deps: HarnessDeps): HarnessApi {
       coreHarness(core).load(fixture);
       shell.pushAll('ui:harness', load);
       if (fixture.window !== 'main' && fixture.detailRequest) {
-        shell.openDetail(fixture.detailRequest);
+        void shell.openDetail(fixture.detailRequest);
       } else {
         shell.closeDetail();
       }
@@ -152,7 +152,7 @@ export function createHarnessApi(deps: HarnessDeps): HarnessApi {
     async openDetail(name) {
       if (name === 'main') return;
       if (!shell.window('main')?.isVisible()) await shell.show('harness', { focusField: false });
-      shell.openDetail(detailFor(name), { show: true });
+      await shell.openDetail(detailFor(name), { show: true });
       await shell.flushRenderers();
     },
 

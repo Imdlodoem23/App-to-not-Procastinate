@@ -107,9 +107,13 @@
     margin-left: auto;
   }
 
-  /* An empty grid cell keeps the footer buttons where they stay when a third one joins. */
-  .footer-spacer {
-    display: block;
+  /*
+   * The footer buttons share the row equally: one column per button (`--footer-cols`, set from
+   * the button count), so Ajustes… and Salir split it while «Mini temporizador» is flagged off
+   * instead of leaving an empty third.
+   */
+  .main-footer .c-tilegrid[data-columns] {
+    grid-template-columns: repeat(var(--footer-cols, 3), minmax(0, 1fr));
   }
 
   /* Progreso ----------------------------------------------------------------------------- */

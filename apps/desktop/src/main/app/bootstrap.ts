@@ -277,7 +277,7 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
     if (fixture) {
       windows.prewarmDetail();
       if (fixture.window !== 'main' && fixture.detailRequest) {
-        windows.openDetail(fixture.detailRequest, { show: !startHidden });
+        void windows.openDetail(fixture.detailRequest, { show: !startHidden });
       }
       return;
     }

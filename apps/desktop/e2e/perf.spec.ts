@@ -139,7 +139,9 @@ test('the renderer timer chain drifts ≤ 1 s over a simulated hour (mock guardi
   // the fake clock so time moves only with runFor().
   await main.clock.install();
   await main.waitForTimeout(1_500);
-  await main.clock.pauseAt((await main.evaluate(() => Date.now())) + 10);
+  // The fake clock keeps running until paused: aim 1 s ahead so the target is still in the
+  // future after the round trip (+10 ms raced it: «Cannot fast-forward to the past»).
+  await main.clock.pauseAt((await main.evaluate(() => Date.now())) + 1_000);
   // React renders in a task after the timer that asked for it: yield one per simulated second.
   const yieldTask = (): Promise<unknown> =>
     main.evaluate(

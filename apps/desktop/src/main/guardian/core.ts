@@ -40,19 +40,8 @@ import {
   type CommandResult,
   type UiSnapshot,
 } from '../../shared/ui-state';
-import type {
-  Clock,
-  Core,
-  CoreHarness,
-  CoreOptions,
-  RefreshReason,
-} from '../contracts';
-import {
-  EVENTS_DB_FILE,
-  createNullEventsDb,
-  openEventsDb,
-  type EventsDb,
-} from '../db/events-db';
+import type { Clock, Core, CoreHarness, CoreOptions, RefreshReason } from '../contracts';
+import { EVENTS_DB_FILE, createNullEventsDb, openEventsDb, type EventsDb } from '../db/events-db';
 import {
   applyPrefsPatch,
   defaultTemplates,
@@ -145,7 +134,9 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
   // The shell may have opened the shared app log already (same file): reuse it.
   const log =
     internals.logger ??
-    (appLog().file !== null ? appLog() : initAppLog(options.userDataDir, { echo: !options.packaged }));
+    (appLog().file !== null
+      ? appLog()
+      : initAppLog(options.userDataDir, { echo: !options.packaged }));
   const persist = internals.persistPrefs ?? mode !== 'harness';
   const prefsFile = prefsPath(options.userDataDir);
 
@@ -198,10 +189,14 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
     try {
       return openEventsDb(path, {
         onRecreated: (error) =>
-          log.warn('events_db_recreated', { error: error instanceof Error ? error.name : 'unknown' }),
+          log.warn('events_db_recreated', {
+            error: error instanceof Error ? error.name : 'unknown',
+          }),
       });
     } catch (error) {
-      log.error('events_db_unavailable', { error: error instanceof Error ? error.message : 'unknown' });
+      log.error('events_db_unavailable', {
+        error: error instanceof Error ? error.message : 'unknown',
+      });
       try {
         return openEventsDb(':memory:');
       } catch {
@@ -254,7 +249,10 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
       ownsDb = false;
     }
 
-    const floor = new VersionFloor();
+    const floor = new VersionFloor({
+      now: () => clock.now(),
+      epoch: () => store.get().state?.epoch ?? null,
+    });
     const tokenMissing = (): boolean => tokenSource.missing();
     const notifications = new NotificationScheduler({
       clock,
@@ -430,7 +428,9 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
   }
 
   const isBlockIdList = (v: unknown): v is BlockId[] =>
-    Array.isArray(v) && v.length <= GUARDIAN_LIMITS.emergencyMaxBlocks && v.every((id) => isIdOf('block', id));
+    Array.isArray(v) &&
+    v.length <= GUARDIAN_LIMITS.emergencyMaxBlocks &&
+    v.every((id) => isIdOf('block', id));
 
   function scheduleInput(schedule: Schedule, enabled: boolean): ScheduleInput {
     return {
@@ -479,7 +479,8 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
     'emergency:preview': (req) =>
       guarded(async () => {
         const ids = req?.blockIds ?? null;
-        if (ids !== null && !isBlockIdList(ids)) return fail(uiError('rejected', 'validation_failed', 422));
+        if (ids !== null && !isBlockIdList(ids))
+          return fail(uiError('rejected', 'validation_failed', 422));
         return ok(await call((c) => c.emergencyPreview(ids ?? undefined)));
       }),
 
@@ -494,7 +495,10 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
           return fail(uiError('rejected', 'validation_failed', 422));
         }
         const r = await call((c) =>
-          c.requestEmergency({ blockIds: req.blockIds, phrase: req.phrase }, { idempotencyKey: req.intentId }),
+          c.requestEmergency(
+            { blockIds: req.blockIds, phrase: req.phrase },
+            { idempotencyKey: req.intentId },
+          ),
         );
         raiseFloorPastCurrent();
         const covered = new Set<string>(r.emergency.blockIds);
@@ -502,7 +506,9 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
           ...st,
           emergency: r.emergency,
           rewardsLock: 'emergency',
-          blocks: st.blocks.map((b) => (covered.has(b.id) ? { ...b, emergencyEligible: false } : b)),
+          blocks: st.blocks.map((b) =>
+            covered.has(b.id) ? { ...b, emergencyEligible: false } : b,
+          ),
         }));
         log.info('emergency_requested', { blocks: r.emergency.blockIds.length });
         afterWrite();
@@ -511,7 +517,8 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
 
     'emergency:cancel': (req) =>
       guarded(async () => {
-        if (!isIdOf('emergency', req?.id)) return fail(uiError('rejected', 'validation_failed', 422));
+        if (!isIdOf('emergency', req?.id))
+          return fail(uiError('rejected', 'validation_failed', 422));
         const r = await call((c) => c.cancelEmergency(req.id as EmergencyId));
         raiseFloorPastCurrent();
         patchState((st) => ({ ...st, emergency: null }));
@@ -526,7 +533,11 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
           return fail(uiError('rejected', 'validation_failed', 422));
         }
         const r = await call((c) =>
-          c.confirmEmergency(req.id as EmergencyId, { acknowledge: true }, { idempotencyKey: req.intentId }),
+          c.confirmEmergency(
+            req.id as EmergencyId,
+            { acknowledge: true },
+            { idempotencyKey: req.intentId },
+          ),
         );
         raiseFloorPastCurrent();
         const gone = new Set<string>(r.cancelledBlockIds);
@@ -536,12 +547,16 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
           blocks: st.blocks.filter((b) => !gone.has(b.id)),
           punishments: st.punishments.filter((p) => !gone.has(p.blockId)),
         }));
-        log.info('emergency_confirmed', { blocks: r.cancelledBlockIds.length, penalty: r.penaltyApplied });
+        log.info('emergency_confirmed', {
+          blocks: r.cancelledBlockIds.length,
+          penalty: r.penaltyApplied,
+        });
         afterWrite();
         return ok(r);
       }),
 
-    'schedules:list': () => guarded(async () => ok((await call((c) => c.listSchedules())).schedules)),
+    'schedules:list': () =>
+      guarded(async () => ok((await call((c) => c.listSchedules())).schedules)),
 
     'schedules:set-enabled': (req) =>
       guarded(async () => {
@@ -551,14 +566,20 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
         const { schedules } = await call((c) => c.listSchedules());
         const schedule = schedules.find((s) => s.id === req.id);
         if (!schedule) return fail(uiError('rejected', 'not_found', 404));
-        const r = await call((c) => c.updateSchedule(req.id as ScheduleId, scheduleInput(schedule, req.enabled)));
+        const r = await call((c) =>
+          c.updateSchedule(req.id as ScheduleId, scheduleInput(schedule, req.enabled)),
+        );
         afterWrite();
         return ok(r.schedule);
       }),
 
     'templates:save': (req) =>
       guarded(async () => {
-        const next = upsertTemplate(store.get().templates, req, () => `tpl_${randomUUID().replace(/-/g, '')}`);
+        const next = upsertTemplate(
+          store.get().templates,
+          req,
+          () => `tpl_${randomUUID().replace(/-/g, '')}`,
+        );
         if (!next) return fail(uiError('rejected', 'validation_failed', 422));
         store.update((s) => ({ ...s, templates: next }));
         persistPrefs();
@@ -580,7 +601,9 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
       guarded(async () => {
         if (!isUiPrefsPatch(req)) return fail(uiError('rejected', 'validation_failed', 422));
         const next = applyPrefsPatch(store.get().prefs, req);
-        store.update((s) => (JSON.stringify(s.prefs) === JSON.stringify(next) ? s : { ...s, prefs: next }));
+        store.update((s) =>
+          JSON.stringify(s.prefs) === JSON.stringify(next) ? s : { ...s, prefs: next },
+        );
         persistPrefs();
         return ok(store.get().prefs);
       }),
@@ -602,7 +625,9 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
           sysDir: options.sysDir,
           platform: options.platform,
           guardianStatus: () =>
-            mode === 'real' ? installer.statusText() : Promise.resolve(`(${mode}: sin guardián real)`),
+            mode === 'real'
+              ? installer.statusText()
+              : Promise.resolve(`(${mode}: sin guardián real)`),
           readText: (path) => {
             try {
               return readFileSync(path, 'utf8');
@@ -619,18 +644,26 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
 
     'data:delete': (req) =>
       guarded(async () => {
-        if (!isIntentId(req?.intentId) || typeof req?.confirm !== 'string' || req.confirm.length > 32) {
+        if (
+          !isIntentId(req?.intentId) ||
+          typeof req?.confirm !== 'string' ||
+          req.confirm.length > 32
+        ) {
           return fail(uiError('rejected', 'validation_failed', 422));
         }
         const word = req.confirm.trim().toUpperCase();
         if (!DATA_DELETE_CONFIRM_WORDS.includes(word)) {
           return fail(uiError('rejected', 'confirm_word_mismatch', 422));
         }
-        const r = await call((c) => c.deleteData({ confirm: req.confirm }, { idempotencyKey: req.intentId }));
+        const r = await call((c) =>
+          c.deleteData({ confirm: req.confirm }, { idempotencyKey: req.intentId }),
+        );
         try {
           session.db.wipe();
         } catch (error) {
-          log.error('events_db_wipe_failed', { error: error instanceof Error ? error.name : 'unknown' });
+          log.error('events_db_wipe_failed', {
+            error: error instanceof Error ? error.name : 'unknown',
+          });
         }
         store.update((s) => ({
           ...s,
@@ -716,7 +749,12 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
     refreshNow(reason: RefreshReason): void {
       if (stopped) return;
       session.poller.refreshNow(reason);
-      if (reason === 'resume') session.events.kick();
+      if (reason === 'resume') {
+        session.events.kick();
+        // Timers do not count suspended time: the resume poll is usually a 304 (no
+        // `onState`), so «Quedan 5 min» is re-planned from the wall clock here.
+        session.notifications.onState(store.get().state);
+      }
     },
     async shutdown(budgetMs: number): Promise<void> {
       if (stopped) return;

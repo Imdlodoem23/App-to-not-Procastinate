@@ -1002,7 +1002,8 @@ function activeView(
     bootHold: bootHold ? BLOQUEO_ES.active.bootHold : null,
     bar: {
       accent: punishment ? 'red' : modeAccent(block.mode),
-      value: bootHold ? 1 : elapsedFraction(block, nowMs),
+      // Boot hold: the time is unknown, so the bar stays an empty track (never "full").
+      value: bootHold ? 0 : elapsedFraction(block, nowMs),
     },
     reason: !punishment ? fitReason(block.reason, emergency) : null,
     punishment: punishment

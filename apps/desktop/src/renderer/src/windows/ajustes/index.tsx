@@ -420,16 +420,42 @@ function DatosGroup(props: { view: AjustesView['datos']; api: AjustesApi }): Rea
   );
 }
 
+const TAB_STOPS = 'button, input, select, textarea, a[href], [tabindex]';
+
+/** The first keyboard tab stop inside `root` (enabled, not taken out of the tab order). */
+function firstTabStop(root: HTMLElement): HTMLElement | null {
+  const all = root.querySelectorAll<HTMLElement>(TAB_STOPS);
+  return [...all].find((el) => el.tabIndex >= 0 && !el.hasAttribute('disabled')) ?? null;
+}
+
+/** The «Tema» row's tab stop: its checked tile (TileRow keeps it at tabIndex 0). */
+function themeTabStop(): HTMLElement | null {
+  const tiles = [
+    ...document.querySelectorAll<HTMLElement>(`[data-row-tile="${AJUSTES_IDS.rows.theme}"]`),
+  ];
+  return (
+    tiles.find((t) => t.getAttribute('aria-checked') === 'true') ??
+    tiles.find((t) => t.tabIndex === 0) ??
+    tiles[0] ??
+    null
+  );
+}
+
 export default function AjustesWindow(): React.JSX.Element {
   const api = useAjustes();
   const request = useAppStore((s) => (s.env.detail?.name === 'ajustes' ? s.env.detail : null));
 
   // «Detalles…» opens on Sistema; the fixtures open on Sistema and Datos.
+  // Every door also puts the focus on a control (never <body>): the requested group's first tab
+  // stop, else the checked «Tema» tile.
   useLayoutEffect(() => {
-    if (!request?.group) return;
-    document
-      .querySelector<HTMLElement>(`[data-section="aj-${request.group}"]`)
-      ?.scrollIntoView({ block: 'start' });
+    if (!request) return;
+    const section = request.group
+      ? document.querySelector<HTMLElement>(`[data-section="aj-${request.group}"]`)
+      : null;
+    section?.scrollIntoView({ block: 'start' });
+    const target = section ? firstTabStop(section) : themeTabStop();
+    target?.focus({ preventScroll: true });
   }, [request]);
 
   return (

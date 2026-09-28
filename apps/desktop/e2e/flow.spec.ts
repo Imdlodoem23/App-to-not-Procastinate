@@ -13,6 +13,7 @@ import { TRAY_ITEM } from '../src/main/tray/model';
 import { splitCountdown } from '../src/shared/format';
 import { UI_TIMINGS, primaryBlock } from '../src/shared/ui-state';
 import { advanceInSteps, launchApp, type LaunchedApp } from './support/app';
+import { visibleText } from './support/checks';
 import { expect, test } from './support/test';
 
 const PHRASE = 'no veo YouTube en una hora';
@@ -81,7 +82,7 @@ test('more than 4 h: the first Enter shows the consequence, the second works aft
   await expect(main.getByRole('button', { name: /^Bloquear / })).toBeFocused();
 
   await main.keyboard.press('Enter');
-  await expect(main.getByText(/^6 h: termina .* y solo se puede ampliar$/)).toBeVisible();
+  await expect(visibleText(main, /^6 h: termina .* y solo se puede ampliar$/)).toBeVisible();
   const again = main.getByRole('button', { name: /^Sí, bloquear 6 h/ });
   await expect(again).toBeDisabled();
   await main.keyboard.press('Enter');
@@ -103,7 +104,7 @@ test('Hardcore: the consequence says it cannot be cancelled', async () => {
   await field.press('Enter');
   await main.getByRole('radio', { name: 'Hardcore' }).click();
   await main.getByRole('button', { name: /^Bloquear / }).click();
-  await expect(main.getByText(/^No podrás cancelarlo de ninguna forma hasta/)).toBeVisible();
+  await expect(visibleText(main, /^No podrás cancelarlo de ninguna forma hasta/)).toBeVisible();
   const again = main.getByRole('button', { name: /^Sí, bloquear/ });
   await expect(again).toBeDisabled();
   await app.harness.advance(2_100);
@@ -220,7 +221,7 @@ test('«Reintentar» after a timeout resends the same Idempotency-Key', async ()
   const main = await app.page('main');
   const intentId = (await app.harness.snapshot()).ops.create?.intentId;
   expect(intentId).toBeTruthy();
-  await expect(main.getByText(/El guardián no responde/)).toBeVisible();
+  await expect(visibleText(main, /El guardián no responde/)).toBeVisible();
 
   await main.getByRole('button', { name: /^Reintentar/ }).click();
   // «Bloqueando…» (a label, no spinner) and nothing active until the guardian answers.
@@ -235,7 +236,7 @@ test('«Reintentar» after a timeout resends the same Idempotency-Key', async ()
   expect(retry?.idempotencyKey).toBe(intentId);
   // The scripted guardian never answers: after 3 s it is a timeout again, nothing active.
   await app.harness.advance(3_100);
-  await expect(main.getByText(/El guardián no responde/)).toBeVisible();
+  await expect(visibleText(main, /El guardián no responde/)).toBeVisible();
   await expect(bigCountdown(main)).toHaveCount(0);
 });
 

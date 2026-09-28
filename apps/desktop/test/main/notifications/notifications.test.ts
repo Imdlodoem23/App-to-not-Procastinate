@@ -263,6 +263,64 @@ describe('notification scheduler', () => {
     expect(t.notifier.shown).toHaveLength(2);
   });
 
+  it('«Quedan 5 min» follows the wall clock across a suspend', () => {
+    const state = harnessFixture('one-block').snapshot.state as GuardianStateResponse;
+    const block = state.blocks[0];
+    if (!block) throw new Error('no block');
+    const dueAt = Date.parse(block.endsAt) - 5 * MIN;
+    // Timers count monotonic time; the wall clock jumps forward over a suspend.
+    const mono = createManualClock(HARNESS_NOW);
+    let offset = 0;
+    const clock = {
+      now: () => mono.now() + offset,
+      setTimeout: mono.setTimeout,
+      clearTimeout: mono.clearTimeout,
+    };
+    const notifier = createRecordingNotifier();
+    const s = new NotificationScheduler({
+      clock,
+      notifier,
+      mainFocused: () => false,
+      getState: () => state,
+    });
+    s.onState(state);
+    const sleptMs = Math.floor((dueAt - HARNESS_NOW) / 2 / MIN) * MIN;
+    expect(sleptMs).toBeGreaterThan(0);
+    mono.advance(MIN);
+    offset += sleptMs; // suspended: wall time moved, the timers did not
+    // No new state arrives (the resume poll is a 304): the step timer re-reads the clock.
+    mono.advance(dueAt - clock.now() - 1);
+    expect(notifier.shown).toHaveLength(0);
+    mono.advance(MIN);
+    expect(notifier.shown.map((n) => n.title)).toEqual(['Quedan 5 min']);
+    expect(clock.now() - dueAt).toBeLessThanOrEqual(MIN);
+  });
+
+  it('a five-minute mark slept through is skipped, not shown late', () => {
+    const state = harnessFixture('one-block').snapshot.state as GuardianStateResponse;
+    const block = state.blocks[0];
+    if (!block) throw new Error('no block');
+    const dueAt = Date.parse(block.endsAt) - 5 * MIN;
+    const mono = createManualClock(HARNESS_NOW);
+    let offset = 0;
+    const clock = {
+      now: () => mono.now() + offset,
+      setTimeout: mono.setTimeout,
+      clearTimeout: mono.clearTimeout,
+    };
+    const notifier = createRecordingNotifier();
+    const s = new NotificationScheduler({
+      clock,
+      notifier,
+      mainFocused: () => false,
+      getState: () => state,
+    });
+    s.onState(state);
+    offset += dueAt - HARNESS_NOW + 3 * MIN; // woke up 2 min before the end
+    mono.advance(2 * MIN);
+    expect(notifier.shown).toHaveLength(0);
+  });
+
   it('the close hint is immediate', () => {
     const t = scheduler();
     t.s.showCloseHint();
