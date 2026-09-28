@@ -6,45 +6,15 @@
  * rejected: the hosts file maps names, and blocking an IP needs a firewall.
  */
 
+import { MULTI_LABEL_SUFFIXES } from './data/index';
+
 const LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const TLD_RE = /^(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/;
 const SCHEME_RE = /^[a-z][a-z0-9+.-]*:\/\//i;
 const MAX_INPUT_LENGTH = 2048;
 
-/**
- * Two-label public suffixes common for our users. Used only to decide when a domain is a
- * site's apex (`bbc.co.uk`) and therefore gets a `www.` variant.
- */
-const MULTI_LABEL_SUFFIXES: ReadonlySet<string> = new Set([
-  'co.uk',
-  'org.uk',
-  'ac.uk',
-  'gov.uk',
-  'com.es',
-  'org.es',
-  'nom.es',
-  'gob.es',
-  'edu.es',
-  'com.mx',
-  'org.mx',
-  'gob.mx',
-  'edu.mx',
-  'com.ar',
-  'gob.ar',
-  'com.co',
-  'com.pe',
-  'com.ve',
-  'com.uy',
-  'com.ec',
-  'com.bo',
-  'com.py',
-  'com.br',
-  'com.au',
-  'co.nz',
-  'co.za',
-  'co.jp',
-  'co.in',
-]);
+/** `MULTI_LABEL_SUFFIXES` as a set (see ./data/public-suffixes.ts). */
+const MULTI_LABEL_SUFFIX_SET: ReadonlySet<string> = new Set(MULTI_LABEL_SUFFIXES);
 
 /** True when `domain` is already in canonical form (see module comment). */
 export function isValidDomain(domain: string): boolean {
@@ -86,7 +56,16 @@ function isApex(domain: string): boolean {
   if (!isValidDomain(domain)) return false;
   const labels = domain.split('.');
   if (labels.length === 2) return true;
-  return labels.length === 3 && MULTI_LABEL_SUFFIXES.has(labels.slice(1).join('.'));
+  return labels.length === 3 && MULTI_LABEL_SUFFIX_SET.has(labels.slice(1).join('.'));
+}
+
+/**
+ * True when `domain` (canonical) is exactly a two-label public suffix such as `co.uk` or
+ * `com.br` (see `MULTI_LABEL_SUFFIXES`): a whitelist entry like that would allow every
+ * site under it.
+ */
+export function isMultiLabelPublicSuffix(domain: string): boolean {
+  return MULTI_LABEL_SUFFIX_SET.has(domain);
 }
 
 /**

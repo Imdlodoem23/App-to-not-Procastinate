@@ -2,6 +2,7 @@
  * Catalog types. The catalog is plain data (no functions, no Dates) so it can be
  * serialized with `catalogSnapshot()` and embedded by the guardian as JSON.
  */
+import type { BrowserFamily } from '../domain';
 
 /** Distraction categories. Ids are stable identifiers; names are Spanish UI strings. */
 export type CategoryId = 'social' | 'video' | 'games' | 'messaging' | 'shopping' | 'news';
@@ -71,6 +72,25 @@ export type ProcessNames = Readonly<Record<CatalogPlatform, readonly string[]>>;
 export interface App {
   readonly id: string;
   readonly name: string;
+  readonly processes: ProcessNames;
+}
+
+/** Browser engines: which Céntrate extension build runs in a browser (Safari runs none). */
+export type BrowserEngine = 'chromium' | 'firefox' | 'safari' | 'other';
+
+/** A web browser the guardian recognises by process name (see data/browsers.ts). */
+export interface Browser {
+  /** Kebab-case ASCII id, e.g. `chrome`, `opera-gx`. */
+  readonly id: string;
+  readonly name: string;
+  /** The engine. Browsers that share a process name always share it. */
+  readonly family: BrowserEngine;
+  /**
+   * The `browser` value the Céntrate extension reports in this browser (pairing binds to
+   * it and `browsersWithoutExtension` lists the browser under it); `other` without one.
+   */
+  readonly extensionFamily: BrowserFamily;
+  /** Main executable and, on macOS, the network helper; same conventions as `App`. */
   readonly processes: ProcessNames;
 }
 
@@ -144,4 +164,19 @@ export interface CatalogSnapshot {
    * `ALWAYS_ALLOWED_HOSTS`). Whitelist mode allows them too.
    */
   alwaysAllowedHosts: string[];
+  /** Browsers recognised by process name (see `BROWSERS`). */
+  browsers: Array<{
+    id: string;
+    name: string;
+    family: BrowserEngine;
+    extensionFamily: BrowserFamily;
+    processes: Record<CatalogPlatform, string[]>;
+  }>;
+  /**
+   * Domains no block may list: a custom domain equal to or under one of them is refused
+   * (see `PROTECTED_DOMAINS` and `isProtectedDomain`).
+   */
+  protectedDomains: string[];
+  /** Two-label public suffixes such as `co.uk` (see `MULTI_LABEL_SUFFIXES`). */
+  multiLabelSuffixes: string[];
 }

@@ -1,25 +1,28 @@
 import {
   ALWAYS_ALLOWED_HOSTS,
   APPS,
+  BROWSERS,
   CATALOG_VERSION,
   CATEGORIES,
+  MULTI_LABEL_SUFFIXES,
+  PROTECTED_DOMAINS,
   PROTECTED_PROCESS_NAMES,
   SERVICES,
   STUDY_APP_WHITELIST,
   STUDY_WHITELIST,
 } from './data/index';
-import type { App, CatalogSnapshot } from './types';
+import type { App, CatalogPlatform, CatalogSnapshot, ProcessNames } from './types';
+
+function copyProcesses(processes: ProcessNames): Record<CatalogPlatform, string[]> {
+  return {
+    win: [...processes.win],
+    mac: [...processes.mac],
+    linux: [...processes.linux],
+  };
+}
 
 function copyApp(app: App): CatalogSnapshot['apps'][number] {
-  return {
-    id: app.id,
-    name: app.name,
-    processes: {
-      win: [...app.processes.win],
-      mac: [...app.processes.mac],
-      linux: [...app.processes.linux],
-    },
-  };
+  return { id: app.id, name: app.name, processes: copyProcesses(app.processes) };
 }
 
 /**
@@ -58,5 +61,14 @@ export function catalogSnapshot(): CatalogSnapshot {
     studyAppWhitelist: STUDY_APP_WHITELIST.map(copyApp),
     protectedProcesses: [...PROTECTED_PROCESS_NAMES],
     alwaysAllowedHosts: [...ALWAYS_ALLOWED_HOSTS],
+    browsers: BROWSERS.map((browser) => ({
+      id: browser.id,
+      name: browser.name,
+      family: browser.family,
+      extensionFamily: browser.extensionFamily,
+      processes: copyProcesses(browser.processes),
+    })),
+    protectedDomains: [...PROTECTED_DOMAINS],
+    multiLabelSuffixes: [...MULTI_LABEL_SUFFIXES],
   };
 }

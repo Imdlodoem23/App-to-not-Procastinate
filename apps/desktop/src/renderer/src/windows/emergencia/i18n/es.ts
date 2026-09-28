@@ -1,0 +1,114 @@
+/**
+ * Spanish strings of the Emergencia window (PROMPT §7 «Desbloqueo de emergencia», §10
+ * «Ventanas de detalle › Emergencia»). Penalties are a fact, never a reproach; the way back is
+ * always the recommended one. Points and clock times are formatted before they get here.
+ * Ready for an `en.ts` with the same shape (`EmergenciaMessages`).
+ */
+import type { BlockMode } from '@centrate/shared/domain';
+
+export const EMERGENCIA_ES = {
+  title: {
+    /** «Emergencia: YouTube». */
+    request: (what: string): string => `Emergencia: ${what}`,
+    unavailable: 'Emergencia: no disponible',
+    counting: 'Emergencia: esperando',
+    ready: 'Emergencia: lista',
+    done: 'Emergencia: desbloqueado',
+  },
+  /** Header datum while counting: «lista a las 17:08». */
+  readyAt: (time: string): string => `lista a las ${time}`,
+  /** Header datum once ready: «hasta las 17:13» (the confirm deadline). */
+  deadline: (time: string): string => `hasta las ${time}`,
+  /** «espera de 10 min». */
+  wait: (minutes: number): string => `espera de ${minutes} min`,
+  /** «2 bloqueos» when the unlock covers several. */
+  blocks: (n: number): string => (n === 1 ? '1 bloqueo' : `${n} bloqueos`),
+  /** «Perderás 620 puntos y tu racha de 5 días». `points` is formatted («620 puntos»). */
+  loss: (points: string, streakDays: number): string =>
+    streakDays > 0
+      ? `Perderás ${points} y tu racha de ${streakDays} ${streakDays === 1 ? 'día' : 'días'}`
+      : `Perderás ${points}`,
+  /** Short loss for the header datum: «−620 puntos». */
+  lossShort: (signedPoints: string): string => signedPoints,
+  listLabel: 'Bloqueos afectados',
+  /** «YouTube · Normal». */
+  row: (targets: string, mode: string): string => `${targets} · ${mode}`,
+  cancels: 'se cancela',
+  stays: 'sigue activo',
+
+  phrase: {
+    intro: 'Escribe a mano esta frase:',
+    label: 'Frase de compromiso',
+    empty: 'Escríbela tú: pegar no vale',
+    typing: 'Sigue escribiendo…',
+    mismatch: 'No coincide: revisa lo que has escrito',
+    ok: 'Coincide',
+    pasted: 'Escríbela a mano: pegar no vale',
+  },
+
+  actions: {
+    rowLabel: 'Qué hacer',
+    /** «Empezar la espera de 10 min». */
+    request: (minutes: number): string => `Empezar la espera de ${minutes} min`,
+    requestHelp: 'El bloqueo sigue mientras esperas, y puedes cancelarla gratis',
+    requestDisabled: 'Primero escribe la frase exacta',
+    requesting: 'Pidiendo…',
+    stay: 'Seguir bloqueado',
+    stayHelp: 'Cierra esta ventana sin perder nada',
+    cancel: 'Cancelar (recomendado)',
+    cancelHelp: 'No pierdes nada y el bloqueo sigue',
+    unlock: 'Desbloquear',
+    unlockHelp: 'Pide confirmación antes de cobrar nada',
+    close: 'Cerrar',
+    closeHelp: 'Cierra esta ventana',
+  },
+
+  waiting: 'Esperando',
+  waitingHelp: 'Cuando acabe tendrás 5 min para desbloquear; si no, el bloqueo sigue',
+  /** «Tienes 4:30 para decidir» (the countdown is its own element). */
+  readyLead: 'Tienes',
+  readyTail: 'para decidir; después, el bloqueo sigue',
+  cancelled: 'Cancelada: no has perdido nada',
+
+  done: {
+    /** «Se ha cancelado 1 bloqueo». */
+    cancelled: (n: number): string =>
+      n === 1 ? 'Se ha cancelado 1 bloqueo' : `Se han cancelado ${n} bloqueos`,
+    /** «Has perdido 620 puntos y tu racha de 5 días». */
+    lost: (points: string, streakDays: number): string =>
+      streakDays > 0
+        ? `Has perdido ${points} y tu racha de ${streakDays} ${streakDays === 1 ? 'día' : 'días'}`
+        : `Has perdido ${points}`,
+    /** «Saldo: 620 puntos». */
+    balance: (points: string): string => `Saldo: ${points}`,
+  },
+
+  unavailable: {
+    /** «Hardcore: no se puede cancelar de ninguna forma hasta las 18:42». */
+    noEmergency: (mode: string, until: string): string =>
+      `${mode}: no se puede cancelar de ninguna forma ${until}`,
+    none: 'No hay ningún bloqueo que se pueda cancelar',
+    help: 'Nadie puede acortarlo, tampoco desde aquí',
+  },
+
+  /** «hasta las 18:42», «hasta mañana a las 08:00». */
+  until: {
+    today: (time: string): string => `hasta las ${time}`,
+    tomorrow: (time: string): string => `hasta mañana a las ${time}`,
+    later: (date: string, time: string): string => `hasta el ${date} a las ${time}`,
+  },
+
+  modes: {
+    hardcore: 'Hardcore',
+    exam: 'Examen',
+  } satisfies Partial<Record<BlockMode, string>>,
+} as const;
+
+type Widen<T> = T extends string
+  ? string
+  : T extends (...args: infer A) => infer R
+    ? (...args: A) => Widen<R>
+    : { [K in keyof T]: Widen<T[K]> };
+
+/** Shape every language file of the window must match. */
+export type EmergenciaMessages = Widen<typeof EMERGENCIA_ES>;

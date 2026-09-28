@@ -1,0 +1,93 @@
+# Acceptance gates of the website (PROMPT.md § 11): Lighthouse CI (≥ 90 in every category,
+# LCP < 2.5 s and CLS < 0.1, on mobile and desktop), axe-core (0 violations) and the Playwright
+# screenshot matrix (375 to 1920 px, with and without reduced motion), uploaded as an artifact.
+# Run by hand with a URL, it also checks the deployed site (canonical, sitemap, robots.txt).
+name: Web quality
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'apps/web/**'
+      - 'packages/shared/**'
+      - 'package-lock.json'
+      - '.github/workflows/web-quality.yml'
+  pull_request:
+    paths:
+      - 'apps/web/**'
+      - 'packages/shared/**'
+      - 'package-lock.json'
+      - '.github/workflows/web-quality.yml'
+  workflow_dispatch:
+    inputs:
+      live_url:
+        description: 'Deployed site to check as well (optional), e.g. https://centrate.onrender.com'
+        required: false
+        default: ''
+
+concurrency:
+  group: web-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  web-quality:
+    name: Lighthouse, axe and screenshots
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ASTRO_TELEMETRY_DISABLED: '1'
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+        working-directory: .
+      - name: Build
+        run: npm run build
+      - name: Install Chromium
+        run: |
+          npx playwright install --with-deps chromium
+          echo "CHROME_PATH=$(node -p "require('@playwright/test').chromium.executablePath()")" >> "$GITHUB_ENV"
+      - name: Lighthouse CI (mobile)
+        run: npx -y @lhci/cli@0.15.1 autorun --config=./lighthouserc.json
+      - name: Lighthouse CI (desktop)
+        if: ${{ !cancelled() }}
+        run: npx -y @lhci/cli@0.15.1 autorun --config=./lighthouserc.desktop.json
+      - name: axe, layout, SEO tags and screenshots
+        if: ${{ !cancelled() }}
+        run: npm run test:quality
+      - name: Upload reports and screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-quality
+          path: |
+            apps/web/test-results/
+            apps/web/playwright-report/
+            apps/web/.lighthouseci/
+          retention-days: 14
+
+  live:
+    name: Live site
+    if: github.event_name == 'workflow_dispatch' && inputs.live_url != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Check canonical URLs, sitemap, robots.txt and og.png
+        run: node apps/web/scripts/check-live.mjs "$LIVE_URL"
+        env:
+          LIVE_URL: ${{ inputs.live_url }}

@@ -1,0 +1,47 @@
+{
+  "$comment": "Third-party assets shipped by Céntrate (PROMPT.md § 11, Legal: CC0 or OFL only, listed here). One entry per asset. Add yours when a module bundles a new font, icon set, image, sound or model. Exceptions to CC0/OFL are recorded in DECISIONS.md.",
+  "assets": [
+    {
+      "name": "Inter",
+      "kind": "font",
+      "source": "https://github.com/rsms/inter",
+      "package": "@fontsource-variable/inter",
+      "version": "5.3.0",
+      "license": "OFL-1.1",
+      "copyright": "Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter)",
+      "licenseText": "node_modules/@fontsource-variable/inter/LICENSE",
+      "notice": "apps/web/public/third-party-notices.txt",
+      "usedBy": [
+        "apps/web/src/styles/global.css (self-hosted @font-face, opsz + wght axes)",
+        "apps/web/src/layouts/Base.astro (preload of the latin woff2)",
+        "apps/web/scripts/render-og.mjs (draws the text of apps/web/public/og.png)",
+        "apps/web/public/og.png"
+      ]
+    },
+    {
+      "name": "Lucide",
+      "kind": "icons",
+      "source": "https://lucide.dev",
+      "package": "lucide-react",
+      "version": "1.48.0",
+      "license": "ISC",
+      "copyright": "Copyright (c) 2026 Lucide Icons and Contributors",
+      "additionalLicenses": [
+        {
+          "license": "MIT",
+          "copyright": "Copyright (c) 2013-present Cole Bemis",
+          "appliesTo": "Icons derived from Feather, listed in node_modules/lucide-react/LICENSE (among those used here: lock, clock, check, monitor, smartphone)."
+        }
+      ],
+      "licenseText": "node_modules/lucide-react/LICENSE",
+      "notice": "apps/web/public/third-party-notices.txt",
+      "usedBy": [
+        "apps/web/src/components/AppWindow.astro (inline SVG paths, same shapes as lucide-react 1.48.0)",
+        "apps/web/src/components/home/CardVisual.astro (inline SVG paths)",
+        "apps/web/src/components/home/StickyScene.astro (inline SVG paths)",
+        "apps/web/src/components/home/MoreFeatures.astro (inline SVG paths)",
+        "apps/desktop/package.json (lucide-react dependency for the app's icons)"
+      ]
+    }
+  ]
+}

@@ -38,3 +38,11 @@ Una línea por decisión, con el porqué. Las más recientes, al final.
 - **Los bloqueos recuperados** del encabezado del hosts (si el estado se perdió) son Estrictos y no dan puntos.
 - **`has-active` devuelve 10** (bloqueo Normal o Estricto) u **11** (Hardcore, Examen o castigo).
 - **Puerto fijo 47600 sin alternativa**: la extensión confía en ese puerto tras el emparejamiento.
+
+### Web
+
+- **Iconos de Lucide (ISC; los derivados de Feather, MIT) como excepción a «solo CC0 u OFL»:** son licencias permisivas, la app ya usa `lucide-react` y así la web dibuja los mismos iconos que la app. Su aviso de copyright viaja con la web en `/third-party-notices.txt` y todo queda apuntado en `ASSET-LICENSES.json`.
+- **URLs sin barra final** (`/descargar`, nunca `/descargar/`): enlaces, canónicas, `og:url` y sitemap usan la misma forma (`trailingSlash: 'never'`), y `render.yaml` reescribe cada ruta a su `index.html`.
+- **La URL del sitio sale de Render** (`RENDER_EXTERNAL_URL`) salvo que se defina `SITE_URL` (dominio propio): si el nombre `centrate` está cogido, las canónicas siguen apuntando a la web real.
+- **Imagen Open Graph en PNG** (`public/og.png`, dibujada desde `/og.svg` con Chromium e Inter): las redes sociales no muestran vistas previas en SVG, y resvg no puede cargar las fuentes woff2.
+- **Los presupuestos de peso se comprueban en CI** (`lighthouserc*.json` y `tests/quality.spec.ts`): primera vista ≤ 1,5 MB en cada página (y, según Lighthouse, vídeo ≤ 1,2 MB e imágenes ≤ 360 KB, tres imágenes al tope); en `dist/`, cada imagen AVIF o WebP ≤ 120 KB, el vídeo del hero ≤ 0,4 MB en AV1 y ≤ 1,2 MB en los demás códecs, y cada bucle ≤ 0,5 MB. MB y KB decimales, la lectura más estricta. Un vídeo es el del hero si su nombre lleva «hero».

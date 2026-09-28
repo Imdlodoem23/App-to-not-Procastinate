@@ -1,7 +1,14 @@
-import { ALWAYS_ALLOWED_HOSTS, APPS, CATEGORIES, SERVICES } from './data/index';
+import {
+  ALWAYS_ALLOWED_HOSTS,
+  APPS,
+  BROWSERS,
+  CATEGORIES,
+  PROTECTED_DOMAINS,
+  SERVICES,
+} from './data/index';
 import { isSameOrSubdomain, normalizeDomain } from './domains';
 import { processNameKey } from './processes';
-import type { App, CatalogPlatform, Category, Service } from './types';
+import type { App, Browser, CatalogPlatform, Category, Service } from './types';
 
 const SERVICES_BY_ID: ReadonlyMap<string, Service> = new Map(SERVICES.map((s) => [s.id, s]));
 const CATEGORIES_BY_ID: ReadonlyMap<string, Category> = new Map(CATEGORIES.map((c) => [c.id, c]));
@@ -50,6 +57,17 @@ export function isAlwaysAllowedHost(domain: string): boolean {
   const normalized = normalizeDomain(domain);
   if (normalized === null) return false;
   return ALWAYS_ALLOWED_HOSTS.some((host) => isSameOrSubdomain(normalized, host));
+}
+
+/**
+ * True when `domain` (a host or URL) is one of `PROTECTED_DOMAINS` or a subdomain of one:
+ * no block may list it (422 `protected_target`). Invalid input is not protected (it is
+ * rejected as invalid instead).
+ */
+export function isProtectedDomain(domain: string): boolean {
+  const normalized = normalizeDomain(domain);
+  if (normalized === null) return false;
+  return PROTECTED_DOMAINS.some((host) => isSameOrSubdomain(normalized, host));
 }
 
 /**
@@ -105,6 +123,28 @@ export function findServiceByProcessName(
   const app = findAppByProcessName(processName, platform);
   if (!app) return undefined;
   return SERVICES.find((service) => service.appIds?.includes(app.id));
+}
+
+const BROWSERS_BY_ID: ReadonlyMap<string, Browser> = new Map(BROWSERS.map((b) => [b.id, b]));
+
+export function getBrowser(id: string): Browser | undefined {
+  return BROWSERS_BY_ID.get(id);
+}
+
+/**
+ * The browsers that run as `processName` on `platform` (case rules per platform), in
+ * catalog order. Several browsers can share a name (Chromium runs as `chrome.exe` on
+ * Windows, like Google Chrome); they always share `family`.
+ */
+export function findBrowsersByProcessName(
+  processName: string,
+  platform: CatalogPlatform,
+): Browser[] {
+  if (typeof processName !== 'string') return [];
+  const key = processNameKey(processName.trim(), platform);
+  return BROWSERS.filter((browser) =>
+    browser.processes[platform].some((name) => processNameKey(name, platform) === key),
+  );
 }
 
 // ---------------------------------------------------------------------------------------

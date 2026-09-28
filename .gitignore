@@ -20,3 +20,4 @@ apps/desktop/resources/guardian/
 web-ext-artifacts/
 apps/extension/release/
 .cache/
+.lighthouseci/

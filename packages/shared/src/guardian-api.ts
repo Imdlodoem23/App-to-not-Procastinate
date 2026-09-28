@@ -23,6 +23,7 @@ import {
   findAppByProcessName,
   findServiceByDomain,
   findServiceByProcessName,
+  isMultiLabelPublicSuffix,
   isProtectedProcessName,
   isSameOrSubdomain,
   isValidDomain,
@@ -3484,37 +3485,11 @@ export function textFieldIssue(
 }
 
 /**
- * Generic second-level labels of country-code TLDs (`co.uk`, `com.br`, `gob.es`…). Used
- * to reject public suffixes as whitelist entries. Follow-up (§17): replace with the
- * catalog's `MULTI_LABEL_SUFFIXES` once it is exported.
+ * True for a multi-label public suffix such as `co.uk` or `com.br` (canonical input): the
+ * catalog's `MULTI_LABEL_SUFFIXES`, which the guardian embeds too.
  */
-const CC_SECOND_LEVEL_LABELS: ReadonlySet<string> = new Set([
-  'ac',
-  'co',
-  'com',
-  'edu',
-  'gob',
-  'gov',
-  'go',
-  'ltd',
-  'mil',
-  'ne',
-  'net',
-  'nom',
-  'or',
-  'org',
-  'plc',
-  'sch',
-]);
-
-/** True for a multi-label public suffix such as `co.uk` or `com.br` (canonical input). */
 export function isPublicSuffixLike(domain: string): boolean {
-  const labels = domain.split('.');
-  return (
-    labels.length === 2 &&
-    /^[a-z]{2}$/.test(labels[1] ?? '') &&
-    CC_SECOND_LEVEL_LABELS.has(labels[0] ?? '')
-  );
+  return isMultiLabelPublicSuffix(domain);
 }
 
 /** Domains of catalog services that belong to at least one category (distractions). */

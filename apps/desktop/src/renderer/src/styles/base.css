@@ -1,0 +1,78 @@
+/*
+ * Base of every Céntrate window (PROMPT §10 «Estilo visual», «Teclado y accesibilidad»):
+ * system fonts only, 13 px text, the theme background on <html> and <body> (no white flash),
+ * `color-scheme` for native controls, a 2 px blue focus ring on :focus-visible only, nothing
+ * animated with reduced motion, and borders kept in Windows high contrast (forced colors).
+ * Colors come only from tokens.css.
+ */
+
+@layer base {
+  html {
+    color-scheme: light dark;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-size: var(--font-size-13);
+    line-height: var(--line-height-13);
+    font-weight: var(--font-weight-normal);
+    -webkit-text-size-adjust: 100%;
+    font-synthesis: none;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    overflow: hidden;
+    background: var(--bg);
+    /* An app, not a document: text is selectable only where it is useful. */
+    user-select: none;
+    cursor: default;
+  }
+
+  input,
+  textarea,
+  [data-selectable] {
+    user-select: text;
+  }
+
+  button {
+    cursor: default;
+  }
+
+  /* Focus ring: 2 px blue, only for keyboard focus, offset onto the background. */
+  :focus {
+    outline: none;
+  }
+
+  :focus-visible {
+    outline: var(--focus-ring-width) solid var(--focus-ring);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  /* Section roots take focus only as a fallback target (a block hides the field). */
+  [data-section]:focus,
+  main:focus {
+    outline: none;
+  }
+
+  ::placeholder {
+    color: var(--fg-muted);
+    opacity: 1;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0ms !important;
+      animation-duration: 0ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

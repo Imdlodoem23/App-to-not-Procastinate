@@ -17,8 +17,8 @@ services:
         value: '1'
       - key: ASTRO_TELEMETRY_DISABLED
         value: '1'
-      - key: SITE_URL
-        value: https://centrate.onrender.com
+      # No SITE_URL here: astro.config.mjs uses RENDER_EXTERNAL_URL (this service's own
+      # onrender.com address). Add SITE_URL in the dashboard only for a custom domain.
     headers:
       - path: /*
         name: X-Content-Type-Options
@@ -50,7 +50,18 @@ services:
       - path: /*.html
         name: Cache-Control
         value: public, max-age=0, must-revalidate
+    # Pages live at clean URLs without a trailing slash (astro.config.mjs: trailingSlash
+    # 'never'), the same form as the canonical tags and the sitemap.
     routes:
       - type: rewrite
         source: /descargar
         destination: /descargar/index.html
+      - type: rewrite
+        source: /novedades
+        destination: /novedades/index.html
+      - type: rewrite
+        source: /privacidad
+        destination: /privacidad/index.html
+      - type: rewrite
+        source: /sitemap.xml
+        destination: /sitemap-index.xml

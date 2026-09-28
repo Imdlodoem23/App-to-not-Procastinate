@@ -1,0 +1,158 @@
+/*
+ * Window shells (PROMPT §10 «Ventana principal», «Ventanas de detalle»).
+ *
+ * Main window: sections stacked with 12 px side margins and 12 px between them (8 px in compact
+ * density), no separators, no scroll. The window is exactly as tall as its content (main sizes
+ * it from `window:layout`), so the section column never scrolls except below the screenshot
+ * matrix (`html[data-scroll]`), and then only the column, never the footer.
+ * `html[data-measuring]` lifts the fixed height while `useAutoLayout` measures.
+ *
+ * The column keeps 6 px of slack around its content (negative margin + padding) so focus rings
+ * (2 px + 2 px offset) are never clipped by its overflow.
+ */
+
+@layer components {
+  .main-shell {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: var(--section-gap);
+    height: 100%;
+    padding: var(--layout-margin);
+  }
+
+  .main-column {
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: -6px;
+    padding: 6px;
+    overflow: hidden;
+  }
+
+  html[data-scroll] .main-column {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .main-sections {
+    display: flex;
+    flex-direction: column;
+    gap: var(--section-gap);
+  }
+
+  .main-footer {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  html[data-measuring] .main-shell {
+    height: auto;
+  }
+
+  html[data-measuring] .main-column {
+    flex: none;
+    overflow: visible;
+  }
+
+  /* Footer ------------------------------------------------------------------------------- */
+
+  .footer-status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: var(--line-height-12);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+
+  .footer-status-items {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: clip visible;
+  }
+
+  .footer-status-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .footer-separator {
+    color: var(--fg-muted);
+  }
+
+  .footer-version {
+    flex: none;
+    margin-left: auto;
+  }
+
+  /* An empty grid cell keeps the footer buttons where they stay when a third one joins. */
+  .footer-spacer {
+    display: block;
+  }
+
+  /* Progreso ----------------------------------------------------------------------------- */
+
+  .progreso-goal {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--line-height-12);
+  }
+
+  .progreso-goal-text {
+    flex: none;
+    color: var(--fg-muted);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+    white-space: nowrap;
+  }
+
+  /* Detail windows ----------------------------------------------------------------------- */
+
+  .detail-shell {
+    box-sizing: border-box;
+    height: 100%;
+    overflow-y: auto;
+    padding: var(--layout-margin);
+  }
+
+  .detail-main {
+    display: flex;
+    flex-direction: column;
+    gap: var(--section-gap);
+    min-height: 100%;
+  }
+
+  /* Fatal states (no bridge, crash) --------------------------------------------------------- */
+
+  .fatal {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--layout-margin);
+  }
+
+  /* Browser harness (`vite dev`, `?state=`): draw the window at its real size on the page. */
+  html[data-browser-harness] body {
+    overflow: auto;
+    background: var(--tile-2);
+  }
+
+  html[data-browser-harness] #root {
+    width: var(--layout-main-width);
+    height: var(--harness-window-height, 540px);
+    margin: var(--space-4);
+    background: var(--bg);
+    outline: var(--size-border) solid var(--border);
+  }
+
+  html[data-browser-harness][data-window='detail'] #root {
+    width: var(--layout-detail-width);
+  }
+}

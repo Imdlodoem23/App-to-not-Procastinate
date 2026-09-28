@@ -44,6 +44,60 @@ jobs:
         env:
           ASTRO_TELEMETRY_DISABLED: '1'
 
+  desktop-e2e:
+    # Playwright drives the built Electron app (no browser download): layout matrix, axe,
+    # flows and perf against the fake/mock guardian (docs/DESKTOP.md §12).
+    name: Desktop e2e (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      TZ: Europe/Madrid
+      LANG: es_ES.UTF-8
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Xvfb and fonts
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb fonts-noto-core
+      - name: Madrid time zone
+        if: runner.os == 'Windows'
+        run: tzutil /s "Romance Standard Time"
+      - name: Build
+        run: npm run build -w apps/desktop
+      - name: e2e
+        if: runner.os == 'Linux'
+        run: xvfb-run -a -s "-screen 0 2880x1800x24" npm run e2e -w apps/desktop
+      - name: e2e
+        if: runner.os == 'Windows'
+        run: npm run e2e -w apps/desktop
+      - name: Screenshots (docs/ui)
+        if: ${{ !cancelled() && runner.os == 'Linux' }}
+        run: npm run capture -w apps/desktop
+      - name: Upload screenshots
+        if: ${{ !cancelled() && runner.os == 'Linux' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-ui
+          path: docs/ui
+          retention-days: 14
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-e2e-results-${{ matrix.os }}
+          path: apps/desktop/test-results
+          retention-days: 7
+
   go:
     name: Guardian (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

@@ -40,7 +40,8 @@ const { values: args } = parseArgs({ options: { check: { type: 'boolean', defaul
 
 /** Imports every snapshot function through one esbuild bundle built in memory. */
 async function loadSnapshots() {
-  // esbuild reports a missing export as a build error naming the symbol and the module.
+  // A TS re-export of a missing name is silently dropped (it could be a type), so the
+  // loop below checks that each snapshot function really arrived.
   const lines = Object.values(SOURCES).map(
     ([modulePath, name]) => `export { ${name} } from ${JSON.stringify(modulePath)};`,
   );

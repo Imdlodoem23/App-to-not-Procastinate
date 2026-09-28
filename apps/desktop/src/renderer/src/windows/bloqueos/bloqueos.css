@@ -1,0 +1,228 @@
+/*
+ * Bloqueos window (PROMPT §10 «Ventanas de detalle»): the section pattern of the main window at
+ * 600 DIP, two columns where two decisions sit side by side (custom domains | apps, duration |
+ * end). Colors come only from tokens.css; no cards, shadows or separators.
+ */
+
+@layer components {
+  .blq {
+    display: flex;
+    flex-direction: column;
+    gap: var(--section-gap);
+    min-width: 0;
+  }
+
+  .blq-text,
+  .blq-note {
+    margin: 0;
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+
+  .blq-text {
+    font-size: var(--font-size-13);
+    line-height: var(--line-height-13);
+  }
+
+  .blq-note,
+  .blq-muted {
+    color: var(--fg-muted);
+  }
+
+  .blq-label {
+    color: var(--fg-muted);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+
+  /* Help lines that report a result may wrap here (the detail window scrolls). */
+  .c-help.blq-wrap {
+    white-space: normal;
+    overflow: visible;
+    min-height: var(--line-height-12);
+  }
+
+  /* Two decisions side by side. */
+  .blq-two {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+    align-items: start;
+  }
+
+  .blq-col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+
+  .blq-field-row {
+    display: flex;
+    gap: var(--layout-tile-gap);
+    min-width: 0;
+  }
+
+  .blq-field-row > .c-field {
+    flex: 1 1 auto;
+  }
+
+  .blq-field-row > .c-tile {
+    flex: none;
+    width: 96px;
+  }
+
+  /* Catalog groups ------------------------------------------------------------------------ */
+
+  .blq-groups,
+  .blq-results {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .blq-group-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    min-height: var(--size-min-target);
+  }
+
+  /* «Otros» has no checkbox: its name lines up with the category names. */
+  .blq-group-name {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: var(--size-min-target);
+    padding-left: 24px;
+  }
+
+  .blq-group > .blq-note {
+    padding-left: 24px;
+  }
+
+  .blq-services {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    column-gap: var(--space-3);
+    padding-left: 24px;
+  }
+
+  .blq-results > .blq-services {
+    padding-left: 0;
+  }
+
+  .blq-services .c-check-label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* Entry and suggestion chips (24 px, round like the main window's chips; 32 px hit area). */
+  .blq-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-1);
+    padding: var(--space-1) 0;
+  }
+
+  .blq-chip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    max-width: 100%;
+    height: 24px;
+    padding: 0 var(--space-2);
+    border: var(--size-border) solid var(--border);
+    border-radius: 999px;
+    background: var(--tile);
+    color: var(--fg);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+    transition: background-color var(--duration-hover) linear;
+  }
+
+  .blq-chip::after {
+    content: '';
+    position: absolute;
+    inset: -4px 0;
+  }
+
+  .blq-chip:hover {
+    background: var(--tile-hover);
+  }
+
+  .blq-chip[data-kind='suggestion'] {
+    border-style: dashed;
+    border-color: var(--control);
+  }
+
+  .blq-chip-text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .blq-chip-icon {
+    color: var(--fg-muted);
+  }
+
+  /* Rows ------------------------------------------------------------------------------------ */
+
+  .blq-list {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .blq-block-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--size-block-row);
+  }
+
+  .blq-block-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .blq-block-until {
+    flex: none;
+    color: var(--fg-muted);
+    white-space: nowrap;
+  }
+
+  .blq-rows {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .blq-rows .c-settings-title,
+  .blq-rows .c-settings-desc {
+    overflow-wrap: anywhere;
+  }
+
+  .blq-row-actions {
+    display: flex;
+    gap: var(--layout-tile-gap);
+  }
+
+  .blq-row-actions > .c-tile {
+    width: 88px;
+  }
+
+  .blq-inline {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  /* A row of two equal tiles («Guardar como plantilla | Bloquear…»). */
+  .blq-row-2 .c-tilegrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

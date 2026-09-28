@@ -1,0 +1,4949 @@
+{
+  "generatedAt": "2026-09-28T02:35:58.102Z",
+  "entries": [
+    {
+      "state": "idle",
+      "label": "Reposo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "idle-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 438
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "one-block",
+      "label": "Un bloqueo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "one-block-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 455
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "compact-density",
+      "label": "Densidad compacta (1366×768 al 125 %)",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "compact",
+      "shots": [
+        {
+          "file": "compact-density-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 625
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "bloqueos",
+      "label": "Ventana Bloqueos",
+      "window": "bloqueos",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "bloqueos-light-1366x768@125.png",
+          "window": "detail",
+          "width": 753,
+          "height": 603
+        },
+        {
+          "file": "bloqueos-light-1366x768@125.main.png",
+          "window": "main",
+          "width": 553,
+          "height": 455
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "idle",
+      "label": "Reposo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "idle-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 438
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "one-block",
+      "label": "Un bloqueo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "one-block-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 455
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "compact-density",
+      "label": "Densidad compacta (1366×768 al 125 %)",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "compact",
+      "shots": [
+        {
+          "file": "compact-density-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 625
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "bloqueos",
+      "label": "Ventana Bloqueos",
+      "window": "bloqueos",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "bloqueos-dark-1366x768@125.png",
+          "window": "detail",
+          "width": 753,
+          "height": 603
+        },
+        {
+          "file": "bloqueos-dark-1366x768@125.main.png",
+          "window": "main",
+          "width": 553,
+          "height": 455
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "idle",
+      "label": "Reposo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "idle-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 524
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "one-block",
+      "label": "Un bloqueo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "one-block-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 546
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "compact-density",
+      "label": "Densidad compacta (1366×768 al 125 %)",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "compact-density-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 804
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "bloqueos",
+      "label": "Ventana Bloqueos",
+      "window": "bloqueos",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "bloqueos-light-1920x1080@150.png",
+          "window": "detail",
+          "width": 902,
+          "height": 722
+        },
+        {
+          "file": "bloqueos-light-1920x1080@150.main.png",
+          "window": "main",
+          "width": 662,
+          "height": 546
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "idle",
+      "label": "Reposo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "idle-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 524
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "one-block",
+      "label": "Un bloqueo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "one-block-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 546
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "compact-density",
+      "label": "Densidad compacta (1366×768 al 125 %)",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "compact-density-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 804
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "bloqueos",
+      "label": "Ventana Bloqueos",
+      "window": "bloqueos",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "bloqueos-dark-1920x1080@150.png",
+          "window": "detail",
+          "width": 902,
+          "height": 722
+        },
+        {
+          "file": "bloqueos-dark-1920x1080@150.main.png",
+          "window": "main",
+          "width": 662,
+          "height": 546
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "idle",
+      "label": "Reposo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "idle-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "one-block",
+      "label": "Un bloqueo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "one-block-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "compact-density",
+      "label": "Densidad compacta (1366×768 al 125 %)",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "compact-density-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 535
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "bloqueos",
+      "label": "Ventana Bloqueos",
+      "window": "bloqueos",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "bloqueos-light-1366x768@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "bloqueos-light-1366x768@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "idle",
+      "label": "Reposo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "idle-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "one-block",
+      "label": "Un bloqueo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "one-block-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "compact-density",
+      "label": "Densidad compacta (1366×768 al 125 %)",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "compact-density-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 535
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "bloqueos",
+      "label": "Ventana Bloqueos",
+      "window": "bloqueos",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "bloqueos-dark-1366x768@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "bloqueos-dark-1366x768@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "idle",
+      "label": "Reposo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "idle-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "one-block",
+      "label": "Un bloqueo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "one-block-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "compact-density",
+      "label": "Densidad compacta (1366×768 al 125 %)",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "compact-density-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 535
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "bloqueos",
+      "label": "Ventana Bloqueos",
+      "window": "bloqueos",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "bloqueos-light-1920x1080@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "bloqueos-light-1920x1080@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "idle",
+      "label": "Reposo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "idle-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "one-block",
+      "label": "Un bloqueo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "one-block-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "compact-density",
+      "label": "Densidad compacta (1366×768 al 125 %)",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "compact-density-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 535
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "bloqueos",
+      "label": "Ventana Bloqueos",
+      "window": "bloqueos",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "bloqueos-dark-1920x1080@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "bloqueos-dark-1920x1080@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "typing",
+      "label": "Escribiendo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "typing-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 438
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "not-understood",
+      "label": "Frase no entendida",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "not-understood-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 438
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-normal",
+      "label": "Confirmación",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-normal-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 578
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-over-4h",
+      "label": "Confirmación de más de 4 h",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-over-4h-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 578
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-hardcore",
+      "label": "Confirmación Hardcore",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-hardcore-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 578
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-exam",
+      "label": "Confirmación Examen",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-exam-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 513
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "pending",
+      "label": "Bloqueando…",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "pending-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 578
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "guardian-timeout",
+      "label": "El guardián no responde",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "guardian-timeout-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 578
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "three-blocks",
+      "label": "Tres bloqueos",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "three-blocks-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 535
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "extend-undo",
+      "label": "Ampliar con deshacer",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "extend-undo-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 455
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "finished",
+      "label": "Terminado",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "finished-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 438
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergency-waiting",
+      "label": "Emergencia: esperando",
+      "window": "emergencia",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergency-waiting-light-1366x768@125.png",
+          "window": "detail",
+          "width": 750,
+          "height": 600
+        },
+        {
+          "file": "emergency-waiting-light-1366x768@125.main.png",
+          "window": "main",
+          "width": 553,
+          "height": 455
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergency-ready",
+      "label": "Emergencia: lista para desbloquear",
+      "window": "emergencia",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergency-ready-light-1366x768@125.png",
+          "window": "detail",
+          "width": 750,
+          "height": 600
+        },
+        {
+          "file": "emergency-ready-light-1366x768@125.main.png",
+          "window": "main",
+          "width": 553,
+          "height": 455
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "punishment",
+      "label": "Castigo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "punishment-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 350
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "negative-points",
+      "label": "Puntos en negativo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "negative-points-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 438
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "protection-broken",
+      "label": "Protección rota (guardián detenido)",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "protection-broken-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 553
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "extension-missing",
+      "label": "Falta la extensión",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "extension-missing-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 590
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergencia",
+      "label": "Ventana Emergencia",
+      "window": "emergencia",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergencia-light-1366x768@125.png",
+          "window": "detail",
+          "width": 753,
+          "height": 603
+        },
+        {
+          "file": "emergencia-light-1366x768@125.main.png",
+          "window": "main",
+          "width": 553,
+          "height": 455
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes",
+      "label": "Ventana Ajustes",
+      "window": "ajustes",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-light-1366x768@125.png",
+          "window": "detail",
+          "width": 753,
+          "height": 603
+        },
+        {
+          "file": "ajustes-light-1366x768@125.main.png",
+          "window": "main",
+          "width": 553,
+          "height": 438
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "hardcore-block",
+      "label": "Bloqueo Hardcore",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "hardcore-block-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 455
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "many-blocks",
+      "label": "Seis bloqueos («y 3 más…»)",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "many-blocks-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 565
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "boot-hold",
+      "label": "Comprobando la hora",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "boot-hold-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 320
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "not-installed",
+      "label": "Guardián no instalado",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "not-installed-light-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 503
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "bloqueos-prefilled",
+      "label": "Bloqueos con lo que se entendió",
+      "window": "bloqueos",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "bloqueos-prefilled-light-1366x768@125.png",
+          "window": "detail",
+          "width": 753,
+          "height": 603
+        },
+        {
+          "file": "bloqueos-prefilled-light-1366x768@125.main.png",
+          "window": "main",
+          "width": 553,
+          "height": 438
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes-pairing",
+      "label": "Ajustes: código de emparejamiento",
+      "window": "ajustes",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-pairing-light-1366x768@125.png",
+          "window": "detail",
+          "width": 753,
+          "height": 603
+        },
+        {
+          "file": "ajustes-pairing-light-1366x768@125.main.png",
+          "window": "main",
+          "width": 553,
+          "height": 438
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes-delete",
+      "label": "Ajustes: borrar todos mis datos",
+      "window": "ajustes",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-delete-light-1366x768@125.png",
+          "window": "detail",
+          "width": 753,
+          "height": 603
+        },
+        {
+          "file": "ajustes-delete-light-1366x768@125.main.png",
+          "window": "main",
+          "width": 553,
+          "height": 438
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "typing",
+      "label": "Escribiendo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "typing-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 438
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "not-understood",
+      "label": "Frase no entendida",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "not-understood-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 438
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-normal",
+      "label": "Confirmación",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-normal-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 578
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-over-4h",
+      "label": "Confirmación de más de 4 h",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-over-4h-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 578
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-hardcore",
+      "label": "Confirmación Hardcore",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-hardcore-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 578
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-exam",
+      "label": "Confirmación Examen",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-exam-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 513
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "pending",
+      "label": "Bloqueando…",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "pending-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 578
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "guardian-timeout",
+      "label": "El guardián no responde",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "guardian-timeout-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 578
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "three-blocks",
+      "label": "Tres bloqueos",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "three-blocks-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 535
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "extend-undo",
+      "label": "Ampliar con deshacer",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "extend-undo-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 455
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "finished",
+      "label": "Terminado",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "finished-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 438
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergency-waiting",
+      "label": "Emergencia: esperando",
+      "window": "emergencia",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergency-waiting-dark-1366x768@125.png",
+          "window": "detail",
+          "width": 753,
+          "height": 603
+        },
+        {
+          "file": "emergency-waiting-dark-1366x768@125.main.png",
+          "window": "main",
+          "width": 553,
+          "height": 455
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergency-ready",
+      "label": "Emergencia: lista para desbloquear",
+      "window": "emergencia",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergency-ready-dark-1366x768@125.png",
+          "window": "detail",
+          "width": 753,
+          "height": 603
+        },
+        {
+          "file": "emergency-ready-dark-1366x768@125.main.png",
+          "window": "main",
+          "width": 553,
+          "height": 455
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "punishment",
+      "label": "Castigo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "punishment-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 350
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "negative-points",
+      "label": "Puntos en negativo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "negative-points-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 438
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "protection-broken",
+      "label": "Protección rota (guardián detenido)",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "protection-broken-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 553
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "extension-missing",
+      "label": "Falta la extensión",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "extension-missing-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 590
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergencia",
+      "label": "Ventana Emergencia",
+      "window": "emergencia",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergencia-dark-1366x768@125.png",
+          "window": "detail",
+          "width": 753,
+          "height": 603
+        },
+        {
+          "file": "emergencia-dark-1366x768@125.main.png",
+          "window": "main",
+          "width": 553,
+          "height": 455
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes",
+      "label": "Ventana Ajustes",
+      "window": "ajustes",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-dark-1366x768@125.png",
+          "window": "detail",
+          "width": 753,
+          "height": 603
+        },
+        {
+          "file": "ajustes-dark-1366x768@125.main.png",
+          "window": "main",
+          "width": 553,
+          "height": 438
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "hardcore-block",
+      "label": "Bloqueo Hardcore",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "hardcore-block-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 455
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "many-blocks",
+      "label": "Seis bloqueos («y 3 más…»)",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "many-blocks-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 565
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "boot-hold",
+      "label": "Comprobando la hora",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "boot-hold-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 320
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "not-installed",
+      "label": "Guardián no instalado",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "not-installed-dark-1366x768@125.png",
+          "window": "main",
+          "width": 553,
+          "height": 503
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "bloqueos-prefilled",
+      "label": "Bloqueos con lo que se entendió",
+      "window": "bloqueos",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "bloqueos-prefilled-dark-1366x768@125.png",
+          "window": "detail",
+          "width": 753,
+          "height": 603
+        },
+        {
+          "file": "bloqueos-prefilled-dark-1366x768@125.main.png",
+          "window": "main",
+          "width": 553,
+          "height": 438
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes-pairing",
+      "label": "Ajustes: código de emparejamiento",
+      "window": "ajustes",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-pairing-dark-1366x768@125.png",
+          "window": "detail",
+          "width": 753,
+          "height": 603
+        },
+        {
+          "file": "ajustes-pairing-dark-1366x768@125.main.png",
+          "window": "main",
+          "width": 553,
+          "height": 438
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes-delete",
+      "label": "Ajustes: borrar todos mis datos",
+      "window": "ajustes",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-delete-dark-1366x768@125.png",
+          "window": "detail",
+          "width": 753,
+          "height": 603
+        },
+        {
+          "file": "ajustes-delete-dark-1366x768@125.main.png",
+          "window": "main",
+          "width": 553,
+          "height": 438
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "typing",
+      "label": "Escribiendo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "typing-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 524
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "not-understood",
+      "label": "Frase no entendida",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "not-understood-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 524
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-normal",
+      "label": "Confirmación",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-normal-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 692
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-over-4h",
+      "label": "Confirmación de más de 4 h",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-over-4h-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 692
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-hardcore",
+      "label": "Confirmación Hardcore",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-hardcore-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 692
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-exam",
+      "label": "Confirmación Examen",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-exam-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 614
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "pending",
+      "label": "Bloqueando…",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "pending-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 692
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "guardian-timeout",
+      "label": "El guardián no responde",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "guardian-timeout-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 692
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "three-blocks",
+      "label": "Tres bloqueos",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "three-blocks-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 642
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "extend-undo",
+      "label": "Ampliar con deshacer",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "extend-undo-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 546
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "finished",
+      "label": "Terminado",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "finished-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 524
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergency-waiting",
+      "label": "Emergencia: esperando",
+      "window": "emergencia",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergency-waiting-light-1920x1080@150.png",
+          "window": "detail",
+          "width": 900,
+          "height": 720
+        },
+        {
+          "file": "emergency-waiting-light-1920x1080@150.main.png",
+          "window": "main",
+          "width": 662,
+          "height": 546
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergency-ready",
+      "label": "Emergencia: lista para desbloquear",
+      "window": "emergencia",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergency-ready-light-1920x1080@150.png",
+          "window": "detail",
+          "width": 900,
+          "height": 720
+        },
+        {
+          "file": "emergency-ready-light-1920x1080@150.main.png",
+          "window": "main",
+          "width": 662,
+          "height": 546
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "punishment",
+      "label": "Castigo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "punishment-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 420
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "negative-points",
+      "label": "Puntos en negativo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "negative-points-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 524
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "protection-broken",
+      "label": "Protección rota (guardián detenido)",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "protection-broken-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 662
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "extension-missing",
+      "label": "Falta la extensión",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "extension-missing-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 708
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergencia",
+      "label": "Ventana Emergencia",
+      "window": "emergencia",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergencia-light-1920x1080@150.png",
+          "window": "detail",
+          "width": 902,
+          "height": 722
+        },
+        {
+          "file": "emergencia-light-1920x1080@150.main.png",
+          "window": "main",
+          "width": 662,
+          "height": 546
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes",
+      "label": "Ventana Ajustes",
+      "window": "ajustes",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-light-1920x1080@150.png",
+          "window": "detail",
+          "width": 902,
+          "height": 722
+        },
+        {
+          "file": "ajustes-light-1920x1080@150.main.png",
+          "window": "main",
+          "width": 662,
+          "height": 524
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "hardcore-block",
+      "label": "Bloqueo Hardcore",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "hardcore-block-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 546
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "many-blocks",
+      "label": "Seis bloqueos («y 3 más…»)",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "many-blocks-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 678
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "boot-hold",
+      "label": "Comprobando la hora",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "boot-hold-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 384
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "not-installed",
+      "label": "Guardián no instalado",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "not-installed-light-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 602
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "bloqueos-prefilled",
+      "label": "Bloqueos con lo que se entendió",
+      "window": "bloqueos",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "bloqueos-prefilled-light-1920x1080@150.png",
+          "window": "detail",
+          "width": 902,
+          "height": 722
+        },
+        {
+          "file": "bloqueos-prefilled-light-1920x1080@150.main.png",
+          "window": "main",
+          "width": 662,
+          "height": 524
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes-pairing",
+      "label": "Ajustes: código de emparejamiento",
+      "window": "ajustes",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-pairing-light-1920x1080@150.png",
+          "window": "detail",
+          "width": 902,
+          "height": 722
+        },
+        {
+          "file": "ajustes-pairing-light-1920x1080@150.main.png",
+          "window": "main",
+          "width": 662,
+          "height": 524
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes-delete",
+      "label": "Ajustes: borrar todos mis datos",
+      "window": "ajustes",
+      "theme": "light",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-delete-light-1920x1080@150.png",
+          "window": "detail",
+          "width": 902,
+          "height": 722
+        },
+        {
+          "file": "ajustes-delete-light-1920x1080@150.main.png",
+          "window": "main",
+          "width": 662,
+          "height": 524
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "typing",
+      "label": "Escribiendo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "typing-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 524
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "not-understood",
+      "label": "Frase no entendida",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "not-understood-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 524
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-normal",
+      "label": "Confirmación",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-normal-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 692
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-over-4h",
+      "label": "Confirmación de más de 4 h",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-over-4h-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 692
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-hardcore",
+      "label": "Confirmación Hardcore",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-hardcore-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 692
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-exam",
+      "label": "Confirmación Examen",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-exam-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 614
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "pending",
+      "label": "Bloqueando…",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "pending-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 692
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "guardian-timeout",
+      "label": "El guardián no responde",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "guardian-timeout-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 692
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "three-blocks",
+      "label": "Tres bloqueos",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "three-blocks-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 642
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "extend-undo",
+      "label": "Ampliar con deshacer",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "extend-undo-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 546
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "finished",
+      "label": "Terminado",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "finished-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 524
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergency-waiting",
+      "label": "Emergencia: esperando",
+      "window": "emergencia",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergency-waiting-dark-1920x1080@150.png",
+          "window": "detail",
+          "width": 902,
+          "height": 722
+        },
+        {
+          "file": "emergency-waiting-dark-1920x1080@150.main.png",
+          "window": "main",
+          "width": 662,
+          "height": 546
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergency-ready",
+      "label": "Emergencia: lista para desbloquear",
+      "window": "emergencia",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergency-ready-dark-1920x1080@150.png",
+          "window": "detail",
+          "width": 902,
+          "height": 722
+        },
+        {
+          "file": "emergency-ready-dark-1920x1080@150.main.png",
+          "window": "main",
+          "width": 662,
+          "height": 546
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "punishment",
+      "label": "Castigo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "punishment-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 420
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "negative-points",
+      "label": "Puntos en negativo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "negative-points-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 524
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "protection-broken",
+      "label": "Protección rota (guardián detenido)",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "protection-broken-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 662
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "extension-missing",
+      "label": "Falta la extensión",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "extension-missing-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 708
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergencia",
+      "label": "Ventana Emergencia",
+      "window": "emergencia",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergencia-dark-1920x1080@150.png",
+          "window": "detail",
+          "width": 902,
+          "height": 722
+        },
+        {
+          "file": "emergencia-dark-1920x1080@150.main.png",
+          "window": "main",
+          "width": 662,
+          "height": 546
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes",
+      "label": "Ventana Ajustes",
+      "window": "ajustes",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-dark-1920x1080@150.png",
+          "window": "detail",
+          "width": 902,
+          "height": 722
+        },
+        {
+          "file": "ajustes-dark-1920x1080@150.main.png",
+          "window": "main",
+          "width": 662,
+          "height": 524
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "hardcore-block",
+      "label": "Bloqueo Hardcore",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "hardcore-block-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 546
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "many-blocks",
+      "label": "Seis bloqueos («y 3 más…»)",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "many-blocks-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 678
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "boot-hold",
+      "label": "Comprobando la hora",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "boot-hold-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 384
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "not-installed",
+      "label": "Guardián no instalado",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "not-installed-dark-1920x1080@150.png",
+          "window": "main",
+          "width": 662,
+          "height": 602
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "bloqueos-prefilled",
+      "label": "Bloqueos con lo que se entendió",
+      "window": "bloqueos",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "bloqueos-prefilled-dark-1920x1080@150.png",
+          "window": "detail",
+          "width": 902,
+          "height": 722
+        },
+        {
+          "file": "bloqueos-prefilled-dark-1920x1080@150.main.png",
+          "window": "main",
+          "width": 662,
+          "height": 524
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes-pairing",
+      "label": "Ajustes: código de emparejamiento",
+      "window": "ajustes",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-pairing-dark-1920x1080@150.png",
+          "window": "detail",
+          "width": 902,
+          "height": 722
+        },
+        {
+          "file": "ajustes-pairing-dark-1920x1080@150.main.png",
+          "window": "main",
+          "width": 662,
+          "height": 524
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes-delete",
+      "label": "Ajustes: borrar todos mis datos",
+      "window": "ajustes",
+      "theme": "dark",
+      "preset": "1920x1080@150",
+      "presetLabel": "1920×1080 al 150 %",
+      "scaleFactor": 1.5,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-delete-dark-1920x1080@150.png",
+          "window": "detail",
+          "width": 902,
+          "height": 722
+        },
+        {
+          "file": "ajustes-delete-dark-1920x1080@150.main.png",
+          "window": "main",
+          "width": 662,
+          "height": 524
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "typing",
+      "label": "Escribiendo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "typing-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "not-understood",
+      "label": "Frase no entendida",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "not-understood-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-normal",
+      "label": "Confirmación",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-normal-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-over-4h",
+      "label": "Confirmación de más de 4 h",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-over-4h-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-hardcore",
+      "label": "Confirmación Hardcore",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-hardcore-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-exam",
+      "label": "Confirmación Examen",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-exam-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 408
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "pending",
+      "label": "Bloqueando…",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "pending-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "guardian-timeout",
+      "label": "El guardián no responde",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "guardian-timeout-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "three-blocks",
+      "label": "Tres bloqueos",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "three-blocks-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 427
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "extend-undo",
+      "label": "Ampliar con deshacer",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "extend-undo-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "finished",
+      "label": "Terminado",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "finished-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergency-waiting",
+      "label": "Emergencia: esperando",
+      "window": "emergencia",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergency-waiting-light-1366x768@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "emergency-waiting-light-1366x768@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergency-ready",
+      "label": "Emergencia: lista para desbloquear",
+      "window": "emergencia",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergency-ready-light-1366x768@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "emergency-ready-light-1366x768@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "punishment",
+      "label": "Castigo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "punishment-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 279
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "negative-points",
+      "label": "Puntos en negativo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "negative-points-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "protection-broken",
+      "label": "Protección rota (guardián detenido)",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "protection-broken-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 440
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "extension-missing",
+      "label": "Falta la extensión",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "extension-missing-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 471
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergencia",
+      "label": "Ventana Emergencia",
+      "window": "emergencia",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergencia-light-1366x768@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "emergencia-light-1366x768@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes",
+      "label": "Ventana Ajustes",
+      "window": "ajustes",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-light-1366x768@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "ajustes-light-1366x768@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "hardcore-block",
+      "label": "Bloqueo Hardcore",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "hardcore-block-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "many-blocks",
+      "label": "Seis bloqueos («y 3 más…»)",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "many-blocks-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 451
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "boot-hold",
+      "label": "Comprobando la hora",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "boot-hold-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 255
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "not-installed",
+      "label": "Guardián no instalado",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "not-installed-light-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 400
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "bloqueos-prefilled",
+      "label": "Bloqueos con lo que se entendió",
+      "window": "bloqueos",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "bloqueos-prefilled-light-1366x768@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "bloqueos-prefilled-light-1366x768@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes-pairing",
+      "label": "Ajustes: código de emparejamiento",
+      "window": "ajustes",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-pairing-light-1366x768@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "ajustes-pairing-light-1366x768@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes-delete",
+      "label": "Ajustes: borrar todos mis datos",
+      "window": "ajustes",
+      "theme": "light",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-delete-light-1366x768@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "ajustes-delete-light-1366x768@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "typing",
+      "label": "Escribiendo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "typing-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "not-understood",
+      "label": "Frase no entendida",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "not-understood-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-normal",
+      "label": "Confirmación",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-normal-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-over-4h",
+      "label": "Confirmación de más de 4 h",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-over-4h-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-hardcore",
+      "label": "Confirmación Hardcore",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-hardcore-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-exam",
+      "label": "Confirmación Examen",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-exam-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 408
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "pending",
+      "label": "Bloqueando…",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "pending-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "guardian-timeout",
+      "label": "El guardián no responde",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "guardian-timeout-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "three-blocks",
+      "label": "Tres bloqueos",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "three-blocks-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 427
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "extend-undo",
+      "label": "Ampliar con deshacer",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "extend-undo-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "finished",
+      "label": "Terminado",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "finished-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergency-waiting",
+      "label": "Emergencia: esperando",
+      "window": "emergencia",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergency-waiting-dark-1366x768@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "emergency-waiting-dark-1366x768@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergency-ready",
+      "label": "Emergencia: lista para desbloquear",
+      "window": "emergencia",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergency-ready-dark-1366x768@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "emergency-ready-dark-1366x768@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "punishment",
+      "label": "Castigo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "punishment-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 279
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "negative-points",
+      "label": "Puntos en negativo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "negative-points-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "protection-broken",
+      "label": "Protección rota (guardián detenido)",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "protection-broken-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 440
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "extension-missing",
+      "label": "Falta la extensión",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "extension-missing-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 471
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergencia",
+      "label": "Ventana Emergencia",
+      "window": "emergencia",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergencia-dark-1366x768@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "emergencia-dark-1366x768@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes",
+      "label": "Ventana Ajustes",
+      "window": "ajustes",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-dark-1366x768@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "ajustes-dark-1366x768@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "hardcore-block",
+      "label": "Bloqueo Hardcore",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "hardcore-block-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "many-blocks",
+      "label": "Seis bloqueos («y 3 más…»)",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "many-blocks-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 451
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "boot-hold",
+      "label": "Comprobando la hora",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "boot-hold-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 255
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "not-installed",
+      "label": "Guardián no instalado",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "not-installed-dark-1366x768@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 400
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "bloqueos-prefilled",
+      "label": "Bloqueos con lo que se entendió",
+      "window": "bloqueos",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "bloqueos-prefilled-dark-1366x768@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "bloqueos-prefilled-dark-1366x768@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes-pairing",
+      "label": "Ajustes: código de emparejamiento",
+      "window": "ajustes",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-pairing-dark-1366x768@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "ajustes-pairing-dark-1366x768@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes-delete",
+      "label": "Ajustes: borrar todos mis datos",
+      "window": "ajustes",
+      "theme": "dark",
+      "preset": "1366x768@100",
+      "presetLabel": "1366×768 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-delete-dark-1366x768@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "ajustes-delete-dark-1366x768@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "typing",
+      "label": "Escribiendo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "typing-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "not-understood",
+      "label": "Frase no entendida",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "not-understood-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-normal",
+      "label": "Confirmación",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-normal-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-over-4h",
+      "label": "Confirmación de más de 4 h",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-over-4h-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-hardcore",
+      "label": "Confirmación Hardcore",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-hardcore-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-exam",
+      "label": "Confirmación Examen",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-exam-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 408
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "pending",
+      "label": "Bloqueando…",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "pending-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "guardian-timeout",
+      "label": "El guardián no responde",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "guardian-timeout-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "three-blocks",
+      "label": "Tres bloqueos",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "three-blocks-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 427
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "extend-undo",
+      "label": "Ampliar con deshacer",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "extend-undo-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "finished",
+      "label": "Terminado",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "finished-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergency-waiting",
+      "label": "Emergencia: esperando",
+      "window": "emergencia",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergency-waiting-light-1920x1080@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "emergency-waiting-light-1920x1080@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergency-ready",
+      "label": "Emergencia: lista para desbloquear",
+      "window": "emergencia",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergency-ready-light-1920x1080@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "emergency-ready-light-1920x1080@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "punishment",
+      "label": "Castigo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "punishment-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 279
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "negative-points",
+      "label": "Puntos en negativo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "negative-points-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "protection-broken",
+      "label": "Protección rota (guardián detenido)",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "protection-broken-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 440
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "extension-missing",
+      "label": "Falta la extensión",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "extension-missing-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 471
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergencia",
+      "label": "Ventana Emergencia",
+      "window": "emergencia",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergencia-light-1920x1080@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "emergencia-light-1920x1080@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes",
+      "label": "Ventana Ajustes",
+      "window": "ajustes",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-light-1920x1080@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "ajustes-light-1920x1080@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "hardcore-block",
+      "label": "Bloqueo Hardcore",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "hardcore-block-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "many-blocks",
+      "label": "Seis bloqueos («y 3 más…»)",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "many-blocks-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 451
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "boot-hold",
+      "label": "Comprobando la hora",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "boot-hold-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 255
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "not-installed",
+      "label": "Guardián no instalado",
+      "window": "main",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "not-installed-light-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 400
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "bloqueos-prefilled",
+      "label": "Bloqueos con lo que se entendió",
+      "window": "bloqueos",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "bloqueos-prefilled-light-1920x1080@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "bloqueos-prefilled-light-1920x1080@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes-pairing",
+      "label": "Ajustes: código de emparejamiento",
+      "window": "ajustes",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-pairing-light-1920x1080@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "ajustes-pairing-light-1920x1080@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes-delete",
+      "label": "Ajustes: borrar todos mis datos",
+      "window": "ajustes",
+      "theme": "light",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-delete-light-1920x1080@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "ajustes-delete-light-1920x1080@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "typing",
+      "label": "Escribiendo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "typing-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "not-understood",
+      "label": "Frase no entendida",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "not-understood-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-normal",
+      "label": "Confirmación",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-normal-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-over-4h",
+      "label": "Confirmación de más de 4 h",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-over-4h-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-hardcore",
+      "label": "Confirmación Hardcore",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-hardcore-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "confirm-exam",
+      "label": "Confirmación Examen",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-exam-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 408
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "pending",
+      "label": "Bloqueando…",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "pending-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "guardian-timeout",
+      "label": "El guardián no responde",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "guardian-timeout-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 460
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "three-blocks",
+      "label": "Tres bloqueos",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "three-blocks-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 427
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "extend-undo",
+      "label": "Ampliar con deshacer",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "extend-undo-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "finished",
+      "label": "Terminado",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "finished-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergency-waiting",
+      "label": "Emergencia: esperando",
+      "window": "emergencia",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergency-waiting-dark-1920x1080@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "emergency-waiting-dark-1920x1080@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergency-ready",
+      "label": "Emergencia: lista para desbloquear",
+      "window": "emergencia",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergency-ready-dark-1920x1080@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "emergency-ready-dark-1920x1080@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "punishment",
+      "label": "Castigo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "punishment-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 279
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "negative-points",
+      "label": "Puntos en negativo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "negative-points-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "protection-broken",
+      "label": "Protección rota (guardián detenido)",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "protection-broken-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 440
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "extension-missing",
+      "label": "Falta la extensión",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "extension-missing-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 471
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "emergencia",
+      "label": "Ventana Emergencia",
+      "window": "emergencia",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergencia-dark-1920x1080@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "emergencia-dark-1920x1080@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes",
+      "label": "Ventana Ajustes",
+      "window": "ajustes",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-dark-1920x1080@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "ajustes-dark-1920x1080@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "hardcore-block",
+      "label": "Bloqueo Hardcore",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "hardcore-block-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 363
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "many-blocks",
+      "label": "Seis bloqueos («y 3 más…»)",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "many-blocks-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 451
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "boot-hold",
+      "label": "Comprobando la hora",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "boot-hold-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 255
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "not-installed",
+      "label": "Guardián no instalado",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "not-installed-dark-1920x1080@100.png",
+          "window": "main",
+          "width": 440,
+          "height": 400
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "bloqueos-prefilled",
+      "label": "Bloqueos con lo que se entendió",
+      "window": "bloqueos",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "bloqueos-prefilled-dark-1920x1080@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "bloqueos-prefilled-dark-1920x1080@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes-pairing",
+      "label": "Ajustes: código de emparejamiento",
+      "window": "ajustes",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-pairing-dark-1920x1080@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "ajustes-pairing-dark-1920x1080@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    },
+    {
+      "state": "ajustes-delete",
+      "label": "Ajustes: borrar todos mis datos",
+      "window": "ajustes",
+      "theme": "dark",
+      "preset": "1920x1080@100",
+      "presetLabel": "1920×1080 al 100 %",
+      "scaleFactor": 1,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-delete-dark-1920x1080@100.png",
+          "window": "detail",
+          "width": 600,
+          "height": 480
+        },
+        {
+          "file": "ajustes-delete-dark-1920x1080@100.main.png",
+          "window": "main",
+          "width": 440,
+          "height": 348
+        }
+      ],
+      "settled": true
+    }
+  ]
+}

@@ -15,7 +15,7 @@ Mientras no lo hagas: el CI y las releases funcionan igual (`release.yml` tambi�
 
 La red de la sesión en la nube bloquea estos dominios. Las pruebas que los necesitan se hacen en GitHub Actions:
 
-- `www.apple.com`: las capturas de referencia de la web se hacen en un workflow.
+- `www.apple.com`: las capturas de referencia de la web las hace el workflow **Apple reference** (`apple-reference.yml`, manual). Hay que lanzarlo una vez (Actions → Apple reference → Run workflow) y pasar sus medidas a `docs/web/referencia-apple.md`; hasta entonces, la columna de apple.com de ese documento está pendiente.
 - `cdn.jsdelivr.net`
 - `api.render.com`: se usa el conector de Render, si está disponible.
 

@@ -1,0 +1,379 @@
+/**
+ * The Ajustes detail window (PROMPT §9 «Ajustes», §10 «Ventanas de detalle › Ajustes»;
+ * docs/DESKTOP.md §7.7). Default export, no props: `DetailWindow` loads it lazily.
+ *
+ * G-Helper's «Extra»: groups of 48 px rows, title and description on the left and the control on
+ * the right, everything applied at once (no «Guardar»). Opened on a group («Detalles…» asks for
+ * Sistema), it scrolls there.
+ */
+import {
+  ClipboardCopy,
+  Database,
+  KeyRound,
+  MonitorCog,
+  Shield,
+  SlidersHorizontal,
+  Trash,
+  Wrench,
+} from 'lucide-react';
+import { useLayoutEffect } from 'react';
+import {
+  Countdown,
+  Field,
+  HelpLine,
+  Section,
+  Segmented,
+  SettingsRow,
+  StatusDot,
+  Tile,
+  TileRow,
+  Toggle,
+  settingsRowIds,
+} from '../../components';
+import type { ThemePreference } from '@centrate/shared/design/tokens';
+import { useRepair } from '../../hooks/useRepair';
+import { RENDERER_ES } from '../../i18n/es';
+import { useAppStore } from '../../store/context';
+import type { DefaultBlockMode } from '../../../../shared/ui-state';
+import { AJUSTES_ES } from './i18n/es';
+import { useAjustes, type AjustesApi, type AjustesNotice } from './useAjustes';
+import { AJUSTES_IDS, type AjustesView } from './view';
+import './ajustes.css';
+
+const A = AJUSTES_ES;
+
+function Notice(props: { notice: AjustesNotice | undefined }): React.JSX.Element | null {
+  if (!props.notice) return null;
+  return (
+    <HelpLine tone={props.notice.tone} live="polite" className="aj-wrap">
+      {props.notice.text}
+    </HelpLine>
+  );
+}
+
+function GeneralGroup(props: { view: AjustesView['general']; api: AjustesApi }): React.JSX.Element {
+  const { view, api } = props;
+  const autostart = settingsRowIds('aj-autostart');
+  return (
+    <Section id={AJUSTES_IDS.general} icon={SlidersHorizontal} title={view.title}>
+      <Segmented<ThemePreference>
+        id={AJUSTES_IDS.rows.theme}
+        label={A.general.themeLabel}
+        columns={3}
+        value={view.theme}
+        options={view.themeOptions.map((o) => ({ ...o, tone: 'neutral' as const }))}
+        onChange={api.setTheme}
+        help={A.general.themeRowHelp}
+      />
+      <div className="aj-rows">
+        <SettingsRow
+          id="aj-language"
+          title={A.general.language}
+          description={A.general.languageDesc}
+        >
+          <span className="aj-value">{A.general.languageValue}</span>
+        </SettingsRow>
+        <SettingsRow
+          id="aj-autostart"
+          title={A.general.autostart}
+          description={A.general.autostartDesc}
+        >
+          <Toggle
+            checked={view.autostart}
+            labelledBy={autostart.title}
+            describedBy={autostart.description}
+            onChange={api.setAutostart}
+          />
+        </SettingsRow>
+        {view.dailyGoal ? (
+          <SettingsRow
+            id="aj-daily-goal"
+            title={A.general.dailyGoal}
+            description={
+              view.dailyGoal.note ? (
+                <span data-tone="orange">{view.dailyGoal.note}</span>
+              ) : (
+                A.general.dailyGoalDesc
+              )
+            }
+          >
+            <span className="aj-value">{view.dailyGoal.value}</span>
+          </SettingsRow>
+        ) : null}
+      </div>
+      <Notice notice={api.notices.general} />
+    </Section>
+  );
+}
+
+function BloqueoGroup(props: { view: AjustesView['bloqueo']; api: AjustesApi }): React.JSX.Element {
+  const { view, api } = props;
+  return (
+    <Section id={AJUSTES_IDS.bloqueo} icon={Shield} title={view.title}>
+      <Segmented<DefaultBlockMode>
+        id={AJUSTES_IDS.rows.defaultMode}
+        label={A.bloqueo.defaultModeLabel}
+        columns={3}
+        value={view.defaultMode}
+        options={view.modeOptions}
+        onChange={api.setDefaultMode}
+        help={A.bloqueo.modeRowHelp}
+      />
+      {view.guardianSettings.length > 0 ? (
+        <div className="aj-rows">
+          {view.guardianSettings.map((row) => (
+            <SettingsRow
+              key={row.field}
+              id={`aj-${row.field}`}
+              title={row.title}
+              description={row.note ? <span data-tone="orange">{row.note}</span> : row.description}
+            >
+              <span className="aj-value">
+                {row.value ? RENDERER_ES.kit.toggleOn : RENDERER_ES.kit.toggleOff}
+              </span>
+            </SettingsRow>
+          ))}
+        </div>
+      ) : null}
+      <Notice notice={api.notices.bloqueo} />
+    </Section>
+  );
+}
+
+function PairingCode(props: {
+  view: AjustesView['sistema']['pairing'];
+  api: AjustesApi;
+}): React.JSX.Element {
+  const { view, api } = props;
+  return (
+    <>
+      <SettingsRow
+        id="aj-pairing"
+        title={A.sistema.pairing}
+        description={
+          view.kind === 'code' ? (
+            <span className="aj-inline">
+              <span>{A.sistema.pairingExpires}</span>
+              <Countdown endsAt={view.expiresAtMs} size="row" />
+              {view.port ? <span>· {view.port}</span> : null}
+            </span>
+          ) : view.expired ? (
+            A.sistema.pairingExpired
+          ) : (
+            A.sistema.pairingDesc
+          )
+        }
+      >
+        <Tile
+          id="aj-pairing-new"
+          label={A.sistema.pairingNew}
+          icon={KeyRound}
+          size="text"
+          disabled={api.busy.has('pairing')}
+          onPress={api.newPairingCode}
+        />
+      </SettingsRow>
+      {view.kind === 'code' ? (
+        <p className="aj-code" data-selectable="">
+          <span aria-hidden="true">{view.code}</span>
+          <span className="sr-only">
+            {A.sistema.pairingCodeLabel(view.code.split('').join(' '))}
+          </span>
+        </p>
+      ) : null}
+      <Notice notice={api.notices.pairing} />
+    </>
+  );
+}
+
+function SistemaGroup(props: { view: AjustesView['sistema']; api: AjustesApi }): React.JSX.Element {
+  const { view, api } = props;
+  const repair = useRepair();
+  return (
+    <Section
+      id={AJUSTES_IDS.sistema}
+      icon={MonitorCog}
+      title={view.title}
+      titleTone={view.titleTone}
+    >
+      <div className="aj-rows">
+        <SettingsRow
+          id="aj-guardian"
+          title={
+            <span className="aj-status">
+              <StatusDot tone={view.guardian.tone} />
+              {A.sistema.guardian}: {view.guardian.status}
+            </span>
+          }
+          description={
+            repair.message ? (
+              <span data-tone={repair.message.tone}>{repair.message.text}</span>
+            ) : (
+              view.guardian.description
+            )
+          }
+        >
+          {view.guardian.repair ? (
+            <Tile
+              id="aj-repair"
+              label={repair.running ? A.sistema.repairing : view.guardian.repair}
+              icon={Wrench}
+              size="text"
+              disabled={repair.running}
+              onPress={repair.run}
+            />
+          ) : null}
+        </SettingsRow>
+        {view.extensions.length === 0 ? (
+          <SettingsRow
+            id="aj-extension-none"
+            title={
+              <span className="aj-status">
+                <StatusDot tone="orange" />
+                {A.sistema.extensionNone}
+              </span>
+            }
+            description={A.sistema.extensionNoneDesc}
+          >
+            {null}
+          </SettingsRow>
+        ) : null}
+        {view.extensions.map((ext) => (
+          <SettingsRow
+            key={ext.id}
+            id={`aj-ext-${ext.id}`}
+            title={
+              <span className="aj-status">
+                <StatusDot tone={ext.tone} />
+                {ext.title}: {ext.status}
+              </span>
+            }
+            description={ext.description}
+          >
+            {ext.guide ? (
+              <Tile
+                id={`aj-ext-guide-${ext.id}`}
+                label={A.sistema.guide}
+                size="text"
+                door
+                onPress={() => ext.guide && api.openGuide(ext.guide)}
+              />
+            ) : null}
+          </SettingsRow>
+        ))}
+        {view.missing.map((m) => (
+          <SettingsRow
+            key={m.id}
+            id={`aj-missing-${m.id}`}
+            title={
+              <span className="aj-status">
+                <StatusDot tone="orange" />
+                {m.title}
+              </span>
+            }
+            description={A.sistema.browserMissingDesc}
+          >
+            {null}
+          </SettingsRow>
+        ))}
+        <PairingCode view={view.pairing} api={api} />
+      </div>
+      <TileRow
+        id={AJUSTES_IDS.rows.guides}
+        label={A.sistema.guidesLabel}
+        columns={3}
+        help={A.sistema.guidesRowHelp}
+      >
+        {view.guides.map((guide) => (
+          <Tile
+            key={guide.id}
+            id={guide.id}
+            label={guide.label}
+            size="text"
+            door
+            help={guide.help}
+            onPress={() => api.openGuide(guide.id)}
+          />
+        ))}
+      </TileRow>
+      <div className="aj-rows">
+        <SettingsRow
+          id="aj-diagnostics"
+          title={A.sistema.diagnostics}
+          description={
+            <span data-tone={view.diagnostics.tone}>{view.diagnostics.description}</span>
+          }
+        >
+          <Tile
+            id="aj-diagnostics-copy"
+            label={A.sistema.diagnosticsCopy}
+            icon={ClipboardCopy}
+            size="text"
+            disabled={api.busy.has('diagnostics')}
+            onPress={api.copyDiagnostics}
+          />
+        </SettingsRow>
+      </div>
+      <Notice notice={api.notices.diagnostics} />
+    </Section>
+  );
+}
+
+function DatosGroup(props: { view: AjustesView['datos']; api: AjustesApi }): React.JSX.Element {
+  const { view, api } = props;
+  const ids = settingsRowIds('aj-delete');
+  return (
+    <Section id={AJUSTES_IDS.datos} icon={Database} title={A.datos.title}>
+      <div className="aj-rows">
+        <SettingsRow id="aj-delete" title={A.datos.delete} description={view.deleteHelp}>
+          <Field
+            value={api.deleteWord}
+            label={A.datos.deleteWordLabel}
+            placeholder={A.datos.deleteWordPlaceholder}
+            describedBy={ids.description}
+            className="aj-delete-word"
+            maxLength={16}
+            onChange={api.setDeleteWord}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+              event.preventDefault();
+              api.deleteData();
+            }}
+          />
+          <Tile
+            id="aj-delete-go"
+            label={api.busy.has('datos') ? A.datos.deleting : A.datos.deleteButton}
+            icon={Trash}
+            size="text"
+            disabled={!view.deleteEnabled || api.busy.has('datos')}
+            disabledReason={A.datos.deleteNeedsWord}
+            onPress={api.deleteData}
+          />
+        </SettingsRow>
+      </div>
+      <Notice notice={api.notices.datos} />
+    </Section>
+  );
+}
+
+export default function AjustesWindow(): React.JSX.Element {
+  const api = useAjustes();
+  const request = useAppStore((s) => (s.env.detail?.name === 'ajustes' ? s.env.detail : null));
+
+  // «Detalles…» opens on Sistema; the fixtures open on Sistema and Datos.
+  useLayoutEffect(() => {
+    if (!request?.group) return;
+    document
+      .querySelector<HTMLElement>(`[data-section="aj-${request.group}"]`)
+      ?.scrollIntoView({ block: 'start' });
+  }, [request]);
+
+  return (
+    <div className="aj">
+      <GeneralGroup view={api.view.general} api={api} />
+      <BloqueoGroup view={api.view.bloqueo} api={api} />
+      <SistemaGroup view={api.view.sistema} api={api} />
+      <DatosGroup view={api.view.datos} api={api} />
+    </div>
+  );
+}

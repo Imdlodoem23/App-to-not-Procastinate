@@ -314,6 +314,214 @@
         }
       }
     ],
+    "browsers": [
+      {
+        "extensionFamily": "chrome",
+        "family": "chromium",
+        "id": "chrome",
+        "name": "Google Chrome",
+        "processes": {
+          "linux": [
+            "chrome"
+          ],
+          "mac": [
+            "Google Chrome",
+            "Google Chrome Helper",
+            "Google Chrome Beta",
+            "Google Chrome Beta Helper",
+            "Google Chrome Dev",
+            "Google Chrome Dev Helper",
+            "Google Chrome Canary",
+            "Google Chrome Canary Helper"
+          ],
+          "win": [
+            "chrome.exe"
+          ]
+        }
+      },
+      {
+        "extensionFamily": "edge",
+        "family": "chromium",
+        "id": "edge",
+        "name": "Microsoft Edge",
+        "processes": {
+          "linux": [
+            "msedge"
+          ],
+          "mac": [
+            "Microsoft Edge",
+            "Microsoft Edge Helper",
+            "Microsoft Edge Beta",
+            "Microsoft Edge Beta Helper",
+            "Microsoft Edge Dev",
+            "Microsoft Edge Dev Helper",
+            "Microsoft Edge Canary",
+            "Microsoft Edge Canary Helper"
+          ],
+          "win": [
+            "msedge.exe"
+          ]
+        }
+      },
+      {
+        "extensionFamily": "brave",
+        "family": "chromium",
+        "id": "brave",
+        "name": "Brave",
+        "processes": {
+          "linux": [
+            "brave"
+          ],
+          "mac": [
+            "Brave Browser",
+            "Brave Browser Helper",
+            "Brave Browser Beta",
+            "Brave Browser Beta Helper",
+            "Brave Browser Nightly",
+            "Brave Browser Nightly Helper"
+          ],
+          "win": [
+            "brave.exe"
+          ]
+        }
+      },
+      {
+        "extensionFamily": "opera",
+        "family": "chromium",
+        "id": "opera",
+        "name": "Opera",
+        "processes": {
+          "linux": [
+            "opera"
+          ],
+          "mac": [
+            "Opera",
+            "Opera Helper"
+          ],
+          "win": [
+            "opera.exe"
+          ]
+        }
+      },
+      {
+        "extensionFamily": "opera",
+        "family": "chromium",
+        "id": "opera-gx",
+        "name": "Opera GX",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "Opera GX",
+            "Opera GX Helper"
+          ],
+          "win": [
+            "opera.exe"
+          ]
+        }
+      },
+      {
+        "extensionFamily": "vivaldi",
+        "family": "chromium",
+        "id": "vivaldi",
+        "name": "Vivaldi",
+        "processes": {
+          "linux": [
+            "vivaldi-bin"
+          ],
+          "mac": [
+            "Vivaldi",
+            "Vivaldi Helper"
+          ],
+          "win": [
+            "vivaldi.exe"
+          ]
+        }
+      },
+      {
+        "extensionFamily": "firefox",
+        "family": "firefox",
+        "id": "firefox",
+        "name": "Firefox",
+        "processes": {
+          "linux": [
+            "firefox",
+            "firefox-bin",
+            "firefox-esr"
+          ],
+          "mac": [
+            "firefox"
+          ],
+          "win": [
+            "firefox.exe"
+          ]
+        }
+      },
+      {
+        "extensionFamily": "other",
+        "family": "safari",
+        "id": "safari",
+        "name": "Safari",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "Safari",
+            "Safari Technology Preview"
+          ],
+          "win": []
+        }
+      },
+      {
+        "extensionFamily": "chrome",
+        "family": "chromium",
+        "id": "arc",
+        "name": "Arc",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "Arc"
+          ],
+          "win": [
+            "Arc.exe"
+          ]
+        }
+      },
+      {
+        "extensionFamily": "chromium",
+        "family": "chromium",
+        "id": "chromium",
+        "name": "Chromium",
+        "processes": {
+          "linux": [
+            "chromium",
+            "chromium-browser",
+            "chrome"
+          ],
+          "mac": [
+            "Chromium",
+            "Chromium Helper"
+          ],
+          "win": [
+            "chrome.exe"
+          ]
+        }
+      },
+      {
+        "extensionFamily": "chromium",
+        "family": "chromium",
+        "id": "yandex",
+        "name": "Yandex Browser",
+        "processes": {
+          "linux": [
+            "yandex_browser"
+          ],
+          "mac": [
+            "Yandex",
+            "Yandex Helper"
+          ],
+          "win": []
+        }
+      }
+    ],
     "categories": [
       {
         "aliases": [
@@ -417,6 +625,259 @@
         "id": "news",
         "name": "Noticias y deportes"
       }
+    ],
+    "multiLabelSuffixes": [
+      "com.es",
+      "org.es",
+      "nom.es",
+      "gob.es",
+      "edu.es",
+      "com.mx",
+      "org.mx",
+      "net.mx",
+      "gob.mx",
+      "edu.mx",
+      "com.ar",
+      "org.ar",
+      "net.ar",
+      "gob.ar",
+      "gov.ar",
+      "edu.ar",
+      "com.co",
+      "org.co",
+      "net.co",
+      "gov.co",
+      "edu.co",
+      "com.pe",
+      "org.pe",
+      "net.pe",
+      "gob.pe",
+      "edu.pe",
+      "com.ve",
+      "org.ve",
+      "net.ve",
+      "gob.ve",
+      "edu.ve",
+      "com.uy",
+      "org.uy",
+      "net.uy",
+      "gub.uy",
+      "edu.uy",
+      "com.ec",
+      "org.ec",
+      "net.ec",
+      "gob.ec",
+      "edu.ec",
+      "com.bo",
+      "org.bo",
+      "net.bo",
+      "gob.bo",
+      "edu.bo",
+      "com.py",
+      "org.py",
+      "net.py",
+      "gov.py",
+      "edu.py",
+      "gob.cl",
+      "gov.cl",
+      "com.gt",
+      "org.gt",
+      "net.gt",
+      "gob.gt",
+      "edu.gt",
+      "com.sv",
+      "org.sv",
+      "gob.sv",
+      "edu.sv",
+      "com.hn",
+      "org.hn",
+      "net.hn",
+      "gob.hn",
+      "edu.hn",
+      "com.ni",
+      "org.ni",
+      "net.ni",
+      "gob.ni",
+      "edu.ni",
+      "co.cr",
+      "or.cr",
+      "go.cr",
+      "ac.cr",
+      "ed.cr",
+      "com.pa",
+      "org.pa",
+      "net.pa",
+      "gob.pa",
+      "edu.pa",
+      "com.do",
+      "org.do",
+      "net.do",
+      "gob.do",
+      "edu.do",
+      "com.cu",
+      "org.cu",
+      "net.cu",
+      "gob.cu",
+      "edu.cu",
+      "com.pr",
+      "org.pr",
+      "net.pr",
+      "gov.pr",
+      "edu.pr",
+      "com.br",
+      "org.br",
+      "net.br",
+      "gov.br",
+      "edu.br",
+      "co.uk",
+      "org.uk",
+      "me.uk",
+      "ltd.uk",
+      "plc.uk",
+      "net.uk",
+      "ac.uk",
+      "gov.uk",
+      "nhs.uk",
+      "police.uk",
+      "com.pt",
+      "org.pt",
+      "gov.pt",
+      "edu.pt",
+      "com.tr",
+      "org.tr",
+      "net.tr",
+      "gov.tr",
+      "edu.tr",
+      "gen.tr",
+      "com.ua",
+      "com.au",
+      "net.au",
+      "org.au",
+      "edu.au",
+      "gov.au",
+      "asn.au",
+      "id.au",
+      "co.nz",
+      "org.nz",
+      "net.nz",
+      "ac.nz",
+      "govt.nz",
+      "school.nz",
+      "co.za",
+      "org.za",
+      "net.za",
+      "gov.za",
+      "ac.za",
+      "co.ma",
+      "ac.ma",
+      "gov.ma",
+      "com.eg",
+      "edu.eg",
+      "gov.eg",
+      "com.ng",
+      "edu.ng",
+      "gov.ng",
+      "co.ke",
+      "ac.ke",
+      "go.ke",
+      "co.il",
+      "org.il",
+      "net.il",
+      "ac.il",
+      "gov.il",
+      "com.sa",
+      "edu.sa",
+      "gov.sa",
+      "co.jp",
+      "ne.jp",
+      "or.jp",
+      "ac.jp",
+      "go.jp",
+      "ad.jp",
+      "ed.jp",
+      "gr.jp",
+      "lg.jp",
+      "co.kr",
+      "or.kr",
+      "ne.kr",
+      "ac.kr",
+      "go.kr",
+      "re.kr",
+      "co.in",
+      "net.in",
+      "org.in",
+      "ac.in",
+      "gov.in",
+      "edu.in",
+      "firm.in",
+      "gen.in",
+      "ind.in",
+      "com.cn",
+      "net.cn",
+      "org.cn",
+      "gov.cn",
+      "edu.cn",
+      "com.hk",
+      "org.hk",
+      "net.hk",
+      "gov.hk",
+      "edu.hk",
+      "com.tw",
+      "org.tw",
+      "net.tw",
+      "gov.tw",
+      "edu.tw",
+      "com.sg",
+      "org.sg",
+      "net.sg",
+      "gov.sg",
+      "edu.sg",
+      "com.my",
+      "org.my",
+      "net.my",
+      "gov.my",
+      "edu.my",
+      "co.id",
+      "or.id",
+      "ac.id",
+      "go.id",
+      "web.id",
+      "co.th",
+      "or.th",
+      "ac.th",
+      "go.th",
+      "in.th",
+      "com.ph",
+      "org.ph",
+      "net.ph",
+      "gov.ph",
+      "edu.ph",
+      "com.pk",
+      "edu.pk",
+      "gov.pk"
+    ],
+    "protectedDomains": [
+      "microsoft.com",
+      "windows.com",
+      "windowsupdate.com",
+      "msftconnecttest.com",
+      "msftncsi.com",
+      "apple.com",
+      "cdn-apple.com",
+      "pool.ntp.org",
+      "ubuntu.com",
+      "debian.org",
+      "fedoraproject.org",
+      "google.com",
+      "cloudflare.com",
+      "cloudflare-dns.com",
+      "dns.google",
+      "github.com",
+      "githubusercontent.com",
+      "centrate.onrender.com",
+      "mozilla.org",
+      "mozilla.net",
+      "localhost"
     ],
     "protectedProcesses": [
       "[System Process]",
@@ -3604,8 +4065,8 @@
         "name": "Notion"
       }
     ],
-    "version": 2
+    "version": 3
   },
   "generatedBy": "scripts/gen-guardian-data.mjs",
-  "sourceSha256": "765d74fdc76665dc1cb6734ed9fab64ae7fe423d08be0ca32e5e31380213e90c"
+  "sourceSha256": "46f2193170b7e226b4fc9cfbcfc290ff85c43034c6c21b14a1ab23a50dedf081"
 }

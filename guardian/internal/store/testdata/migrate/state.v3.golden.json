@@ -1,0 +1,35 @@
+{
+  "enforcement": {
+    "clock": {
+      "bootNs": 3600000000000,
+      "trusted": "2026-09-28T10:00:00Z"
+    },
+    "items": [
+      {
+        "allowDomains": [],
+        "domains": [
+          "youtube.com",
+          "www.youtube.com"
+        ],
+        "endsAtTrusted": "2026-09-28T11:00:00.000Z",
+        "excludedDomains": [],
+        "id": "blk_7Qm2KxV9pL4sT1aZ0cHfWe",
+        "processes": [],
+        "whitelist": false
+      }
+    ],
+    "v": 1
+  },
+  "engine": {
+    "flags": [],
+    "ledger": {
+      "balance": -9007199254740993
+    },
+    "stateVersion": 1790000000000
+  },
+  "epoch": "ep_ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+  "idempotency": [],
+  "lastEventMac": "q8yMIUUrI0dVAs3lqO5sG3Wd3hzmmIYQjwDjNCSn0VI",
+  "lastEventSeq": 42,
+  "schemaVersion": 3
+}

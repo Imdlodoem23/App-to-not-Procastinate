@@ -1,0 +1,638 @@
+/*
+ * The UI kit (src/renderer/src/components), drawn from tokens.css only (PROMPT §10 «Estilo
+ * visual»). Density is pure CSS: `html[data-density='compact']` switches tokens (tile height,
+ * countdown, section gap) and the tile layout, so the auto-height measure is synchronous.
+ *
+ * Motion: only the background change on hover/press (100 ms) and the bars (linear); both follow
+ * --duration-* (0 with reduced motion). No shadows; no gradient except the selected tint.
+ */
+
+@layer components {
+  .c-icon {
+    flex: none;
+    display: block;
+  }
+
+  /* Section ------------------------------------------------------------------------------ */
+
+  .c-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .c-section-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: var(--size-header);
+    min-width: 0;
+  }
+
+  .c-section-header[data-wrap] {
+    height: auto;
+    min-height: var(--size-header);
+    align-items: flex-start;
+  }
+
+  .c-section-icon {
+    display: flex;
+    flex: none;
+  }
+
+  .c-section-header[data-wrap] .c-section-icon {
+    padding-top: 1px;
+  }
+
+  .c-section-title {
+    margin: 0;
+    min-width: 0;
+    flex: 0 1 auto;
+    font-size: var(--font-size-13);
+    line-height: var(--line-height-13);
+    font-weight: var(--font-weight-semibold);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .c-section-header[data-wrap] .c-section-title {
+    white-space: normal;
+  }
+
+  .c-section-datum {
+    flex: none;
+    margin-left: auto;
+    padding-left: var(--space-2);
+    white-space: nowrap;
+  }
+
+  /* Text tones. Components that take a tone always set `data-tone` (default `muted` for help
+     lines and text buttons) and declare no color of their own, so these rules decide. */
+  [data-tone='muted'] {
+    color: var(--fg-muted);
+  }
+  [data-tone='red'] {
+    color: var(--red-text);
+  }
+  [data-tone='orange'] {
+    color: var(--orange);
+  }
+  [data-tone='green'] {
+    color: var(--green);
+  }
+  [data-tone='blue'] {
+    color: var(--blue);
+  }
+
+  /* Tile rows ---------------------------------------------------------------------------- */
+
+  .c-tilerow {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+
+  .c-tilegrid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--layout-tile-gap);
+  }
+
+  .c-tilegrid[data-columns='3'] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  /* Help line ---------------------------------------------------------------------------- */
+
+  .c-help {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+    min-height: var(--line-height-12);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+    white-space: nowrap;
+    /* Clip sideways only, so chip hit areas can reach above and below the line. */
+    overflow: clip visible;
+  }
+
+  /* Tiles -------------------------------------------------------------------------------- */
+
+  .c-tile {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
+    min-width: 0;
+    height: var(--tile-height);
+    padding: 0 var(--space-2);
+    border: var(--size-border) solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--tile);
+    color: var(--fg);
+    font-size: var(--font-size-13);
+    line-height: var(--line-height-13);
+    font-weight: var(--font-weight-normal);
+    text-align: center;
+    transition: background-color var(--duration-hover) linear;
+  }
+
+  /* Content paints above the selected tint. */
+  .c-tile > * {
+    position: relative;
+  }
+
+  .c-tile[data-size='door'],
+  .c-tile[data-size='text'] {
+    flex-direction: row;
+    gap: var(--space-2);
+  }
+
+  .c-tile[data-size='door'] {
+    height: var(--size-tile-door);
+  }
+
+  .c-tile[data-size='text'] {
+    height: var(--size-tile-text);
+    gap: 6px;
+  }
+
+  /* Compact density: 40 px tiles with the icon left of the label. */
+  html[data-density='compact'] .c-tile[data-size='regular'] {
+    flex-direction: row;
+    gap: var(--space-2);
+  }
+
+  .c-tile[data-surface='tile-2'] {
+    background: var(--tile-2);
+  }
+
+  .c-tile[data-hover]:hover {
+    background: var(--tile-hover);
+  }
+  .c-tile[data-hover]:active {
+    background: var(--tile-active);
+  }
+  .c-tile[data-surface='tile-2'][data-hover]:hover {
+    background: var(--tile-2-hover);
+  }
+  .c-tile[data-surface='tile-2'][data-hover]:active {
+    background: var(--tile-2-active);
+  }
+
+  .c-tile[data-dim] {
+    opacity: var(--disabled-opacity);
+  }
+
+  /* Selected / armed: 2 px accent outline over the 1 px border (15 % lighter on top); selected
+     adds the accent tint fading out over the first 20 % of the height (G-Helper RButton). */
+  .c-tile[data-outline]::before {
+    content: '';
+    position: absolute;
+    inset: calc(-1 * var(--size-border));
+    border: var(--selected-width) solid var(--accent);
+    border-top-color: var(--accent-top);
+    border-radius: inherit;
+    pointer-events: none;
+  }
+
+  .c-tile[data-tint]::before {
+    background: linear-gradient(
+      to bottom,
+      var(--accent-tint),
+      transparent var(--selected-tint-stop)
+    );
+  }
+
+  .c-tile-label {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  /* Alt + letter: the mnemonic is underlined while Alt is held. */
+  html[data-alt] .c-mnemonic {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  /* Confirm button: the one filled control. */
+  .c-confirm {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    height: var(--size-tile-door);
+    padding: 0 var(--space-3);
+    border: var(--size-border) solid var(--blue);
+    border-radius: var(--radius-md);
+    background: var(--blue);
+    color: var(--on-accent);
+    font-size: var(--font-size-13);
+    line-height: var(--line-height-13);
+    transition: background-color var(--duration-hover) linear;
+  }
+
+  .c-confirm[data-size='text'] {
+    height: var(--size-tile-text);
+  }
+  .c-confirm[data-size='regular'] {
+    height: var(--tile-height);
+  }
+  .c-confirm:not([aria-disabled='true']):hover {
+    background: color-mix(in srgb, var(--fg) var(--hover-mix), var(--blue));
+  }
+  .c-confirm:not([aria-disabled='true']):active {
+    background: color-mix(in srgb, var(--fg) var(--active-mix), var(--blue));
+  }
+  .c-confirm[aria-disabled='true'] {
+    opacity: var(--disabled-opacity);
+  }
+
+  /* Pills, chips, dots, bars ------------------------------------------------------------- */
+
+  .c-pill {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-1);
+    height: 18px;
+    padding: 0 5px;
+    border: var(--size-border) solid var(--accent);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--accent-text);
+    font-size: var(--font-size-11);
+    line-height: var(--line-height-11);
+    font-weight: var(--font-weight-semibold);
+    white-space: nowrap;
+  }
+
+  /* 32 px click target around a small pill button, without moving the layout. */
+  /* Vertical only: a sideways hit area would count as overflow of the line it sits in. */
+  button.c-pill::after {
+    content: '';
+    position: absolute;
+    inset: -8px 0;
+  }
+
+  button.c-pill:hover {
+    background: var(--tile);
+  }
+
+  /* Chips live on the 16 px help line, so they are 16 px tall (hit area extended below). */
+  .c-chip {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-1);
+    height: var(--line-height-12);
+    padding: 0 6px;
+    border: var(--size-border) solid var(--border);
+    border-radius: 999px;
+    background: var(--tile);
+    color: var(--fg);
+    font-size: var(--font-size-12);
+    line-height: 14px;
+    white-space: nowrap;
+  }
+
+  button.c-chip {
+    position: relative;
+    transition: background-color var(--duration-hover) linear;
+  }
+
+  button.c-chip::after {
+    content: '';
+    position: absolute;
+    inset: -8px 0;
+  }
+
+  button.c-chip:hover {
+    background: var(--tile-hover);
+  }
+
+  .c-chip[data-selected] {
+    border-color: var(--blue);
+  }
+
+  .c-chip-leading {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .c-dot {
+    display: inline-block;
+    flex: none;
+    width: var(--size-status-dot);
+    height: var(--size-status-dot);
+    border-radius: 999px;
+    background: var(--accent);
+  }
+
+  .c-bar {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: var(--size-mode-bar);
+    overflow: hidden;
+    background: var(--border);
+  }
+
+  .c-bar[data-height='4'] {
+    height: var(--size-goal-bar);
+  }
+  .c-bar[data-height='6'] {
+    height: var(--size-meter);
+  }
+
+  .c-bar-fill {
+    position: absolute;
+    inset: 0;
+    background: var(--accent);
+    transform-origin: left center;
+    transition: transform var(--duration-fade) linear;
+  }
+
+  /* Countdown ---------------------------------------------------------------------------- */
+
+  .c-countdown {
+    display: flex;
+    align-items: baseline;
+    min-width: 0;
+  }
+
+  .c-countdown-digits {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .c-countdown[data-size='big'] .c-countdown-digits {
+    font-size: var(--countdown-size);
+    line-height: var(--countdown-size);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--tracking-countdown);
+  }
+
+  /* Dimmed seconds only on the big digits: 60 % keeps 3:1 there, not on 13 px text. */
+  .c-countdown[data-size='big'] .c-countdown-seconds {
+    opacity: var(--countdown-seconds-opacity);
+  }
+
+  .c-countdown[data-size='row'] .c-countdown-digits {
+    font-size: var(--font-size-13);
+    line-height: var(--line-height-13);
+  }
+
+  /* Fields ------------------------------------------------------------------------------- */
+
+  .c-field {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    height: var(--size-tile-text);
+    padding: 0 var(--space-2);
+    border: var(--size-border) solid var(--control);
+    border-radius: var(--radius-md);
+    background: var(--tile);
+    color: var(--fg);
+    font: inherit;
+    font-size: var(--font-size-13);
+    line-height: var(--line-height-13);
+  }
+
+  .c-field[data-size='main'] {
+    height: var(--size-field);
+    padding: 0 var(--space-3);
+    font-size: var(--font-size-15);
+    line-height: var(--line-height-15);
+  }
+
+  .c-field[aria-invalid='true'] {
+    border-color: var(--red);
+  }
+
+  .c-field:disabled {
+    opacity: var(--disabled-opacity);
+  }
+
+  /* Settings controls -------------------------------------------------------------------- */
+
+  .c-settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    min-height: var(--size-settings-row);
+  }
+
+  .c-settings-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .c-settings-desc {
+    color: var(--fg-muted);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+
+  .c-settings-control {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .c-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--size-min-target);
+    padding: 0 var(--space-1);
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--fg);
+  }
+
+  .c-toggle-text {
+    min-width: 2ch;
+    text-align: right;
+    color: var(--fg-muted);
+  }
+
+  .c-toggle-track {
+    position: relative;
+    display: block;
+    width: 32px;
+    height: 18px;
+    border: var(--size-border) solid var(--control);
+    border-radius: var(--radius-sm);
+    background: var(--tile);
+  }
+
+  .c-toggle-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    background: var(--control);
+    transition: transform var(--duration-hover) linear;
+  }
+
+  .c-toggle[data-checked] .c-toggle-track {
+    border-color: var(--blue);
+  }
+
+  .c-toggle[data-checked] .c-toggle-knob {
+    background: var(--blue);
+    transform: translateX(14px);
+  }
+
+  .c-toggle[aria-disabled='true'] {
+    opacity: var(--disabled-opacity);
+  }
+
+  .c-check {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--size-min-target);
+  }
+
+  .c-check[data-disabled] {
+    opacity: var(--disabled-opacity);
+  }
+
+  .c-check-box {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    width: 16px;
+    height: 16px;
+  }
+
+  .c-check-box input {
+    appearance: none;
+    margin: 0;
+    width: 16px;
+    height: 16px;
+    border: var(--size-border) solid var(--control);
+    border-radius: var(--radius-sm);
+    background: var(--tile);
+  }
+
+  .c-check-box input:checked {
+    border-color: var(--blue);
+  }
+
+  .c-check-mark {
+    position: absolute;
+    inset: 0;
+    color: var(--blue);
+    pointer-events: none;
+    visibility: hidden;
+  }
+
+  .c-check-box input:checked + .c-check-mark {
+    visibility: visible;
+  }
+
+  .c-textbutton {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+    white-space: nowrap;
+  }
+
+  .c-textbutton[data-size='13'] {
+    font-size: var(--font-size-13);
+    line-height: var(--line-height-13);
+  }
+
+  .c-textbutton::after {
+    content: '';
+    position: absolute;
+    inset: -8px 0;
+  }
+
+  .c-textbutton:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .c-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+    color: var(--fg-muted);
+  }
+
+  .c-empty-text {
+    margin: 0;
+    color: var(--fg);
+  }
+
+  /* Windows high contrast: borders stay; outlines, dots, bars and switches keep their system
+     colors (tokens.css maps the accents to Highlight). */
+  @media (forced-colors: active) {
+    .c-tile[data-outline]::before,
+    .c-dot,
+    .c-bar,
+    .c-bar-fill,
+    .c-toggle-knob {
+      forced-color-adjust: none;
+    }
+
+    .c-tile[data-outline]::before {
+      background: none;
+    }
+
+    /* The filled confirm button keeps a system pair (otherwise Chromium draws a backplate
+       over its label and hides it). */
+    .c-confirm {
+      forced-color-adjust: none;
+      border-color: Highlight;
+      background: Highlight;
+      color: HighlightText;
+    }
+
+    .c-confirm[aria-disabled='true'] {
+      border-color: GrayText;
+      background: Canvas;
+      color: GrayText;
+      opacity: 1;
+    }
+
+    .c-bar {
+      outline: var(--size-border) solid CanvasText;
+    }
+
+    .c-pill,
+    .c-chip,
+    .c-toggle-track,
+    .c-check-box input {
+      border-color: CanvasText;
+    }
+  }
+}

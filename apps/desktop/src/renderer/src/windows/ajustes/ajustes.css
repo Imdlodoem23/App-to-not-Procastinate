@@ -1,0 +1,71 @@
+/*
+ * Ajustes window (PROMPT §10 «Ventanas de detalle › Ajustes»): groups of 48 px rows, the
+ * pairing code at 32 px. Colors come only from tokens.css; no cards, shadows or separators.
+ */
+
+@layer components {
+  .aj {
+    display: flex;
+    flex-direction: column;
+    gap: var(--section-gap);
+    min-width: 0;
+  }
+
+  .aj-rows {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .aj-rows .c-settings-text {
+    flex: 1 1 auto;
+  }
+
+  .aj-rows .c-settings-title,
+  .aj-rows .c-settings-desc {
+    overflow-wrap: anywhere;
+  }
+
+  .aj-value {
+    color: var(--fg-muted);
+    white-space: nowrap;
+  }
+
+  .aj-status {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .aj-inline {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-1);
+  }
+
+  .aj-inline .c-countdown-digits {
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+
+  .aj-code {
+    margin: 0;
+    font-size: var(--font-size-32);
+    line-height: var(--line-height-32);
+    font-weight: var(--font-weight-semibold);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.12em;
+  }
+
+  .c-help.aj-wrap {
+    white-space: normal;
+    overflow: visible;
+  }
+
+  .aj-rows .c-settings-control > .c-tile {
+    min-width: 88px;
+  }
+
+  .aj-delete-word.c-field {
+    width: 128px;
+  }
+}
