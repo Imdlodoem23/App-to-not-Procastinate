@@ -258,12 +258,20 @@ const isIntOrNull = (v: unknown): v is number | null =>
 const isStringOrNull = (v: unknown, max: number): v is string | null =>
   v === null || (typeof v === 'string' && v.length <= max);
 
+/** Longest `BlockedTabInfo.url` kept (and accepted by `parseBlockedTabInfo`). */
+export const MAX_STORED_URL = 8192;
+
+/** The URL to keep in a `BlockedTabInfo`: longer ones are dropped so the record stays valid. */
+export function storedUrl(url: string | null): string | null {
+  return url !== null && url.length <= MAX_STORED_URL ? url : null;
+}
+
 /** Validates a stored `BlockedTabInfo` (pages use it before displaying anything). */
 export function parseBlockedTabInfo(value: unknown): BlockedTabInfo | null {
   if (!isObject(value) || value['v'] !== 1) return null;
   const v = value;
   if (typeof v['tabId'] !== 'number' || !Number.isSafeInteger(v['tabId'])) return null;
-  if (!isStringOrNull(v['host'], 253) || !isStringOrNull(v['url'], 8192)) return null;
+  if (!isStringOrNull(v['host'], 253) || !isStringOrNull(v['url'], MAX_STORED_URL)) return null;
   if (!isStringOrNull(v['serviceId'], 64)) return null;
   if (v['cause'] !== 'domain' && v['cause'] !== 'whitelist') return null;
   if (!STATUSES.includes(v['status'] as BlockedTabStatus)) return null;

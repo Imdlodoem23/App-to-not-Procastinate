@@ -109,7 +109,11 @@ describe('Spanish copy', () => {
   it('each install guide names its own package (package.mjs), never the other one', () => {
     const packager = readFileSync(join(import.meta.dirname, '../../package.mjs'), 'utf8');
     const zips = [...packager.matchAll(/'(Centrate-extension[\w-]*\.zip)'/g)].map((m) => m[1]);
-    expect(zips).toEqual(['Centrate-extension.zip', 'Centrate-extension-firefox.zip']);
+    expect(zips).toEqual([
+      'Centrate-extension.zip',
+      'Centrate-extension-store.zip',
+      'Centrate-extension-firefox.zip',
+    ]);
 
     // The Chromium zip carries `"incognito": "split"`, which Firefox reads as «not_allowed»:
     // loaded in Firefox it could never run in private windows (a free way around a block).
@@ -119,6 +123,8 @@ describe('Spanish copy', () => {
     const chromium = [...PAGES_ES.guide.chromium.steps, ...PAGES_ES.guide.chromium.notes].join(' ');
     expect(chromium).toContain('Centrate-extension.zip');
     expect(chromium).not.toContain('firefox.zip');
+    // The store zip (no `key`, another id) is for store uploads, not for the guides.
+    expect(`${firefox} ${chromium}`).not.toContain('store.zip');
   });
 
   it('the temporary Firefox add-on: gone when Firefox closes, and allowed in private windows', () => {

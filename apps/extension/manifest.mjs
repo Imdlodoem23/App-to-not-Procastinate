@@ -27,12 +27,25 @@ export function isEngine(value) {
   return typeof value === 'string' && ENGINES.includes(/** @type {Engine} */ (value));
 }
 
+/** Chromium-only keys Firefox does not know (web-ext lint warns about them). */
+const CHROMIUM_ONLY_KEYS = Object.freeze(['key', 'minimum_chrome_version']);
+
 /**
  * The manifest for `engine`, from the one in public/ (not modified).
+ *
+ * Chromium keeps `key` by default: it pins the id the guardian embeds
+ * (`dlabilkpafinafimngfclcfmeghilcah`) for the unpacked install. `{ store: true }` drops it:
+ * the Chrome Web Store and Edge Add-ons refuse a manifest with `key` and assign their own
+ * id, which the guardian only accepts once an admin lists it in `config.json`
+ * `extraExtensionIds` (docs/ARCHITECTURE.md §9.4). Firefox never gets the Chromium-only keys.
  * @param {Record<string, unknown>} manifest
  * @param {Engine} engine
+ * @param {{ store?: boolean }} [options]
  * @returns {Record<string, unknown>}
  */
-export function manifestFor(manifest, engine) {
-  return { ...manifest, incognito: SETTINGS[engine].incognito };
+export function manifestFor(manifest, engine, options = {}) {
+  const result = { ...manifest, incognito: SETTINGS[engine].incognito };
+  const drop = engine === 'firefox' ? CHROMIUM_ONLY_KEYS : options.store ? ['key'] : [];
+  for (const name of drop) delete result[name];
+  return result;
 }

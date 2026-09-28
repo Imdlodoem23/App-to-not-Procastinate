@@ -389,6 +389,62 @@ describe('blockedView', () => {
     }
   });
 
+  it('a restored tab (no info) whose block is gone from the rules: ended, not a false block', () => {
+    const reddit = ruleBlock({ id: 'blk_r', serviceIds: ['reddit'], domains: ['reddit.com'] });
+    for (const rules of [snapshot({ blocks: [] }), snapshot({ blocks: [reddit] })]) {
+      const view = blockedView({ ...input, info: null, snapshot: rules });
+      expect(view).toMatchObject({
+        phase: 'ended',
+        title: 'YouTube: bloqueo terminado',
+        headerValue: null,
+        remainingMs: null,
+        reason: null,
+        points: null,
+        humor: 'Ya puedes volver a entrar.',
+        action: { kind: 'back' },
+        actionLabel: 'Volver a lo mío',
+        nextTickMs: null,
+      });
+      expect(view.humor).not.toMatch(/ir a ningún sitio/);
+    }
+    // Opened by hand with known rules and no site: nothing to block either.
+    expect(
+      blockedView({ ...input, params: NONE, info: null, snapshot: snapshot({ blocks: [] }) }),
+    ).toMatchObject({ phase: 'ended', title: PAGES_ES.blocked.titleEndedUnknown });
+  });
+
+  it('an old attempt block no longer in the rules, its end unreadable: ended', () => {
+    const info = tabInfo();
+    const old = { ...info, block: info.block === null ? null : { ...info.block, endsAt: 'x' } };
+    const view = blockedView({ ...input, info: old, snapshot: snapshot({ blocks: [] }) });
+    expect(view.phase).toBe('ended');
+  });
+
+  it('snapshot not known yet and no end: «bloqueado» with no time', () => {
+    const view = blockedView({ ...input, info: null, snapshot: null });
+    expect(view).toMatchObject({
+      phase: 'blocked',
+      title: 'YouTube: bloqueado',
+      headerValue: null,
+      remainingMs: null,
+      nextTickMs: null,
+      announce: { kind: 'none' },
+    });
+  });
+
+  it('an unknown end still enforced stays blocked (covering block, whitelist punishment)', () => {
+    const unreadable = snapshot({ blocks: [ruleBlock({ endsAt: 'not a date' })] });
+    expect(blockedView({ ...input, info: null, snapshot: unreadable }).phase).toBe('blocked');
+    const punishment = { endsAt: 'not a date', level: 'whitelist' as const };
+    const wl = blockedView({
+      ...input,
+      params: WL,
+      info: null,
+      snapshot: snapshot({ blocks: [], punishment }),
+    });
+    expect(wl.phase).toBe('blocked');
+  });
+
   it('opened by hand: a neutral page with no time, reason or points', () => {
     const view = blockedView({ ...input, params: NONE, info: null, snapshot: null });
     expect(view).toMatchObject({
@@ -449,6 +505,18 @@ describe('blockedView: the live region', () => {
     expect(said({ now: NOW + 44 * MIN, snapshot: snapshot({ blocks: [] }) })).toBe(
       'Bloqueo terminado',
     );
+  });
+
+  it('a restored tab whose block is gone stays silent (no block was being tracked)', () => {
+    const announcer = createEndAnnouncer();
+    for (const over of [
+      { ready: false, snapshot: null },
+      { snapshot: null },
+      { snapshot: snapshot({ blocks: [] }) },
+    ]) {
+      const view = blockedView({ ...input, ...over, info: null });
+      expect(announcer.next(view.announce)).toBeNull();
+    }
   });
 
   it('a page loaded after the end stays silent when the snapshot lands', () => {

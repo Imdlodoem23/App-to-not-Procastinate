@@ -213,6 +213,10 @@ export const PAGES_ES = {
       timeout: 'El guardián no ha respondido a tiempo. Vuelve a probar.',
       read_only:
         'El guardián está en modo seguro y ahora no puede emparejar. Ábrelo en Céntrate y pulsa Reparar.',
+      key_changed:
+        'Ese código no viene del guardián que firma tus bloqueos activos. Podrás emparejar con otro cuando terminen.',
+      guardian_elsewhere:
+        'El guardián sigue activo en el puerto emparejado. Empareja sin cambiar el puerto.',
       unexpected: 'Algo ha fallado al emparejar. Vuelve a probar.',
     } satisfies Record<PairErrorCode, string>,
     /** «Demasiados intentos. Espera 30 s y vuelve a probar.» */

@@ -580,6 +580,13 @@ export type PairErrorCode =
   | 'timeout'
   /** 503 `read_only`: the guardian is in safe mode or the disk is full. */
   | 'read_only'
+  /**
+   * The claim answered with a rules key other than the one(s) that signed the blocks still
+   * running (pairing.ts): refused until they end.
+   */
+  | 'key_changed'
+  /** Another port while the guardian still answers on the paired one (pairing.ts). */
+  | 'guardian_elsewhere'
   | 'unexpected';
 
 export type PairResult =

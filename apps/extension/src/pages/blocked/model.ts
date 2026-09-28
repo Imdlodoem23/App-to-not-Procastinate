@@ -306,8 +306,9 @@ export interface BlockedViewInput {
 }
 
 /**
- * `blocked`: the block runs (or its end is unknown). `checking`: its end has passed but the
- * extension may still enforce it. `ended`: nothing covers the site any more.
+ * `blocked`: the block runs (or its end is unknown while it may still be enforced).
+ * `checking`: its end has passed but the extension may still enforce it. `ended`: the known
+ * rules list nothing over the site any more (also when its end was never known).
  */
 export type BlockedPhase = 'blocked' | 'checking' | 'ended';
 
@@ -349,8 +350,18 @@ export function blockedView(input: BlockedViewInput): BlockedView {
   const block = shownBlock(params, info, snapshot);
   const endsAt = block?.endsAt ?? null;
   const remainingMs = endsAt === null ? null : Math.max(0, endsAt - now);
-  const timePhase = endPhase(endsAt, now, endsAt !== null && stillEnforced(params, info, snapshot));
-  const phase: BlockedPhase = timePhase === 'running' ? 'blocked' : timePhase;
+  const enforced = stillEnforced(params, info, snapshot);
+  let phase: BlockedPhase;
+  if (endsAt === null) {
+    // No end to count down. Known rules with nothing over the site: the page is left over
+    // (a tab restored after a restart, an old history entry) and nothing blocks the site,
+    // so it says so. Otherwise (snapshot not known yet, a whitelist punishment, a covering
+    // block with an unreadable end) the block may run: an unknown end never ends a block.
+    phase = snapshot !== null && snapshot.rules !== null && !enforced ? 'ended' : 'blocked';
+  } else {
+    const timePhase = endPhase(endsAt, now, enforced);
+    phase = timePhase === 'running' ? 'blocked' : timePhase;
+  }
   const counting = remainingMs !== null && remainingMs > 0;
 
   let title: string;

@@ -8,13 +8,23 @@
  * `chrome.storage.local`. A new pairing replaces the previous one; the rules verified under
  * it are carried until their blocks end (client.ts), so pairing again never shortens a
  * block. Revocation (401 on any extension route) is handled in client.ts.
+ *
+ * Anchoring (a server the user starts on another loopback port must not take over):
+ * - While rules verified under a key still have a live block or punishment, a claim whose
+ *   `rulesPublicKey` is none of those keys is refused (`key_changed`) and the current
+ *   pairing stays: new sessions and penalties the real guardian signs keep applying.
+ * - Moving to another port than the current pairing's is refused while a Céntrate guardian
+ *   still answers `/v1/health` on the current one (`guardian_elsewhere`).
+ * A first pairing on a non-default port is not checked here (the app shows «Puerto: N»
+ * only then); the guardian closes browsers without a protecting extension (§10.8).
  */
 
-import { DEFAULT_GUARDIAN_PORT } from '@centrate/shared/guardian-api';
+import { DEFAULT_GUARDIAN_PORT, GUARDIAN_NAME } from '@centrate/shared/guardian-api';
 import type { BackgroundContext } from './client';
 import { createPairingClient, describeError } from './client';
+import { pruneRules } from './state';
 import type { BrowserInfo, PairErrorCode } from './state';
-import type { PairingRecord } from './storage';
+import type { BackgroundStore, PairingRecord } from './storage';
 import { isValidPort, parsePairingRecord } from './storage';
 
 /** Characters people type between digits («048 392», «048-392»). */
@@ -70,6 +80,45 @@ export function pairErrorFor(code: string, status: number): PairErrorCode {
   }
 }
 
+/**
+ * The rules keys that still vouch for a live block or punishment at `nowMs`: a claim must
+ * return one of them. An unreadable rules record that still holds (or whose end cannot be
+ * read) pins the current pairing's key.
+ */
+export async function pinnedRulesKeys(store: BackgroundStore, nowMs: number): Promise<string[]> {
+  const keys = new Set<string>();
+  const record = await store.getRules();
+  if (record !== null) {
+    const verified = [{ rules: record.rules, rulesPublicKey: record.rulesPublicKey }];
+    if (record.carried !== null) verified.push(record.carried);
+    for (const { rules, rulesPublicKey } of verified) {
+      const live = pruneRules(rules, nowMs);
+      if (live.blocks.length > 0 || live.punishment !== null) keys.add(rulesPublicKey);
+    }
+  } else {
+    const unreadable = await store.getUnreadableRules();
+    const pairing = await store.getPairing();
+    if (
+      unreadable !== null &&
+      pairing !== null &&
+      (unreadable.holdUntil === null || unreadable.holdUntil > nowMs)
+    ) {
+      keys.add(pairing.rulesPublicKey);
+    }
+  }
+  return [...keys];
+}
+
+/** True when a Céntrate guardian answers `/v1/health` on `port`. */
+async function guardianAnswers(ctx: BackgroundContext, port: number): Promise<boolean> {
+  try {
+    const health = await createPairingClient(port, ctx.fetch).health();
+    return health.name === GUARDIAN_NAME;
+  } catch {
+    return false;
+  }
+}
+
 let inFlight: Promise<PairOutcome> | null = null;
 
 /**
@@ -97,6 +146,10 @@ async function claim(
   if (code === null || !isValidPort(port)) {
     return { ok: false, error: 'invalid_format', retryAfterSeconds: null };
   }
+  const current = await ctx.store.getPairing();
+  if (current !== null && current.port !== port && (await guardianAnswers(ctx, current.port))) {
+    return { ok: false, error: 'guardian_elsewhere', retryAfterSeconds: null };
+  }
   const browser = await deps.browser();
   let response;
   try {
@@ -113,6 +166,10 @@ async function claim(
       error: pairErrorFor(failure.code, failure.status),
       retryAfterSeconds: null,
     };
+  }
+  const pinned = await pinnedRulesKeys(ctx.store, ctx.now());
+  if (pinned.length > 0 && !pinned.includes(response.rulesPublicKey)) {
+    return { ok: false, error: 'key_changed', retryAfterSeconds: null };
   }
   // Store only what reads back as valid (a malformed claim answer must not half-pair).
   const pairing = parsePairingRecord({

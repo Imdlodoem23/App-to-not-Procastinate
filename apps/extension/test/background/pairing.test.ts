@@ -1,14 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePairingCode, pairErrorFor, pairWithCode } from '../../src/background/pairing';
+import type { HealthResponse } from '@centrate/shared/guardian-api';
+import { GUARDIAN_NAME } from '@centrate/shared/guardian-api';
+import {
+  normalizePairingCode,
+  pairErrorFor,
+  pairWithCode,
+  pinnedRulesKeys,
+} from '../../src/background/pairing';
 import type { BrowserInfo } from '../../src/background/state';
+import type { RulesRecord } from '../../src/background/storage';
+import { STORAGE_KEYS } from '../../src/background/storage';
+import type { FakeGuardian } from './fakes';
 import {
   EXT_1,
   EXT_2,
+  MIN,
   NOW,
   TOKEN_1,
   TOKEN_2,
   fakeGuardian,
+  iso,
+  memoryArea,
   pairingFixture,
+  rulesFixture,
   testContext,
 } from './fakes';
 
@@ -156,5 +170,155 @@ describe('pairWithCode', () => {
     const outcome = await pairWithCode(ctx, deps, { code: '048392' });
     expect(outcome.ok).toBe(false);
     expect(await ctx.store.getPairing()).toBeNull();
+  });
+});
+
+function verified(key: string, overrides: Partial<RulesRecord> = {}): RulesRecord {
+  return {
+    v: 1,
+    rules: rulesFixture(),
+    extensionId: EXT_1,
+    etag: '"r-100"',
+    rulesPublicKey: key,
+    receivedAt: NOW - MIN,
+    carried: null,
+    ...overrides,
+  };
+}
+
+const HEALTH: HealthResponse = {
+  ok: true,
+  name: GUARDIAN_NAME,
+  version: '0.1.0',
+  apiVersion: 1,
+  capabilities: [],
+  schemaVersion: 1,
+  catalogVersion: 1,
+  rulesVersion: 1,
+  startedAt: iso(NOW - 60 * MIN),
+  serverNow: iso(NOW),
+  mode: 'normal',
+  problems: [],
+};
+
+/** Routes by port: `ports[port]` answers, anything else is unreachable. */
+function byPort(ports: Record<number, FakeGuardian | 'health'>): typeof fetch {
+  return async (input, init) => {
+    const url = new URL(String(input));
+    const target = ports[Number(url.port)];
+    if (target === undefined) throw new TypeError('Failed to fetch');
+    if (target === 'health') {
+      return new Response(JSON.stringify(HEALTH), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return target.fetch(input, init);
+  };
+}
+
+describe('rules key anchoring', () => {
+  it('keeps the old key pinned when a claim returns another key while blocks are live', async () => {
+    const real = await fakeGuardian();
+    const impostor = await fakeGuardian();
+    impostor.claim = { extensionId: EXT_2, token: TOKEN_2 };
+    const ctx = testContext(impostor.fetch);
+    const pairing = pairingFixture(real.publicKey);
+    await ctx.store.setPairing(pairing);
+    await ctx.store.setRules(verified(real.publicKey));
+
+    expect(await pairWithCode(ctx, deps, { code: '048392' })).toEqual({
+      ok: false,
+      error: 'key_changed',
+      retryAfterSeconds: null,
+    });
+    expect(await ctx.store.getPairing()).toEqual(pairing);
+    expect((await ctx.store.getRules())?.rulesPublicKey).toBe(real.publicKey);
+    expect(ctx.changes).toEqual([]);
+  });
+
+  it('accepts the same key while blocks are live, and a new key once they ended', async () => {
+    const real = await fakeGuardian();
+    real.claim = { extensionId: EXT_2, token: TOKEN_2 };
+    const ctx = testContext(real.fetch);
+    await ctx.store.setPairing(pairingFixture(real.publicKey));
+    await ctx.store.setRules(verified(real.publicKey));
+    expect((await pairWithCode(ctx, deps, { code: '048392' })).ok).toBe(true);
+
+    const reinstalled = await fakeGuardian();
+    const later = testContext(reinstalled.fetch);
+    await later.store.setPairing(pairingFixture(real.publicKey));
+    await later.store.setRules(verified(real.publicKey));
+    later.clock.now = NOW + 31 * MIN; // the only block ended
+    expect((await pairWithCode(later, deps, { code: '048392' })).ok).toBe(true);
+    expect((await later.store.getPairing())?.rulesPublicKey).toBe(reinstalled.publicKey);
+  });
+
+  it('pins the keys of live carried rules and of a live punishment', async () => {
+    const ctx = testContext(async () => new Response(null, { status: 500 }));
+    const ended = rulesFixture({ blocks: [], blockDomains: [], nextChangeAt: null });
+    await ctx.store.setRules(
+      verified('KEY_NEW_000000000000000000000000000000000000', {
+        rules: ended,
+        carried: {
+          rules: rulesFixture(),
+          rulesPublicKey: 'KEY_OLD_0000000000000000000000000000000000',
+        },
+      }),
+    );
+    expect(await pinnedRulesKeys(ctx.store, NOW)).toEqual([
+      'KEY_OLD_0000000000000000000000000000000000',
+    ]);
+
+    await ctx.store.setRules(
+      verified('KEY_P_00000000000000000000000000000000000000', {
+        rules: { ...ended, punishment: { endsAt: iso(NOW + 60 * MIN), level: 'whitelist' } },
+      }),
+    );
+    expect(await pinnedRulesKeys(ctx.store, NOW)).toEqual([
+      'KEY_P_00000000000000000000000000000000000000',
+    ]);
+    expect(await pinnedRulesKeys(ctx.store, NOW + 61 * MIN)).toEqual([]);
+  });
+
+  it('pins the paired key while an unreadable rules record still holds', async () => {
+    const real = await fakeGuardian();
+    const good = verified(real.publicKey);
+    const area = memoryArea({
+      [STORAGE_KEYS.rules]: { ...good, rules: { ...good.rules, blockDomains: ['not a host'] } },
+    });
+    const impostor = await fakeGuardian();
+    const ctx = testContext(impostor.fetch, area);
+    await ctx.store.setPairing(pairingFixture(real.publicKey));
+    expect(await pairWithCode(ctx, deps, { code: '048392' })).toMatchObject({
+      error: 'key_changed',
+    });
+  });
+});
+
+describe('port anchoring', () => {
+  it('refuses another port while the guardian still answers on the paired one', async () => {
+    const real = await fakeGuardian();
+    const impostor = await fakeGuardian();
+    const ctx = testContext(byPort({ 47600: 'health', 50000: impostor }));
+    const pairing = pairingFixture(real.publicKey);
+    await ctx.store.setPairing(pairing);
+
+    expect(await pairWithCode(ctx, deps, { code: '048392', port: 50000 })).toEqual({
+      ok: false,
+      error: 'guardian_elsewhere',
+      retryAfterSeconds: null,
+    });
+    expect(impostor.calls).toHaveLength(0); // the code never reached the other port
+    expect(await ctx.store.getPairing()).toEqual(pairing);
+  });
+
+  it('moves to the port the app shows once nothing answers on the old one', async () => {
+    const real = await fakeGuardian();
+    const moved = await fakeGuardian();
+    const ctx = testContext(byPort({ 47611: moved }));
+    await ctx.store.setPairing(pairingFixture(real.publicKey));
+    expect((await pairWithCode(ctx, deps, { code: '048392', port: 47611 })).ok).toBe(true);
+    expect((await ctx.store.getPairing())?.port).toBe(47611);
   });
 });

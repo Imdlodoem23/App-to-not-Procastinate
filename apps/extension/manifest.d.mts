@@ -5,4 +5,5 @@ export declare function isEngine(value: unknown): value is Engine;
 export declare function manifestFor(
   manifest: Record<string, unknown>,
   engine: Engine,
+  options?: { store?: boolean },
 ): Record<string, unknown>;

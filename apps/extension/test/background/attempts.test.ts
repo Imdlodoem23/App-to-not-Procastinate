@@ -11,15 +11,33 @@ import type {
 import {
   BLOCKED_PAGE_FOLLOW_MS,
   CLIENT_DUPLICATE_MS,
+  MOVE_GRACE_MS,
   NAV_MATCH_MS,
+  OPENED_TAB_GRACE_MS,
+  SWEEP_ALARM,
+  TICK_ALARM,
   createAttemptTracker,
+  createAttemptsPlugin,
   decideReport,
   installAttemptListeners,
+  installOpenTabSweep,
   isBlockedInfoRequest,
+  isOpaqueDocumentUrl,
   isTopLevelActive,
+  matchOpaqueDocument,
   memoryTabStore,
+  originOf,
+  startedByPage,
 } from '../../src/background/attempts';
-import { BLOCKED_INFO_MESSAGE } from '../../src/background/rules';
+import type { BackgroundPlatform } from '../../src/background/index';
+import { ALARMS, createBackground } from '../../src/background/index';
+import { createBackgroundStore } from '../../src/background/storage';
+import { EXT_1, fakeGuardian, memoryArea, pairingFixture, rulesFixture } from './fakes';
+import {
+  BLOCKED_INFO_MESSAGE,
+  MAX_STORED_URL,
+  parseBlockedTabInfo,
+} from '../../src/background/rules';
 import { backgroundPlugins } from '../../src/background/state';
 import {
   BLK_CUSTOM,
@@ -629,6 +647,25 @@ describe('createAttemptTracker', () => {
     expect(await h.tracker.handleMessage({ ...sender, tab: undefined })).toBeNull();
   });
 
+  it('keeps what blocked.html shows when the URL is too long to store (the URL is dropped)', async () => {
+    const long = `https://www.youtube.com/results?search_query=${'a'.repeat(10_000)}`;
+    await h.redirect(7, long);
+    expect(h.reports).toEqual([{ host: 'www.youtube.com', incognito: false }]);
+    const info = parseBlockedTabInfo(await h.store.get(7));
+    expect(info).toMatchObject({ host: 'www.youtube.com', url: null, status: 'counted' });
+
+    const exact = `https://www.youtube.com/?q=${'b'.repeat(MAX_STORED_URL - 27)}`;
+    expect(exact).toHaveLength(MAX_STORED_URL);
+    h.tabs.set(2, { id: 2, url: long });
+    h.tabs.set(3, { id: 3, url: exact });
+    expect(await h.tracker.enforceOpenTabs(blockRules())).toEqual([2, 3]);
+    expect(parseBlockedTabInfo(await h.store.get(2))).toMatchObject({
+      status: 'enforced',
+      url: null,
+    });
+    expect(parseBlockedTabInfo(await h.store.get(3))).toMatchObject({ url: exact });
+  });
+
   describe('through an HTTP redirect (t.co, bit.ly, google.com/url, l.facebook.com…)', () => {
     const active = { frameId: 0, frameType: 'outermost_frame', documentLifecycle: 'active' };
     const serverCommit: CommitDetails = {
@@ -778,6 +815,8 @@ describe('installAttemptListeners', () => {
     return {
       onBeforeNavigate: vi.fn(),
       onBeforeRedirect: vi.fn(),
+      onBeforeRequest: vi.fn(),
+      onCreatedNavigationTarget: vi.fn(),
       onCommitted: vi.fn(async () => undefined),
       onTabRemoved: vi.fn(async () => undefined),
       enforceOpenTabs: vi.fn(async () => []),
@@ -787,8 +826,14 @@ describe('installAttemptListeners', () => {
 
   function stubChrome(withWebRequest: boolean) {
     const api = {
-      webNavigation: { onBeforeNavigate: fakeEvent(), onCommitted: fakeEvent() },
-      webRequest: withWebRequest ? { onBeforeRedirect: fakeEvent() } : undefined,
+      webNavigation: {
+        onBeforeNavigate: fakeEvent(),
+        onCommitted: fakeEvent(),
+        onCreatedNavigationTarget: fakeEvent(),
+      },
+      webRequest: withWebRequest
+        ? { onBeforeRedirect: fakeEvent(), onBeforeRequest: fakeEvent() }
+        : undefined,
       tabs: { onRemoved: fakeEvent() },
     };
     vi.stubGlobal('chrome', api);
@@ -851,5 +896,385 @@ describe('plugin', () => {
     const plugin = backgroundPlugins().find((p) => p.name === 'attempts');
     expect(plugin?.start).toBeTypeOf('function');
     expect(plugin?.handleMessage?.({ type: 'centrate/get-state' }, {})).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// Navigations started by pages (cheat matrix #28), whitelist escapes, open-tab sweep
+// ---------------------------------------------------------------------------------------
+
+describe('originOf and startedByPage', () => {
+  it('normalizes initiators (Chromium origins, Firefox URLs) and drops opaque ones', () => {
+    expect(originOf('https://Example.com')).toBe('https://example.com');
+    expect(originOf('https://example.com:8443/a?b')).toBe('https://example.com:8443');
+    expect(originOf(`${BASE}blocked.html`)).toBe(BASE.slice(0, -1));
+    expect(originOf('null')).toBeNull();
+    expect(originOf('about:newtab')).toBeNull();
+    expect(originOf('data:text/html,x')).toBeNull();
+    expect(originOf(undefined)).toBeNull();
+  });
+
+  it('flags client redirects and navigations started by another document', () => {
+    const at = NOW;
+    expect(startedByPage({ transitionQualifiers: ['client_redirect'], now: at })).toBe(true);
+    const doc = 'https://example.net';
+    // Typed, bookmarks, the browser itself: no initiator.
+    expect(startedByPage({ initiator: null, documentOrigin: doc, now: at })).toBe(false);
+    // A click (or the page's own script) in the tab's document.
+    expect(startedByPage({ initiator: doc, documentOrigin: doc, now: at })).toBe(false);
+    // An opener driving its popup, a frame navigating the top.
+    expect(startedByPage({ initiator: 'https://ads.test', documentOrigin: doc, now: at })).toBe(
+      true,
+    );
+    // Unknown document (worker restarted): counted as before.
+    expect(startedByPage({ initiator: 'https://ads.test', now: at })).toBe(false);
+    // A tab a page opened: its first navigation counts only right after it opened.
+    const opened = { initiator: 'https://ads.test', openedByPageAt: at, now: at };
+    expect(startedByPage({ ...opened, now: at + OPENED_TAB_GRACE_MS })).toBe(false);
+    expect(startedByPage({ ...opened, now: at + OPENED_TAB_GRACE_MS + 1 })).toBe(true);
+    expect(startedByPage({ now: at })).toBe(false);
+  });
+});
+
+describe('attempts started by pages are blocked but never counted', () => {
+  let h: Harness;
+  beforeEach(() => {
+    h = harness();
+  });
+  const active = { frameId: 0, frameType: 'outermost_frame', documentLifecycle: 'active' };
+
+  /** A top-level navigation as Chromium reports it (the blocked site ends on blocked.html). */
+  async function navigate(
+    tabId: number,
+    url: string,
+    options: { initiator?: string; qualifiers?: string[]; blocked?: boolean } = {},
+  ): Promise<void> {
+    if (!h.tabs.has(tabId)) h.tabs.set(tabId, { id: tabId, url: 'about:blank' });
+    h.tracker.onBeforeNavigate({ tabId, ...active, url });
+    h.tracker.onBeforeRequest({
+      tabId,
+      ...active,
+      url,
+      type: 'main_frame',
+      ...(options.initiator === undefined ? {} : { initiator: options.initiator }),
+    });
+    const blocked = options.blocked ?? true;
+    await h.tracker.onCommitted({
+      tabId,
+      ...active,
+      url: blocked ? PAGE : url,
+      transitionType: 'link',
+      transitionQualifiers: [
+        ...(options.qualifiers ?? []),
+        ...(blocked ? ['server_redirect'] : []),
+      ],
+    });
+  }
+
+  it('a meta refresh or script redirect (client_redirect) is not counted', async () => {
+    await navigate(7, 'https://example.net/', { initiator: undefined, blocked: false });
+    await navigate(7, 'https://www.youtube.com/', {
+      initiator: 'https://example.net',
+      qualifiers: ['client_redirect'],
+    });
+    expect(h.reports).toEqual([]);
+    expect(await h.store.get(7)).toMatchObject({
+      host: 'www.youtube.com',
+      status: 'not_counted',
+      pointsDelta: 0,
+      block: { id: BLK_YT },
+    });
+  });
+
+  it('a click in the page the tab shows still counts', async () => {
+    await navigate(7, 'https://example.net/', { blocked: false });
+    await navigate(7, 'https://www.youtube.com/', { initiator: 'https://example.net' });
+    expect(h.reports).toEqual([{ host: 'www.youtube.com', incognito: false }]);
+    expect(await h.store.get(7)).toMatchObject({ status: 'counted' });
+  });
+
+  it('an opener driving its popup to blocked sites costs nothing; the user typing there does', async () => {
+    await navigate(1, 'https://ads.test/', { blocked: false });
+    h.tracker.onCreatedNavigationTarget({ sourceTabId: 1, tabId: 20, url: 'https://pop.test/' });
+    // The popup's own first load, right after the click that opened it.
+    await navigate(20, 'https://pop.test/', { initiator: 'https://ads.test', blocked: false });
+    for (const site of ['https://www.youtube.com/', 'https://www.instagram.com/']) {
+      h.advance(31_000);
+      await navigate(20, site, { initiator: 'https://ads.test' });
+      expect(await h.store.get(20)).toMatchObject({ status: 'not_counted', pointsDelta: 0 });
+    }
+    expect(h.reports).toEqual([]);
+
+    h.advance(31_000);
+    await navigate(20, 'https://www.youtube.com/', { qualifiers: ['from_address_bar'] });
+    expect(h.reports).toEqual([{ host: 'www.youtube.com', incognito: false }]);
+  });
+
+  it('a popup opened on about:blank and navigated later is not counted; one opened by a click is', async () => {
+    h.tracker.onCreatedNavigationTarget({ sourceTabId: 1, tabId: 21, url: 'about:blank' });
+    h.advance(OPENED_TAB_GRACE_MS + 1);
+    await navigate(21, 'https://www.youtube.com/', { initiator: 'https://ads.test' });
+    expect(h.reports).toEqual([]);
+    expect(await h.store.get(21)).toMatchObject({ status: 'not_counted' });
+
+    // target=_blank link or middle click: the new tab loads at once.
+    h.tracker.onCreatedNavigationTarget({
+      sourceTabId: 1,
+      tabId: 22,
+      url: 'https://instagram.com/',
+    });
+    await navigate(22, 'https://instagram.com/', { initiator: 'https://example.net' });
+    expect(h.reports).toEqual([{ host: 'instagram.com', incognito: false }]);
+  });
+
+  it('the safety net moves a page-driven commit of a blocked site without counting it', async () => {
+    await navigate(7, 'https://example.net/', { blocked: false });
+    await navigate(7, 'https://www.youtube.com./', {
+      initiator: 'https://other.test',
+      blocked: false,
+    });
+    expect(h.updates).toEqual([
+      { tabId: 7, url: `${BASE}blocked.html?cause=domain&service=youtube` },
+    ]);
+    expect(h.reports).toEqual([]);
+    expect(await h.store.get(7)).toMatchObject({ status: 'not_counted', pointsDelta: 0 });
+  });
+
+  it('a request older than the navigation window says nothing about a later commit', async () => {
+    await navigate(7, 'https://example.net/', { blocked: false });
+    h.tracker.onBeforeRequest({
+      tabId: 7,
+      ...active,
+      url: 'https://x.test/',
+      type: 'main_frame',
+      initiator: 'https://other.test',
+    });
+    h.advance(NAV_MATCH_MS + 1);
+    await h.redirect(7, 'https://www.youtube.com/');
+    expect(h.reports).toHaveLength(1);
+  });
+});
+
+describe('whitelist escapes (data:, file:, blob: documents)', () => {
+  const active = { frameId: 0, frameType: 'outermost_frame', documentLifecycle: 'active' };
+
+  it('recognizes the schemes and matches them only while a whitelist is in force', () => {
+    expect(isOpaqueDocumentUrl('data:text/html,<iframe>')).toBe(true);
+    expect(isOpaqueDocumentUrl('FILE:///home/a.html')).toBe(true);
+    expect(isOpaqueDocumentUrl('blob:null/1234')).toBe(true);
+    expect(isOpaqueDocumentUrl('https://example.net/')).toBe(false);
+    expect(matchOpaqueDocument(blockRules(), 'data:text/html,x').blocked).toBe(false);
+    expect(matchOpaqueDocument(null, 'data:text/html,x').blocked).toBe(false);
+    expect(matchOpaqueDocument(examRules(), 'data:text/html,x')).toMatchObject({
+      blocked: true,
+      via: 'whitelist',
+      block: { id: BLK_EXAM },
+    });
+    expect(matchOpaqueDocument(examRules(), 'blob:https://docs.google.com/5f0e').blocked).toBe(
+      false,
+    );
+    expect(matchOpaqueDocument(examRules(), 'blob:https://www.reddit.com/5f0e').blocked).toBe(true);
+  });
+
+  it('moves a data: page typed during an exam to blocked.html, without points or its URL', async () => {
+    const h = harness();
+    h.setRules(examRules());
+    const url = `data:text/html,<iframe src="https://www.reddit.com/" style="width:100vw">`;
+    h.tabs.set(4, { id: 4, url });
+    await h.tracker.onCommitted({ tabId: 4, ...active, url, transitionType: 'typed' });
+    expect(h.updates).toEqual([{ tabId: 4, url: `${BASE}blocked.html?cause=whitelist&tab=1` }]);
+    expect(h.reports).toEqual([]);
+    expect(await h.store.get(4)).toMatchObject({
+      status: 'enforced',
+      cause: 'whitelist',
+      host: null,
+      url: null,
+      block: { id: BLK_EXAM },
+    });
+  });
+
+  it('leaves data: and allowed blob: documents alone otherwise', async () => {
+    const h = harness();
+    const commit = (url: string) =>
+      h.tracker.onCommitted({ tabId: 4, ...active, url, transitionType: 'typed' });
+    await commit('data:text/html,hola');
+    h.setRules(examRules());
+    await commit('blob:https://docs.google.com/5f0e');
+    expect(h.updates).toEqual([]);
+  });
+});
+
+describe('open tabs: retried until they leave the blocked site', () => {
+  it('a move the browser refused (tab drag) is retried by the next sweep', async () => {
+    const h = harness();
+    h.tabs.set(1, { id: 1, url: 'https://www.youtube.com/watch?v=1' });
+    const warn = vi.fn();
+    let refuse = true;
+    const tracker = createAttemptTracker({
+      getEffectiveRules: async () => blockRules(),
+      reportAttempt: async () => null,
+      extensionBase: BASE,
+      store: h.store,
+      now: () => NOW,
+      warn,
+      tabs: {
+        get: async (id) => h.tabs.get(id) ?? {},
+        query: async () => [...h.tabs.values()].filter((t) => /^https?:/.test(t.url ?? '')),
+        async update(id, { url }) {
+          if (refuse)
+            throw new Error('Tabs cannot be edited right now (user may be dragging a tab).');
+          h.tabs.set(id, { id, url });
+          h.updates.push({ tabId: id, url });
+        },
+      },
+    });
+    expect(await tracker.enforceOpenTabs(blockRules())).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not move'), expect.any(Error));
+    refuse = false;
+    expect(await tracker.enforceOpenTabs(blockRules())).toEqual([1]);
+    expect(h.updates).toEqual([
+      { tabId: 1, url: `${BASE}blocked.html?cause=domain&service=youtube&tab=1` },
+    ]);
+  });
+
+  it('a move the user cancelled («¿Salir del sitio?») is retried once the grace has passed', async () => {
+    const h = harness();
+    h.tabs.set(1, { id: 1, url: 'https://www.reddit.com/r/x/submit' });
+    // The update resolves but the page stays (beforeunload cancelled).
+    const stay: TabsApi = {
+      get: async (id) => h.tabs.get(id) ?? {},
+      query: async () => [...h.tabs.values()],
+      update: async (tabId, { url }) => {
+        h.updates.push({ tabId, url });
+      },
+    };
+    let now = NOW;
+    const tracker = createAttemptTracker({
+      getEffectiveRules: async () => blockRules(),
+      reportAttempt: async () => null,
+      extensionBase: BASE,
+      store: h.store,
+      now: () => now,
+      tabs: stay,
+    });
+    const rules = blockRules({ blockDomains: ['reddit.com'] });
+    expect(await tracker.enforceOpenTabs(rules)).toEqual([1]);
+    now += MOVE_GRACE_MS - 1;
+    expect(await tracker.enforceOpenTabs(rules)).toEqual([]);
+    now += 1;
+    expect(await tracker.enforceOpenTabs(rules)).toEqual([1]);
+    expect(h.updates).toHaveLength(2);
+    expect(await h.store.get(1)).toMatchObject({ status: 'enforced' });
+  });
+
+  it('a safety-net move in progress is not repeated by a sweep', async () => {
+    const h = harness();
+    h.tabs.set(5, { id: 5, url: 'https://www.youtube.com/' });
+    h.tracker.onBeforeNavigate({ tabId: 5, frameId: 0, url: 'https://www.youtube.com./' });
+    const commit = h.tracker.onCommitted({
+      tabId: 5,
+      frameId: 0,
+      url: 'https://www.youtube.com./',
+      transitionType: 'typed',
+    });
+    h.tabs.set(5, { id: 5, url: 'https://www.youtube.com./' });
+    const sweep = h.tracker.enforceOpenTabs(blockRules());
+    await Promise.all([commit, sweep]);
+    expect(h.updates).toHaveLength(1);
+    expect(await h.store.get(5)).toMatchObject({ status: 'counted' });
+  });
+});
+
+describe('the sweep alarm', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubAlarms(existing?: { periodInMinutes?: number }) {
+    const listeners: Array<(alarm: { name: string }) => void> = [];
+    const alarms = {
+      onAlarm: {
+        addListener: vi.fn((l: (alarm: { name: string }) => void) => listeners.push(l)),
+        removeListener: vi.fn(),
+      },
+      get: vi.fn(async () => existing),
+      create: vi.fn(async () => undefined),
+    };
+    vi.stubGlobal('chrome', { alarms });
+    return { alarms, fire: (name: string) => listeners.forEach((l) => l({ name })) };
+  }
+
+  it('sweeps on the core tick in the main instance and creates no alarm there', async () => {
+    const { alarms, fire } = stubAlarms();
+    const sweep = vi.fn(async () => undefined);
+    const stop = installOpenTabSweep(sweep, false);
+    expect(TICK_ALARM).toBe(ALARMS.tick);
+    fire(ALARMS.tick);
+    fire(ALARMS.rulesChange);
+    expect(sweep).toHaveBeenCalledTimes(1);
+    await Promise.resolve();
+    expect(alarms.create).not.toHaveBeenCalled();
+    stop();
+    expect(alarms.onAlarm.removeListener).toHaveBeenCalled();
+  });
+
+  it('creates its own 30 s alarm in the incognito instance', async () => {
+    const { alarms, fire } = stubAlarms();
+    const sweep = vi.fn(async () => undefined);
+    installOpenTabSweep(sweep, true);
+    await vi.waitFor(() => expect(alarms.create).toHaveBeenCalled());
+    expect(alarms.create).toHaveBeenCalledWith(SWEEP_ALARM, {
+      delayInMinutes: 0.5,
+      periodInMinutes: 0.5,
+    });
+    fire(SWEEP_ALARM);
+    expect(sweep).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Chromium incognito instance (split mode follower)', () => {
+  it('moves its own open incognito tab on a newly blocked site, without points', async () => {
+    const guardian = await fakeGuardian();
+    const area = memoryArea();
+    const store = createBackgroundStore(area);
+    await store.setPairing(pairingFixture(guardian.publicKey));
+    await store.setRules({
+      v: 1,
+      rules: rulesFixture(),
+      extensionId: EXT_1,
+      etag: '"r-100"',
+      rulesPublicKey: guardian.publicKey,
+      receivedAt: NOW - 60_000,
+      carried: null,
+    });
+    const h = harness();
+    h.tabs.set(31, { id: 31, url: 'https://www.youtube.com/watch?v=1', incognito: true });
+    h.tabs.set(32, { id: 32, url: 'https://es.wikipedia.org/', incognito: true });
+    const platform: BackgroundPlatform = {
+      extensionId: 'test-extension-id',
+      extVersion: '0.1.0',
+      browser: async () => ({ family: 'chrome', engine: 'chromium', version: '131.0.0.0' }),
+      capabilities: async () => ({ hostPermission: true, incognitoAllowed: true }),
+      ensureTick: async () => undefined,
+      scheduleRulesChange: async () => undefined,
+      broadcast: () => undefined,
+      openGuide: async () => undefined,
+    };
+    const background = createBackground({
+      store,
+      platform,
+      plugins: [createAttemptsPlugin({ tracker: () => h.tracker })],
+      fetch: guardian.fetch,
+      now: () => NOW,
+      role: 'follower',
+      loop: { sleep: () => new Promise((resolve) => setTimeout(resolve, 0)), retryDelaysMs: [] },
+    });
+    await background.start();
+    expect(h.updates).toEqual([
+      { tabId: 31, url: `${BASE}blocked.html?cause=domain&service=youtube&tab=1` },
+    ]);
+    expect(await h.store.get(31)).toMatchObject({ status: 'enforced', pointsDelta: 0 });
+    expect(h.reports).toEqual([]);
+    expect(guardian.calls).toEqual([]);
   });
 });

@@ -46,10 +46,36 @@
  * - the same target reported less than `CLIENT_DUPLICATE_MS` ago (two tabs at once, a
  *   double event) is not sent twice: both tabs show the first answer.
  *
- * **Open tabs.** After every change of the browser's rules (dnr.ts) the open http(s) tabs
- * are checked and those on a now-blocked host are moved to blocked.html (`tab=1`,
- * status `enforced`): a block that starts while YouTube is open takes effect at once and
- * costs nothing.
+ * **Started by a page, not by the user** (blocked, never counted: status `not_counted`,
+ * nothing sent). Web pages must not be able to cost points (cheat matrix #28):
+ * - commits qualified `client_redirect` (meta refresh, and script navigations the browser
+ *   marks as such);
+ * - navigations started by another document than the one the tab shows: the top-level
+ *   request's `initiator` (Chromium) or `originUrl` (Firefox), read at
+ *   `webRequest.onBeforeRequest`, is not the origin of the tab's committed document (an
+ *   opener driving its popup, a frame navigating the top). Chromium reports it for
+ *   requests DNR redirects too (e2e/attempts-forgery.e2e.ts);
+ * - in a tab a page opened (`webNavigation.onCreatedNavigationTarget`) that has shown no
+ *   web page yet, a navigation started by a page more than `OPENED_TAB_GRACE_MS` after it
+ *   opened (a popup opened on `about:blank` and driven later).
+ * Chromium gives a page's own script navigation (`location = …` after load) the same
+ * `link` transition and initiator as a click, so that one still counts (DECISIONS.md).
+ * The tab's document origin lives in the worker's memory: after a worker restart it is
+ * unknown until the tab commits again, and the navigation counts as before.
+ *
+ * **Open tabs.** After every change of the browser's rules (dnr.ts), in the incognito
+ * instance of Chromium's split mode whenever the rules it follows change (`followRules`),
+ * and on every 30 s tick (a move the user cancelled at «¿Salir del sitio?», or that the
+ * browser refused during a tab drag, is retried) the open http(s) tabs are checked and
+ * those on a now-blocked host are moved to blocked.html (`tab=1`, status `enforced`): a
+ * block that starts while YouTube is open takes effect at once and costs nothing. A tab
+ * moved less than `MOVE_GRACE_MS` ago is left to finish loading blocked.html.
+ *
+ * **Whitelist mode escapes.** The whitelist redirect only sees http(s) top-level
+ * requests; a `data:` or `file:` document (typed in the address bar) or a `blob:` of a
+ * non-allowed origin could frame any site, and the whitelist never blocks sub-frames. While
+ * a whitelist is in force such a top-level commit is moved to blocked.html (`whitelist`,
+ * `enforced`, never counted, its URL not stored).
  *
  * **blocked.html** gets everything from the background: `BlockedTabInfo` in
  * `chrome.storage.session` under `blockedTabKey(tabId)` (written before the page loads
@@ -70,6 +96,7 @@ import {
   hostFromUrl,
   isBlockedPageUrl,
   parseBlockedTabInfo,
+  storedUrl,
 } from './rules';
 import type { BackgroundApi, BackgroundPlugin, HostMatch } from './state';
 import { matchHost, registerBackgroundPlugin } from './state';
@@ -83,6 +110,18 @@ export const CLIENT_DUPLICATE_MS = 2_000;
  * `onBeforeNavigate` of blocked.html that DNR's redirect of it fires (tens of ms).
  */
 export const BLOCKED_PAGE_FOLLOW_MS = 2_000;
+/**
+ * A tab a page opened counts its first navigation (a link with `target=_blank`, a popup
+ * opened on a click) only this soon after it opened: Chromium's user activation lasts 5 s.
+ */
+export const OPENED_TAB_GRACE_MS = 5_000;
+/** A tab moved to blocked.html less than this ago is not moved again (it is loading). */
+export const MOVE_GRACE_MS = 10_000;
+/** The core's periodic alarm (index.ts `ALARMS.tick`), also the open-tab sweep. */
+export const TICK_ALARM = 'centrate.tick';
+/** The sweep's own alarm in Chromium's incognito instance (the core ticks in the main one). */
+export const SWEEP_ALARM = 'centrate.sweep';
+const SWEEP_PERIOD_MINUTES = 0.5;
 
 // ---------------------------------------------------------------------------------------
 // Pure filters
@@ -110,6 +149,101 @@ export interface RedirectDetails extends NavigationDetails {
   redirectUrl: string;
   /** `main_frame` for the document of a tab (the listener's filter). */
   type?: string;
+}
+
+/** The fields of `webRequest.onBeforeRequest` details this module reads. */
+export interface RequestDetails extends NavigationDetails {
+  /** `main_frame` for the document of a tab (the listener's filter). */
+  type?: string;
+  /** Chromium: origin of the document that started the request; absent for browser UI. */
+  initiator?: string;
+  /** Firefox: URL of the document that started the request; absent for browser UI. */
+  originUrl?: string;
+}
+
+/** The fields of `webNavigation.onCreatedNavigationTarget` details this module reads. */
+export interface CreatedTargetDetails {
+  tabId: number;
+  sourceTabId: number;
+  url: string;
+}
+
+/**
+ * `scheme://host[:port]` of an http(s) or extension URL (or of an origin, as Chromium's
+ * `initiator` gives it); `null` for opaque origins (`null`, `about:`, `data:`…) and
+ * invalid input.
+ */
+export function originOf(url: string | undefined): string | null {
+  if (url === undefined || url === 'null') return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  const scheme = parsed.protocol;
+  const web = scheme === 'http:' || scheme === 'https:';
+  if (!web && scheme !== 'chrome-extension:' && scheme !== 'moz-extension:') return null;
+  if (parsed.host.length === 0) return null;
+  return `${scheme}//${parsed.host}`.toLowerCase();
+}
+
+export interface PageDrivenInput {
+  transitionQualifiers?: readonly string[];
+  /**
+   * Origin that started the navigation (`originOf` the request's initiator); `null` for
+   * the browser itself or an opaque origin, `undefined` when no request was seen.
+   */
+  initiator?: string | null;
+  /** Origin of the document the tab showed when the navigation started, if known. */
+  documentOrigin?: string;
+  /** When a page opened the tab, while it has shown no web page yet. */
+  openedByPageAt?: number;
+  now: number;
+}
+
+/**
+ * Whether a top-level navigation was started by a web page rather than by the user (see
+ * the module comment): it is still blocked, but never counted.
+ */
+export function startedByPage(input: PageDrivenInput): boolean {
+  if (input.transitionQualifiers?.includes('client_redirect') === true) return true;
+  const initiator = input.initiator;
+  if (initiator === undefined || initiator === null) return false;
+  if (input.documentOrigin !== undefined) return initiator !== input.documentOrigin;
+  if (input.openedByPageAt !== undefined) {
+    return input.now - input.openedByPageAt > OPENED_TAB_GRACE_MS;
+  }
+  return false;
+}
+
+const OPAQUE_SCHEMES = ['data:', 'file:', 'blob:'];
+
+/** True for the top-level documents the whitelist redirect never sees (`data:`, `file:`, `blob:`). */
+export function isOpaqueDocumentUrl(url: string): boolean {
+  const lower = url.slice(0, 5).toLowerCase();
+  return OPAQUE_SCHEMES.some((scheme) => lower.startsWith(scheme));
+}
+
+/**
+ * Whether the rules in force block a top-level `data:`, `file:` or `blob:` document: only
+ * while a whitelist is in force, and a `blob:` of a web origin follows that origin.
+ */
+export function matchOpaqueDocument(rules: ExtRulesResponse | null, url: string): HostMatch {
+  const none: HostMatch = { blocked: false, via: null, block: null };
+  if (rules === null || rules.whitelist === null || !isOpaqueDocumentUrl(url)) return none;
+  if (url.slice(0, 5).toLowerCase() === 'blob:') {
+    const host = hostFromUrl(url.slice(5));
+    if (host !== null) return matchHost(rules, host);
+  }
+  let block: HostMatch['block'] = null;
+  for (const candidate of rules.blocks) {
+    if (!candidate.whitelistOnly) continue;
+    if (block === null || Date.parse(candidate.endsAt) >= Date.parse(block.endsAt)) {
+      block = candidate;
+    }
+  }
+  return { blocked: true, via: 'whitelist', block };
 }
 
 /** A real top-level navigation in a tab: not a sub-frame, fenced frame or prerender. */
@@ -238,10 +372,18 @@ export interface AttemptTracker {
    * now stands for the URL that will reach blocked.html, not the one it started with.
    */
   onBeforeRedirect(details: RedirectDetails): void;
+  /** A top-level request of a tab started: remembers who started it (see `startedByPage`). */
+  onBeforeRequest(details: RequestDetails): void;
+  /** A page opened a tab (a link with a target, `window.open`). */
+  onCreatedNavigationTarget(details: CreatedTargetDetails): void;
   /** Resolves when the commit is fully handled (including the guardian's answer). */
   onCommitted(details: CommitDetails): Promise<void>;
   onTabRemoved(tabId: number): Promise<void>;
-  /** Moves open tabs on a host `rules` block to blocked.html; returns their ids. */
+  /**
+   * Moves open tabs on a host `rules` block to blocked.html (except those moved less than
+   * `MOVE_GRACE_MS` ago); returns the ids it asked the browser to move. Idempotent: run
+   * after rule changes and on every tick.
+   */
   enforceOpenTabs(rules: ExtRulesResponse | null): Promise<number[]>;
   /** Answers `BLOCKED_INFO_MESSAGE` for the sender's tab (main-frame blocked.html only). */
   handleMessage(sender: chrome.runtime.MessageSender): Promise<BlockedTabInfo | null>;
@@ -256,6 +398,15 @@ interface PendingNav {
    * page opened by hand): only a `server_redirect` commit matches it.
    */
   superseded?: boolean;
+}
+
+/** Who started a tab's latest top-level request (`webRequest.onBeforeRequest`). */
+interface RequestOrigin {
+  initiator: string | null;
+  /** The tab's document origin when it started (`undefined`: unknown). */
+  from: string | undefined;
+  openedAt: number | undefined;
+  at: number;
 }
 
 interface ReportRecord {
@@ -318,6 +469,14 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
   const lastReport = new Map<string, ReportRecord>();
   const withInfo = new Set<number>();
   const tabQueues = new Map<number, Promise<void>>();
+  /** Origin of the document each tab committed last (http(s) or this extension). */
+  const documentOrigins = new Map<number, string>();
+  const requestOrigins = new Map<number, RequestOrigin>();
+  /** Tabs a page opened that have committed nothing since, with when. */
+  const openedByPage = new Map<number, number>();
+  /** Tabs this module asked the browser to move to blocked.html, with when. */
+  const moves = new Map<number, number>();
+  const extensionOrigin = originOf(base);
 
   const pageUrl = (cause: BlockedCause, serviceId: string | null, enforced: boolean): string =>
     base +
@@ -372,6 +531,7 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
     via: 'redirected' | 'committed',
     rules: ExtRulesResponse | null,
     match: HostMatch,
+    byPage: boolean,
   ): Promise<void> {
     const tabId = details.tabId;
     const at = now();
@@ -380,7 +540,7 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
       v: 1,
       tabId,
       host: nav.host,
-      url: nav.url,
+      url: storedUrl(nav.url),
       serviceId,
       cause: match.via ?? 'domain',
       status: 'reporting',
@@ -399,12 +559,13 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
       return;
     }
     if (via === 'committed') {
-      await save(info);
-      try {
-        await deps.tabs.update(tabId, { url: pageUrl(info.cause, serviceId, false) });
-      } catch (error) {
-        warn('Céntrate: could not move a tab to the blocked page', error);
-      }
+      await save(byPage ? { ...info, status: 'not_counted', pointsDelta: 0 } : info);
+      await move(tabId, pageUrl(info.cause, serviceId, false));
+    }
+    if (byPage) {
+      // Blocked all the same, but a page cannot cost the user points (cheat matrix #28).
+      await save({ ...info, status: 'not_counted', pointsDelta: 0 });
+      return;
     }
 
     prune(at);
@@ -455,21 +616,43 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
     await save(info);
   }
 
-  /** Moves `tabId`, on `url` that `match` blocks, to blocked.html without points. */
+  /**
+   * Asks the browser to show `url` in `tabId`. A resolved update is not proof: a
+   * «¿Salir del sitio?» the user cancels keeps the page, so the sweep checks again once
+   * `MOVE_GRACE_MS` has passed.
+   */
+  async function move(tabId: number, url: string): Promise<boolean> {
+    moves.set(tabId, now());
+    try {
+      await deps.tabs.update(tabId, { url });
+      return true;
+    } catch (error) {
+      // Closed meanwhile, or «Tabs cannot be edited right now» during a tab drag: the next
+      // sweep retries.
+      moves.delete(tabId);
+      warn('Céntrate: could not move a tab to the blocked page', error);
+      return false;
+    }
+  }
+
+  /**
+   * Moves `tabId`, on `url` that `match` blocks, to blocked.html without points. `url` and
+   * `host` are `null` for a whitelist escape (a `data:` URL can be megabytes long).
+   */
   async function enforceTab(
     tabId: number,
-    url: string,
-    host: string,
+    url: string | null,
+    host: string | null,
     rules: ExtRulesResponse | null,
     match: HostMatch,
   ): Promise<boolean> {
-    const serviceId = findServiceByDomain(host)?.id ?? null;
+    const serviceId = host === null ? null : (findServiceByDomain(host)?.id ?? null);
     const cause = match.via ?? 'domain';
     await save({
       v: 1,
       tabId,
       host,
-      url,
+      url: storedUrl(url),
       serviceId,
       cause,
       status: 'enforced',
@@ -481,13 +664,22 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
       guardianReason: null,
       block: pickBlock(match.block),
     });
-    try {
-      await deps.tabs.update(tabId, { url: pageUrl(cause, serviceId, true) });
-      return true;
-    } catch {
-      // The tab was closed meanwhile.
-      return false;
-    }
+    return move(tabId, pageUrl(cause, serviceId, true));
+  }
+
+  /** Who started the navigation that commits now (consumed: one per commit). */
+  function takeRequestOrigin(tabId: number): RequestOrigin | undefined {
+    const entry = requestOrigins.get(tabId);
+    requestOrigins.delete(tabId);
+    return entry !== undefined && now() - entry.at <= NAV_MATCH_MS ? entry : undefined;
+  }
+
+  /** After a top-level commit: the tab now shows a document of `origin` (or unknown). */
+  function committedIn(tabId: number, origin: string | null): void {
+    moves.delete(tabId);
+    openedByPage.delete(tabId);
+    if (origin === null) documentOrigins.delete(tabId);
+    else documentOrigins.set(tabId, origin);
   }
 
   async function handleCommit(details: CommitDetails): Promise<void> {
@@ -495,8 +687,18 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
     const nav = pending.get(tabId);
     pending.delete(tabId);
     const started = nav !== undefined && now() - nav.at <= NAV_MATCH_MS ? nav : undefined;
+    const request = takeRequestOrigin(tabId);
+    const byPage = startedByPage({
+      transitionQualifiers: details.transitionQualifiers,
+      initiator: request?.initiator,
+      documentOrigin: request?.from,
+      openedByPageAt: request?.openedAt,
+      now: now(),
+    });
+    const blockedPage = isBlockedPageUrl(details.url, base);
+    committedIn(tabId, blockedPage ? extensionOrigin : originOf(details.url));
 
-    if (isBlockedPageUrl(details.url, base)) {
+    if (blockedPage) {
       // Opened by the extension (its info is already written), by hand or by another page:
       // only a redirect of a navigation seen at onBeforeNavigate is an attempt, for the URL
       // DNR redirected (onBeforeRedirect), not the redirector the navigation started at.
@@ -508,12 +710,20 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
         return;
       }
       const rules = await deps.getEffectiveRules();
-      await detect(details, started, 'redirected', rules, matchHost(rules, started.host));
+      await detect(details, started, 'redirected', rules, matchHost(rules, started.host), byPage);
       return;
     }
 
     const host = hostFromUrl(details.url);
     if (host === null) {
+      if (isOpaqueDocumentUrl(details.url)) {
+        const rules = await deps.getEffectiveRules();
+        const match = matchOpaqueDocument(rules, details.url);
+        if (match.blocked) {
+          await enforceTab(tabId, null, null, rules, match);
+          return;
+        }
+      }
       await forget(tabId);
       return;
     }
@@ -532,7 +742,7 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
       await enforceTab(tabId, details.url, host, rules, match);
       return;
     }
-    await detect(details, { url: details.url, host, at: now() }, 'committed', rules, match);
+    await detect(details, { url: details.url, host, at: now() }, 'committed', rules, match, byPage);
   }
 
   return {
@@ -567,6 +777,25 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
       else pending.set(details.tabId, { url, host, at: now() });
     },
 
+    onBeforeRequest(details) {
+      if (!isTopLevelActive(details)) return;
+      if (details.type !== undefined && details.type !== 'main_frame') return;
+      // Chromium: `initiator` is an origin; Firefox: `originUrl` is the document's URL.
+      const source = details.initiator ?? details.originUrl;
+      requestOrigins.set(details.tabId, {
+        initiator: originOf(source),
+        from: documentOrigins.get(details.tabId),
+        openedAt: openedByPage.get(details.tabId),
+        at: now(),
+      });
+    },
+
+    onCreatedNavigationTarget(details) {
+      if (details.tabId < 0) return;
+      documentOrigins.delete(details.tabId);
+      openedByPage.set(details.tabId, now());
+    },
+
     onCommitted(details) {
       // Prerender commits are skipped: activation fires onBeforeNavigate/onCommitted again
       // as `active`.
@@ -576,6 +805,10 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
 
     async onTabRemoved(tabId) {
       pending.delete(tabId);
+      documentOrigins.delete(tabId);
+      requestOrigins.delete(tabId);
+      openedByPage.delete(tabId);
+      moves.delete(tabId);
       withInfo.delete(tabId);
       await deps.store.remove(tabId);
     },
@@ -591,13 +824,19 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
       }
       const moved: number[] = [];
       for (const tab of tabs) {
-        if (tab.id === undefined || tab.id < 0 || tab.url === undefined) continue;
-        const host = hostFromUrl(tab.url);
+        const { id, url } = tab;
+        if (id === undefined || id < 0 || url === undefined) continue;
+        const host = hostFromUrl(url);
         if (host === null) continue;
         const match = matchHost(rules, host);
         if (!match.blocked) continue;
-        pending.delete(tab.id);
-        if (await enforceTab(tab.id, tab.url, host, rules, match)) moved.push(tab.id);
+        // In the tab's queue, so a commit being handled (the safety net moving it) goes first.
+        await inTab(id, async () => {
+          const movedAt = moves.get(id);
+          if (movedAt !== undefined && now() - movedAt < MOVE_GRACE_MS) return;
+          pending.delete(id);
+          if (await enforceTab(id, url, host, rules, match)) moved.push(id);
+        });
       }
       return moved;
     },
@@ -625,8 +864,8 @@ export function isBlockedInfoRequest(message: unknown): boolean {
 /**
  * Registers the `webNavigation`, `webRequest` and `tabs` listeners. `start` runs during the
  * worker's first turn (index.ts), which MV3 needs to wake the worker for these events.
- * `webRequest` is the non-blocking permission (MV3 in Chrome and Firefox): the listener
- * only reads where a tab's top-level request was redirected.
+ * `webRequest` is the non-blocking permission (MV3 in Chrome and Firefox): the listeners
+ * only read who started a tab's top-level request and where it was redirected.
  */
 export function installAttemptListeners(
   tracker: AttemptTracker,
@@ -637,9 +876,22 @@ export function installAttemptListeners(
   const request = chrome.webRequest as typeof chrome.webRequest | undefined;
   const web = [{ urlPrefix: 'http://' }, { urlPrefix: 'https://' }];
   const page = { urlPrefix: extensionBase.replace(/\/*$/, '/') + BLOCKED_PAGE };
+  // Whitelist escapes (data:, file:, blob: documents): commits only.
+  const opaque = { schemes: ['data', 'file', 'blob'] };
+  const requestFilter: chrome.webRequest.RequestFilter = {
+    urls: ['http://*/*', 'https://*/*'],
+    types: ['main_frame'],
+  };
 
   const before = (details: chrome.webNavigation.WebNavigationBaseCallbackDetails): void => {
     tracker.onBeforeNavigate(details);
+  };
+  const created = (details: chrome.webNavigation.WebNavigationSourceCallbackDetails): void => {
+    tracker.onCreatedNavigationTarget(details);
+  };
+  const requested = (details: chrome.webRequest.OnBeforeRequestDetails): undefined => {
+    tracker.onBeforeRequest(details as RequestDetails);
+    return undefined;
   };
   const redirected = (details: chrome.webRequest.OnBeforeRedirectDetails): void => {
     tracker.onBeforeRedirect(details);
@@ -657,22 +909,77 @@ export function installAttemptListeners(
     console.warn('Céntrate: webNavigation is unavailable; attempts are not reported');
   } else {
     nav.onBeforeNavigate.addListener(before, { url: [...web, page] });
-    nav.onCommitted.addListener(committed, { url: [...web, page] });
+    nav.onCommitted.addListener(committed, { url: [...web, page, opaque] });
+    nav.onCreatedNavigationTarget.addListener(created);
   }
   if (request === undefined) {
     console.warn('Céntrate: webRequest is unavailable; redirected attempts keep the first URL');
   } else {
-    request.onBeforeRedirect.addListener(redirected, {
-      urls: ['http://*/*', 'https://*/*'],
-      types: ['main_frame'],
-    });
+    request.onBeforeRequest.addListener(requested, requestFilter);
+    request.onBeforeRedirect.addListener(redirected, requestFilter);
   }
   chrome.tabs.onRemoved.addListener(removed);
   return () => {
     nav?.onBeforeNavigate.removeListener(before);
     nav?.onCommitted.removeListener(committed);
+    nav?.onCreatedNavigationTarget.removeListener(created);
+    request?.onBeforeRequest.removeListener(requested);
     request?.onBeforeRedirect.removeListener(redirected);
     chrome.tabs.onRemoved.removeListener(removed);
+  };
+}
+
+/**
+ * Sweeps the open tabs on every tick (`TICK_ALARM`, the core's 30 s alarm in the main
+ * instance), so a move that failed or was cancelled is retried while the block lasts. The
+ * incognito instance of Chromium's split mode has no core tick: `follower` creates
+ * `SWEEP_ALARM` there.
+ */
+export function installOpenTabSweep(sweep: () => Promise<unknown>, follower: boolean): () => void {
+  const warn = (error: unknown): void => console.warn('Céntrate: open-tab sweep failed', error);
+  const alarms = chrome.alarms as typeof chrome.alarms | undefined;
+  if (alarms === undefined) return () => undefined;
+  const onAlarm = (alarm: chrome.alarms.Alarm): void => {
+    if (alarm.name === TICK_ALARM || alarm.name === SWEEP_ALARM) sweep().catch(warn);
+  };
+  alarms.onAlarm.addListener(onAlarm);
+  if (follower) {
+    alarms
+      .get(SWEEP_ALARM)
+      .then(async (existing) => {
+        if (existing?.periodInMinutes === SWEEP_PERIOD_MINUTES) return;
+        await alarms.create(SWEEP_ALARM, {
+          delayInMinutes: SWEEP_PERIOD_MINUTES,
+          periodInMinutes: SWEEP_PERIOD_MINUTES,
+        });
+      })
+      .catch(warn);
+  }
+  return () => alarms.onAlarm.removeListener(onAlarm);
+}
+
+export interface AttemptsPluginOptions {
+  /** The tracker (created on first use in the worker: it needs `chrome`). */
+  tracker: () => AttemptTracker;
+  /** Called once per worker start with the core's API (the worker installs listeners). */
+  install?: (api: BackgroundApi) => void;
+}
+
+/** The attempts plugin around a tracker (`attemptsPlugin` is the worker's). */
+export function createAttemptsPlugin(options: AttemptsPluginOptions): BackgroundPlugin {
+  return {
+    name: 'attempts',
+    start(api) {
+      options.install?.(api);
+    },
+    // Chromium's incognito instance: the main instance cannot see its tabs (split mode).
+    async followRules(rules) {
+      await options.tracker().enforceOpenTabs(rules);
+    },
+    handleMessage(message, sender) {
+      if (!isBlockedInfoRequest(message)) return undefined;
+      return options.tracker().handleMessage(sender);
+    },
   };
 }
 
@@ -697,18 +1004,19 @@ function trackerForWorker(): AttemptTracker {
   return workerTracker;
 }
 
-export const attemptsPlugin: BackgroundPlugin = {
-  name: 'attempts',
-  start(api) {
+export const attemptsPlugin: BackgroundPlugin = createAttemptsPlugin({
+  tracker: trackerForWorker,
+  install(api) {
     backgroundApi = api;
     for (const resolve of apiWaiters.splice(0)) resolve(api);
-    installAttemptListeners(trackerForWorker(), chrome.runtime.getURL(''));
+    const tracker = trackerForWorker();
+    installAttemptListeners(tracker, chrome.runtime.getURL(''));
+    installOpenTabSweep(
+      async () => tracker.enforceOpenTabs(await api.getEffectiveRules()),
+      chrome.extension?.inIncognitoContext === true,
+    );
   },
-  handleMessage(message, sender) {
-    if (!isBlockedInfoRequest(message)) return undefined;
-    return trackerForWorker().handleMessage(sender);
-  },
-};
+});
 
 registerBackgroundPlugin(attemptsPlugin);
 

@@ -15,16 +15,32 @@ describe('per-engine manifests', () => {
     expect(manifestFor(source, 'firefox')['incognito']).toBe('spanning');
   });
 
-  it('differ only in incognito and leave the source untouched', () => {
+  it('Chromium differs only in incognito; the source is left untouched', () => {
     const before = structuredClone(source);
-    for (const engine of ENGINES) {
-      const { incognito: _incognito, ...rest } = manifestFor(source, engine);
-      const { incognito: _source, ...base } = source;
-      expect(rest).toEqual(base);
-    }
+    const { incognito: _incognito, ...rest } = manifestFor(source, 'chromium');
+    const { incognito: _source, ...base } = source;
+    expect(rest).toEqual(base);
+    // The unpacked install keeps the key that pins the id the guardian embeds.
+    expect(manifestFor(source, 'chromium')['key']).toBe(source['key']);
+    for (const engine of ENGINES) manifestFor(source, engine, { store: true });
     expect(source).toEqual(before);
-    // The pinned Chromium id and the Firefox id stay in both.
-    expect(manifestFor(source, 'firefox')['key']).toBe(source['key']);
+  });
+
+  it('the store build drops only `key` (the Chrome Web Store and Edge Add-ons refuse it)', () => {
+    const store = manifestFor(source, 'chromium', { store: true });
+    expect(store).not.toHaveProperty('key');
+    const { key: _key, ...keyed } = manifestFor(source, 'chromium');
+    expect(store).toEqual(keyed);
+  });
+
+  it('Firefox drops the Chromium-only keys and keeps its own id', () => {
+    const firefox = manifestFor(source, 'firefox');
+    expect(firefox).not.toHaveProperty('key');
+    expect(firefox).not.toHaveProperty('minimum_chrome_version');
+    expect(firefox['browser_specific_settings']).toEqual(source['browser_specific_settings']);
+    const { incognito: _i, key: _k, minimum_chrome_version: _m, ...base } = source;
+    const { incognito: _fi, ...rest } = firefox;
+    expect(rest).toEqual(base);
   });
 
   it('knows only the two engines', () => {
