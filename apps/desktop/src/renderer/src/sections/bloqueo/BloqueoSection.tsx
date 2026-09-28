@@ -8,7 +8,7 @@
 import { Pill, Section } from '../../components';
 import { ActiveBlock } from './ActiveBlock';
 import { Composer } from './Composer';
-import { FitText } from './FitText';
+import { useFitText } from './FitText';
 import { ConfirmCard } from './ConfirmCard';
 import { BLOQUEO_ES } from './i18n/es';
 import { SECTION_ICON } from './icons';
@@ -21,16 +21,14 @@ export function BloqueoSection(): React.JSX.Element {
   const { view, actions, refs, notice } = useBloqueo();
   const intentId = useAppStore((s) => s.main.card?.intentId ?? null);
   const { header, body } = view;
+  // The longest title that fits on one line; if none does, the header wraps (never «Cosa:» cut).
+  const title = useFitText(header.titles, `${header.datum ?? ''}|${header.newPill ? 'pill' : ''}`);
   return (
     <Section
       id={BLOQUEO_SECTION_ID}
       icon={SECTION_ICON}
-      title={
-        <FitText
-          candidates={header.titles}
-          fitKey={`${header.datum ?? ''}|${header.newPill ? 'pill' : ''}`}
-        />
-      }
+      title={<span ref={title.ref}>{title.text}</span>}
+      wrap={title.wrap}
       datum={header.datum}
       datumTone={header.datumTone}
       pill={

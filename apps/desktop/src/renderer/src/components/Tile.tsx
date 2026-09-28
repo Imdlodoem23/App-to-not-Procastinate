@@ -10,7 +10,10 @@
  * `mnemonic` makes Alt + that letter press it.
  *
  * Inside a `TileRow` it reports its help to the row's help line on hover and focus, and is a
- * radio when the row is a radiogroup.
+ * radio when the row is a radiogroup. Outside a row, `describedBy` names the element that shows
+ * its help (a `SettingsRow` description, a card's help line), where the owner renders the
+ * disabled reason or the armed consequence; without one, the tile's current help text is its
+ * `aria-description`, so a reason or a «¿Seguro?» consequence is never silent.
  */
 import type { LucideIcon } from 'lucide-react';
 import { useCallback, useLayoutEffect, useRef, type Ref } from 'react';
@@ -19,7 +22,7 @@ import { useMnemonic } from '../hooks/useKeys';
 import { RENDERER_ES } from '../i18n/es';
 import { Icon } from './Icon';
 import { splitMnemonic } from './mnemonic';
-import { tileVisual } from './tile-style';
+import { tileDescription, tileHelpText, tileVisual } from './tile-style';
 import { useRowContext } from './TileRow';
 
 export type TileSize = 'regular' | 'door' | 'text';
@@ -45,6 +48,11 @@ export interface TileProps {
   armed?: boolean;
   /** The consequence shown in red on the help line while armed. */
   armedHelp?: string;
+  /**
+   * Id of the element that describes this tile outside a `TileRow` (its owner shows the help,
+   * the disabled reason or the armed consequence there). Inside a row, the row's help line.
+   */
+  describedBy?: string;
   /** Alt + this letter presses the tile (unique among visible tiles). */
   mnemonic?: string;
   size?: TileSize;
@@ -87,6 +95,7 @@ export function Tile(props: TileProps): React.JSX.Element {
     disabledReason,
     armed = false,
     armedHelp,
+    describedBy,
     mnemonic,
     size = 'regular',
     onPress,
@@ -106,15 +115,12 @@ export function Tile(props: TileProps): React.JSX.Element {
 
   // Report the current help text to the row (after every render, before paint).
   const registry = row?.registry ?? null;
+  const helpText = tileHelpText({ help, disabled, disabledReason, armed, armedHelp });
   useLayoutEffect(() => {
     if (!registry) return;
-    const text = armed
-      ? (armedHelp ?? null)
-      : disabled
-        ? (disabledReason ?? help ?? null)
-        : (help ?? null);
-    registry.set(id, { text, tone: armed ? 'red' : 'muted', armed });
+    registry.set(id, { text: helpText, tone: armed ? 'red' : 'muted', armed });
   });
+  const description = tileDescription(row?.helpId ?? null, describedBy, helpText);
   useLayoutEffect(() => {
     if (!registry) return undefined;
     return () => registry.delete(id);
@@ -159,7 +165,8 @@ export function Tile(props: TileProps): React.JSX.Element {
       aria-checked={radio ? Boolean(selected) : undefined}
       aria-pressed={!radio && selected !== undefined ? selected : undefined}
       aria-disabled={disabled ? true : undefined}
-      aria-describedby={row?.helpId}
+      aria-describedby={description.describedBy}
+      aria-description={description.text}
       aria-keyshortcuts={mnemonic ? `Alt+${mnemonic.toUpperCase()}` : undefined}
       onClick={(event) => {
         if (disabled) return;

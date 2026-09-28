@@ -4,21 +4,18 @@
  * - a snapshot is applied only when its `rev` is newer, together with `reconcileMainLocal`, so
  *   the card whose create the guardian just confirmed closes in the same render;
  * - a harness load replaces both renderer-local parts;
- * - `ui:detail` retargets the one detail window and seeds its view;
- * - `ui:command` opens the confirmation card from a template or a Bloqueos draft.
+ * - `ui:detail` retargets the one detail window and seeds its view.
+ * `ui:command`'s confirmation cards go through section 2's guarded transitions
+ * (`app/commands.ts`).
  */
-import type { HarnessLoad, InitPayload, UiCommand } from '../../../shared/ipc';
+import type { HarnessLoad, InitPayload } from '../../../shared/ipc';
 import {
   draftFromSeed,
-  draftFromTemplate,
   initialDetailLocal,
   initialMainLocal,
   reconcileMainLocal,
-  type ConfirmCardState,
   type DetailLocalState,
   type DetailRequest,
-  type IntentId,
-  type MainLocalState,
   type UiSnapshot,
   type UiState,
 } from '../../../shared/ui-state';
@@ -59,14 +56,17 @@ export function applyHarnessLoad(load: HarnessLoad): Pick<UiState, 'main' | 'det
 /**
  * The detail window's local state when main retargets it (`ui:detail`): Bloqueos takes the
  * seed («con lo que sí entendió»), Emergencia the blocks, Ajustes the group to scroll to. Help
- * and the armed «¿Seguro?» never carry over from another view. Idempotent.
+ * and the armed «¿Seguro?» never carry over from another view, except with `keepTransient`:
+ * the retarget that follows a harness load belongs to that fixture, whose armed «¿Seguro?» and
+ * help must survive it. Idempotent.
  */
 export function detailForRequest(
   detail: DetailLocalState,
   request: DetailRequest,
   snapshot: UiSnapshot,
+  keepTransient = false,
 ): DetailLocalState {
-  const base: DetailLocalState = { ...detail, armed: null, help: null };
+  const base: DetailLocalState = keepTransient ? detail : { ...detail, armed: null, help: null };
   switch (request.name) {
     case 'bloqueos':
       if (!request.seed) return base;
@@ -83,45 +83,4 @@ export function detailForRequest(
     case 'ajustes':
       return { ...base, ajustes: { ...base.ajustes, group: request.group } };
   }
-}
-
-/**
- * The confirmation card a `confirm-template` / `confirm-draft` command opens (tray «Bloqueo
- * rápido ▸», Bloqueos «Bloquear…»), or `null` when it cannot (unknown template). A new
- * `intentId` per card; the composer text is left alone.
- */
-export function cardForCommand(
-  command: Extract<UiCommand, { type: 'confirm-template' | 'confirm-draft' }>,
-  snapshot: UiSnapshot,
-  intentId: IntentId,
-): ConfirmCardState | null {
-  if (command.type === 'confirm-draft') {
-    return {
-      intentId,
-      origin: 'form',
-      phrase: null,
-      templateId: null,
-      draft: command.draft,
-      step: 'edit',
-      consequenceAt: null,
-      editing: null,
-    };
-  }
-  const template = snapshot.templates.find((t) => t.id === command.templateId);
-  if (!template) return null;
-  return {
-    intentId,
-    origin: 'tray',
-    phrase: null,
-    templateId: template.id,
-    draft: draftFromTemplate(template, snapshot.prefs),
-    step: 'edit',
-    consequenceAt: null,
-    editing: null,
-  };
-}
-
-/** Main-window local state with a card opened by a command (disarms and clears help). */
-export function mainWithCard(main: MainLocalState, card: ConfirmCardState): MainLocalState {
-  return { ...main, card, armed: null, help: null, extendOther: { open: false, text: '' } };
 }

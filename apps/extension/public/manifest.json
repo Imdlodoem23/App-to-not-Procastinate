@@ -1,19 +1,56 @@
 {
   "manifest_version": 3,
   "name": "Céntrate",
+  "short_name": "Céntrate",
   "version": "0.0.0",
-  "description": "Bloquea tus distracciones con Céntrate.",
+  "description": "Bloquea tus distracciones con Céntrate: aplica en el navegador los bloqueos de la app y del guardián.",
+  "minimum_chrome_version": "121",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Céntrate",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
   "background": {
     "service_worker": "background.js",
     "scripts": ["background.js"],
     "type": "module"
   },
-  "permissions": ["declarativeNetRequest", "storage", "alarms"],
+  "permissions": [
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess",
+    "storage",
+    "alarms",
+    "webNavigation",
+    "webRequest"
+  ],
   "host_permissions": ["<all_urls>"],
+  "incognito": "split",
+  "web_accessible_resources": [
+    {
+      "resources": ["blocked.html", "blocked.js", "blocked.css", "chunk-*.js", "icons/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "browser_specific_settings": {
     "gecko": {
       "id": "centrate@imdlodoem23.github.io",
-      "strict_min_version": "128.0"
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
     }
   },
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmigVIRFxKhUTPDy9ipGLFEk76HUatd+5weOZOW0bV0VJjVSDtK9r6dlFyRbcg65JoriuM4zLH8wqYTrpeAt7zdgIvsOYigG3zkfEdXVBWrYF2YbsrGAAB9AoI213W4KHyZv6Hx5qP8kYJVBMgp0qMLZx2Nvp/n6P7M3euHW8Jwm1fe3Nh+Zw0krDpNcrDaw3EqirPeKrVqBXb02yUZJebIE38tCgA48wplTk7oP8Kb4S2U3T7E5nhsoU5JcJV1A1Kr+eQJoFIwxSAJyGw3BhRQoBd56qU2PkgnJEWuuCp/NH2WCBBi0fHZZcKADJLA6Sqt/5NsJ+SK2K0JLP0H8ffwIDAQAB"

@@ -1,5 +1,25 @@
 {
-  "generatedAt": "2026-09-28T02:35:58.102Z",
+  "generatedAt": "2026-09-28T04:26:05.754Z",
+  "fonts": [
+    {
+      "family": "Ubuntu",
+      "standsInFor": null,
+      "inStack": true,
+      "weights": {
+        "400": {
+          "family": "Ubuntu",
+          "postScriptName": "Ubuntu-Regular"
+        },
+        "600": {
+          "family": "Ubuntu",
+          "postScriptName": "Ubuntu-Regular"
+        }
+      },
+      "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+      "platform": "linux",
+      "shots": 304
+    }
+  ],
   "entries": [
     {
       "state": "idle",
@@ -18,7 +38,24 @@
           "height": 438
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "one-block",
@@ -37,7 +74,24 @@
           "height": 455
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "compact-density",
@@ -53,10 +107,27 @@
           "file": "compact-density-light-1366x768@125.png",
           "window": "main",
           "width": 553,
-          "height": 625
+          "height": 605
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "bloqueos",
@@ -81,7 +152,24 @@
           "height": 455
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "idle",
@@ -100,7 +188,24 @@
           "height": 438
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "one-block",
@@ -119,7 +224,24 @@
           "height": 455
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "compact-density",
@@ -135,10 +257,27 @@
           "file": "compact-density-dark-1366x768@125.png",
           "window": "main",
           "width": 553,
-          "height": 625
+          "height": 605
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "bloqueos",
@@ -163,7 +302,24 @@
           "height": 455
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "idle",
@@ -182,7 +338,24 @@
           "height": 524
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "one-block",
@@ -201,7 +374,24 @@
           "height": 546
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "compact-density",
@@ -217,10 +407,27 @@
           "file": "compact-density-light-1920x1080@150.png",
           "window": "main",
           "width": 662,
-          "height": 804
+          "height": 780
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "bloqueos",
@@ -245,7 +452,24 @@
           "height": 546
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "idle",
@@ -264,7 +488,24 @@
           "height": 524
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "one-block",
@@ -283,7 +524,24 @@
           "height": 546
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "compact-density",
@@ -299,10 +557,27 @@
           "file": "compact-density-dark-1920x1080@150.png",
           "window": "main",
           "width": 662,
-          "height": 804
+          "height": 780
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "bloqueos",
@@ -327,7 +602,24 @@
           "height": 546
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "idle",
@@ -346,7 +638,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "one-block",
@@ -365,7 +674,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "compact-density",
@@ -381,10 +707,27 @@
           "file": "compact-density-light-1366x768@100.png",
           "window": "main",
           "width": 440,
-          "height": 535
+          "height": 519
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "bloqueos",
@@ -409,7 +752,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "idle",
@@ -428,7 +788,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "one-block",
@@ -447,7 +824,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "compact-density",
@@ -463,10 +857,27 @@
           "file": "compact-density-dark-1366x768@100.png",
           "window": "main",
           "width": 440,
-          "height": 535
+          "height": 519
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "bloqueos",
@@ -491,7 +902,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "idle",
@@ -510,7 +938,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "one-block",
@@ -529,7 +974,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "compact-density",
@@ -545,10 +1007,27 @@
           "file": "compact-density-light-1920x1080@100.png",
           "window": "main",
           "width": 440,
-          "height": 535
+          "height": 519
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "bloqueos",
@@ -573,7 +1052,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "idle",
@@ -592,7 +1088,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "one-block",
@@ -611,7 +1124,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "compact-density",
@@ -627,10 +1157,27 @@
           "file": "compact-density-dark-1920x1080@100.png",
           "window": "main",
           "width": 440,
-          "height": 535
+          "height": 519
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "bloqueos",
@@ -655,7 +1202,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "typing",
@@ -674,7 +1238,24 @@
           "height": 438
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "not-understood",
@@ -693,7 +1274,24 @@
           "height": 438
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-normal",
@@ -712,7 +1310,24 @@
           "height": 578
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-over-4h",
@@ -731,7 +1346,24 @@
           "height": 578
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-hardcore",
@@ -750,7 +1382,24 @@
           "height": 578
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-exam",
@@ -769,7 +1418,24 @@
           "height": 513
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "pending",
@@ -788,7 +1454,24 @@
           "height": 578
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "guardian-timeout",
@@ -807,7 +1490,24 @@
           "height": 578
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "three-blocks",
@@ -826,7 +1526,24 @@
           "height": 535
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "extend-undo",
@@ -845,7 +1562,24 @@
           "height": 455
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "finished",
@@ -864,7 +1598,24 @@
           "height": 438
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergency-waiting",
@@ -889,7 +1640,24 @@
           "height": 455
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergency-ready",
@@ -914,7 +1682,24 @@
           "height": 455
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "punishment",
@@ -933,7 +1718,24 @@
           "height": 350
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "negative-points",
@@ -952,7 +1754,24 @@
           "height": 438
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "protection-broken",
@@ -971,7 +1790,24 @@
           "height": 553
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "extension-missing",
@@ -987,10 +1823,27 @@
           "file": "extension-missing-light-1366x768@125.png",
           "window": "main",
           "width": 553,
-          "height": 590
+          "height": 570
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergencia",
@@ -1015,7 +1868,24 @@
           "height": 455
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes",
@@ -1040,7 +1910,24 @@
           "height": 438
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "hardcore-block",
@@ -1059,7 +1946,24 @@
           "height": 455
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "many-blocks",
@@ -1078,7 +1982,24 @@
           "height": 565
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "boot-hold",
@@ -1097,7 +2018,24 @@
           "height": 320
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "not-installed",
@@ -1113,10 +2051,27 @@
           "file": "not-installed-light-1366x768@125.png",
           "window": "main",
           "width": 553,
-          "height": 503
+          "height": 483
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "bloqueos-prefilled",
@@ -1141,7 +2096,24 @@
           "height": 438
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes-pairing",
@@ -1166,7 +2138,24 @@
           "height": 438
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes-delete",
@@ -1191,7 +2180,24 @@
           "height": 438
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "typing",
@@ -1210,7 +2216,24 @@
           "height": 438
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "not-understood",
@@ -1229,7 +2252,24 @@
           "height": 438
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-normal",
@@ -1248,7 +2288,24 @@
           "height": 578
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-over-4h",
@@ -1267,7 +2324,24 @@
           "height": 578
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-hardcore",
@@ -1286,7 +2360,24 @@
           "height": 578
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-exam",
@@ -1305,7 +2396,24 @@
           "height": 513
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "pending",
@@ -1324,7 +2432,24 @@
           "height": 578
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "guardian-timeout",
@@ -1343,7 +2468,24 @@
           "height": 578
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "three-blocks",
@@ -1362,7 +2504,24 @@
           "height": 535
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "extend-undo",
@@ -1381,7 +2540,24 @@
           "height": 455
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "finished",
@@ -1400,7 +2576,24 @@
           "height": 438
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergency-waiting",
@@ -1425,7 +2618,24 @@
           "height": 455
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergency-ready",
@@ -1450,7 +2660,24 @@
           "height": 455
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "punishment",
@@ -1469,7 +2696,24 @@
           "height": 350
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "negative-points",
@@ -1488,7 +2732,24 @@
           "height": 438
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "protection-broken",
@@ -1507,7 +2768,24 @@
           "height": 553
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "extension-missing",
@@ -1523,10 +2801,27 @@
           "file": "extension-missing-dark-1366x768@125.png",
           "window": "main",
           "width": 553,
-          "height": 590
+          "height": 570
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergencia",
@@ -1551,7 +2846,24 @@
           "height": 455
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes",
@@ -1576,7 +2888,24 @@
           "height": 438
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "hardcore-block",
@@ -1595,7 +2924,24 @@
           "height": 455
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "many-blocks",
@@ -1614,7 +2960,24 @@
           "height": 565
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "boot-hold",
@@ -1633,7 +2996,24 @@
           "height": 320
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "not-installed",
@@ -1649,10 +3029,27 @@
           "file": "not-installed-dark-1366x768@125.png",
           "window": "main",
           "width": 553,
-          "height": 503
+          "height": 483
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "bloqueos-prefilled",
@@ -1677,7 +3074,24 @@
           "height": 438
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes-pairing",
@@ -1702,7 +3116,24 @@
           "height": 438
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes-delete",
@@ -1727,7 +3158,24 @@
           "height": 438
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "typing",
@@ -1746,7 +3194,24 @@
           "height": 524
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "not-understood",
@@ -1765,7 +3230,24 @@
           "height": 524
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-normal",
@@ -1784,7 +3266,24 @@
           "height": 692
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-over-4h",
@@ -1803,7 +3302,24 @@
           "height": 692
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-hardcore",
@@ -1822,7 +3338,24 @@
           "height": 692
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-exam",
@@ -1841,7 +3374,24 @@
           "height": 614
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "pending",
@@ -1860,7 +3410,24 @@
           "height": 692
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "guardian-timeout",
@@ -1879,7 +3446,24 @@
           "height": 692
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "three-blocks",
@@ -1898,7 +3482,24 @@
           "height": 642
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "extend-undo",
@@ -1917,7 +3518,24 @@
           "height": 546
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "finished",
@@ -1936,7 +3554,24 @@
           "height": 524
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergency-waiting",
@@ -1961,7 +3596,24 @@
           "height": 546
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergency-ready",
@@ -1986,7 +3638,24 @@
           "height": 546
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "punishment",
@@ -2005,7 +3674,24 @@
           "height": 420
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "negative-points",
@@ -2024,7 +3710,24 @@
           "height": 524
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "protection-broken",
@@ -2043,7 +3746,24 @@
           "height": 662
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "extension-missing",
@@ -2059,10 +3779,27 @@
           "file": "extension-missing-light-1920x1080@150.png",
           "window": "main",
           "width": 662,
-          "height": 708
+          "height": 684
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergencia",
@@ -2087,7 +3824,24 @@
           "height": 546
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes",
@@ -2112,7 +3866,24 @@
           "height": 524
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "hardcore-block",
@@ -2131,7 +3902,24 @@
           "height": 546
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "many-blocks",
@@ -2150,7 +3938,24 @@
           "height": 678
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "boot-hold",
@@ -2169,7 +3974,24 @@
           "height": 384
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "not-installed",
@@ -2185,10 +4007,27 @@
           "file": "not-installed-light-1920x1080@150.png",
           "window": "main",
           "width": 662,
-          "height": 602
+          "height": 578
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "bloqueos-prefilled",
@@ -2213,7 +4052,24 @@
           "height": 524
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes-pairing",
@@ -2238,7 +4094,24 @@
           "height": 524
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes-delete",
@@ -2263,7 +4136,24 @@
           "height": 524
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "typing",
@@ -2282,7 +4172,24 @@
           "height": 524
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "not-understood",
@@ -2301,7 +4208,24 @@
           "height": 524
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-normal",
@@ -2320,7 +4244,24 @@
           "height": 692
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-over-4h",
@@ -2339,7 +4280,24 @@
           "height": 692
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-hardcore",
@@ -2358,7 +4316,24 @@
           "height": 692
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-exam",
@@ -2377,7 +4352,24 @@
           "height": 614
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "pending",
@@ -2396,7 +4388,24 @@
           "height": 692
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "guardian-timeout",
@@ -2415,7 +4424,24 @@
           "height": 692
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "three-blocks",
@@ -2434,7 +4460,24 @@
           "height": 642
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "extend-undo",
@@ -2453,7 +4496,24 @@
           "height": 546
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "finished",
@@ -2472,7 +4532,24 @@
           "height": 524
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergency-waiting",
@@ -2497,7 +4574,24 @@
           "height": 546
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergency-ready",
@@ -2522,7 +4616,24 @@
           "height": 546
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "punishment",
@@ -2541,7 +4652,24 @@
           "height": 420
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "negative-points",
@@ -2560,7 +4688,24 @@
           "height": 524
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "protection-broken",
@@ -2579,7 +4724,24 @@
           "height": 662
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "extension-missing",
@@ -2595,10 +4757,27 @@
           "file": "extension-missing-dark-1920x1080@150.png",
           "window": "main",
           "width": 662,
-          "height": 708
+          "height": 684
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergencia",
@@ -2623,7 +4802,24 @@
           "height": 546
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes",
@@ -2648,7 +4844,24 @@
           "height": 524
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "hardcore-block",
@@ -2667,7 +4880,24 @@
           "height": 546
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "many-blocks",
@@ -2686,7 +4916,24 @@
           "height": 678
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "boot-hold",
@@ -2705,7 +4952,24 @@
           "height": 384
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "not-installed",
@@ -2721,10 +4985,27 @@
           "file": "not-installed-dark-1920x1080@150.png",
           "window": "main",
           "width": 662,
-          "height": 602
+          "height": 578
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "bloqueos-prefilled",
@@ -2749,7 +5030,24 @@
           "height": 524
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes-pairing",
@@ -2774,7 +5072,24 @@
           "height": 524
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes-delete",
@@ -2799,7 +5114,24 @@
           "height": 524
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "typing",
@@ -2818,7 +5150,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "not-understood",
@@ -2837,7 +5186,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-normal",
@@ -2856,7 +5222,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-over-4h",
@@ -2875,7 +5258,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-hardcore",
@@ -2894,7 +5294,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-exam",
@@ -2913,7 +5330,24 @@
           "height": 408
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "pending",
@@ -2932,7 +5366,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "guardian-timeout",
@@ -2951,7 +5402,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "three-blocks",
@@ -2970,7 +5438,24 @@
           "height": 427
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "extend-undo",
@@ -2989,7 +5474,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "finished",
@@ -3008,7 +5510,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergency-waiting",
@@ -3033,7 +5552,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergency-ready",
@@ -3058,7 +5594,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "punishment",
@@ -3077,7 +5630,24 @@
           "height": 279
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "negative-points",
@@ -3096,7 +5666,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "protection-broken",
@@ -3115,7 +5702,24 @@
           "height": 440
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "extension-missing",
@@ -3131,10 +5735,27 @@
           "file": "extension-missing-light-1366x768@100.png",
           "window": "main",
           "width": 440,
-          "height": 471
+          "height": 455
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergencia",
@@ -3159,7 +5780,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes",
@@ -3184,7 +5822,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "hardcore-block",
@@ -3203,7 +5858,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "many-blocks",
@@ -3222,7 +5894,24 @@
           "height": 451
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "boot-hold",
@@ -3241,7 +5930,24 @@
           "height": 255
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "not-installed",
@@ -3257,10 +5963,27 @@
           "file": "not-installed-light-1366x768@100.png",
           "window": "main",
           "width": 440,
-          "height": 400
+          "height": 384
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "bloqueos-prefilled",
@@ -3285,7 +6008,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes-pairing",
@@ -3310,7 +6050,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes-delete",
@@ -3335,7 +6092,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "typing",
@@ -3354,7 +6128,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "not-understood",
@@ -3373,7 +6164,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-normal",
@@ -3392,7 +6200,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-over-4h",
@@ -3411,7 +6236,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-hardcore",
@@ -3430,7 +6272,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-exam",
@@ -3449,7 +6308,24 @@
           "height": 408
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "pending",
@@ -3468,7 +6344,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "guardian-timeout",
@@ -3487,7 +6380,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "three-blocks",
@@ -3506,7 +6416,24 @@
           "height": 427
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "extend-undo",
@@ -3525,7 +6452,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "finished",
@@ -3544,7 +6488,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergency-waiting",
@@ -3569,7 +6530,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergency-ready",
@@ -3594,7 +6572,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "punishment",
@@ -3613,7 +6608,24 @@
           "height": 279
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "negative-points",
@@ -3632,7 +6644,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "protection-broken",
@@ -3651,7 +6680,24 @@
           "height": 440
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "extension-missing",
@@ -3667,10 +6713,27 @@
           "file": "extension-missing-dark-1366x768@100.png",
           "window": "main",
           "width": 440,
-          "height": 471
+          "height": 455
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergencia",
@@ -3695,7 +6758,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes",
@@ -3720,7 +6800,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "hardcore-block",
@@ -3739,7 +6836,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "many-blocks",
@@ -3758,7 +6872,24 @@
           "height": 451
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "boot-hold",
@@ -3777,7 +6908,24 @@
           "height": 255
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "not-installed",
@@ -3793,10 +6941,27 @@
           "file": "not-installed-dark-1366x768@100.png",
           "window": "main",
           "width": 440,
-          "height": 400
+          "height": 384
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "bloqueos-prefilled",
@@ -3821,7 +6986,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes-pairing",
@@ -3846,7 +7028,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes-delete",
@@ -3871,7 +7070,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "typing",
@@ -3890,7 +7106,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "not-understood",
@@ -3909,7 +7142,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-normal",
@@ -3928,7 +7178,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-over-4h",
@@ -3947,7 +7214,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-hardcore",
@@ -3966,7 +7250,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-exam",
@@ -3985,7 +7286,24 @@
           "height": 408
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "pending",
@@ -4004,7 +7322,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "guardian-timeout",
@@ -4023,7 +7358,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "three-blocks",
@@ -4042,7 +7394,24 @@
           "height": 427
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "extend-undo",
@@ -4061,7 +7430,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "finished",
@@ -4080,7 +7466,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergency-waiting",
@@ -4105,7 +7508,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergency-ready",
@@ -4130,7 +7550,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "punishment",
@@ -4149,7 +7586,24 @@
           "height": 279
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "negative-points",
@@ -4168,7 +7622,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "protection-broken",
@@ -4187,7 +7658,24 @@
           "height": 440
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "extension-missing",
@@ -4203,10 +7691,27 @@
           "file": "extension-missing-light-1920x1080@100.png",
           "window": "main",
           "width": 440,
-          "height": 471
+          "height": 455
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergencia",
@@ -4231,7 +7736,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes",
@@ -4256,7 +7778,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "hardcore-block",
@@ -4275,7 +7814,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "many-blocks",
@@ -4294,7 +7850,24 @@
           "height": 451
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "boot-hold",
@@ -4313,7 +7886,24 @@
           "height": 255
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "not-installed",
@@ -4329,10 +7919,27 @@
           "file": "not-installed-light-1920x1080@100.png",
           "window": "main",
           "width": 440,
-          "height": 400
+          "height": 384
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "bloqueos-prefilled",
@@ -4357,7 +7964,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes-pairing",
@@ -4382,7 +8006,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes-delete",
@@ -4407,7 +8048,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "typing",
@@ -4426,7 +8084,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "not-understood",
@@ -4445,7 +8120,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-normal",
@@ -4464,7 +8156,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-over-4h",
@@ -4483,7 +8192,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-hardcore",
@@ -4502,7 +8228,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "confirm-exam",
@@ -4521,7 +8264,24 @@
           "height": 408
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "pending",
@@ -4540,7 +8300,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "guardian-timeout",
@@ -4559,7 +8336,24 @@
           "height": 460
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "three-blocks",
@@ -4578,7 +8372,24 @@
           "height": 427
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "extend-undo",
@@ -4597,7 +8408,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "finished",
@@ -4616,7 +8444,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergency-waiting",
@@ -4641,7 +8486,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergency-ready",
@@ -4666,7 +8528,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "punishment",
@@ -4685,7 +8564,24 @@
           "height": 279
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "negative-points",
@@ -4704,7 +8600,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "protection-broken",
@@ -4723,7 +8636,24 @@
           "height": 440
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "extension-missing",
@@ -4739,10 +8669,27 @@
           "file": "extension-missing-dark-1920x1080@100.png",
           "window": "main",
           "width": 440,
-          "height": 471
+          "height": 455
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "emergencia",
@@ -4767,7 +8714,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes",
@@ -4792,7 +8756,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "hardcore-block",
@@ -4811,7 +8792,24 @@
           "height": 363
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "many-blocks",
@@ -4830,7 +8828,24 @@
           "height": 451
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "boot-hold",
@@ -4849,7 +8864,24 @@
           "height": 255
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "not-installed",
@@ -4865,10 +8897,27 @@
           "file": "not-installed-dark-1920x1080@100.png",
           "window": "main",
           "width": 440,
-          "height": 400
+          "height": 384
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "bloqueos-prefilled",
@@ -4893,7 +8942,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes-pairing",
@@ -4918,7 +8984,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     },
     {
       "state": "ajustes-delete",
@@ -4943,7 +9026,24 @@
           "height": 348
         }
       ],
-      "settled": true
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
     }
   ]
 }

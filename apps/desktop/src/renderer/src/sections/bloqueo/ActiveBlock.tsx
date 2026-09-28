@@ -6,6 +6,7 @@
  * two, then «y 3 más…»). There is no control that shortens anything. A punishment has a red
  * bar, its cause and «−100 puntos», and no extend row.
  */
+import { useEffect, useState } from 'react';
 import {
   Bar,
   Countdown,
@@ -31,10 +32,9 @@ function extendHelp(props: {
   extend: ExtendView;
   actions: BloqueoActions;
   notice: BloqueoNotice | null;
-}): { node: React.ReactNode; tone: HelpTone; live: boolean } {
+}): { node: React.ReactNode; tone: HelpTone } {
   const { extend, actions, notice } = props;
-  if (extend.other.open)
-    return { node: extend.other.line.text, tone: extend.other.line.tone, live: false };
+  if (extend.other.open) return { node: extend.other.line.text, tone: extend.other.line.tone };
   const undo = extend.undo;
   if (undo?.kind === 'waiting') {
     return {
@@ -53,10 +53,9 @@ function extendHelp(props: {
         </span>
       ),
       tone: 'muted',
-      live: true,
     };
   }
-  if (undo?.kind === 'sending') return { node: undo.text, tone: 'muted', live: true };
+  if (undo?.kind === 'sending') return { node: undo.text, tone: 'muted' };
   if (undo?.kind === 'failed') {
     return {
       node: (
@@ -68,11 +67,35 @@ function extendHelp(props: {
         </span>
       ),
       tone: 'red',
-      live: true,
     };
   }
-  if (notice?.scope === 'extend') return { node: notice.text, tone: notice.tone, live: true };
-  return { node: extend.help, tone: 'muted', live: false };
+  if (notice?.scope === 'extend') return { node: notice.text, tone: notice.tone };
+  return { node: extend.help, tone: 'muted' };
+}
+
+/**
+ * What the extend row's live region says: once when the undo line appears or fails, and each
+ * extend notice («Ampliación deshecha», «Ya ampliado», an error). The visible help line is not
+ * live, so its ticking «Deshacer (4 s)» is never spoken. `seq` re-mounts the text node, so the
+ * same sentence twice is spoken twice.
+ */
+function useExtendAnnouncement(
+  extend: ExtendView,
+  notice: BloqueoNotice | null,
+): { text: string; seq: number } {
+  const [said, setSaid] = useState({ text: '', seq: 0 });
+  const undo = extend.undo;
+  const undoKey = undo?.announce ? `${undo.kind}:${undo.entryId}` : null;
+  const undoText = undo?.announce ?? null;
+  useEffect(() => {
+    if (undoKey === null || undoText === null) return;
+    setSaid((s) => ({ text: undoText, seq: s.seq + 1 }));
+  }, [undoKey, undoText]);
+  useEffect(() => {
+    if (notice?.scope !== 'extend') return;
+    setSaid((s) => ({ text: notice.text, seq: s.seq + 1 }));
+  }, [notice]);
+  return said;
 }
 
 function ExtendRow(props: {
@@ -83,70 +106,76 @@ function ExtendRow(props: {
 }): React.JSX.Element {
   const { extend, actions, refs } = props;
   const help = extendHelp(props);
+  const announcement = useExtendAnnouncement(extend, props.notice);
   // While the undo line (or a result) shows, the tiles do not take the help line over.
   const quiet = extend.undo !== null || props.notice?.scope === 'extend';
   const other = extend.other;
   return (
-    <TileRow
-      id={BLOQUEO_ROWS.extend}
-      label={BLOQUEO_ES.active.extendLabel}
-      help={help.node}
-      helpTone={help.tone}
-      helpLive={help.live ? 'polite' : undefined}
-    >
-      {other.open ? (
-        <>
-          <div className="bq-other-field">
-            <Field
-              ref={refs.otherField}
-              value={other.text}
-              label={BLOQUEO_ES.active.otherLabel}
-              placeholder={BLOQUEO_ES.active.otherPlaceholder}
-              invalid={other.text.trim() !== '' && !other.canApply}
-              describedBy={`${BLOQUEO_ROWS.extend}-help`}
-              inputMode="text"
-              maxLength={20}
-              onChange={actions.setOtherText}
-              onKeyDown={(event) => {
-                if (!isEnter(event)) return;
-                event.preventDefault();
-                actions.applyOther();
+    <>
+      <TileRow
+        id={BLOQUEO_ROWS.extend}
+        label={BLOQUEO_ES.active.extendLabel}
+        help={help.node}
+        helpTone={help.tone}
+      >
+        {other.open ? (
+          <>
+            <div className="bq-other-field">
+              <Field
+                ref={refs.otherField}
+                value={other.text}
+                label={BLOQUEO_ES.active.otherLabel}
+                placeholder={BLOQUEO_ES.active.otherPlaceholder}
+                invalid={other.text.trim() !== '' && !other.canApply}
+                describedBy={`${BLOQUEO_ROWS.extend}-help`}
+                inputMode="text"
+                maxLength={20}
+                onChange={actions.setOtherText}
+                onKeyDown={(event) => {
+                  if (!isEnter(event)) return;
+                  event.preventDefault();
+                  actions.applyOther();
+                }}
+              />
+            </div>
+            <Tile
+              id="apply"
+              label={BLOQUEO_ES.active.otherApply}
+              icon={EXTEND_ICONS['apply']}
+              disabled={!other.canApply}
+              disabledReason={other.line.text}
+              onPress={actions.applyOther}
+            />
+          </>
+        ) : (
+          extend.tiles.map((t, i) => (
+            <Tile
+              key={t.id}
+              ref={i === 0 ? refs.firstExtend : undefined}
+              id={t.id}
+              label={t.label}
+              icon={EXTEND_ICONS[t.id]}
+              help={quiet ? undefined : t.help}
+              door={t.door}
+              disabled={t.disabled}
+              disabledReason={quiet ? undefined : (t.disabledReason ?? undefined)}
+              mnemonic={t.mnemonic ?? undefined}
+              onPress={() => {
+                if (t.id === 'other') actions.openOther();
+                else {
+                  const minutes = MINUTES_BY_TILE[t.id];
+                  if (minutes !== undefined) actions.extend(minutes);
+                }
               }}
             />
-          </div>
-          <Tile
-            id="apply"
-            label={BLOQUEO_ES.active.otherApply}
-            icon={EXTEND_ICONS['apply']}
-            disabled={!other.canApply}
-            disabledReason={other.line.text}
-            onPress={actions.applyOther}
-          />
-        </>
-      ) : (
-        extend.tiles.map((t, i) => (
-          <Tile
-            key={t.id}
-            ref={i === 0 ? refs.firstExtend : undefined}
-            id={t.id}
-            label={t.label}
-            icon={EXTEND_ICONS[t.id]}
-            help={quiet ? undefined : t.help}
-            door={t.door}
-            disabled={t.disabled}
-            disabledReason={quiet ? undefined : (t.disabledReason ?? undefined)}
-            mnemonic={t.mnemonic ?? undefined}
-            onPress={() => {
-              if (t.id === 'other') actions.openOther();
-              else {
-                const minutes = MINUTES_BY_TILE[t.id];
-                if (minutes !== undefined) actions.extend(minutes);
-              }
-            }}
-          />
-        ))
-      )}
-    </TileRow>
+          ))
+        )}
+      </TileRow>
+      {/* Always mounted, so what it says later is announced (never the ticking seconds). */}
+      <span className="sr-only" aria-live="polite" aria-atomic="true">
+        {announcement.text ? <span key={announcement.seq}>{announcement.text}</span> : null}
+      </span>
+    </>
   );
 }
 

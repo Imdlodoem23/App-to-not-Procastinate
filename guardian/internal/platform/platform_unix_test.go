@@ -60,6 +60,8 @@ func TestEnsurePrivateDirWhenRoot(t *testing.T) {
 	checkOwnerMode(t, dir, PrivateDirMode)
 }
 
+// A link planted where the directory should be is moved aside (the link
+// itself, never its target) and a real directory is created.
 func TestSecureDirNeverFollowsSymlinks(t *testing.T) {
 	needRoot(t)
 	base := t.TempDir()
@@ -75,15 +77,27 @@ func TestSecureDirNeverFollowsSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	forceElevated(t, true)
-	if err := EnsureDir(link); err == nil {
-		t.Fatal("EnsureDir through a symlink must fail")
+	if err := EnsureDir(link); err != nil {
+		t.Fatal(err)
 	}
-	fi, err := os.Stat(target)
+	fi, err := os.Lstat(link)
+	if err != nil || !fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("not a real directory now: %v, %v", fi, err)
+	}
+	checkOwnerMode(t, link, DirMode)
+	fi, err = os.Stat(target)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if fi.Mode().Perm() != 0o777 {
 		t.Fatalf("symlink target changed to %v", fi.Mode().Perm())
+	}
+	aside := asideOf(t, link)
+	if len(aside) != 1 {
+		t.Fatalf("aside = %v", aside)
+	}
+	if fi, err := os.Lstat(aside[0]); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the link must be moved aside as it is: %v, %v", fi, err)
 	}
 }
 

@@ -3,6 +3,11 @@
  * the snapshot: theme, autostart); the pairing code, the «Copiado» feedback and the BORRAR box
  * live in the detail window's local state (fixture-settable). The guardian token and the
  * diagnostics text never reach this renderer: main writes the clipboard itself.
+ *
+ * Results are announced from regions that exist before they arrive (`index.tsx`): each area's
+ * notice slot. A result already on screen elsewhere (the new pairing code, «Copiado» in the
+ * «Diagnóstico» description) is a `spokenOnly` notice there. `seq` makes a repeated result
+ * speak again.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ThemePreference } from '@centrate/shared/design/tokens';
@@ -22,7 +27,13 @@ import { deleteWordOk, deriveAjustesView, type AjustesView } from './view';
 export interface AjustesNotice {
   text: string;
   tone: 'muted' | 'red' | 'orange' | 'green';
+  /** Only for screen readers (the result is already on screen: a new pairing code). */
+  spokenOnly?: boolean;
+  /** Changes on every notice, so the same sentence twice is announced twice. */
+  seq: number;
 }
+
+type NewNotice = Omit<AjustesNotice, 'seq'>;
 
 export type AjustesArea = 'general' | 'bloqueo' | 'pairing' | 'diagnostics' | 'datos';
 
@@ -52,6 +63,7 @@ export function useAjustes(): AjustesApi {
 
   const [busy, setBusy] = useState<ReadonlySet<AjustesArea>>(() => new Set());
   const [notices, setNotices] = useState<Partial<Record<AjustesArea, AjustesNotice>>>({});
+  const seq = useRef(0);
   const mounted = useRef(true);
   const deleteIntent = useRef<string | null>(null);
 
@@ -62,12 +74,13 @@ export function useAjustes(): AjustesApi {
     };
   }, []);
 
-  const notify = useCallback((area: AjustesArea, notice: AjustesNotice | null) => {
+  const notify = useCallback((area: AjustesArea, notice: NewNotice | null) => {
     if (!mounted.current) return;
+    const stamped = notice ? { ...notice, seq: (seq.current += 1) } : null;
     setNotices((current) => {
-      if (!notice && !current[area]) return current;
+      if (!stamped && !current[area]) return current;
       const next = { ...current };
-      if (notice) next[area] = notice;
+      if (stamped) next[area] = stamped;
       else delete next[area];
       return next;
     });
@@ -137,6 +150,15 @@ export function useAjustes(): AjustesApi {
             return;
           }
           updateLocal((l) => ({ ...l, pairing: result.value }));
+          const minutes = Math.max(
+            1,
+            Math.round((Date.parse(result.value.expiresAt) - nowMs) / 60_000),
+          );
+          notify('pairing', {
+            text: AJUSTES_ES.sistema.pairingSpoken(result.value.code.split('').join(' '), minutes),
+            tone: 'muted',
+            spokenOnly: true,
+          });
         },
         () => setBusyArea('pairing', false),
       );
@@ -153,6 +175,11 @@ export function useAjustes(): AjustesApi {
             return;
           }
           updateLocal((l) => ({ ...l, diagnostics: result.value.source }));
+          notify('diagnostics', {
+            text: AJUSTES_ES.sistema.diagnosticsSpoken[result.value.source],
+            tone: 'muted',
+            spokenOnly: true,
+          });
         },
         () => setBusyArea('diagnostics', false),
       );

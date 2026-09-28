@@ -26,8 +26,9 @@ const (
 
 // bucket is one token bucket.
 type bucket struct {
-	tokens float64
-	last   time.Time
+	tokens      float64
+	last        time.Time
+	rate, burst float64
 }
 
 // rateLimiter holds token buckets by key ("app", "ext:<id>", "att:<id>").
@@ -46,9 +47,9 @@ func (l *rateLimiter) take(key string, now time.Time, rate, burst float64) (bool
 	b := l.buckets[key]
 	if b == nil {
 		if len(l.buckets) >= maxBuckets {
-			l.prune(now, rate, burst)
+			l.prune(now)
 		}
-		b = &bucket{tokens: burst, last: now}
+		b = &bucket{tokens: burst, last: now, rate: rate, burst: burst}
 		l.buckets[key] = b
 	}
 	if el := now.Sub(b.last); el > 0 {
@@ -63,12 +64,22 @@ func (l *rateLimiter) take(key string, now time.Time, rate, burst float64) (bool
 	return false, max(wait, time.Millisecond)
 }
 
-// prune drops the buckets that refilled completely (they carry no state).
-func (l *rateLimiter) prune(now time.Time, rate, burst float64) {
+// prune drops the buckets that refilled completely (they carry no state), and the
+// least recently used one when all are busy. Keys only come from authenticated tokens
+// (the app and paired extensions), so this is a bound, not a defence.
+func (l *rateLimiter) prune(now time.Time) {
+	oldest := ""
 	for k, b := range l.buckets {
-		if b.tokens+now.Sub(b.last).Seconds()*rate >= burst {
+		if b.tokens+now.Sub(b.last).Seconds()*b.rate >= b.burst {
 			delete(l.buckets, k)
+			continue
 		}
+		if oldest == "" || b.last.Before(l.buckets[oldest].last) {
+			oldest = k
+		}
+	}
+	if len(l.buckets) >= maxBuckets && oldest != "" {
+		delete(l.buckets, oldest)
 	}
 }
 

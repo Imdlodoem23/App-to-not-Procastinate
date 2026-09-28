@@ -33,6 +33,10 @@ jobs:
       - name: Format
         if: runner.os == 'Linux'
         run: npm run format:check
+      - name: Guardian embedded data is fresh
+        # guardian/internal/embedded is generated from packages/shared (docs/ARCHITECTURE.md §12).
+        if: runner.os == 'Linux'
+        run: node scripts/gen-guardian-data.mjs && git diff --exit-code guardian/internal/embedded
       - name: Typecheck
         run: npm run typecheck
         env:
@@ -118,5 +122,134 @@ jobs:
         run: go vet ./...
       - name: Test
         run: go test -race ./...
+      - name: Test (testhooks)
+        # POST /v1/_test/clock and the persisted fake clock of testhooks builds.
+        run: go test -tags testhooks ./...
       - name: Build
         run: go build -o bin/ ./cmd/...
+
+  guardian-e2e:
+    # The real guardian binary in the foreground (`run`) on temporary paths, driven over its
+    # HTTP API by scripts/guardian-smoke.mjs with the shared client (docs/ARCHITECTURE.md §15).
+    # centrate_dev makes the binary honour CENTRATE_DATA_DIR/CENTRATE_HOSTS_PATH on elevated
+    # runners (Windows); it is never used for releases.
+    name: Guardian e2e (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      CGO_ENABLED: '0'
+      GUARDIAN_EXE: ${{ matrix.os == 'windows-latest' && 'centrate-guardian.exe' || 'centrate-guardian' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: guardian/go.mod
+          cache-dependency-path: guardian/go.sum
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build (testhooks)
+        working-directory: guardian
+        run: go build -tags "testhooks centrate_dev" -o "${{ runner.temp }}/guardian-testhooks/" ./cmd/centrate-guardian
+      - name: Build (no testhooks)
+        working-directory: guardian
+        run: go build -tags centrate_dev -o "${{ runner.temp }}/guardian-release/" ./cmd/centrate-guardian
+      - name: Smoke (testhooks build)
+        run: node scripts/guardian-smoke.mjs --bin "${{ runner.temp }}/guardian-testhooks/${{ env.GUARDIAN_EXE }}"
+      - name: Smoke (build without testhooks)
+        run: node scripts/guardian-smoke.mjs --release --bin "${{ runner.temp }}/guardian-release/${{ env.GUARDIAN_EXE }}"
+
+  extension-e2e:
+    # Playwright loads the built MV3 extension into Chromium (headed, under Xvfb) and drives it
+    # against the mock guardian (apps/extension/test/mock-guardian.ts): pairing, blocked.html
+    # with the reason, time left and points, escalation, open tabs, whitelist mode, allowances
+    # and a guardian that stops. Firefox runs in extension-firefox below.
+    name: Extension e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Europe/Madrid
+      LANG: es_ES.UTF-8
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Chromium and Xvfb
+        run: |
+          npx playwright install --with-deps chromium
+          sudo apt-get install -y --no-install-recommends xvfb
+      - name: Build
+        run: npm run build -w apps/extension
+      - name: e2e
+        run: xvfb-run -a npm run e2e -w apps/extension
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-e2e-results
+          path: apps/extension/test-results
+          retention-days: 7
+
+  extension-firefox:
+    # The same extension in a real Firefox, headless, through geckodriver (preinstalled on
+    # GitHub's Ubuntu images, $GECKOWEBDRIVER): the oldest supported release (128 ESR, the
+    # manifest's strict_min_version) and the current one, against the mock guardian
+    # (apps/extension/e2e/firefox). Pairing from the popup, blocked.html with one counted
+    # attempt (DNR's redirect is a separate load in Firefox), a link through a redirector, open
+    # tabs, a reopened tab that costs nothing, a guardian that stops, the event page waking up
+    # when suspended and whitelist host patterns (regexFilter). web-ext lints the Firefox build
+    # with the AMO rules.
+    name: Extension Firefox (${{ matrix.firefox }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        firefox: ['128.0esr', 'latest']
+    env:
+      TZ: Europe/Madrid
+      LANG: es_ES.UTF-8
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Firefox ${{ matrix.firefox }}
+        env:
+          FIREFOX_VERSION: ${{ matrix.firefox }}
+        run: |
+          if [ "$FIREFOX_VERSION" = latest ]; then
+            url='https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US'
+          else
+            url="https://ftp.mozilla.org/pub/firefox/releases/$FIREFOX_VERSION/linux-x86_64/en-US/firefox-$FIREFOX_VERSION.tar.bz2"
+          fi
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/firefox.tar" "$url"
+          tar -xf "$RUNNER_TEMP/firefox.tar" -C "$RUNNER_TEMP"
+          echo "FIREFOX_BIN=$RUNNER_TEMP/firefox/firefox" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/firefox/firefox" --version
+          "$GECKOWEBDRIVER/geckodriver" --version | head -n 1
+      - name: Build (Firefox manifest)
+        run: npm run build -w apps/extension -- --engine firefox
+      - name: web-ext lint (AMO rules)
+        run: npx --yes web-ext@10.7.0 lint --source-dir apps/extension/dist
+      - name: Firefox smoke
+        working-directory: apps/extension
+        run: npx playwright test -c playwright.firefox.config.ts
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-firefox-results-${{ matrix.firefox }}
+          path: apps/extension/test-results/firefox
+          retention-days: 7

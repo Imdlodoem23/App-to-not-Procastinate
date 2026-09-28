@@ -66,11 +66,18 @@ type Options struct {
 	SchemaVersion int
 	// Migrations maps a schema version N to its migrate_N_to_N+1 function.
 	Migrations map[int]Migration
+	// Takeover is what a whole-tree takeover of the data directory that ran before
+	// Open in this process moved aside or deleted (platform.EnsureDirReport, e.g. the
+	// one done before the log file opens). Open adds its own takeovers: once a
+	// takeover has deleted a planted secret/ledger.key link, Open can no longer see
+	// it, so the key would pass for a missing one (log_unreadable) instead of a
+	// replaced one (untrusted_key, §10.12 step 4).
+	Takeover platform.TakeoverReport
 
 	// Test seams.
 	segmentBytes int64
 	trustOwner   func(path string) error
-	ensureDir    func(dir string, private bool) error
+	ensureDir    func(dir string, private bool) (platform.TakeoverReport, error)
 }
 
 func (o Options) resolve() (Options, error) {
@@ -105,12 +112,7 @@ func (o Options) resolve() (Options, error) {
 		o.trustOwner = trustedOwner
 	}
 	if o.ensureDir == nil {
-		o.ensureDir = func(dir string, private bool) error {
-			if private {
-				return platform.EnsurePrivateDir(dir)
-			}
-			return platform.EnsureDir(dir)
-		}
+		o.ensureDir = platform.EnsureDirReport
 	}
 	return o, nil
 }
@@ -199,7 +201,10 @@ type RecoveryReport struct {
 
 	// KeyCreated: secret/ledger.key was created now. KeyReplaced: an existing key was
 	// not trusted (owner, links, length) and was replaced; unless Fresh, NeedEpoch is
-	// untrusted_key and the engine writes tamper_detected{untrusted_key}.
+	// untrusted_key and the engine writes tamper_detected{untrusted_key}. A key the
+	// §11.1 takeover deleted (a link, a special file or a file with several hard
+	// links, or below a secret/ that was a link) counts as replaced, and so does the
+	// key of a tree moved aside as untrusted when the directory is not Fresh.
 	KeyCreated  bool
 	KeyReplaced bool
 	KeyProblem  string
@@ -285,8 +290,18 @@ func Open(dir string, opts Options) (*Store, RecoveryReport, error) {
 		return nil, rep, err
 	}
 	s := &Store{dir: filepath.Clean(dir), o: o, fs: o.FS, anchor: o.Anchor}
+	// What the takeovers (§11.1) moved aside or deleted, before loadKey looks.
+	var took platform.TakeoverReport
+	took.MovedAside = append(took.MovedAside, o.Takeover.MovedAside...)
+	took.Removed = append(took.Removed, o.Takeover.Removed...)
+	ensure := func(d string, private bool) error {
+		tr, err := o.ensureDir(s.path(d), private)
+		took.MovedAside = append(took.MovedAside, tr.MovedAside...)
+		took.Removed = append(took.Removed, tr.Removed...)
+		return err
+	}
 	for _, d := range []string{"", dirRun} {
-		if err := o.ensureDir(s.path(d), false); err != nil {
+		if err := ensure(d, false); err != nil {
 			return nil, rep, err
 		}
 	}
@@ -300,11 +315,11 @@ func Open(dir string, opts Options) (*Store, RecoveryReport, error) {
 		}
 	}()
 	for _, d := range []string{dirEvents, dirQuarantine, dirBackups} {
-		if err := o.ensureDir(s.path(d), false); err != nil {
+		if err := ensure(d, false); err != nil {
 			return nil, rep, err
 		}
 	}
-	if err := o.ensureDir(s.path(dirSecret), true); err != nil {
+	if err := ensure(dirSecret, true); err != nil {
 		return nil, rep, err
 	}
 	rep.RemovedTemps = s.removeStaleTemps()
@@ -333,6 +348,7 @@ func Open(dir string, opts Options) (*Store, RecoveryReport, error) {
 		rep.SafeMode = n >= SafeModeUncleanStarts
 	}
 
+	s.noteTakeover(&rep, took)
 	if err := s.loadKey(&rep); err != nil {
 		return nil, rep, err
 	}

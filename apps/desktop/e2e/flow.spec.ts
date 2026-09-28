@@ -379,6 +379,26 @@ test('the X hides both windows; the tray hint is shown once', async () => {
   expect(app.electron.process().exitCode).toBeNull();
 });
 
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  test(`${signal} (logout, Ctrl+C; like Cmd+Q, a quit started outside JS) exits cleanly`, async () => {
+    test.skip(process.platform === 'win32', 'Windows has no POSIX signals');
+    app = await launchApp({ state: null });
+    const main = await app.page('main');
+    await expect(main.getByRole('textbox', { name: FIELD })).toBeVisible({ timeout: 15_000 });
+    const proc = app.electron.process();
+    const exited = new Promise<number | null>((resolve) =>
+      proc.once('exit', (code) => resolve(code)),
+    );
+    proc.kill(signal);
+    // `core.shutdown` runs inside `before-quit`; the process must then really exit.
+    const code = await Promise.race([
+      exited,
+      new Promise<'hung'>((resolve) => setTimeout(() => resolve('hung'), 5_000)),
+    ]);
+    expect(code).toBe(0);
+  });
+}
+
 test('mock guardian (no harness): phrase + Enter + Enter, then the countdown ticks in real time', async () => {
   app = await launchApp({ state: null });
   const main = await app.page('main');

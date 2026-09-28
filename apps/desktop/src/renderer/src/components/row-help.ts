@@ -75,3 +75,27 @@ export function rowHelpText(
   if (active?.text) return { text: active.text, tone: active.tone };
   return fallback;
 }
+
+/** The row's own help as announceable text (`null` for nodes and empty text). */
+export function helpAsText(help: unknown): string | null {
+  if (typeof help === 'number') return String(help);
+  return typeof help === 'string' && help !== '' ? help : null;
+}
+
+/**
+ * What a row with `helpLive` holds in its polite region: the armed tile's consequence, else
+ * the row's own help when it is text and differs from its resting help (the help it had when
+ * it mounted, i.e. standing guidance, not a result). Never the hovered or focused tile's help,
+ * which is that tile's description. Going back to rest (a notice clears, a tile disarms)
+ * empties the region, which is silent.
+ */
+export function rowAnnouncement(
+  registry: Pick<RowHelpRegistry, 'armed'>,
+  rowHelp: unknown,
+  restingHelp: string | null,
+): string | null {
+  const armed = registry.armed();
+  if (armed?.text) return armed.text;
+  const text = helpAsText(rowHelp);
+  return text === restingHelp ? null : text;
+}

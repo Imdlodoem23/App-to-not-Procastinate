@@ -8,7 +8,10 @@ import {
   type HarnessStateId,
 } from '../../../src/shared/fixtures';
 import type { UiState } from '../../../src/shared/ui-state';
+import { duplicateKeys } from '../../../src/renderer/src/windows/bloqueos/mnemonics';
+import type { AjustesView } from '../../../src/renderer/src/windows/ajustes/view';
 import {
+  AJUSTES_KEYS,
   deleteWordOk,
   deriveAjustesView,
   inLabel,
@@ -40,9 +43,24 @@ function withState(
   return { ...state, snapshot: { ...state.snapshot, state: patch(s) } };
 }
 
+/** Every Alt + letter the Ajustes window gives its tiles. */
+function ajustesKeys(view: AjustesView): (string | undefined)[] {
+  return [
+    ...view.general.themeOptions.map((o) => o.mnemonic),
+    ...view.bloqueo.modeOptions.map((o) => o.mnemonic),
+    AJUSTES_KEYS.repair,
+    ...view.sistema.extensions.map((e) => e.guideKey),
+    AJUSTES_KEYS.pairingNew,
+    ...view.sistema.guides.map((g) => g.mnemonic),
+    AJUSTES_KEYS.diagnostics,
+    AJUSTES_KEYS.delete,
+  ];
+}
+
 describe('Ajustes view per fixture', () => {
   it('shows every group with the current values (ajustes)', () => {
     const view = deriveAjustesView(detailState('ajustes'), NOW);
+    expect(view.general.title).toBe('General: tema del sistema');
     expect(view.general.theme).toBe('system');
     expect(view.general.themeOptions.map((o) => o.label)).toEqual(['Sistema', 'Claro', 'Oscuro']);
     expect(view.general.autostart).toBe(true);
@@ -153,12 +171,16 @@ describe('Ajustes view per fixture', () => {
         ],
       },
     }));
-    const rows = deriveAjustesView(state, NOW).sistema.extensions;
+    const view = deriveAjustesView(state, NOW);
+    const rows = view.sistema.extensions;
     expect(rows.map((r) => [r.title, r.status, r.guide])).toEqual([
       ['Extensión en Firefox', 'Desconectada', 'extension-firefox'],
       ['Extensión en Edge', 'Sin permiso', 'extension-chromium'],
       ['Extensión en Brave', 'Falta incógnito', 'extension-incognito'],
     ]);
+    // Three «Guía…» tiles, three different keys, none taken by another tile.
+    expect(rows.map((r) => r.guideKey)).toEqual(['g', 'a', 'd']);
+    expect(duplicateKeys(ajustesKeys(view))).toEqual([]);
   });
 
   it('shows «Copiado» after copying the diagnostics', () => {
@@ -189,6 +211,7 @@ describe('Ajustes view per fixture', () => {
       NOW,
     );
     expect(view.general.theme).toBe('dark');
+    expect(view.general.title).toBe('General: tema oscuro');
     expect(view.general.autostart).toBe(false);
     expect(view.bloqueo.title).toBe('Bloqueo: Estricto por defecto');
   });
@@ -240,5 +263,30 @@ describe('Ajustes weakening delay', () => {
       ['Cerrar navegadores sin extensión', true, 'Se aplicará en 24 h'],
       ['Penalizaciones', true, 'Se aplicará en 24 h'],
     ]);
+  });
+});
+
+describe('Ajustes Alt + letter', () => {
+  it('gives every tile its own key, a letter of its label', () => {
+    const view = deriveAjustesView(detailState('ajustes'), NOW);
+    expect(view.general.themeOptions.map((o) => [o.label, o.mnemonic])).toEqual([
+      ['Sistema', 's'],
+      ['Claro', 'c'],
+      ['Oscuro', 'o'],
+    ]);
+    expect(view.bloqueo.modeOptions.map((o) => o.mnemonic)).toEqual(['n', 'e', 'h']);
+    expect(view.sistema.guides.map((g) => [g.label, g.mnemonic])).toEqual([
+      ['Chrome y Edge', 'm'],
+      ['Firefox', 'f'],
+      ['Incógnito', 'i'],
+    ]);
+    expect(duplicateKeys(ajustesKeys(view))).toEqual([]);
+  });
+
+  it('keeps the description beside the tiles to one line of help per option', () => {
+    const view = deriveAjustesView(detailState('ajustes'), NOW);
+    for (const o of [...view.general.themeOptions, ...view.bloqueo.modeOptions]) {
+      expect(o.help.length, o.label).toBeLessThanOrEqual(56);
+    }
   });
 });

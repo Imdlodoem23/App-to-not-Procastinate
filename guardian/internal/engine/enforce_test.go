@@ -20,9 +20,7 @@ func TestRebootRecoveryReappliesHosts(t *testing.T) {
 		t.Fatal("no section")
 	}
 	_ = e
-	if err := env.e.Stop(); err != nil {
-		t.Fatal(err)
-	}
+	env.shutdown()
 	// The machine reboots; something removed our section meanwhile.
 	env.fh.Tamper(nil)
 	env.clk.RebootAfter(2 * time.Minute)

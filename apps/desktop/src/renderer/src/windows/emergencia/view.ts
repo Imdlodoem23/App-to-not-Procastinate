@@ -50,6 +50,27 @@ export const EMERGENCIA_IDS = {
 /** Armed id of «Desbloquear» (fixture `emergency-ready`). */
 export const UNLOCK_ARM_ID = 'emergency-unlock';
 
+/**
+ * Alt + letter of every tile (unique in the window; the letter is in the label). Alt + D only
+ * arms «Desbloquear», like a first click: a second press within 3 s confirms.
+ */
+export const EMERGENCIA_KEYS = {
+  stay: 's',
+  request: 'e',
+  cancel: 'c',
+  unlock: 'd',
+  close: 'r',
+} as const;
+
+/** Row item ids, so a stage can focus its recommended control. */
+export const EMERGENCIA_TILES = {
+  stay: 'stay',
+  request: 'request',
+  cancel: 'cancel',
+  unlock: 'unlock',
+  close: 'close',
+} as const;
+
 export type EmergenciaStage = 'request' | 'unavailable' | 'counting' | 'ready' | 'done';
 export type PhraseStatus = 'empty' | 'typing' | 'mismatch' | 'ok';
 
@@ -98,6 +119,32 @@ export interface EmergenciaView {
   done: { cancelled: string; lost: string; balance: string } | null;
   /** Where the prices come from (the guardian's preview replaces the local estimate). */
   source: 'guardian' | 'local';
+}
+
+/**
+ * What a new stage says to screen readers: the section title and its datum («Emergencia:
+ * esperando, lista a las 17:08»), plus what was cancelled once done. `notice` (a result that
+ * caused the change: «Cancelada: no has perdido nada») goes first.
+ */
+export function stageAnnouncement(view: EmergenciaView, notice: string | null = null): string {
+  const parts = [E.announce.stage(view.title, view.datum)];
+  if (view.done) parts.push(view.done.cancelled);
+  if (notice) parts.unshift(notice);
+  return parts.join('. ');
+}
+
+/** The tile a stage focuses: always the way that keeps the block («Cerrar» at the end). */
+export function stageFocus(stage: EmergenciaStage): 'phrase' | keyof typeof EMERGENCIA_TILES {
+  switch (stage) {
+    case 'request':
+      return 'phrase';
+    case 'counting':
+    case 'ready':
+      return 'cancel';
+    case 'unavailable':
+    case 'done':
+      return 'close';
+  }
 }
 
 /** «hasta las 18:42», «hasta mañana a las 08:00». */

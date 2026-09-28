@@ -29,7 +29,13 @@ type testEnv struct {
 	fs     store.FS
 	procs  *FakeProcesses
 	logon  func() (time.Duration, bool)
-	e      *Engine
+	// platform overrides the catalog platform (default: this OS); netTime the network
+	// time source (default net).
+	platform catalog.Platform
+	netTime  NetworkTime
+	// flusher overrides the DNS flusher (default dns).
+	flusher DNSFlusher
+	e       *Engine
 }
 
 var testStart = time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC)
@@ -53,18 +59,30 @@ func newTestEnv(t *testing.T) *testEnv {
 }
 
 func (env *testEnv) options() Options {
+	pl := env.platform
+	if pl == "" {
+		pl = catalog.CurrentPlatform()
+	}
+	var nt NetworkTime = env.net
+	if env.netTime != nil {
+		nt = env.netTime
+	}
+	var fl DNSFlusher = env.dns
+	if env.flusher != nil {
+		fl = env.flusher
+	}
 	return Options{
 		DataDir:             env.dir,
 		Clock:               env.clk,
 		Hosts:               env.hosts,
-		DNS:                 env.dns,
-		NetworkTime:         env.net,
+		DNS:                 fl,
+		NetworkTime:         nt,
 		ProcessLister:       env.procs,
 		ProcessKiller:       env.procs,
 		ProcessInterval:     10 * time.Millisecond,
 		Anchor:              env.anchor,
 		StoreFS:             env.fs,
-		Platform:            catalog.CurrentPlatform(),
+		Platform:            pl,
 		Version:             "0.1.0-test",
 		HostsPath:           "/etc/hosts",
 		HostsPathRedirected: func() bool { return false },
@@ -96,6 +114,15 @@ func (env *testEnv) restart() *Engine {
 		env.t.Fatalf("Stop: %v", err)
 	}
 	return env.open()
+}
+
+// shutdown stops the engine the way an OS shutdown does (the service manager's shutdown
+// notice: the planned-stop marker «shutdown», then the clean stop), before a reboot.
+func (env *testEnv) shutdown() {
+	env.t.Helper()
+	if err := env.e.Shutdown(bg); err != nil {
+		env.t.Fatalf("Shutdown: %v", err)
+	}
 }
 
 // advance moves real time with the machine awake, one engine tick every 2 s.
@@ -193,14 +220,24 @@ func apiDetails(err error) map[string]any {
 }
 
 // faultFS wraps the real file system and makes appends to event segments and writes of
-// state.json fail on demand; it records the order of durable operations.
+// state.json and run/clock.json fail on demand; it records the order of durable
+// operations (appends and state writes).
 type faultFS struct {
 	store.FS
 	mu          sync.Mutex
 	failAppend  bool
 	failState   bool
+	failClock   bool
 	ops         []string
 	recordOrder bool
+}
+
+// setFailSnapshots makes the writes of state.json and run/clock.json fail (a crash
+// between the append and the end of the turn, as far as the next start can tell).
+func (f *faultFS) setFailSnapshots(v bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failState, f.failClock = v, v
 }
 
 func newFaultFS() *faultFS { return &faultFS{FS: store.OSFS()} }
@@ -238,6 +275,8 @@ func (f *faultFS) OpenFile(name string, flag int, perm fs.FileMode) (store.File,
 		return &faultFile{File: file, fs: f, kind: "append"}, nil
 	case strings.Contains(filepath.Base(name), "state.json"):
 		return &faultFile{File: file, fs: f, kind: "state"}, nil
+	case strings.Contains(filepath.Base(name), "clock.json"):
+		return &faultFile{File: file, fs: f, kind: "clock"}, nil
 	}
 	return file, nil
 }
@@ -252,12 +291,15 @@ var errInjected = errors.New("injected I/O failure")
 
 func (f *faultFile) Write(p []byte) (int, error) {
 	f.fs.mu.Lock()
-	fail := (f.kind == "append" && f.fs.failAppend) || (f.kind == "state" && f.fs.failState)
+	fail := (f.kind == "append" && f.fs.failAppend) || (f.kind == "state" && f.fs.failState) ||
+		(f.kind == "clock" && f.fs.failClock)
 	f.fs.mu.Unlock()
 	if fail {
 		return 0, errInjected
 	}
-	f.fs.record(f.kind)
+	if f.kind != "clock" {
+		f.fs.record(f.kind)
+	}
 	return f.File.Write(p)
 }
 

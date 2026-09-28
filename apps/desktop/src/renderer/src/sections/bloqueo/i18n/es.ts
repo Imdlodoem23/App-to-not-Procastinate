@@ -4,6 +4,7 @@
  * `src/shared/i18n/es.ts` through `src/shared/format.ts`; this file only holds what the
  * section says itself. Ready for an `en.ts` with the same shape (`BloqueoMessages`).
  */
+import type { CategoryId } from '@centrate/shared/catalog';
 import type { BlockMode, PunishmentCause, PunishmentLevel } from '@centrate/shared/domain';
 
 export const BLOQUEO_ES = {
@@ -12,10 +13,23 @@ export const BLOQUEO_ES = {
   header: {
     none: 'Bloqueo: ninguno',
     finished: 'Bloqueo: terminado',
-    /** «Bloqueo: YouTube, Instagram · Estricto». */
+    /** «Bloqueo: YouTube, Instagram · Estricto». Every fallback keeps «Bloqueo:». */
     active: (targets: string, mode: string): string => `Bloqueo: ${targets} · ${mode}`,
-    /** Fallback when even one name does not fit: «Redes sociales · Estricto». */
-    activeShort: (targets: string, mode: string): string => `${targets} · ${mode}`,
+    /** Fallback when not even one name fits: «Bloqueo: 3 · Estricto». */
+    activeCount: (count: number, mode: string): string => `Bloqueo: ${count} · ${mode}`,
+    /** Last one-line fallback, one target: «Bloqueo: Estricto». */
+    activeMode: (mode: string): string => `Bloqueo: ${mode}`,
+    /** Short category names for the header («Bloqueo: Redes +2 · Estricto»). */
+    categoryShort: {
+      social: 'Redes',
+      video: 'Vídeo',
+      games: 'Juegos',
+      messaging: 'Mensajería',
+      shopping: 'Compras',
+      news: 'Noticias',
+    } satisfies Record<CategoryId, string>,
+    /** Short «Todo salvo la lista blanca» («Bloqueo: solo lista blanca · Examen»). */
+    whitelistShort: 'solo lista blanca',
     /** «Castigo: todas las distracciones · 60 min» (always in minutes: 15 … 120). */
     punishment: (level: string, minutes: number): string => `Castigo: ${level} · ${minutes} min`,
     /** Shorter punishment title when the whole one does not fit: «Castigo: 60 min». */
@@ -50,6 +64,8 @@ export const BLOQUEO_ES = {
     notUnderstood: (fragments: readonly string[]): string =>
       `No he entendido: ${fragments.map((f) => `"${f}"`).join(', ')}`,
     notUnderstoodAll: (text: string): string => `No he entendido: "${text}"`,
+    /** Screen readers, once typing pauses: «Entendido: YouTube, 1 h, hasta 18:00». */
+    understood: (parts: readonly string[]): string => `Entendido: ${parts.join(', ')}`,
     /** After the chips when Enter will open Bloqueos (nothing is invented). */
     missingDuration: 'falta cuánto tiempo',
     missingTargets: 'falta qué bloquear',
@@ -99,6 +115,23 @@ export const BLOQUEO_ES = {
     confirmAgainHelp: 'Pulsa otra vez para bloquear',
     pending: 'Bloqueando…',
     pendingHelp: 'Esperando al guardián',
+    /**
+     * Screen readers: what the confirm button commits («Bloquea YouTube e Instagram durante
+     * 1 hora, hasta las 18:00, modo Estricto»). `until` comes from `untilPhrase`.
+     */
+    summary: (targets: string, duration: string, until: string, mode: string): string =>
+      `Bloquea ${targets} durante ${duration}, ${until}, modo ${mode}`,
+    /** «Todo salvo la lista blanca» inside the sentence. */
+    summaryWhitelist: 'todo salvo la lista blanca',
+    summaryNoTargets: (duration: string, until: string, mode: string): string =>
+      `Nada elegido para bloquear. ${duration}, ${until}, modo ${mode}`,
+    /** «1 hora y 30 minutos», «45 minutos» (spoken, never «1 h»). */
+    durationWords: (hours: number, minutes: number): string => {
+      const parts: string[] = [];
+      if (hours > 0) parts.push(hours === 1 ? '1 hora' : `${hours} horas`);
+      if (minutes > 0 || hours === 0) parts.push(minutes === 1 ? '1 minuto' : `${minutes} minutos`);
+      return parts.join(' y ');
+    },
     /** «6 h: termina a las 23:42 y solo se puede ampliar». */
     consequenceLong: (duration: string, ends: string): string =>
       `${duration}: termina ${ends} y solo se puede ampliar`,
@@ -137,6 +170,12 @@ export const BLOQUEO_ES = {
     sending: (plus: string): string => `${plus} · ampliando…`,
     failed: 'No se pudo ampliar',
     tooLate: 'Ya ampliado',
+    /** After «Deshacer»: the line says it for a moment (and screen readers hear it). */
+    undone: 'Ampliación deshecha',
+    /** Spoken once when the undo line appears (the ticking seconds are never spoken). */
+    undoAnnounce: (plus: string, ends: string, seconds: number): string =>
+      `${plus}, termina ${ends}. Puedes deshacerlo durante ${seconds} segundos`,
+    failedAnnounce: 'No se pudo ampliar: puedes reintentarlo',
     otherPlaceholder: '¿Cuánto más? 20 min, 1 h…',
     otherLabel: 'Cuánto quieres ampliar',
     otherApply: 'Ampliar',

@@ -7,7 +7,8 @@ import (
 
 // systemdScript is the unit kardianos renders on Linux (its mini template
 // syntax). StartLimitIntervalSec=0 disables systemd's start rate limit so
-// Restart=always never gives up.
+// Restart=always never gives up. NoNewPrivileges=yes (docs/ARCHITECTURE.md
+// §13); no ProtectSystem=strict, because the guardian writes /etc/hosts.
 const systemdScript = `[Unit]
 Description={{Description}}
 ConditionFileIsExecutable={{Path | cmdEscape}}
@@ -21,6 +22,7 @@ Restart=always
 RestartSec=2
 TimeoutStopSec=15
 KillMode=mixed
+NoNewPrivileges=yes
 
 [Install]
 WantedBy=multi-user.target

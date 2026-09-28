@@ -168,6 +168,11 @@ func (e *Engine) applyClockJump(ev *store.Event) error {
 	if d.Source != "calibrate" {
 		return nil
 	}
+	// The correction resolves the restore jump and the unverified completions (the
+	// block_reactivated events before it took theirs back): replayed after a crash that
+	// lost state.json, it can never be applied twice (§10.2).
+	e.state.Clock.Restore = nil
+	e.state.Clock.Unverified = nil
 	shift := -d.DeltaMs
 	for _, id := range d.ShiftedBlockIDs {
 		rec := e.block(id)

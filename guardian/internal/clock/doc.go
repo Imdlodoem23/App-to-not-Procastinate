@@ -92,14 +92,25 @@
 //     inside the same lock that guards its expiry checks.
 //   - Evaluate recurring schedules against EffectiveNow().In(loc), never
 //     against time.Now().
-//   - When the user allows network checks, call [NetworkTime] with
-//     EffectiveNow as the certificate clock (after boot or resume, after a
-//     jump, then every half hour or so) and pass the result to
-//     [Detector.Resync]. When [JumpResult.TrustedShift] is not zero, add it to
-//     every pending deadline kept in trusted time inside the lock that guards
-//     the expiry checks; display times do not change. A caller that cannot
-//     shift its deadlines must use [Detector.Calibrate] instead, which never
-//     moves EffectiveNow forward (and so never corrects a lag).
+//   - When the user allows network checks, call [CheckNetworkTime] (or
+//     [NetworkTime]) with EffectiveNow as the certificate clock on the
+//     schedule of [CalibrateAfterBoot], [CalibrateAfterJump] and
+//     [CalibrateEvery], retrying failures after [Backoff] delays and at once
+//     when a [NetworkWatcher] sees a network come up. It asks the IP-literal
+//     sources first and resolves the hostname ones with DNS-over-HTTPS
+//     through the same IP literals, never through the system resolver or the
+//     hosts file; a hostname answered with 0.0.0.0 or :: is reported as
+//     tampering ([NetworkTampered]), not as offline. Pass an OK result to
+//     [Detector.Calibrate], which only moves EffectiveNow back; its
+//     [JumpResult.Correction] is how far. After a reboot, [Detector.Restore]
+//     returns the [RestoreJump] to persist until a calibration resolves it:
+//     a Correction moves back every trusted deadline created at or after
+//     RestoredT ([RestoreJump.Shift]), and completions whose endsAt the jump
+//     Crossed may be resurrected (docs/ARCHITECTURE.md §4, §10.2). A caller
+//     that can shift every pending deadline forward may use [Detector.Resync]
+//     instead: when [JumpResult.TrustedShift] is not zero, add it to every
+//     pending deadline kept in trusted time inside the lock that guards the
+//     expiry checks; display times do not change.
 //   - When [JumpResult.Suspended], do not count the missing heartbeats of
 //     SuspendedFor as a failure.
 //   - Persist [Detector.Snapshot] with the rest of the state (every minute and

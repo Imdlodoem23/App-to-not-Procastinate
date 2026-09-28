@@ -4,6 +4,12 @@
  * the help of the tile under the mouse or with the focus (or the armed tile's consequence),
  * else the row's own `help`. Tiles are described by it (`aria-describedby`).
  *
+ * The visible line is never a live region: hover and focus help would be spoken on a mouse
+ * move, and a focused tile's help twice (description + live change). With `helpLive`, an
+ * always-mounted screen-reader-only region mirrors what the row reports instead: the row's own
+ * `help` when it changes from its resting text (a repair outcome, a notice) and the armed
+ * tile's «¿Seguro?» consequence.
+ *
  * `kind="radiogroup"` when the row is a choice (mode, theme): tiles become radios, one tab stop
  * (the checked one), and the arrow keys move and select. In a plain group every tile is a tab
  * stop and the arrow keys move the focus. Home and End go to the ends.
@@ -21,7 +27,7 @@ import {
 } from 'react';
 import { useHelp, type HelpApi } from '../hooks/useHelp';
 import { HelpLine, type HelpTone } from './HelpLine';
-import { RowHelpRegistry, rowHelpText } from './row-help';
+import { RowHelpRegistry, helpAsText, rowAnnouncement, rowHelpText } from './row-help';
 
 export interface RowContextValue {
   rowId: string;
@@ -48,7 +54,10 @@ export interface TileRowProps {
   /** The row's own help, shown when no tile claims the line. */
   help?: ReactNode;
   helpTone?: HelpTone;
-  /** `polite` when the row's help reports results («+30 min · termina a las 18:12»). */
+  /**
+   * `polite` when the row's help reports results («+30 min · termina a las 18:12»): its text
+   * (a string) and the armed consequence are announced; tile hover and focus help never are.
+   */
   helpLive?: 'polite' | 'off';
   className?: string;
   children: ReactNode;
@@ -124,8 +133,8 @@ export function TileRow(props: TileRowProps): React.JSX.Element {
           active={helpApi.active}
           fallback={help}
           fallbackTone={helpTone}
-          live={helpLive}
         />
+        {helpLive === 'polite' ? <RowAnnouncer registry={registry} help={help} /> : null}
       </div>
     </RowContext.Provider>
   );
@@ -142,14 +151,26 @@ function RowHelpLine(props: {
   active: string | null;
   fallback: ReactNode;
   fallbackTone: HelpTone;
-  live: 'polite' | 'off' | undefined;
 }): React.JSX.Element {
   const { registry } = props;
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   const shown = rowHelpText(registry, props.active, { text: null, tone: props.fallbackTone });
   return (
-    <HelpLine id={props.id} tone={shown.text ? shown.tone : props.fallbackTone} live={props.live}>
+    <HelpLine id={props.id} tone={shown.text ? shown.tone : props.fallbackTone}>
       {shown.text ?? props.fallback}
     </HelpLine>
+  );
+}
+
+/** The row's polite region (`helpLive`): results and the armed consequence, never hover help. */
+function RowAnnouncer(props: { registry: RowHelpRegistry; help: ReactNode }): React.JSX.Element {
+  const { registry } = props;
+  useSyncExternalStore(registry.subscribe, registry.getVersion);
+  const [resting] = useState(() => helpAsText(props.help));
+  const text = rowAnnouncement(registry, props.help, resting);
+  return (
+    <span className="sr-only" aria-live="polite" aria-atomic="true">
+      {text}
+    </span>
   );
 }

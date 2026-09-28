@@ -66,7 +66,7 @@ func (s *Store) NewEpoch(reason EpochReason, batch []Event) ([]Event, error) {
 		return nil, err
 	}
 	dir := s.path(dirEvents, id)
-	if err := s.o.ensureDir(dir, false); err != nil {
+	if _, err := s.o.ensureDir(dir, false); err != nil {
 		return nil, writeErr("create epoch", err)
 	}
 	if err := s.fs.SyncDir(s.path(dirEvents)); err != nil {

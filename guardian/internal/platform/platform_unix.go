@@ -27,36 +27,24 @@ func UseSystemPATH() {
 	_ = os.Setenv("PATH", systemPATH)
 }
 
-// secureDir creates dir if needed and makes it root-owned with the guardian
-// mode. Ownership and mode are set through a descriptor opened with O_NOFOLLOW,
-// so a link swapped in after the check is never followed.
-func secureDir(dir string, private bool) error {
+// secureDir creates dir if needed and takes over the whole tree (see
+// takeover.go): an untrusted tree is moved aside and created again; in a
+// trusted one links, multi-linked and special files are deleted and every
+// entry becomes root-owned with the guardian mode, set through descriptors
+// opened with O_NOFOLLOW so a link swapped in after a check is never
+// followed.
+func secureDir(dir string, private bool, rep *TakeoverReport) error {
 	mode := DirMode
 	if private {
 		mode = PrivateDirMode
 	}
-	if err := os.MkdirAll(dir, mode); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(dir, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0)
-	if err != nil {
-		if errors.Is(err, syscall.ELOOP) || errors.Is(err, syscall.ENOTDIR) {
-			return fmt.Errorf("%s is not a plain directory", dir)
+	create := func() error {
+		if _, err := os.Lstat(dir); err == nil || !errors.Is(err, fs.ErrNotExist) {
+			return err // takeOver decides about what is there
 		}
-		return err
+		return os.MkdirAll(dir, mode)
 	}
-	defer f.Close()
-	fi, err := f.Stat()
-	if err != nil {
-		return err
-	}
-	if !fi.IsDir() {
-		return fmt.Errorf("%s is not a plain directory", dir)
-	}
-	if err := f.Chown(0, 0); err != nil {
-		return err
-	}
-	return f.Chmod(mode)
+	return secureLoop(unixTree{}, dir, private, create, rep)
 }
 
 // OpenRegularFile opens path like os.OpenFile, but never follows a symbolic

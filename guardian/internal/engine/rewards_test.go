@@ -434,9 +434,7 @@ func TestAllowancePersistenceAndCalibration(t *testing.T) {
 		env := newTestEnv(t)
 		env.open()
 		env.create(durationReq(ModeNormal, 600, "youtube"))
-		if err := env.e.Stop(); err != nil {
-			t.Fatal(err)
-		}
+		env.shutdown() // an OS reboot (a manual stop first is priced, §10.12 step 9)
 		env.net.SetOffline(true)
 		env.clk.RebootAfter(time.Minute)
 		env.clk.JumpWall(3 * time.Hour) // the BIOS clock is 3 h ahead

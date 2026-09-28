@@ -7,16 +7,21 @@
 import type { BlockMode } from '@centrate/shared/domain';
 import type { DraftProblem } from '../../../../../shared/ui-state';
 
+/** Why «Bloquear…» is disabled (`FormProblem` in `../view.ts`). */
+type FormProblemKey = DraftProblem | 'no_duration';
+
 export const BLOQUEOS_ES = {
   /** Line above the form when it was opened from a phrase the parser did not fully get. */
   seed: (phrase: string): string => `De tu frase «${phrase}»: completa lo que falta`,
 
   targets: {
-    /** «Qué bloquear: YouTube, Instagram +2». */
+    /** «Qué bloquear: YouTube +2». */
     title: (label: string): string => `Qué bloquear: ${label}`,
     titleNone: 'Qué bloquear: nada aún',
     titleWhitelist: 'Qué bloquear: todo salvo la lista blanca',
-    count: (n: number): string => (n === 1 ? '1 elegido' : `${n} elegidos`),
+    /** Screen readers, after typing in the search box (debounced). */
+    results: (n: number): string =>
+      n === 0 ? 'Sin resultados' : n === 1 ? '1 resultado' : `${n} resultados`,
     searchLabel: 'Buscar en el catálogo',
     searchPlaceholder: 'Buscar: YouTube, redes, juegos…',
     noResults: 'No está en el catálogo: si es una web, añádela en «Dominios propios»',
@@ -65,6 +70,10 @@ export const BLOQUEOS_ES = {
   duration: {
     /** «Duración: 1 h 30 min». */
     title: (label: string): string => `Duración: ${label}`,
+    /** Opened from a phrase whose time was not understood: nothing is invented (PROMPT §4). */
+    titleOpen: 'Duración: sin elegir',
+    /** Header datum: «hasta 18:00», «hasta mañana 08:00». */
+    datum: (when: string): string => `hasta ${when}`,
     presetsLabel: 'Duración',
     /** Help of a preset tile: «1 h: hasta las 18:00». */
     presetHelp: (label: string, until: string): string => `${label}: ${until}`,
@@ -112,9 +121,10 @@ export const BLOQUEOS_ES = {
     blockHelp: 'Lo confirmas en la ventana principal: solo se puede ampliar, nunca acortar',
     problem: {
       no_targets: 'Elige qué bloquear',
+      no_duration: 'Elige cuánto dura',
       too_short: 'Como mínimo 5 min',
       too_long: 'Como mucho 24 h',
-    } satisfies Record<DraftProblem, string>,
+    } satisfies Record<FormProblemKey, string>,
     sent: 'Confírmalo en la ventana principal',
     nameLabel: 'Nombre de la plantilla',
     nameRowLabel: 'Guardar la plantilla',

@@ -280,6 +280,11 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
         events.kick();
       },
       onUnresponsive: () => poller.refreshNow('retry'),
+      onRefused: (error) => {
+        // e.g. `block_not_active`: the block ended, so the section should say so now.
+        log.info('block_extend_refused', { code: error.code, status: error.status });
+        poller.refreshNow('write');
+      },
     });
     const poller: Poller = new Poller({
       clock,

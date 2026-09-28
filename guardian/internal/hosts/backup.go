@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 )
 
 const (
@@ -18,6 +19,13 @@ const (
 	BackupKeep = 3
 )
 
+// OriginalName is the pristine copy of the hosts file in Manager.BackupDir:
+// the file as the guardian first saw it, with any Céntrate section taken
+// out. It is written once and never overwritten (docs/ARCHITECTURE.md
+// §10.10, §11.1); it is the last resort of Recover and RestoreFromBackup, and
+// RestoreOriginal writes it back.
+const OriginalName = "hosts.original"
+
 // ErrNoBackup is returned by RestoreFromBackup when no usable backup exists.
 var ErrNoBackup = errors.New("hosts: no usable backup")
 
@@ -27,6 +35,137 @@ func (m *Manager) BackupPath(i int) string {
 		return filepath.Join(m.BackupDir, BackupName)
 	}
 	return filepath.Join(m.BackupDir, BackupName+"."+strconv.Itoa(i))
+}
+
+// OriginalPath returns the path of hosts.original.
+func (m *Manager) OriginalPath() string {
+	return filepath.Join(m.BackupDir, OriginalName)
+}
+
+// candidatePath returns the i-th restore candidate: the rotating backups,
+// newest first, then hosts.original.
+func (m *Manager) candidatePath(i int) string {
+	if i < BackupKeep {
+		return m.BackupPath(i)
+	}
+	return m.OriginalPath()
+}
+
+// saveOriginalLocked writes hosts.original from doc (the file just read,
+// parsed) the first time this Manager reads an existing, usable hosts file,
+// unless it already exists: it is never overwritten. The Céntrate section is
+// taken out. Failures are logged and retried at the next read. Callers hold
+// m.mu.
+func (m *Manager) saveOriginalLocked(doc *document, exists bool) {
+	if m.originalDone || m.BackupDir == "" || !exists {
+		return
+	}
+	p := m.OriginalPath()
+	if _, err := os.Lstat(p); err == nil {
+		m.originalDone = true
+		return
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		m.logger().Warn("hosts: cannot check the original copy", "err", err)
+		return
+	}
+	if err := m.writeBackupFile(p, doc.render(nil, time.Time{})); err != nil {
+		m.logger().Warn("hosts: original copy not written", "err", err)
+		return
+	}
+	m.originalDone = true
+	m.logger().Info("hosts: original copy written")
+}
+
+// writeBackupFile writes data to dst in BackupDir through a synced temporary
+// file, refusing to replace an existing dst.
+func (m *Manager) writeBackupFile(dst string, data []byte) error {
+	if err := os.MkdirAll(m.BackupDir, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(m.BackupDir, tempPrefix+"*"+tempSuffix)
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	_, err = tmp.Write(data)
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		if _, serr := os.Lstat(dst); serr == nil {
+			err = fs.ErrExist
+		} else if !errors.Is(serr, fs.ErrNotExist) {
+			err = serr
+		}
+	}
+	if err == nil {
+		err = os.Rename(name, dst)
+	}
+	if err != nil {
+		_ = os.Remove(name)
+		return err
+	}
+	syncDir(m.BackupDir)
+	return nil
+}
+
+// RestoreOriginal rewrites the hosts file with hosts.original (the file as
+// the guardian first saw it, without the section), unless the file already
+// holds exactly that. The current file is not backed up. It returns
+// ErrNoBackup when hosts.original is missing or unusable. The engine uses it
+// when the file is unparseable and the uninstaller when the file is unusable
+// (docs/ARCHITECTURE.md §10.10, §10.12).
+func (m *Manager) RestoreOriginal() error {
+	if err := m.checkPath(); err != nil {
+		return err
+	}
+	changed, err := m.restoreOriginalLocked()
+	if err == nil && changed {
+		m.autoFlush()
+	}
+	return err
+}
+
+func (m *Manager) restoreOriginalLocked() (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.BackupDir == "" {
+		return false, ErrNoBackup
+	}
+	out, ok := m.usableCandidate(BackupKeep)
+	if !ok {
+		return false, ErrNoBackup
+	}
+	current, exists, err := m.read()
+	if err == nil && exists && bytes.Equal(current, out) {
+		m.remember(current, true)
+		m.recoverChecked = true
+		return false, nil
+	}
+	if err := m.write(out); err != nil {
+		return false, fmt.Errorf("hosts: restore original: %w", err)
+	}
+	m.remember(out, true)
+	m.recoverChecked = true
+	m.logger().Warn("hosts: restored from the original copy", "bytes", len(out))
+	return true, nil
+}
+
+// usableCandidate reads restore candidate i and returns it with any section
+// taken out, when it is readable and parseable.
+func (m *Manager) usableCandidate(i int) ([]byte, bool) {
+	data, err := readFileLimited(m.candidatePath(i))
+	if err != nil {
+		return nil, false
+	}
+	doc, err := parseDocument(data)
+	if err != nil {
+		return nil, false
+	}
+	return doc.render(nil, time.Time{}), true
 }
 
 // backupBeforeWrite copies the file (data, parsed as doc) to BackupDir before
@@ -46,7 +185,7 @@ func (m *Manager) backupBeforeWrite(doc *document, data []byte, exists bool) {
 	if m.BackupDir == "" || !exists {
 		return
 	}
-	user := doc.render(nil)
+	user := doc.render(nil, time.Time{})
 	sum := fingerprintOf(user, true)
 	if sum == m.backupSum {
 		return
@@ -58,7 +197,7 @@ func (m *Manager) backupBeforeWrite(doc *document, data []byte, exists bool) {
 		}
 	}
 	if newest, err := readFileLimited(m.BackupPath(0)); err == nil {
-		if nd, err := parseDocument(newest); err == nil && fingerprintOf(nd.render(nil), true) == sum {
+		if nd, err := parseDocument(newest); err == nil && fingerprintOf(nd.render(nil, time.Time{}), true) == sum {
 			m.backupSum = sum
 			return
 		}
@@ -117,26 +256,23 @@ func (m *Manager) writeBackup(data []byte) error {
 }
 
 // pickBackup returns the newest usable backup with any Céntrate section taken
-// out, and its index. Usable means readable, at most MaxFileSize and parseable
-// (no NUL bytes, not UTF-16/UTF-32). A backup with content is preferred over
-// newer empty ones, so a backup of an empty file (taken by an older build)
-// never hides a good one. ok is false when no backup is usable.
+// out, and its index: the rotating backups first, newest first, then
+// hosts.original (index BackupKeep). Usable means readable, at most
+// MaxFileSize and parseable (no NUL bytes, not UTF-16/UTF-32). A backup with
+// content is preferred over newer empty ones, so a backup of an empty file
+// (taken by an older build) never hides a good one. ok is false when no
+// backup is usable.
 func (m *Manager) pickBackup() (out []byte, index int, ok bool) {
 	if m.BackupDir == "" {
 		return nil, 0, false
 	}
 	var fallback []byte
 	fallbackAt := -1
-	for i := range BackupKeep {
-		data, err := readFileLimited(m.BackupPath(i))
-		if err != nil {
+	for i := range BackupKeep + 1 {
+		stripped, ok := m.usableCandidate(i)
+		if !ok {
 			continue
 		}
-		doc, err := parseDocument(data)
-		if err != nil {
-			continue
-		}
-		stripped := doc.render(nil)
 		if hasContent(stripped) {
 			return stripped, i, true
 		}
@@ -219,7 +355,12 @@ func (m *Manager) recoverOnce() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	_, _, changed, err := m.recoverLocked(data, exists)
+	out, outExists, changed, err := m.recoverLocked(data, exists)
+	if err == nil {
+		if doc, perr := parseDocument(out); perr == nil {
+			m.saveOriginalLocked(doc, outExists)
+		}
+	}
 	return changed, err
 }
 

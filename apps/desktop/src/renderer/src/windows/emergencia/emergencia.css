@@ -1,6 +1,7 @@
 /*
  * Emergencia window (PROMPT §10 «Ventanas de detalle › Emergencia»): one section, the price in
- * red, the wait in orange. Colors come only from tokens.css.
+ * red, the wait in orange, all of it in 400 («títulos en 600 y el resto en 400»; penalties are a
+ * fact, not a bold reproach). Colors come only from tokens.css.
  */
 
 @layer components {
@@ -13,19 +14,19 @@
 
   .emg-text,
   .emg-loss,
-  .emg-waiting {
+  .emg-status {
     margin: 0;
     font-size: var(--font-size-13);
     line-height: var(--line-height-13);
   }
 
-  .emg-loss,
-  .emg-waiting {
-    font-weight: var(--font-weight-semibold);
+  .emg-muted {
+    color: var(--fg-muted);
   }
 
+  /* The phrase to copy stands out by its «» and full-contrast colour, not by weight. */
   .emg-phrase {
-    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
   }
 
   .emg-done {
@@ -34,20 +35,12 @@
     gap: var(--space-1);
   }
 
-  .emg-waiting {
+  /* «Esperando · 8:12», «Tienes 4:30 para decidir; después, el bloqueo sigue». */
+  .emg-status {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-    min-height: var(--size-min-target);
-  }
-
-  .emg-waiting .c-textbutton {
-    font-weight: var(--font-weight-semibold);
-  }
-
-  .emg-waiting .c-countdown-digits {
-    font-weight: var(--font-weight-semibold);
+    align-items: baseline;
+    gap: var(--space-1);
   }
 
   .emg-list {

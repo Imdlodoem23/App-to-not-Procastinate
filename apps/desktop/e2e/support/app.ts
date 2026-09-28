@@ -14,6 +14,9 @@
  * - Linux: `--no-sandbox` (CI containers and root cannot use Chromium's SUID sandbox; every
  *   renderer still runs with `sandbox: true`), and a display is required: run under
  *   `xvfb-run -a -s "-screen 0 2880x1800x24"` (the default xvfb screen is 640×480×8).
+ * - Linux fonts: a private fontconfig file puts a family of the brief's stack (Selawik as
+ *   Segoe UI, Ubuntu, or Noto Sans) behind `system-ui`, so layout checks and screenshots use
+ *   the product's type, not DejaVu (`support/fonts.ts`; `CENTRATE_FONTS=system` turns it off).
  */
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -35,6 +38,7 @@ import {
 } from '../../src/shared/fixtures';
 import type { WindowKind } from '../../src/shared/ui-state';
 import { LAUNCH_ENV } from '../../src/main/app/launch-options';
+import { fontPlan, type FontPlan } from './fonts';
 
 export const APP_DIR = resolve(__dirname, '..', '..');
 export const MAIN_ENTRY = join(APP_DIR, 'out', 'main', 'index.js');
@@ -79,6 +83,8 @@ export interface LaunchedApp {
   options: LaunchOptions;
   scaleFactor: number;
   userDataDir: string;
+  /** The typeface this launch renders in (Linux: the private fontconfig file). */
+  fonts: FontPlan;
   /** Typed `HarnessApi` calls (harness mode only). */
   harness: HarnessClient;
   /** The page of a window (waits until it exists and has loaded its document). */
@@ -181,14 +187,28 @@ async function findPage(electron: ElectronApplication, kind: WindowKind): Promis
   }
 }
 
+let fontWarned = false;
+
+/** Once per worker: the runs are not in the product's typeface (layout results may differ). */
+function warnFontOnce(fonts: FontPlan): void {
+  if (fontWarned || !fonts.expected || fonts.expected.ok) return;
+  fontWarned = true;
+  console.warn(`[e2e] Not a font of the brief's stack: ${fonts.source}.`);
+}
+
 export async function launchApp(options: LaunchOptions): Promise<LaunchedApp> {
   assertBuilt();
   assertDisplay();
   const preset = options.display ? DISPLAY_PRESETS[options.display] : null;
   const scaleFactor = options.scaleFactor ?? preset?.scaleFactor ?? 1;
   const userDataDir = mkdtempSync(join(tmpdir(), 'centrate-e2e-'));
+  const fonts = fontPlan(join(userDataDir, 'fontconfig'));
+  warnFontOnce(fonts);
 
-  const args = [MAIN_ENTRY, `--force-device-scale-factor=${scaleFactor}`];
+  // The app folder, like `electron .` and the installers: Electron then reads package.json,
+  // so `app.getName()` / `app.getVersion()` are Céntrate's (a bare script path reports
+  // Electron's own version in the footer and diagnostics).
+  const args = [APP_DIR, `--force-device-scale-factor=${scaleFactor}`];
   if (process.platform === 'linux') args.push('--no-sandbox');
   const env: Record<string, string> = {
     ...baseEnv(),
@@ -196,6 +216,7 @@ export async function launchApp(options: LaunchOptions): Promise<LaunchedApp> {
     LANG: 'es_ES.UTF-8',
     LANGUAGE: 'es_ES:es',
     [HARNESS_ENV.userData]: userDataDir,
+    ...fonts.env,
   };
   if (options.guardian !== 'http') env[MOCK_GUARDIAN_ENV] = '1';
   if (options.sysDir) env[HARNESS_ENV.sysDir] = options.sysDir;
@@ -237,6 +258,7 @@ export async function launchApp(options: LaunchOptions): Promise<LaunchedApp> {
     options,
     scaleFactor,
     userDataDir,
+    fonts,
     harness: callHarness(electron),
     page(kind) {
       let page = pages.get(kind);

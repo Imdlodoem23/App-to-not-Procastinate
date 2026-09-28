@@ -119,6 +119,23 @@
     min-width: 0;
   }
 
+  /* «Bloqueando…» is busy, not unavailable: it is the only sign that the block is being made,
+     so its label keeps full contrast (presses are still ignored: aria-disabled). */
+  .c-confirm.bq-busy[aria-disabled='true'] {
+    opacity: 1;
+  }
+
+  /* «Sí, bloquear 6 h» during its 2 s: only the fill is dimmed (the kit's 45 %) and the label
+     turns --fg, so what is about to be confirmed stays readable (≥ 6:1 in both themes). High
+     contrast keeps the kit's system colors. */
+  @media (forced-colors: none) {
+    .c-confirm.bq-locked[aria-disabled='true'] {
+      opacity: 1;
+      background: color-mix(in srgb, var(--blue) calc(var(--disabled-opacity) * 100%), var(--bg));
+      color: var(--fg);
+    }
+  }
+
   .bq-span-2 {
     grid-column: span 2;
   }

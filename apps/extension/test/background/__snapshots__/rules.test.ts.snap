@@ -1,0 +1,216 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildDnrRules > maps a block payload (snapshot) 1`] = `
+[
+  {
+    "action": {
+      "type": "allow",
+    },
+    "condition": {
+      "requestDomains": [
+        "accounts.youtube.com",
+      ],
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+      ],
+    },
+    "priority": 40,
+  },
+  {
+    "action": {
+      "type": "allow",
+    },
+    "condition": {
+      "regexFilter": "^https?://(?:127\\.0\\.0\\.1|localhost|\\[::1\\])(?::[0-9]+)?(?:[/?#]|$)",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+      ],
+    },
+    "priority": 40,
+  },
+  {
+    "action": {
+      "redirect": {
+        "extensionPath": "/blocked.html?cause=domain&service=instagram",
+      },
+      "type": "redirect",
+    },
+    "condition": {
+      "requestDomains": [
+        "cdninstagram.com",
+        "instagram.com",
+        "www.instagram.com",
+      ],
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+      ],
+    },
+    "priority": 30,
+  },
+  {
+    "action": {
+      "redirect": {
+        "extensionPath": "/blocked.html?cause=domain&service=youtube",
+      },
+      "type": "redirect",
+    },
+    "condition": {
+      "requestDomains": [
+        "m.youtube.com",
+        "www.youtube.com",
+        "youtu.be",
+        "youtube.com",
+      ],
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+      ],
+    },
+    "priority": 30,
+  },
+  {
+    "action": {
+      "redirect": {
+        "extensionPath": "/blocked.html?cause=domain",
+      },
+      "type": "redirect",
+    },
+    "condition": {
+      "requestDomains": [
+        "example.org",
+        "www.example.org",
+      ],
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+      ],
+    },
+    "priority": 30,
+  },
+]
+`;
+
+exports[`buildDnrRules > maps an exam (whitelist) payload (snapshot) 1`] = `
+[
+  {
+    "action": {
+      "type": "allow",
+    },
+    "condition": {
+      "requestDomains": [
+        "accounts.youtube.com",
+      ],
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+      ],
+    },
+    "priority": 40,
+  },
+  {
+    "action": {
+      "type": "allow",
+    },
+    "condition": {
+      "regexFilter": "^https?://(?:127\\.0\\.0\\.1|localhost|\\[::1\\])(?::[0-9]+)?(?:[/?#]|$)",
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+      ],
+    },
+    "priority": 40,
+  },
+  {
+    "action": {
+      "redirect": {
+        "extensionPath": "/blocked.html?cause=domain&service=youtube",
+      },
+      "type": "redirect",
+    },
+    "condition": {
+      "requestDomains": [
+        "m.youtube.com",
+        "www.youtube.com",
+        "youtu.be",
+        "youtube.com",
+      ],
+      "resourceTypes": [
+        "main_frame",
+        "sub_frame",
+      ],
+    },
+    "priority": 30,
+  },
+  {
+    "action": {
+      "type": "allow",
+    },
+    "condition": {
+      "requestDomains": [
+        "accounts.youtube.com",
+        "docs.google.com",
+        "wikipedia.org",
+        "youtube.com",
+      ],
+      "resourceTypes": [
+        "main_frame",
+      ],
+    },
+    "priority": 20,
+  },
+  {
+    "action": {
+      "type": "allow",
+    },
+    "condition": {
+      "regexFilter": "^https?://(?:[a-z0-9-]+-docs\\.googleusercontent\\.com)(?::[0-9]+)?(?:[/?#]|$)",
+      "resourceTypes": [
+        "main_frame",
+      ],
+    },
+    "priority": 20,
+  },
+  {
+    "action": {
+      "type": "allow",
+    },
+    "condition": {
+      "regexFilter": "^https?://(?:lh[3-7](?:-[a-z]+)?\\.googleusercontent\\.com)(?::[0-9]+)?(?:[/?#]|$)",
+      "resourceTypes": [
+        "main_frame",
+      ],
+    },
+    "priority": 20,
+  },
+  {
+    "action": {
+      "type": "allow",
+    },
+    "condition": {
+      "regexFilter": "^https?://(?:lh[3-7]\\.google\\.com)(?::[0-9]+)?(?:[/?#]|$)",
+      "resourceTypes": [
+        "main_frame",
+      ],
+    },
+    "priority": 20,
+  },
+  {
+    "action": {
+      "redirect": {
+        "extensionPath": "/blocked.html?cause=whitelist",
+      },
+      "type": "redirect",
+    },
+    "condition": {
+      "resourceTypes": [
+        "main_frame",
+      ],
+      "urlFilter": "|http",
+    },
+    "priority": 10,
+  },
+]
+`;

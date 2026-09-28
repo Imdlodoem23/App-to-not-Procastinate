@@ -6,7 +6,7 @@
  * Constructed before `ready` (the core needs its `CoreHost`), attached to the core, the
  * displays and the theme after `ready`; until then every host method is a safe no-op.
  */
-import { app, clipboard, type BrowserWindow } from 'electron';
+import { app, clipboard, screen, type BrowserWindow } from 'electron';
 import type {
   Core,
   CoreHost,
@@ -45,14 +45,18 @@ import {
   displayMatching,
   frameInsets,
   mainContentRect,
+  needsSizeReapply,
   outerFromContent,
+  pixelGrid,
   resizeAnchored,
   windowLayout,
   type DisplayInfo,
   type FrameInsets,
+  type PixelGrid,
   type Rect,
 } from './geometry';
 import { WINDOWS_ES } from './i18n/es';
+import { MoveTracker } from './move-tracker';
 import { ShowAckWaiter, decideToggle, type ToggleAction } from './toggle';
 import { isTrustedFrameUrl, type RendererSource } from './window-urls';
 
@@ -101,6 +105,8 @@ function hasTitleBar(frame: FrameInsets): boolean {
 
 const RECREATE_WINDOW_MS = 60_000;
 const RECREATE_MAX = 3;
+/** Linux: the detail window follows a dragged main window once `move` events stop this long. */
+const MOVE_FOLLOW_MS = 120;
 
 export class WindowShell implements WindowHost, CoreHost {
   private attached: ShellAttachments | null = null;
@@ -113,10 +119,14 @@ export class WindowShell implements WindowHost, CoreHost {
 
   private placement: Placement | null = null;
   private readonly pushedLayout = new Map<WindowKind, string>();
-  /** Intended content rect of the main window (avoids 1 DIP drift from reading it back). */
-  private mainContent: Rect | null = null;
-  /** The user dragged the main window since it was last placed (Windows, macOS). */
-  private userMoved = false;
+  /**
+   * Intended content rect of the main window (avoids 1 DIP drift from reading it back) and
+   * whether the user moved it since it was last placed at its corner.
+   */
+  private readonly mainTrack = new MoveTracker();
+  /** Inside our own `setContentBounds` (Linux emits `move` synchronously from it). */
+  private settingMain = false;
+  private followTimer: ReturnType<typeof setTimeout> | null = null;
   private lastReport: LayoutReport | null = null;
   private lastBlurAt: number | null = null;
   private detailRequest: DetailRequest | null = null;
@@ -199,13 +209,24 @@ export class WindowShell implements WindowHost, CoreHost {
       this.hideAll();
       this.maybeCloseHint();
     });
-    // Emitted only for user drags (Windows, macOS), never for our own setContentBounds.
-    win.on('will-move', () => {
-      this.userMoved = true;
-    });
-    win.on('moved', () => {
-      if (this.window('detail')?.isVisible()) this.placeDetail();
-    });
+    if (this.options.platform === 'linux') {
+      // No `will-move` / `moved` on Linux; `move` also fires for our own setContentBounds.
+      win.on('move', () => {
+        if (this.settingMain || win.isDestroyed() || !win.isVisible()) return;
+        if (this.mainTrack.observe(win.getContentBounds(), performance.now())) {
+          this.followMain();
+        }
+      });
+    } else {
+      // `will-move` is emitted only for user drags; `moved` (on macOS an alias of `move`,
+      // so possibly our own setContentBounds) counts only if the position says so.
+      win.on('will-move', () => this.mainTrack.userMoving());
+      win.on('moved', () => {
+        if (this.settingMain || win.isDestroyed()) return;
+        this.mainTrack.dragEnded(win.getContentBounds(), performance.now());
+        if (this.window('detail')?.isVisible()) this.placeDetail();
+      });
+    }
     if (onReady) win.once('ready-to-show', onReady);
     return win;
   }
@@ -244,7 +265,7 @@ export class WindowShell implements WindowHost, CoreHost {
     this.pushedLayout.delete(kind);
     if (kind === 'main') {
       this.main = null;
-      this.mainContent = null;
+      this.mainTrack.forget();
       this.createMainWindow(() => {
         if (wasVisible) this.showMain('launch');
       });
@@ -373,29 +394,74 @@ export class WindowShell implements WindowHost, CoreHost {
 
   private outerOf(kind: WindowKind, win: BrowserWindow): Rect {
     if (this.hasRealFrame(kind)) return win.getBounds();
-    const content = kind === 'main' && this.mainContent ? this.mainContent : win.getContentBounds();
-    return outerFromContent(content, this.frameFor(kind));
+    const intended = kind === 'main' ? this.mainTrack.intended() : null;
+    return outerFromContent(intended ?? win.getContentBounds(), this.frameFor(kind));
   }
 
-  private setMainContent(rect: Rect): void {
+  /**
+   * Device pixels of `display`. The harness's fake display is DIP on the real (xvfb) screen,
+   * which has its origin at 0,0 too, so its pixels are those of the real scale factor
+   * (`--force-device-scale-factor`), whatever the preset says.
+   */
+  private gridOf(display: DisplayInfo): PixelGrid {
+    const grid = pixelGrid(display);
+    if (!this.attached?.displays.fake) return grid;
+    return { ...grid, scaleFactor: screen.getPrimaryDisplay().scaleFactor };
+  }
+
+  /** `setContentBounds`, again through another size if the platform kept a stale one. */
+  private static setExactContentBounds(win: BrowserWindow, rect: Rect, grid: PixelGrid): void {
+    win.setContentBounds(rect, false);
+    if (!needsSizeReapply(rect, win.getContentBounds(), grid)) return;
+    win.setContentBounds({ ...rect, height: rect.height + 1 }, false);
+    win.setContentBounds(rect, false);
+  }
+
+  private setMainContent(rect: Rect, grid: PixelGrid): void {
     const win = this.window('main');
     if (!win) return;
-    this.mainContent = rect;
-    win.setContentBounds(rect, false);
+    this.settingMain = true;
+    try {
+      WindowShell.setExactContentBounds(win, rect, grid);
+    } finally {
+      this.settingMain = false;
+    }
+    this.mainTrack.placed(rect, win.getContentBounds(), performance.now());
+  }
+
+  /**
+   * Reads where the main window is: a user move (a drag, a keyboard move, on any platform)
+   * makes that position the one to keep. Returns whether the user moved it since its corner.
+   */
+  private syncMainPosition(main: BrowserWindow): boolean {
+    if (main.isVisible()) this.mainTrack.observe(main.getContentBounds(), performance.now());
+    return this.mainTrack.userMoved();
+  }
+
+  /** Linux: re-glue the detail window once a drag of the main window stops. */
+  private followMain(): void {
+    if (this.followTimer) clearTimeout(this.followTimer);
+    this.followTimer = setTimeout(() => {
+      this.followTimer = null;
+      if (this.window('detail')?.isVisible()) this.placeDetail();
+    }, MOVE_FOLLOW_MS);
   }
 
   /** Main window at its corner with the last measured height (or 540 before any). */
   private placeMainAtCorner(placement: Placement): void {
     const height = this.lastReport?.height ?? MAIN_DEFAULT_CONTENT_HEIGHT;
+    const grid = this.gridOf(placement.display);
     this.setMainContent(
       mainContentRect({
         workArea: placement.display.workArea,
         frame: placement.frame,
         anchor: placement.layout.anchor,
         height,
+        grid,
       }),
+      grid,
     );
-    this.userMoved = false;
+    this.mainTrack.clearMoved();
   }
 
   /** Display metrics changed (or the fake display switched): new budget, re-place. */
@@ -405,8 +471,11 @@ export class WindowShell implements WindowHost, CoreHost {
     this.pushLayout('main', placement.layout);
     this.pushLayout('detail', placement.layout);
     const main = this.window('main');
-    if (main?.isVisible() && !this.userMoved) this.placeMainAtCorner(placement);
-    else if (main && !main.isVisible()) this.mainContent = null;
+    if (main?.isVisible()) {
+      if (!this.syncMainPosition(main)) this.placeMainAtCorner(placement);
+    } else if (main) {
+      this.mainTrack.forget();
+    }
     if (this.window('detail')?.isVisible()) this.placeDetail();
   }
 
@@ -416,29 +485,24 @@ export class WindowShell implements WindowHost, CoreHost {
     const main = this.window('main');
     if (!main?.isVisible() || !this.attached) return;
     const placement = this.currentPlacement();
-    if (this.userMoved || !this.mainContent) {
-      const current = main.getContentBounds();
-      const display = displayMatching(this.attached.displays.all(), current);
-      this.setMainContent(
-        resizeAnchored(
-          current,
-          report.height,
-          placement.layout.anchor,
-          display.workArea,
-          placement.frame,
-        ),
-      );
-    } else {
-      this.setMainContent(
-        resizeAnchored(
-          this.mainContent,
-          report.height,
-          placement.layout.anchor,
-          placement.display.workArea,
-          placement.frame,
-        ),
-      );
-    }
+    const moved = this.syncMainPosition(main);
+    const intended = this.mainTrack.intended();
+    const from = intended ?? main.getContentBounds();
+    // Where the user left it (or before any placement): the display it is on.
+    const display =
+      moved || !intended ? displayMatching(this.attached.displays.all(), from) : placement.display;
+    const grid = this.gridOf(display);
+    this.setMainContent(
+      resizeAnchored(
+        from,
+        report.height,
+        placement.layout.anchor,
+        display.workArea,
+        placement.frame,
+        grid,
+      ),
+      grid,
+    );
     if (this.window('detail')?.isVisible()) this.placeDetail();
   }
 
@@ -446,16 +510,19 @@ export class WindowShell implements WindowHost, CoreHost {
     const main = this.window('main');
     const detail = this.window('detail');
     if (!main || !detail || !this.attached) return;
+    this.syncMainPosition(main);
     const mainOuter = this.outerOf('main', main);
     const placement = this.currentPlacement();
     const display = displayMatching(this.attached.displays.all(), mainOuter);
+    const grid = this.gridOf(display);
     const { content } = detailPlacement({
       mainOuter,
       workArea: display.workArea,
       anchor: placement.layout.anchor,
       frame: this.frameFor('detail'),
+      grid,
     });
-    detail.setContentBounds(content, false);
+    WindowShell.setExactContentBounds(detail, content, grid);
   }
 
   // -------------------------------------------------------------------------------------
@@ -783,6 +850,8 @@ export class WindowShell implements WindowHost, CoreHost {
 
   /** Before quitting: windows may close now. */
   destroyAll(): void {
+    if (this.followTimer) clearTimeout(this.followTimer);
+    this.followTimer = null;
     this.window('detail')?.destroy();
     this.window('main')?.destroy();
   }

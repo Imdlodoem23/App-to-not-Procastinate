@@ -6,15 +6,20 @@
   "license": "MIT",
   "scripts": {
     "build": "node build.mjs",
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p e2e/tsconfig.json",
     "test": "vitest run --passWithNoTests",
+    "e2e": "npm run build && playwright test",
+    "e2e:firefox": "npm run build && playwright test -c playwright.firefox.config.ts",
+    "gen:icons": "node scripts/gen-icons.mjs",
     "package": "node package.mjs",
     "sign:firefox": "node sign-firefox.mjs"
   },
   "devDependencies": {
     "@centrate/shared": "*",
+    "@playwright/test": "^1.63.0",
     "@types/chrome": "^0.3.0",
     "esbuild": "^0.28.2",
-    "fflate": "^0.8.2"
+    "fflate": "^0.8.2",
+    "web-ext": "10.7.0"
   }
 }

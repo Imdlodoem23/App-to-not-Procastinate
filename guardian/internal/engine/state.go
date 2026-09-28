@@ -34,8 +34,11 @@ type engineState struct {
 
 	Clock clockState `json:"clock"`
 
-	// HostsHash is the SHA-256 of the last section written (§10.12 step 9).
-	HostsHash string `json:"hostsHash"`
+	// HostsHash is the SHA-256 of the last section written (§10.12 step 9), and
+	// HostsPendingHash that of a write still running when the state was saved (it may
+	// land after the stop): a section equal to either is ours.
+	HostsHash        string `json:"hostsHash"`
+	HostsPendingHash string `json:"hostsPendingHash,omitempty"`
 
 	Study       studyState     `json:"study"`
 	Emergency   emergencyState `json:"emergency"`

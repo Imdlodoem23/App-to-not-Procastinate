@@ -5,6 +5,7 @@ import (
 	"errors"
 	"runtime"
 	"slices"
+	"time"
 )
 
 const (
@@ -184,13 +185,16 @@ func pairAt(a, b []byte) (string, bool) {
 }
 
 // claimAfterStart returns the end (exclusive) of the lines in lines[from:to]
-// that an orphan START marker at from-1 owns: an optional header followed by
-// a run of strict pairs (see pairAt) in strictly ascending domain order, as
+// that an orphan START marker at from-1 owns: an optional header, an optional
+// header line (see FormatSectionHeader) and a run of strict pairs (see pairAt) in strictly ascending domain order, as
 // render writes them. The first line that breaks the pattern, and everything
 // after it, is the user's.
 func claimAfterStart(lines []line, from, to int) int {
 	j := from
 	if j < to && isHeader(lines[j].text) {
+		j++
+	}
+	if j < to && isMetaLine(lines[j].text) {
 		j++
 	}
 	prev := ""
@@ -208,8 +212,8 @@ func claimAfterStart(lines []line, from, to int) int {
 // claimBeforeEnd returns the start of the lines in user[floor:] that an
 // orphan END marker right after them owns. Walking upward it accepts a run of
 // strict pairs in strictly descending domain order (ascending as written).
-// The run is claimed only if our header sits right above it, or if it starts
-// at a boundary: the start of the file, the position of an earlier section,
+// The run is claimed only if our header or our exact header line (see
+// FormatSectionHeader) sits right above it, or if it starts at a boundary: the start of the file, the position of an earlier section,
 // or a blank line (the separator render writes before an appended section).
 // Otherwise nothing is claimed and only the stray marker goes: a run that
 // directly follows other lines may be the tail of the user's own list, and
@@ -225,9 +229,15 @@ func claimBeforeEnd(user []line, floor int) int {
 		next = d
 		n -= 2
 	}
+	j := n
+	if j > floor && isMetaLine(user[j-1].text) {
+		j--
+	}
 	switch {
-	case n > floor && isHeader(user[n-1].text):
-		return n - 1
+	case j > floor && isHeader(user[j-1].text):
+		return j - 1
+	case j < n:
+		return j // our exact header line sits right above the pairs
 	case n == len(user):
 		return n // no pairs: a lone END
 	case n == floor || isBlank(user[n-1]):
@@ -241,6 +251,11 @@ type scanResult struct {
 	user    []line   // every line outside the section(s), in order
 	at      int      // index in user where the (first) section was; -1 if none
 	domains []string // valid domains listed inside the section(s), unsorted
+	// until and count come from the first valid header line inside the
+	// section(s); hasMeta says one was found.
+	until   time.Time
+	count   int
+	hasMeta bool
 }
 
 // scan finds the Céntrate section and repairs unbalanced markers. Only lines
@@ -299,8 +314,15 @@ func scan(lines []line) scanResult {
 	return r
 }
 
-// collect records the domains of a "<sink> <domain>…" line inside the section.
+// collect records the domains of a "<sink> <domain>…" line inside the
+// section, and the first valid header line.
 func (r *scanResult) collect(text []byte) {
+	if !r.hasMeta && bytes.HasPrefix(bytes.TrimSpace(text), []byte(SectionHeaderPrefix)) {
+		if until, count, ok := ParseSectionHeader(string(text)); ok {
+			r.until, r.count, r.hasMeta = until, count, true
+		}
+		return
+	}
 	fields := bytes.Fields(text)
 	if len(fields) < 2 {
 		return
@@ -322,9 +344,10 @@ func isBlank(l line) bool { return len(bytes.TrimSpace(l.text)) == 0 }
 
 // render returns the file content with the Céntrate section holding exactly
 // domains (already normalized), or without any section when domains is empty.
-// Lines outside the section are copied byte for byte, and the BOM and the
-// presence of a final line break are preserved.
-func (d *document) render(domains []string) []byte {
+// A non-zero until adds the header line (FormatSectionHeader). Lines outside
+// the section are copied byte for byte, and the BOM and the presence of a
+// final line break are preserved.
+func (d *document) render(domains []string, until time.Time) []byte {
 	s := scan(d.lines)
 	var out []line
 	switch {
@@ -336,7 +359,7 @@ func (d *document) render(domains []string) []byte {
 	case s.at >= 0:
 		out = make([]line, 0, len(s.user)+2*len(domains)+3)
 		out = append(out, s.user[:s.at]...)
-		out = append(out, d.section(domains)...)
+		out = append(out, d.section(domains, until)...)
 		out = append(out, s.user[s.at:]...)
 	default:
 		out = make([]line, 0, len(s.user)+2*len(domains)+4)
@@ -344,7 +367,7 @@ func (d *document) render(domains []string) []byte {
 		if len(out) > 0 {
 			out = append(out, line{eol: d.eol}) // blank separator, removed again by Remove
 		}
-		out = append(out, d.section(domains)...)
+		out = append(out, d.section(domains, until)...)
 	}
 
 	var buf bytes.Buffer
@@ -370,12 +393,16 @@ func (d *document) render(domains []string) []byte {
 	return buf.Bytes()
 }
 
-// section renders the marker, header and entry lines.
-func (d *document) section(domains []string) []line {
-	lines := make([]line, 0, 2*len(domains)+3)
+// section renders the marker, header, header line (when until is set) and
+// entry lines.
+func (d *document) section(domains []string, until time.Time) []line {
+	lines := make([]line, 0, 2*len(domains)+4)
 	add := func(s string) { lines = append(lines, line{text: []byte(s), eol: d.eol}) }
 	add(StartMarker)
 	add(Header)
+	if !until.IsZero() {
+		add(FormatSectionHeader(until, len(domains)))
+	}
 	for _, dom := range domains {
 		add(IPv4Sink + " " + dom)
 		add(IPv6Sink + " " + dom)
@@ -406,10 +433,17 @@ func collapseBlank(user []line, at int) []line {
 // sectionDomains returns the sorted, deduplicated domains listed in the
 // section (collect already validated and lowercased them). Never nil.
 func (d *document) sectionDomains() []string {
-	ds := scan(d.lines).domains
-	if len(ds) == 0 {
-		return []string{}
+	return d.sectionInfo().Domains
+}
+
+// sectionInfo describes the section: its domains (sorted, deduplicated, never
+// nil) and its header line.
+func (d *document) sectionInfo() SectionInfo {
+	s := scan(d.lines)
+	info := SectionInfo{Present: s.at >= 0, Domains: []string{}, HasHeader: s.hasMeta, Until: s.until, Count: s.count}
+	if len(s.domains) > 0 {
+		slices.Sort(s.domains)
+		info.Domains = slices.Compact(s.domains)
 	}
-	slices.Sort(ds)
-	return slices.Compact(ds)
+	return info
 }

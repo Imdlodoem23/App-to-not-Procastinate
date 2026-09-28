@@ -658,12 +658,12 @@ func TestRenderIsStable(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		once := doc.render([]string{"a.com"})
+		once := doc.render([]string{"a.com"}, time.Time{})
 		doc2, err := parseDocument(once)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if twice := doc2.render([]string{"a.com"}); !bytes.Equal(once, twice) {
+		if twice := doc2.render([]string{"a.com"}, time.Time{}); !bytes.Equal(once, twice) {
 			t.Errorf("%q: render not stable:\n%q\n%q", in, once, twice)
 		}
 	}
@@ -690,19 +690,19 @@ func FuzzRoundTrip(f *testing.F) {
 		if err != nil {
 			return
 		}
-		applied := doc.render(domains)
+		applied := doc.render(domains, time.Time{})
 		doc2, err := parseDocument(applied)
 		if err != nil {
 			t.Fatalf("rendered file does not parse: %v", err)
 		}
-		if again := doc2.render(domains); !bytes.Equal(again, applied) {
+		if again := doc2.render(domains, time.Time{}); !bytes.Equal(again, applied) {
 			t.Fatalf("render not idempotent:\n%q\n%q", applied, again)
 		}
 		if got := doc2.sectionDomains(); !slices.Equal(got, domains) {
 			t.Fatalf("section domains = %v", got)
 		}
-		removed := doc2.render(nil)
-		if want := doc.render(nil); !bytes.Equal(removed, want) {
+		removed := doc2.render(nil, time.Time{})
+		if want := doc.render(nil, time.Time{}); !bytes.Equal(removed, want) {
 			t.Fatalf("Remove after Apply differs from Remove:\n got %q\nwant %q", removed, want)
 		}
 		for _, l := range doc.lines {

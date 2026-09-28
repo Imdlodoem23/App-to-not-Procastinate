@@ -13,6 +13,7 @@
  *    enforces them.
  */
 import { existsSync } from 'node:fs';
+import { dirname } from 'node:path';
 import {
   Menu,
   Notification,
@@ -151,7 +152,12 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
 
   await app.whenReady();
 
-  hardenSessions({ devTools: !packaged, log });
+  hardenSessions({
+    devTools: !packaged,
+    log,
+    platform,
+    rendererDir: renderer.kind === 'file' ? dirname(renderer.path) : null,
+  });
   Menu.setApplicationMenu(
     platform === 'darwin'
       ? // Without the Edit roles, copy and paste do not work in text fields on macOS.
@@ -298,7 +304,12 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
         shutdownDone = true;
         shortcuts.clear();
         tray.destroy();
-        app.quit();
+        // Next macrotask, never inside this `before-quit`: a quit started natively (SIGTERM /
+        // SIGINT on Linux, Cmd+Q on macOS) emits it with no JS on the stack, so a shutdown
+        // that settles in microtasks would re-enter `app.quit()` while Electron is still in
+        // its first (prevented) quit, which then resets the quitting flag: the windows close
+        // but the process never exits.
+        setImmediate(() => app.quit());
       });
   });
 }

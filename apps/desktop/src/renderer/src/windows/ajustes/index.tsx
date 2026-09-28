@@ -3,8 +3,14 @@
  * docs/DESKTOP.md §7.7). Default export, no props: `DetailWindow` loads it lazily.
  *
  * G-Helper's «Extra»: groups of 48 px rows, title and description on the left and the control on
- * the right, everything applied at once (no «Guardar»). Opened on a group («Detalles…» asks for
- * Sistema), it scrolls there.
+ * the right, everything applied at once (no «Guardar»). «Tema» and «Modo por defecto» are such
+ * rows too: three compact tiles on the right, the description saying what the hovered or
+ * focused option does. Opened on a group («Detalles…» asks for Sistema), it scrolls there.
+ *
+ * Results are announced from regions that are there before them: each group's notice slot,
+ * empty and zero-height until something happens, then only its text changes (the new pairing
+ * code and «Copiado» are already on screen, so their slots speak without showing). Every tile
+ * has an Alt + letter and is described by its row.
  */
 import {
   ClipboardCopy,
@@ -20,7 +26,6 @@ import { useLayoutEffect } from 'react';
 import {
   Countdown,
   Field,
-  HelpLine,
   Section,
   Segmented,
   SettingsRow,
@@ -29,25 +34,75 @@ import {
   TileRow,
   Toggle,
   settingsRowIds,
+  type SegmentedOption,
 } from '../../components';
 import type { ThemePreference } from '@centrate/shared/design/tokens';
+import { useHelp } from '../../hooks/useHelp';
 import { useRepair } from '../../hooks/useRepair';
 import { RENDERER_ES } from '../../i18n/es';
 import { useAppStore } from '../../store/context';
 import type { DefaultBlockMode } from '../../../../shared/ui-state';
 import { AJUSTES_ES } from './i18n/es';
 import { useAjustes, type AjustesApi, type AjustesNotice } from './useAjustes';
-import { AJUSTES_IDS, type AjustesView } from './view';
+import { AJUSTES_IDS, AJUSTES_KEYS, type AjustesView } from './view';
 import './ajustes.css';
 
 const A = AJUSTES_ES;
 
-function Notice(props: { notice: AjustesNotice | undefined }): React.JSX.Element | null {
-  if (!props.notice) return null;
+/**
+ * A group's result line: a polite region that is always mounted (zero height while empty), so
+ * «Hecho: tus datos se han borrado» is announced when its text arrives.
+ */
+function Notice(props: { notice: AjustesNotice | undefined }): React.JSX.Element {
+  const { notice } = props;
   return (
-    <HelpLine tone={props.notice.tone} live="polite" className="aj-wrap">
-      {props.notice.text}
-    </HelpLine>
+    <div className="aj-notice" aria-live="polite" aria-atomic="true">
+      {notice ? (
+        <span
+          key={notice.seq}
+          className={notice.spokenOnly ? 'sr-only' : 'aj-notice-text'}
+          data-tone={notice.tone}
+        >
+          {notice.text}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * «Tema: Sistema | Claro | Oscuro» as a 48 px settings row: title and description on the left
+ * (the hovered or focused option's help replaces the description), three compact tiles on the
+ * right. The row's own help line stays for screen readers only (the tiles' description).
+ */
+function ChoiceRow<T extends string>(props: {
+  id: string;
+  rowId: string;
+  title: string;
+  description: string;
+  value: T;
+  options: readonly (SegmentedOption<NoInfer<T>> & { help: string })[];
+  onChange(value: NoInfer<T>): void;
+}): React.JSX.Element {
+  const active = useHelp(props.rowId).active;
+  const shown = props.options.find((o) => o.value === active);
+  return (
+    <SettingsRow
+      id={props.id}
+      className="aj-choice"
+      title={props.title}
+      description={shown?.help ?? props.description}
+    >
+      <Segmented<T>
+        id={props.rowId}
+        label={props.title}
+        columns={3}
+        value={props.value}
+        options={props.options}
+        onChange={props.onChange}
+        help={props.description}
+      />
+    </SettingsRow>
   );
 }
 
@@ -56,16 +111,16 @@ function GeneralGroup(props: { view: AjustesView['general']; api: AjustesApi }):
   const autostart = settingsRowIds('aj-autostart');
   return (
     <Section id={AJUSTES_IDS.general} icon={SlidersHorizontal} title={view.title}>
-      <Segmented<ThemePreference>
-        id={AJUSTES_IDS.rows.theme}
-        label={A.general.themeLabel}
-        columns={3}
-        value={view.theme}
-        options={view.themeOptions.map((o) => ({ ...o, tone: 'neutral' as const }))}
-        onChange={api.setTheme}
-        help={A.general.themeRowHelp}
-      />
       <div className="aj-rows">
+        <ChoiceRow<ThemePreference>
+          id="aj-theme-row"
+          rowId={AJUSTES_IDS.rows.theme}
+          title={A.general.themeLabel}
+          description={A.general.themeRowHelp}
+          value={view.theme}
+          options={view.themeOptions.map((o) => ({ ...o, tone: 'neutral' as const }))}
+          onChange={api.setTheme}
+        />
         <SettingsRow
           id="aj-language"
           title={A.general.language}
@@ -110,31 +165,29 @@ function BloqueoGroup(props: { view: AjustesView['bloqueo']; api: AjustesApi }):
   const { view, api } = props;
   return (
     <Section id={AJUSTES_IDS.bloqueo} icon={Shield} title={view.title}>
-      <Segmented<DefaultBlockMode>
-        id={AJUSTES_IDS.rows.defaultMode}
-        label={A.bloqueo.defaultModeLabel}
-        columns={3}
-        value={view.defaultMode}
-        options={view.modeOptions}
-        onChange={api.setDefaultMode}
-        help={A.bloqueo.modeRowHelp}
-      />
-      {view.guardianSettings.length > 0 ? (
-        <div className="aj-rows">
-          {view.guardianSettings.map((row) => (
-            <SettingsRow
-              key={row.field}
-              id={`aj-${row.field}`}
-              title={row.title}
-              description={row.note ? <span data-tone="orange">{row.note}</span> : row.description}
-            >
-              <span className="aj-value">
-                {row.value ? RENDERER_ES.kit.toggleOn : RENDERER_ES.kit.toggleOff}
-              </span>
-            </SettingsRow>
-          ))}
-        </div>
-      ) : null}
+      <div className="aj-rows">
+        <ChoiceRow<DefaultBlockMode>
+          id="aj-default-mode-row"
+          rowId={AJUSTES_IDS.rows.defaultMode}
+          title={A.bloqueo.defaultModeLabel}
+          description={A.bloqueo.modeRowHelp}
+          value={view.defaultMode}
+          options={view.modeOptions}
+          onChange={api.setDefaultMode}
+        />
+        {view.guardianSettings.map((row) => (
+          <SettingsRow
+            key={row.field}
+            id={`aj-${row.field}`}
+            title={row.title}
+            description={row.note ? <span data-tone="orange">{row.note}</span> : row.description}
+          >
+            <span className="aj-value">
+              {row.value ? RENDERER_ES.kit.toggleOn : RENDERER_ES.kit.toggleOff}
+            </span>
+          </SettingsRow>
+        ))}
+      </div>
       <Notice notice={api.notices.bloqueo} />
     </Section>
   );
@@ -169,6 +222,8 @@ function PairingCode(props: {
           label={A.sistema.pairingNew}
           icon={KeyRound}
           size="text"
+          mnemonic={AJUSTES_KEYS.pairingNew}
+          describedBy={settingsRowIds('aj-pairing').description}
           disabled={api.busy.has('pairing')}
           onPress={api.newPairingCode}
         />
@@ -219,6 +274,8 @@ function SistemaGroup(props: { view: AjustesView['sistema']; api: AjustesApi }):
               label={repair.running ? A.sistema.repairing : view.guardian.repair}
               icon={Wrench}
               size="text"
+              mnemonic={AJUSTES_KEYS.repair}
+              describedBy={settingsRowIds('aj-guardian').description}
               disabled={repair.running}
               onPress={repair.run}
             />
@@ -256,6 +313,8 @@ function SistemaGroup(props: { view: AjustesView['sistema']; api: AjustesApi }):
                 label={A.sistema.guide}
                 size="text"
                 door
+                mnemonic={ext.guideKey}
+                describedBy={settingsRowIds(`aj-ext-${ext.id}`).description}
                 onPress={() => ext.guide && api.openGuide(ext.guide)}
               />
             ) : null}
@@ -291,6 +350,7 @@ function SistemaGroup(props: { view: AjustesView['sistema']; api: AjustesApi }):
             label={guide.label}
             size="text"
             door
+            mnemonic={guide.mnemonic}
             help={guide.help}
             onPress={() => api.openGuide(guide.id)}
           />
@@ -309,6 +369,8 @@ function SistemaGroup(props: { view: AjustesView['sistema']; api: AjustesApi }):
             label={A.sistema.diagnosticsCopy}
             icon={ClipboardCopy}
             size="text"
+            mnemonic={AJUSTES_KEYS.diagnostics}
+            describedBy={settingsRowIds('aj-diagnostics').description}
             disabled={api.busy.has('diagnostics')}
             onPress={api.copyDiagnostics}
           />
@@ -345,6 +407,8 @@ function DatosGroup(props: { view: AjustesView['datos']; api: AjustesApi }): Rea
             label={api.busy.has('datos') ? A.datos.deleting : A.datos.deleteButton}
             icon={Trash}
             size="text"
+            mnemonic={AJUSTES_KEYS.delete}
+            describedBy={ids.description}
             disabled={!view.deleteEnabled || api.busy.has('datos')}
             disabledReason={A.datos.deleteNeedsWord}
             onPress={api.deleteData}

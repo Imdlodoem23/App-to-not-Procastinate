@@ -19,14 +19,21 @@ import {
   displayMatching,
   displayNearestPoint,
   frameInsets,
+  isOnPixelGrid,
   mainContentRect,
   maxContentHeight,
+  movedAway,
+  needsSizeReapply,
   outerFromContent,
+  pixelGrid,
+  pixelSnapSlack,
   rectBottom,
   rectRight,
   resizeAnchored,
+  snapToPixelGrid,
   windowLayout,
   type DisplayInfo,
+  type PixelGrid,
 } from '../../../src/main/windows/geometry';
 
 const WIN_FRAME: FrameInsets = { top: 32, right: 1, bottom: 1, left: 1 };
@@ -348,5 +355,198 @@ describe('frame helpers', () => {
     expect(frame).toEqual(WIN_FRAME);
     expect(outerFromContent(content, frame)).toEqual(outer);
     expect(contentFromOuter(outer, frame)).toEqual(content);
+  });
+});
+
+describe('device-pixel grid', () => {
+  const grid125: PixelGrid = { origin: { x: 0, y: 0 }, scaleFactor: 1.25 };
+  const grid150: PixelGrid = { origin: { x: 0, y: 0 }, scaleFactor: 1.5 };
+
+  it('knows pixel edges and how far an inset may grow', () => {
+    expect(isOnPixelGrid(640, 0, 1.25)).toBe(true);
+    expect(isOnPixelGrid(642, 0, 1.25)).toBe(false);
+    expect(isOnPixelGrid(829, 0, 1.5)).toBe(false);
+    expect(isOnPixelGrid(828, 0, 1.5)).toBe(true);
+    // Relative to the display's origin (a display at x = −1093 at 125 %).
+    expect(isOnPixelGrid(-453, -1093, 1.25)).toBe(true);
+    expect(pixelSnapSlack(1)).toBe(0);
+    expect(pixelSnapSlack(2)).toBe(0);
+    expect(pixelSnapSlack(1.25)).toBe(3);
+    expect(pixelSnapSlack(1.5)).toBe(1);
+    expect(pixelSnapSlack(1.75)).toBe(3);
+    expect(pixelSnapSlack(1.1)).toBe(0);
+  });
+
+  it('moves 0–3 DIP the preferred way, the other way only when a limit forbids it', () => {
+    expect(snapToPixelGrid(642, 0, grid125, -1)).toBe(640);
+    expect(snapToPixelGrid(642, 0, grid125, 1)).toBe(644);
+    expect(snapToPixelGrid(640, 0, grid125, -1)).toBe(640);
+    expect(snapToPixelGrid(829, 0, grid150, -1)).toBe(828);
+    expect(snapToPixelGrid(642, 0, grid125, -1, { min: 641 })).toBe(644);
+    // Nothing within reach inside the limits: rounded and clamped, not snapped.
+    expect(snapToPixelGrid(641.6, 0, grid125, -1, { min: 641, max: 643 })).toBe(642);
+    // No grid, or an integer scale: whole DIP only.
+    expect(snapToPixelGrid(641.6, 0, null, -1)).toBe(642);
+    expect(snapToPixelGrid(641, 0, { origin: { x: 0, y: 0 }, scaleFactor: 2 }, -1)).toBe(641);
+    // 110 %: pixel edges every 10 DIP, so usually none within 3.
+    expect(snapToPixelGrid(645, 0, { origin: { x: 0, y: 0 }, scaleFactor: 1.1 }, -1)).toBe(645);
+  });
+
+  const HEIGHTS = [300, 348, 349, 350, 351, 431, 460, 513, 540, 5000];
+
+  for (const id of DISPLAY_PRESET_IDS) {
+    it(`keeps windows whole-pixel on ${id}`, () => {
+      const preset = DISPLAY_PRESETS[id];
+      const info = display(1, preset.bounds, preset.workArea, preset.scaleFactor);
+      const grid = pixelGrid(info);
+      const s = preset.scaleFactor;
+      const slack = pixelSnapSlack(s);
+      const wa = preset.workArea;
+      const onGridX = (v: number): boolean => isOnPixelGrid(v, grid.origin.x, s);
+      const onGridY = (v: number): boolean => isOnPixelGrid(v, grid.origin.y, s);
+      for (const height of HEIGHTS) {
+        const where = `${id}, height ${height}`;
+        const rect = mainContentRect({
+          workArea: wa,
+          frame: preset.frame,
+          anchor: 'bottom',
+          height,
+          grid,
+        });
+        const outer = outerFromContent(rect, preset.frame);
+        expect(rect.width, where).toBe(MAIN_CONTENT_WIDTH);
+        expect(onGridX(rect.x) && onGridX(rectRight(rect)), `${where}: x edges`).toBe(true);
+        expect(onGridY(rectBottom(rect)), `${where}: anchored bottom edge`).toBe(true);
+        const right = rectRight(wa) - rectRight(outer);
+        const bottom = rectBottom(wa) - rectBottom(outer);
+        expect(right, `${where}: right inset`).toBeGreaterThanOrEqual(SCREEN_INSET);
+        expect(right, `${where}: right inset`).toBeLessThanOrEqual(SCREEN_INSET + slack);
+        expect(bottom, `${where}: bottom inset`).toBeGreaterThanOrEqual(SCREEN_INSET);
+        expect(bottom, `${where}: bottom inset`).toBeLessThanOrEqual(SCREEN_INSET + slack);
+        expect(outer.y, `${where}: top edge`).toBeGreaterThanOrEqual(wa.y + SCREEN_INSET - slack);
+
+        // Resizing from there keeps the anchored edge, the width and the grid.
+        const grown = resizeAnchored(rect, height + 113, 'bottom', wa, preset.frame, grid);
+        expect(rectBottom(grown), `${where}: resize keeps the bottom`).toBe(rectBottom(rect));
+        expect(grown.x, `${where}: resize keeps x`).toBe(rect.x);
+        expect(grown.width, where).toBe(MAIN_CONTENT_WIDTH);
+        expect(resizeAnchored(grown, height, 'bottom', wa, preset.frame, grid), where).toEqual(
+          rect,
+        );
+
+        // The detail window: 600 wide, its left and anchored edges on the grid, gap >= 6.
+        const p = detailPlacement({
+          mainOuter: outer,
+          workArea: wa,
+          anchor: 'bottom',
+          frame: preset.frame,
+          grid,
+        });
+        expect(p.content.width, where).toBe(DETAIL_CONTENT_WIDTH);
+        expect(onGridX(p.content.x) && onGridX(rectRight(p.content)), `${where}: detail x`).toBe(
+          true,
+        );
+        expect(onGridY(rectBottom(p.content)), `${where}: detail bottom`).toBe(true);
+        expect(p.outer.x, `${where}: detail inside`).toBeGreaterThanOrEqual(wa.x);
+        expect(rectBottom(p.outer), `${where}: detail inside`).toBeLessThanOrEqual(rectBottom(wa));
+        if (p.side === 'left') {
+          const gap = outer.x - rectRight(p.outer);
+          expect(gap, `${where}: gap`).toBeGreaterThanOrEqual(6);
+          expect(gap, `${where}: gap`).toBeLessThanOrEqual(6 + slack);
+        }
+      }
+    });
+  }
+
+  it('places the 125 % and 150 % presets on the expected pixels', () => {
+    const at125 = DISPLAY_PRESETS['1366x768@125'];
+    const r125 = mainContentRect({
+      workArea: at125.workArea,
+      frame: at125.frame,
+      anchor: 'bottom',
+      height: 349,
+      grid: pixelGrid(display(1, at125.bounds, at125.workArea, 1.25)),
+    });
+    // 642 DIP = 802.5 px before; 640 DIP = 800 px, 440 DIP = 550 px.
+    expect(r125).toEqual({ x: 640, y: 552 - 349, width: 440, height: 349 });
+    const at150 = DISPLAY_PRESETS['1920x1080@150'];
+    const r150 = mainContentRect({
+      workArea: at150.workArea,
+      frame: at150.frame,
+      anchor: 'bottom',
+      height: 349,
+      grid: pixelGrid(display(1, at150.bounds, at150.workArea, 1.5)),
+    });
+    // 829 DIP = 1243.5 px before; 828 DIP = 1242 px.
+    expect(r150).toEqual({ x: 828, y: 660 - 349, width: 440, height: 349 });
+  });
+
+  it('snaps the top edge downwards when anchored on top (macOS, Linux top panel)', () => {
+    const wa: Rect = { x: 0, y: 27, width: 1229, height: 741 };
+    const grid: PixelGrid = { origin: { x: 0, y: 0 }, scaleFactor: 1.25 };
+    const rect = mainContentRect({
+      workArea: wa,
+      frame: ZERO_FRAME,
+      anchor: 'top',
+      height: 400,
+      grid,
+    });
+    expect(rect.y).toBe(40);
+    expect(isOnPixelGrid(rect.x, 0, 1.25)).toBe(true);
+    const grown = resizeAnchored(rect, 520, 'top', wa, ZERO_FRAME, grid);
+    expect(grown.y).toBe(rect.y);
+  });
+
+  it('snaps a rect the user moved, on a display with negative coordinates', () => {
+    const left = display(
+      2,
+      { x: -1093, y: 0, width: 1093, height: 614 },
+      { x: -1093, y: 0, width: 1093, height: 566 },
+      1.25,
+    );
+    const grid = pixelGrid(left);
+    const moved: Rect = { x: -700, y: 101, width: 440, height: 300 };
+    const r = resizeAnchored(moved, 320, 'bottom', left.workArea, WIN_FRAME, grid);
+    expect(isOnPixelGrid(r.x, -1093, 1.25)).toBe(true);
+    expect(moved.x - r.x).toBeGreaterThanOrEqual(0);
+    expect(moved.x - r.x).toBeLessThanOrEqual(3);
+    expect(isOnPixelGrid(rectBottom(r), 0, 1.25)).toBe(true);
+    expect(rectBottom(moved) - rectBottom(r)).toBeLessThanOrEqual(3);
+  });
+});
+
+describe('stale pixel size', () => {
+  const grid125: PixelGrid = { origin: { x: 0, y: 0 }, scaleFactor: 1.25 };
+  const requested: Rect = { x: 640, y: 204, width: 440, height: 348 };
+
+  it('asks for a re-apply when a whole-pixel rect came out wider', () => {
+    // Placed off-grid before (553 px), then the same DIP size on the grid: Electron kept 553.
+    expect(needsSizeReapply(requested, { ...requested, width: 441, height: 349 }, grid125)).toBe(
+      true,
+    );
+    expect(needsSizeReapply(requested, { ...requested, height: 349 }, grid125)).toBe(false);
+  });
+
+  it('does not when the rect cannot be whole pixels or the scale is an integer', () => {
+    const offGrid = { ...requested, x: 641 };
+    expect(needsSizeReapply(offGrid, { ...offGrid, width: 441 }, grid125)).toBe(false);
+    const oddWidth = { ...requested, width: 441 };
+    expect(needsSizeReapply(oddWidth, { ...oddWidth, width: 442 }, grid125)).toBe(false);
+    const grid1: PixelGrid = { origin: { x: 0, y: 0 }, scaleFactor: 1 };
+    expect(needsSizeReapply(requested, { ...requested, width: 441 }, grid1)).toBe(false);
+    expect(needsSizeReapply(requested, { ...requested, width: 441 }, null)).toBe(false);
+  });
+});
+
+describe('user move detection', () => {
+  const at: Rect = { x: 640, y: 203, width: 440, height: 349 };
+
+  it('ignores readback rounding of 1 DIP, sees anything more', () => {
+    expect(movedAway({ ...at, x: 641 }, at)).toBe(false);
+    expect(movedAway({ ...at, y: 202 }, at)).toBe(false);
+    expect(movedAway({ ...at, x: 642 }, at)).toBe(true);
+    expect(movedAway({ ...at, x: 300, y: 200 }, at)).toBe(true);
+    // A height change alone is not a move.
+    expect(movedAway({ ...at, height: 460 }, at)).toBe(false);
   });
 });

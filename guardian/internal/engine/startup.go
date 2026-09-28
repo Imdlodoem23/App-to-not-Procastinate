@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/imdlodoem23/centrate/guardian/internal/catalog"
 	"github.com/imdlodoem23/centrate/guardian/internal/clock"
@@ -21,12 +22,21 @@ import (
 type startInfo struct {
 	rep       store.RecoveryReport
 	haveState bool
-	snap      *clock.Snapshot
-	sameBoot  bool
-	rebooted  bool
-	downtime  int64
-	savedT    int64
-	recovery  string
+	// stateClock is the snapshot saved with the loaded state and its log position.
+	stateClock *clockCand
+	// restored: the stop time savedT is known (a snapshot, or the log's last event).
+	restored bool
+	sameBoot bool
+	rebooted bool
+	// unverified: events are logged but no snapshot measures the stop (the files were
+	// removed or an older copy put back); rebooted is set too (§10.12 step 8).
+	unverified bool
+	// cleanStop: the previous run stopped cleanly (restoreClock).
+	cleanStop bool
+	// downtime is the same-boot time from the last trace of the previous run to now.
+	downtime int64
+	savedT   int64
+	recovery string
 	// activeAtStop are the blocks that were active when the previous run stopped.
 	activeAtStop []string
 	// hostsAtStart is the section found at startup, before any reconcile.
@@ -88,6 +98,9 @@ func (e *Engine) startup() error {
 		loaded.normalize()
 		e.state = loaded
 		e.idem = ls.Idempotency
+		if c := loaded.Clock.Snapshot; c != nil && !c.Trusted.IsZero() {
+			si.stateClock = &clockCand{snap: *c, epoch: ls.Epoch, seq: ls.LastEventSeq}
+		}
 	case errors.Is(lerr, store.ErrNoState):
 		if rep.NeedEpoch == "" {
 			e.integrity = "rebuilt"
@@ -108,27 +121,10 @@ func (e *Engine) startup() error {
 
 	// Step 8 (first half): restore the trusted clock, so every startup event carries the
 	// right time.
-	si.snap = e.loadClockSnapshot()
-	if si.snap != nil {
-		rr := e.det.Restore(*si.snap)
-		si.sameBoot = rr.SameBoot
-		si.rebooted = !rr.SameBoot
-		si.savedT = si.snap.Trusted.UnixMilli()
-		if rr.SameBoot {
-			si.downtime = rr.Downtime.Milliseconds()
-		}
-		e.startClock()
-		if rr.SameBoot && rr.Jump.Jumped() {
-			e.pendingStartJump("restore", rr.Jump.Delta.Milliseconds())
-		}
-		if !rr.SameBoot && rr.WallBehind {
-			e.pendingStartJump("reboot", e.wallOffsetMs()-si.snap.Offset.Milliseconds())
-		}
-	} else {
-		e.startClock()
-	}
+	e.restoreClock(&si)
+	e.addLostResponses()
 	for _, b := range e.state.Blocks {
-		if b.Status == StatusActive && si.snap != nil && b.StartsAt <= si.savedT && b.EndsAt > si.savedT {
+		if b.Status == StatusActive && si.restored && b.StartsAt <= si.savedT && b.EndsAt > si.savedT {
 			si.activeAtStop = append(si.activeAtStop, b.ID)
 		}
 	}
@@ -149,7 +145,7 @@ func (e *Engine) startup() error {
 	e.startupIntegrityEvents(&si)
 
 	// Step 8 (second half): reboot or same-boot consequences.
-	if si.snap != nil {
+	if si.restored {
 		e.cal.creditDowntime = true
 		e.cal.stopT = si.savedT
 	}
@@ -167,6 +163,9 @@ func (e *Engine) startup() error {
 	}
 	if si.rebooted {
 		e.state.Clock.Restore = &restoreJump{SavedT: si.savedT, RestoredT: e.now}
+		if si.unverified {
+			e.state.Clock.Trust = TrustUnverified
+		}
 		e.emergencyOnReboot()
 		e.studyOnStart(false)
 		if e.state.Settings.ServerTimeCheck {
@@ -177,13 +176,13 @@ func (e *Engine) startup() error {
 		if si.sameBoot {
 			e.studyOnStart(true)
 		}
-		if si.snap == nil {
+		if !si.restored {
 			e.cal.dueBoot = e.bootNow
 		} else {
 			e.cal.dueBoot = e.bootNow + calibrateAfterBoot
 		}
 	}
-	// Step 9: the stopped-service check (same boot only).
+	// Step 9: the stopped-service check.
 	e.stoppedServiceCheck(&si)
 
 	// Step 10: guardian_started, then the day_closed catch-up.
@@ -253,6 +252,12 @@ func (e *Engine) replay(after int64) error {
 			return fmt.Errorf("engine: replay the log: %w", err)
 		}
 		for i := range page.Events {
+			if r := page.Events[i].Req; r != nil {
+				if e.replayedReqs == nil {
+					e.replayedReqs = map[string]int64{}
+				}
+				e.replayedReqs[*r] = max(e.replayedReqs[*r], atMs(&page.Events[i]))
+			}
 			if aerr := e.applyEvent(&page.Events[i]); aerr != nil {
 				e.log.Warn("replayed event failed to apply", "seq", page.Events[i].Seq, "err", aerr)
 				if e.mode == ModeGuardianSafe {
@@ -265,20 +270,6 @@ func (e *Engine) replay(after int64) error {
 		}
 		after = page.LastSeq
 	}
-}
-
-// loadClockSnapshot picks the Detector snapshot: run/clock.json (sealed), else the one
-// saved with the state (§10.12 step 8).
-func (e *Engine) loadClockSnapshot() *clock.Snapshot {
-	var s clock.Snapshot
-	if ok, err := e.st.LoadClock(&s); err == nil && ok && !s.Trusted.IsZero() {
-		return &s
-	}
-	if s := e.state.Clock.Snapshot; s != nil && !s.Trusted.IsZero() {
-		c := *s
-		return &c
-	}
-	return nil
 }
 
 // pendingStartJump queues a clock_jump of the restore, written once an epoch exists.
@@ -376,6 +367,10 @@ func (e *Engine) startEpoch(reason store.EpochReason, prev *string, carry int64,
 	out, err := e.st.NewEpoch(reason, b.events)
 	if err != nil && !errors.Is(err, store.ErrCleanup) {
 		return fmt.Errorf("engine: start a new epoch: %w", err)
+	}
+	// The clock snapshot follows the log into the new epoch at once (restoreClock).
+	if cerr := e.saveClock(e.st.LastSeq(), false); cerr != nil {
+		e.log.Warn("clock snapshot save failed", "err", cerr)
 	}
 	if err != nil {
 		e.log.Warn("new epoch started but cleanup failed", "err", err)
@@ -507,19 +502,62 @@ func (e *Engine) startupIntegrityEvents(si *startInfo) {
 	}
 }
 
-// stoppedServiceCheck prices a stop during a block (§10.12 step 9, same boot only): a
-// stop longer than 60 s without a valid planned-stop marker costs like an emergency
-// (tamper_detected{service_stopped}, streak voided); otherwise a section edited while
-// stopped costs the same once (hosts_changed_while_stopped).
+// snapshotMaxAge is how old the last trace of a running guardian can be when it
+// crashes: state.json and run/clock.json are written at least every saveEvery, checked
+// on every tick.
+const snapshotMaxAge = saveEvery + tickInterval
+
+// stoppedServiceCheck prices a stop that left commitments unenforced (§10.12 step 9):
+// tamper_detected{service_stopped, −emergencyPenalty(balance + allowanceValue),
+// voidStreak} when a block or punishment was active at the stop, or an enabled
+// schedule's window overlapped it, and there is no valid planned-stop marker:
+//
+//   - same boot: the stop lasted more than 60 s. After a crash (no clean-shutdown
+//     marker, and no clean stop sealed in run/clock.json) the previous run may have
+//     lived up to snapshotMaxAge after its last trace, so that much is not counted:
+//     crash restarts stay under the threshold.
+//   - the stop could not be measured (restoreClock: snapshot removed or replaced).
+//   - a reboot after a clean stop that was not an OS shutdown: the service manager
+//     (Windows SERVICE_CONTROL_SHUTDOWN, systemd) makes the guardian write the
+//     planned-stop marker «shutdown» when the OS shuts down, so a clean stop without it
+//     was a manual stop before the reboot. A «shutdown» marker counts at any age across
+//     a reboot (the machine may stay off for days). macOS is exempt: launchd sends the
+//     same signal for both and no marker is written.
+//
+// Otherwise, in the same boot, a section found different from the last one written
+// while blocks were active costs the same once (hosts_changed_while_stopped). A valid
+// planned-stop marker exempts both. Safe mode is no exemption: the penalty is written
+// by the guardian, not through the API.
 func (e *Engine) stoppedServiceCheck(si *startInfo) {
-	if !si.sameBoot || len(si.activeAtStop) == 0 || si.rep.PlannedStop.Valid || e.mode == ModeGuardianSafe {
+	ps := si.rep.PlannedStop
+	if !si.restored || ps.Valid {
 		return
 	}
 	kind := ""
-	if si.downtime > stopPenaltyThreshold.Milliseconds() {
-		kind = "service_stopped"
-	} else if e.state.HostsHash != "" && si.hostsReadable && hashDomains(si.hostsAtStart) != e.state.HostsHash {
-		kind = "hosts_changed_while_stopped"
+	switch {
+	case si.unverified:
+		if e.stopCommitments(si) {
+			kind = "service_stopped"
+		}
+	case si.sameBoot:
+		down := si.downtime
+		if !si.cleanStop {
+			down -= snapshotMaxAge.Milliseconds()
+		}
+		if down > stopPenaltyThreshold.Milliseconds() && e.stopCommitments(si) {
+			kind = "service_stopped"
+		}
+	case si.rebooted:
+		// The TTL only makes sense within one boot: the machine may stay off for days.
+		osShutdown := ps.Present && ps.Reason == "shutdown" && strings.HasPrefix(ps.Problem, "expired")
+		if si.cleanStop && !osShutdown && e.platform != catalog.PlatformMac && e.stopCommitments(si) {
+			kind = "service_stopped"
+		}
+	}
+	if kind == "" && si.sameBoot && len(si.activeAtStop) > 0 && e.state.HostsHash != "" && si.hostsReadable {
+		if h := hashDomains(si.hostsAtStart); h != e.state.HostsHash && h != e.state.HostsPendingHash {
+			kind = "hosts_changed_while_stopped"
+		}
 	}
 	if kind == "" {
 		return
@@ -528,4 +566,39 @@ func (e *Engine) stoppedServiceCheck(si *startInfo) {
 	b := e.newBatch()
 	b.add(EvTamperDetected, TamperDetectedData{Kind: kind, BalanceCorrection: -pen, VoidStreak: true})
 	e.commitNow(b, "tamper_detected{"+kind+"}")
+}
+
+// stopCommitments reports whether the stop left something unenforced: a block or
+// punishment active at savedT, or an occurrence of an enabled schedule, not materialized
+// before the stop, whose window overlaps the time from savedT to now (an occurrence
+// still in progress is materialized late by the next step for its remaining time).
+func (e *Engine) stopCommitments(si *startInfo) bool {
+	return len(si.activeAtStop) > 0 || e.scheduleDuring(si.savedT, e.now)
+}
+
+// scheduleDuring reports whether an enabled schedule has an occurrence that was not
+// materialized and whose window overlaps (from, to).
+func (e *Engine) scheduleDuring(from, to int64) bool {
+	if to <= from {
+		return false
+	}
+	days := int(min((to-from)/(24*60*msPerMinute)+1, schHorizonDays))
+	for _, s := range e.state.Schedules.List {
+		if !s.Enabled {
+			continue
+		}
+		loc, ok := loadLocation(s.Timezone)
+		if !ok {
+			continue
+		}
+		for _, occ := range schOccurrences(s, loc, from, -1, days) {
+			if occ.Start >= to || occ.End <= from {
+				continue
+			}
+			if _, done := e.state.Schedules.Materialized[occ.Key]; !done {
+				return true
+			}
+		}
+	}
+	return false
 }

@@ -9,9 +9,21 @@
  *
  * The column keeps 6 px of slack around its content (negative margin + padding) so focus rings
  * (2 px + 2 px offset) are never clipped by its overflow.
+ *
+ * Containment: every scroller (`.main-column`, `.detail-shell`) and `#root` are positioned, so
+ * absolutely positioned descendants (`.sr-only` live regions, below the fold in a scrolled
+ * detail view) stay inside their scroll box. Otherwise they escape to the initial containing
+ * block, stretch the document past the window, and a `scrollIntoView` scrolls the whole page
+ * (a blank band at the bottom, the top rows cut off). `#root` also clips, so nothing can make
+ * the document itself scroll: only the section column or the detail shell ever does.
  */
 
 @layer components {
+  #root {
+    position: relative;
+    overflow: clip;
+  }
+
   .main-shell {
     box-sizing: border-box;
     display: flex;
@@ -22,6 +34,7 @@
   }
 
   .main-column {
+    position: relative;
     flex: 1 1 auto;
     min-height: 0;
     margin: -6px;
@@ -32,6 +45,9 @@
   html[data-scroll] .main-column {
     overflow-y: auto;
     overscroll-behavior: contain;
+    scroll-padding-block: 6px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--control) transparent;
   }
 
   .main-sections {
@@ -115,11 +131,31 @@
 
   /* Detail windows ----------------------------------------------------------------------- */
 
+  /*
+   * Only the shell scrolls. Its thin, token-colored scrollbar has a stable gutter (reserved
+   * whether the view scrolls or not) that sits inside the right margin: `DetailWindow`
+   * measures it into `--detail-gutter` and the right padding gives that much back, so every
+   * detail view's content starts at 12 px and ends at the same x whether it scrolls or not
+   * (overlay scrollbars measure 0 and keep the full margin). The padding never drops below the
+   * focus ring (2 px + 2 px offset), which the scroller would otherwise clip: with a 10 px thin
+   * scrollbar the content ends 14 px from the right edge. Scrolling to a control (Tab,
+   * `scrollIntoView`) keeps the 12 px margin, so focus rings and hit areas stay inside.
+   */
   .detail-shell {
+    position: relative;
     box-sizing: border-box;
     height: 100%;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    scroll-padding-block: var(--layout-margin);
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--control) transparent;
     padding: var(--layout-margin);
+    padding-right: max(
+      calc(var(--focus-ring-width) + var(--focus-ring-offset)),
+      calc(var(--layout-margin) - var(--detail-gutter, 0px))
+    );
   }
 
   .detail-main {

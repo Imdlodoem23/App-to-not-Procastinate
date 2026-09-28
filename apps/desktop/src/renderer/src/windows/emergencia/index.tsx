@@ -3,10 +3,16 @@
  * docs/DESKTOP.md §7.7). Default export, no props: `DetailWindow` loads it lazily.
  *
  * One section whose title says the stage: «Emergencia: YouTube» (the price, the phrase typed by
- * hand), «Emergencia: esperando» («Esperando · 8:12 · Cancelar (recomendado)» in orange),
- * «Emergencia: lista» («Desbloquear» with the in-place «¿Seguro?») and «Emergencia:
- * desbloqueado». Hardcore and Examen say why there is no emergency. Staying blocked is always
- * the recommended way out.
+ * hand), «Emergencia: esperando» («Esperando · 8:12» in orange, then «Cancelar (recomendado)»),
+ * «Emergencia: lista» («Cancelar (recomendado) | Desbloquear», the latter with the in-place
+ * «¿Seguro?») and «Emergencia: desbloqueado». Hardcore and Examen say why there is no
+ * emergency. Staying blocked is always the recommended way out. Text is 400 like everywhere
+ * else: the price is a fact in red, the wait a fact in orange, never a bold reproach.
+ *
+ * Keyboard and screen readers: every stage focuses its recommended control (the phrase field,
+ * «Cancelar (recomendado)», «Cerrar»), and the window's polite region, there from the start,
+ * says the new stage («Emergencia: esperando, lista a las 17:08»). Every tile has an Alt +
+ * letter; Alt + D only arms «Desbloquear».
  */
 import { Hourglass, Lock, LockOpen, Siren, X } from 'lucide-react';
 import { useLayoutEffect } from 'react';
@@ -23,12 +29,32 @@ import {
 } from '../../components';
 import { GUARDIAN_LIMITS } from '@centrate/shared/guardian-api';
 import { useAppStore } from '../../store/context';
+import { Announcer } from '../bloqueos/announcer';
 import { EMERGENCIA_ES } from './i18n/es';
 import { useEmergencia, type EmergenciaApi } from './useEmergencia';
-import { EMERGENCIA_IDS, UNLOCK_ARM_ID, type EmergencyBlockRow } from './view';
+import {
+  EMERGENCIA_IDS,
+  EMERGENCIA_KEYS,
+  EMERGENCIA_TILES,
+  UNLOCK_ARM_ID,
+  stageFocus,
+  type EmergencyBlockRow,
+} from './view';
 import './emergencia.css';
 
 const E = EMERGENCIA_ES;
+
+/** The wait speaks as it gets close («Podrás desbloquear en 5 minutos»), never «terminado». */
+const WAIT_ANNOUNCE = { mark: E.waitMark, end: E.waitEnd };
+const DECIDE_ANNOUNCE = { mark: E.decideMark, end: E.decideEnd };
+
+function focusTile(item: string): void {
+  document
+    .querySelector<HTMLElement>(
+      `[data-row-tile="${EMERGENCIA_IDS.row}"][data-tile-id="${CSS.escape(item)}"]`,
+    )
+    ?.focus({ preventScroll: true });
+}
 
 function BlockRows(props: { rows: readonly EmergencyBlockRow[] }): React.JSX.Element | null {
   if (props.rows.length === 0) return null;
@@ -55,7 +81,7 @@ function RequestStage(props: { api: EmergenciaApi }): React.JSX.Element | null {
   const request = view.request;
   return (
     <>
-      <p className="emg-text">
+      <p className="emg-text emg-muted">
         {E.phrase.intro} <span className="emg-phrase">«{view.phrase.target}»</span>
       </p>
       <Field
@@ -80,11 +106,7 @@ function RequestStage(props: { api: EmergenciaApi }): React.JSX.Element | null {
           api.request();
         }}
       />
-      <HelpLine
-        id={EMERGENCIA_IDS.phraseHelp}
-        tone={api.notice?.tone ?? view.phrase.tone}
-        live="polite"
-      >
+      <HelpLine id={EMERGENCIA_IDS.phraseHelp} tone={api.notice?.tone ?? view.phrase.tone}>
         {api.notice?.text ?? view.phrase.help}
       </HelpLine>
       <TileRow
@@ -94,18 +116,20 @@ function RequestStage(props: { api: EmergenciaApi }): React.JSX.Element | null {
         help={E.actions.requestHelp}
       >
         <Tile
-          id="stay"
+          id={EMERGENCIA_TILES.stay}
           label={E.actions.stay}
           icon={Lock}
           size="door"
+          mnemonic={EMERGENCIA_KEYS.stay}
           help={E.actions.stayHelp}
           onPress={api.close}
         />
         <Tile
-          id="request"
+          id={EMERGENCIA_TILES.request}
           label={api.busy === 'request' ? E.actions.requesting : request.label}
           icon={Hourglass}
           size="door"
+          mnemonic={EMERGENCIA_KEYS.request}
           help={E.actions.requestHelp}
           disabled={request.disabledReason !== null || api.busy !== null}
           disabledReason={request.disabledReason ?? undefined}
@@ -123,26 +147,30 @@ function CountingStage(props: { api: EmergenciaApi }): React.JSX.Element | null 
   return (
     <>
       <Bar value={emergency.progress} height={3} tone="orange" />
-      <div className="emg-waiting" data-tone="orange">
+      <div className="emg-status" data-tone="orange">
         <span>{E.waiting}</span>
         <span aria-hidden="true">·</span>
-        <Countdown endsAt={emergency.readyAtMs} size="row" />
-        <span aria-hidden="true">·</span>
-        <button
-          type="button"
-          className="c-textbutton"
-          data-tone="orange"
-          data-size={13}
-          aria-describedby="emg-waiting-help"
-          disabled={api.busy !== null}
-          onClick={api.cancel}
-        >
-          {E.actions.cancel}
-        </button>
+        <Countdown endsAt={emergency.readyAtMs} size="row" announce={WAIT_ANNOUNCE} />
       </div>
-      <HelpLine id="emg-waiting-help" tone={api.notice?.tone ?? 'muted'} live="polite">
-        {api.notice?.text ?? E.waitingHelp}
-      </HelpLine>
+      <p className="emg-text emg-muted">{E.waitingHelp}</p>
+      <TileRow
+        id={EMERGENCIA_IDS.row}
+        label={E.actions.rowLabel}
+        className="emg-row-2"
+        help={api.notice?.text ?? E.actions.cancelHelp}
+        helpTone={api.notice?.tone ?? 'muted'}
+      >
+        <Tile
+          id={EMERGENCIA_TILES.cancel}
+          label={E.actions.cancel}
+          icon={Lock}
+          size="door"
+          mnemonic={EMERGENCIA_KEYS.cancel}
+          help={E.actions.cancelHelp}
+          disabled={api.busy !== null}
+          onPress={api.cancel}
+        />
+      </TileRow>
     </>
   );
 }
@@ -155,35 +183,39 @@ function ReadyStage(props: { api: EmergenciaApi }): React.JSX.Element | null {
   return (
     <>
       {emergency.confirmByMs !== null ? (
-        <div className="emg-waiting" data-tone="orange">
+        <div className="emg-status" data-tone="orange">
           <span>{E.readyLead}</span>
-          <Countdown endsAt={emergency.confirmByMs} size="row" />
+          <Countdown endsAt={emergency.confirmByMs} size="row" announce={DECIDE_ANNOUNCE} />
           <span>{E.readyTail}</span>
         </div>
       ) : null}
+      {/* Its polite region says the armed «¿Seguro?» consequence and failures; a cancel that
+          worked is said by the window with the stage it leads to. */}
       <TileRow
         id={EMERGENCIA_IDS.row}
         label={E.actions.rowLabel}
         className="emg-row-2"
-        help={api.notice?.text ?? E.actions.cancelHelp}
-        helpTone={api.notice?.tone ?? 'muted'}
+        help={api.notice?.tone === 'red' ? api.notice.text : E.actions.cancelHelp}
+        helpTone={api.notice?.tone === 'red' ? 'red' : 'muted'}
         helpLive="polite"
       >
         <Tile
-          id="cancel"
+          id={EMERGENCIA_TILES.cancel}
           label={E.actions.cancel}
           icon={Lock}
           size="door"
+          mnemonic={EMERGENCIA_KEYS.cancel}
           help={E.actions.cancelHelp}
           disabled={api.busy !== null}
           onPress={api.cancel}
         />
         <InPlaceConfirm
-          id="unlock"
+          id={EMERGENCIA_TILES.unlock}
           armId={UNLOCK_ARM_ID}
           label={E.actions.unlock}
           icon={LockOpen}
           size="door"
+          mnemonic={EMERGENCIA_KEYS.unlock}
           help={E.actions.unlockHelp}
           consequence={view.loss ?? E.actions.unlockHelp}
           disabled={api.busy !== null}
@@ -198,10 +230,11 @@ function CloseRow(props: { api: EmergenciaApi; help: string }): React.JSX.Elemen
   return (
     <TileRow id={EMERGENCIA_IDS.row} label={E.actions.rowLabel} help={props.help}>
       <Tile
-        id="close"
+        id={EMERGENCIA_TILES.close}
         label={E.actions.close}
         icon={X}
         size="door"
+        mnemonic={EMERGENCIA_KEYS.close}
         help={E.actions.closeHelp}
         onPress={props.api.close}
       />
@@ -215,10 +248,14 @@ export default function EmergenciaWindow(): React.JSX.Element {
 
   const request = useAppStore((s) => s.env.detail);
 
-  // The phrase field takes the focus when the request stage shows (and on every new door).
+  // Every stage (and every new door) puts the focus on its recommended control, so it never
+  // falls to <body> when the previous stage's controls go away.
   useLayoutEffect(() => {
-    if (view.stage === 'request') {
+    const target = stageFocus(view.stage);
+    if (target === 'phrase') {
       document.getElementById(EMERGENCIA_IDS.phrase)?.focus({ preventScroll: true });
+    } else {
+      focusTile(EMERGENCIA_TILES[target]);
     }
   }, [view.stage, request]);
 
@@ -256,6 +293,7 @@ export default function EmergenciaWindow(): React.JSX.Element {
         {view.stage === 'unavailable' ? <CloseRow api={api} help={E.unavailable.help} /> : null}
         {view.stage === 'done' ? <CloseRow api={api} help={E.actions.closeHelp} /> : null}
       </Section>
+      <Announcer announcement={api.announcement} />
     </div>
   );
 }

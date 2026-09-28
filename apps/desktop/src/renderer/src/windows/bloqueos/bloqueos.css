@@ -1,15 +1,78 @@
 /*
  * Bloqueos window (PROMPT §10 «Ventanas de detalle»): the section pattern of the main window at
- * 600 DIP, two columns where two decisions sit side by side (custom domains | apps, duration |
- * end). Colors come only from tokens.css; no cards, shadows or separators.
+ * 600 DIP, the form in two columns («en dos columnas si hace falta», like G-Helper's «Fans +
+ * Power»): what to block on the left, how long, how and why on the right, the action bar pinned
+ * to the bottom while the form scrolls. Colors come only from tokens.css; no cards, shadows or
+ * separators (the pinned bar only repeats the window background).
  */
 
 @layer components {
   .blq {
+    /* Height of the pinned action bar (top air + door tile + gap + help line + bottom air):
+       form controls scroll into view above it, never under it. */
+    --blq-actions-height: calc(
+      var(--space-2) + var(--size-tile-door) + var(--space-1) + var(--line-height-12) +
+        var(--layout-margin)
+    );
     display: flex;
     flex-direction: column;
     gap: var(--section-gap);
     min-width: 0;
+  }
+
+  /* The form: two columns. The catalog list is narrow text; the right column holds rows of
+     tiles, so it gets a little more. */
+  .blq-form {
+    display: grid;
+    grid-template-columns: minmax(0, 9fr) minmax(0, 10fr);
+    gap: var(--section-gap) var(--space-4);
+    align-items: start;
+  }
+
+  .blq-what,
+  .blq-how {
+    display: flex;
+    flex-direction: column;
+    gap: var(--section-gap);
+    min-width: 0;
+  }
+
+  .blq-form :is(button, input) {
+    scroll-margin-bottom: calc(var(--blq-actions-height) + var(--space-2));
+  }
+
+  /* «Guardar como plantilla | Bloquear…», pinned to the bottom of the window while the form is
+     taller than it; it scrolls away with the form once the lists below come up. */
+  .blq-actions {
+    position: sticky;
+    bottom: calc(-1 * var(--layout-margin));
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-bottom: calc(-1 * var(--layout-margin));
+    padding: var(--space-2) 0 var(--layout-margin);
+    background: var(--bg);
+  }
+
+  /* A 2 × 2 grid for a row of four that does not fit its column (Modo). */
+  .blq-grid-2 .c-tilegrid[data-columns] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* A row whose help needs two lines in its column: both reserved, so nothing jumps. */
+  .blq-help-2 .c-help {
+    align-items: flex-start;
+    min-height: calc(2 * var(--line-height-12));
+    white-space: normal;
+    overflow: visible;
+  }
+
+  /* Custom domains, then apps, one under the other in the left column. */
+  .blq-entries {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
   }
 
   .blq-text,
@@ -103,7 +166,7 @@
 
   .blq-services {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     column-gap: var(--space-3);
     padding-left: 24px;
   }

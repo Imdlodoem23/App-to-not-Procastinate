@@ -25,6 +25,10 @@ func (e *Engine) TestClock(ctx context.Context, req TestClockRequest) (TestClock
 		return TestClockResponse{ServerNow: fmtTime(fc.Wall()), TrustedNow: fmtTime(fc.Wall())}, nil
 	}
 	return run(e, ctx, cmdOpts{}, func() (TestClockResponse, error) {
+		// A calibration due during the advance answers at its own step, as it would
+		// have in real time, instead of after the whole advance.
+		e.inlineCalibration = true
+		defer func() { e.inlineCalibration = false }()
 		switch {
 		case req.AdvanceMs != nil:
 			// Advance in tick-sized steps (at most testClockMaxSteps), like a running

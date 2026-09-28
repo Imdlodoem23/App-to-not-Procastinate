@@ -3,6 +3,9 @@
  * the emergency unlock), «Plantillas» (use one in the form, delete your own with an in-place
  * «¿Seguro?»), «Horarios» («L–V 16:00–19:00 · Redes sociales» with a switch per row) and
  * «Modo examen» (whitelist + Hardcore, straight to the main window's confirmation).
+ *
+ * Results («No se ha podido borrar…») show under their list without being live regions (they
+ * mount with the text already in them); the window's polite region announces them.
  */
 import { BookOpen, CalendarClock, GraduationCap, LayoutTemplate, Lock, Trash } from 'lucide-react';
 import {
@@ -21,7 +24,13 @@ import { errorCopy } from '../../i18n/errors';
 import { useArmedState } from '../../store/context';
 import { BLOQUEOS_ES } from './i18n/es';
 import type { BloqueosActions, Notice } from './useBloqueosWindow';
-import { BLOQUEOS_IDS, type BloqueosView, type ExamView, type SchedulesView } from './view';
+import {
+  BLOQUEOS_IDS,
+  BLOQUEOS_KEYS,
+  type BloqueosView,
+  type ExamView,
+  type SchedulesView,
+} from './view';
 
 const E = BLOQUEOS_ES;
 
@@ -82,7 +91,9 @@ function TemplateRow(props: {
           label={E.templates.use}
           icon={BookOpen}
           size="text"
+          mnemonic={row.useKey}
           help={E.templates.useHelp}
+          describedBy={ids.description}
           onPress={() => actions.applyTemplate(row.id)}
         />
         {row.builtin ? null : (
@@ -92,6 +103,8 @@ function TemplateRow(props: {
             label={E.templates.remove}
             icon={Trash}
             size="text"
+            mnemonic={row.removeKey}
+            describedBy={ids.description}
             consequence={E.templates.removeConsequence(row.label)}
             onConfirm={() => actions.deleteTemplate(row.id)}
           />
@@ -114,7 +127,7 @@ export function TemplatesSection(props: {
         ))}
       </div>
       {props.notice ? (
-        <HelpLine tone={props.notice.tone} live="polite" className="blq-wrap">
+        <HelpLine tone={props.notice.tone} className="blq-wrap">
           {props.notice.text}
         </HelpLine>
       ) : null}
@@ -138,9 +151,7 @@ export function SchedulesSection(props: {
     >
       {view.status === 'error' && view.error ? (
         <div className="blq-inline">
-          <HelpLine tone="red" live="polite">
-            {errorCopy(view.error).text}
-          </HelpLine>
+          <HelpLine tone="red">{errorCopy(view.error).text}</HelpLine>
           <TextButton tone="blue" onPress={actions.retrySchedules}>
             {E.schedules.retry}
           </TextButton>
@@ -173,7 +184,7 @@ export function SchedulesSection(props: {
         </div>
       ) : null}
       {notice ? (
-        <HelpLine tone={notice.tone} live="polite" className="blq-wrap">
+        <HelpLine tone={notice.tone} className="blq-wrap">
           {notice.text}
         </HelpLine>
       ) : null}
@@ -203,6 +214,7 @@ export function ExamSection(props: {
             label={tile.label}
             icon={GraduationCap}
             size="door"
+            mnemonic={tile.mnemonic}
             help={tile.help}
             onPress={() => actions.startExam(tile.minutes)}
           />
@@ -212,6 +224,7 @@ export function ExamSection(props: {
           label={E.exam.customize}
           size="door"
           door
+          mnemonic={BLOQUEOS_KEYS.customize}
           help={E.exam.customizeHelp}
           onPress={actions.customizeExam}
         />

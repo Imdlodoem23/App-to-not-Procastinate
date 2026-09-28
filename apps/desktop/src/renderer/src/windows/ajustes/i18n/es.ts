@@ -8,7 +8,12 @@ import type { DefaultBlockMode } from '../../../../../shared/ui-state';
 
 export const AJUSTES_ES = {
   general: {
-    title: 'General',
+    /** «Cosa: valor»: the group says the theme it applies. */
+    title: {
+      system: 'General: tema del sistema',
+      light: 'General: tema claro',
+      dark: 'General: tema oscuro',
+    } satisfies Record<ThemePreference, string>,
     themeLabel: 'Tema',
     themes: {
       system: 'Sistema',
@@ -20,6 +25,7 @@ export const AJUSTES_ES = {
       light: 'Siempre claro',
       dark: 'Siempre oscuro',
     } satisfies Record<ThemePreference, string>,
+    /** Description of the «Tema» row while no option is hovered or focused. */
     themeRowHelp: 'Se aplica al momento',
     language: 'Idioma',
     languageDesc: 'El idioma de la app',
@@ -35,9 +41,10 @@ export const AJUSTES_ES = {
     /** «Bloqueo: Normal por defecto». */
     title: (mode: string): string => `Bloqueo: ${mode} por defecto`,
     defaultModeLabel: 'Modo por defecto',
+    /** Shown in the row's description (one line beside the three tiles). */
     modeHelp: {
-      normal: 'Normal: la emergencia tarda 10 min y cuesta al menos 200 puntos',
-      strict: 'Estricto: la emergencia tarda 30 min y cuesta al menos 200 puntos',
+      normal: 'Normal: emergencia de 10 min y al menos 200 puntos',
+      strict: 'Estricto: emergencia de 30 min y al menos 200 puntos',
       hardcore: 'Hardcore: no se puede cancelar de ninguna forma',
     } satisfies Record<DefaultBlockMode, string>,
     modeRowHelp: 'El modo con el que se abre la confirmación',
@@ -106,6 +113,9 @@ export const AJUSTES_ES = {
     /** «Puerto: 47601» (only when not the default). */
     pairingPort: (port: string): string => `Puerto: ${port}`,
     pairingCodeLabel: (code: string): string => `Código de emparejamiento: ${code}`,
+    /** Screen readers, when «Nuevo código» answers: «Código nuevo: 4 8 2 9 1 3. Caduca en 5 min». */
+    pairingSpoken: (spacedCode: string, minutes: number): string =>
+      `Código nuevo: ${spacedCode}. Caduca en ${minutes} min`,
     guidesLabel: 'Guías de la extensión',
     guides: {
       'extension-chromium': 'Chrome y Edge',
@@ -123,9 +133,15 @@ export const AJUSTES_ES = {
     diagnosticsCopy: 'Copiar diagnóstico',
     diagnosticsCopied: 'Copiado al portapapeles',
     diagnosticsFallback: 'Copiado: el guardián no responde, va lo que ve la app',
+    /** Screen readers (the description above already says «Copiado…» on screen). */
+    diagnosticsSpoken: {
+      guardian: 'Diagnóstico copiado al portapapeles',
+      fallback: 'Diagnóstico copiado: el guardián no responde, va lo que ve la app',
+    },
   },
   datos: {
-    title: 'Datos',
+    /** «Cosa: valor»: where the data lives. */
+    title: 'Datos: en este ordenador',
     delete: 'Borrar todos mis datos',
     deleteDesc: 'Puntos, racha, historial y tus plantillas. Los bloqueos en curso siguen.',
     deleteWordLabel: 'Escribe BORRAR para confirmar',

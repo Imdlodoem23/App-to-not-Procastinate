@@ -86,12 +86,13 @@ func (w *watcher) init() {
 	m := w.m
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	p, err := m.target()
 	w.seq = m.seq
-	if m.seq > 0 {
+	if m.seq > 0 || err != nil {
 		w.base = m.known
 		return
 	}
-	if fp, _, err := m.fingerprintNow(); err == nil {
+	if fp, _, err := m.fingerprintNow(p); err == nil {
 		w.base = fp
 	}
 }
@@ -102,13 +103,16 @@ func (w *watcher) init() {
 func (w *watcher) poll() bool {
 	m := w.m
 	m.mu.Lock()
+	p, err := m.target() // may reset known and bump seq when the path moved
 	seq, known := m.seq, m.known
-	st := m.statNow()
+	var st statKey
+	if err == nil {
+		st = m.statNow(p)
+	}
 	needHash := seq != w.seq || st != w.stat || w.sinceHash+1 >= fullHashEvery
 	var fp fingerprint
-	var err error
-	if needHash {
-		fp, st, err = m.fingerprintNow()
+	if needHash && err == nil {
+		fp, st, err = m.fingerprintNow(p)
 	}
 	m.mu.Unlock()
 
@@ -132,8 +136,9 @@ func (w *watcher) poll() bool {
 	return true
 }
 
-func (m *Manager) statNow() statKey {
-	fi, err := os.Stat(m.Path)
+// statNow stats the file at p. Callers hold m.mu.
+func (m *Manager) statNow(p string) statKey {
+	fi, err := os.Stat(p)
 	if err != nil {
 		return statKey{}
 	}
@@ -144,10 +149,10 @@ func statOf(fi os.FileInfo) statKey {
 	return statKey{exists: true, size: fi.Size(), modTime: fi.ModTime().UnixNano()}
 }
 
-// fingerprintNow hashes the file without loading it whole and returns the
-// stat taken on the open file.
-func (m *Manager) fingerprintNow() (fingerprint, statKey, error) {
-	f, err := os.Open(m.Path)
+// fingerprintNow hashes the file at p without loading it whole and returns
+// the stat taken on the open file. Callers hold m.mu.
+func (m *Manager) fingerprintNow(p string) (fingerprint, statKey, error) {
+	f, err := os.Open(p)
 	if errors.Is(err, fs.ErrNotExist) {
 		return fingerprint{}, statKey{}, nil
 	}

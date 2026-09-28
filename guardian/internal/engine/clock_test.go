@@ -113,9 +113,7 @@ func TestCalibrationResurrectsAndShifts(t *testing.T) {
 	env.open()
 	a := env.create(durationReq(ModeNormal, 60, "youtube"))
 	env.advance(30 * time.Minute)
-	if err := env.e.Stop(); err != nil {
-		t.Fatal(err)
-	}
+	env.shutdown()
 	env.net.SetOffline(true)
 	env.clk.RebootAfter(5 * time.Minute)
 	env.clk.JumpWall(3 * time.Hour) // the BIOS clock is 3 h ahead

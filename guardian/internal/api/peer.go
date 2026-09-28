@@ -144,10 +144,38 @@ func parseTCPOwnerPIDTable(buf []byte, client, server netip.AddrPort) (int, bool
 	return 0, false
 }
 
+// tcp6OwnerPIDRowSize is sizeof(MIB_TCP6ROW_OWNER_PID): the local address (16),
+// scope id, port, the remote address (16), scope id, port, state and owning PID.
+const tcp6OwnerPIDRowSize = 56
+
+// parseTCP6OwnerPIDTable is parseTCPOwnerPIDTable for a MIB_TCP6TABLE_OWNER_PID buffer
+// (AF_INET6: a dual-stack client socket connected to 127.0.0.1 shows up there as
+// ::ffff:127.0.0.1).
+func parseTCP6OwnerPIDTable(buf []byte, client, server netip.AddrPort) (int, bool) {
+	if len(buf) < 4 {
+		return 0, false
+	}
+	n := int(binary.LittleEndian.Uint32(buf))
+	for i := range n {
+		off := 4 + i*tcp6OwnerPIDRowSize
+		if off+tcp6OwnerPIDRowSize > len(buf) {
+			break
+		}
+		row := buf[off : off+tcp6OwnerPIDRowSize]
+		local := netip.AddrPortFrom(netip.AddrFrom16([16]byte(row[0:16])), binary.BigEndian.Uint16(row[20:22]))
+		remote := netip.AddrPortFrom(netip.AddrFrom16([16]byte(row[24:40])), binary.BigEndian.Uint16(row[44:46]))
+		if sameEndpoint(local, client) && sameEndpoint(remote, server) {
+			return int(binary.LittleEndian.Uint32(row[52:56])), true
+		}
+	}
+	return 0, false
+}
+
 // lsofArgs are the constant arguments of the macOS lookup (§9.7: no request data on a
-// command line): established TCP connections involving 127.0.0.1, machine-readable
-// PID and name fields, no DNS or port-name lookups.
-var lsofArgs = []string{"-nP", "-iTCP@127.0.0.1", "-sTCP:ESTABLISHED", "-Fpn"}
+// command line): established TCP connections (IPv4 and IPv6, so an IPv4-mapped client
+// socket is seen too), machine-readable PID and name fields, no DNS or port-name
+// lookups.
+var lsofArgs = []string{"-nP", "-iTCP", "-sTCP:ESTABLISHED", "-Fpn"}
 
 // parseLsofPeer finds the PID whose file name is "client->server" in `lsof -F pn`
 // output (lines "p<pid>", "f<fd>", "n<name>").

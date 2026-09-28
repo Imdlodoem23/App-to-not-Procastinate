@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/imdlodoem23/centrate/guardian/internal/engine"
 	"github.com/imdlodoem23/centrate/guardian/internal/svc"
 )
 
@@ -30,8 +31,11 @@ func (f *fakeManager) Install() error   { return f.call("install") }
 func (f *fakeManager) Uninstall() error { return f.call("uninstall") }
 func (f *fakeManager) Start() error     { return f.call("start") }
 func (f *fakeManager) Stop() error      { return f.call("stop") }
-func (f *fakeManager) Restart() error   { return f.call("restart") }
-func (f *fakeManager) Run() error       { return f.call("run") }
+func (f *fakeManager) StopPlanned(reason string) error {
+	return f.call("stopPlanned:" + reason)
+}
+func (f *fakeManager) Restart() error { return f.call("restart") }
+func (f *fakeManager) Run() error     { return f.call("run") }
 func (f *fakeManager) Status() (svc.Status, error) {
 	return f.status, f.call("status")
 }
@@ -41,7 +45,9 @@ type env struct {
 	elevated    bool
 	errs        map[string]error // keyed by call name
 	status      svc.Status
-	active      bool
+	level       engine.ActiveLevel
+	apiDown     bool   // status: the API does not answer
+	bundledApp  string // what bundledApp finds ("" with errs["bundledApp"] set: nothing)
 }
 
 func newTestApp(e env) (*app, *[]string, *bytes.Buffer, *bytes.Buffer) {
@@ -76,11 +82,26 @@ func newTestApp(e env) (*app, *[]string, *bytes.Buffer, *bytes.Buffer) {
 		},
 		prepareDirs:  func() error { return record("prepareDirs") },
 		cleanupHosts: func() error { return record("cleanupHosts") },
-		hasActive: func() (bool, error) {
-			return e.active, record("hasActive")
+		hasActive: func() (engine.ActiveLevel, error) {
+			return e.level, record("hasActive")
 		},
-		removeData: func() error { return record("removeData") },
-		dataDir:    func() string { return "/data" },
+		removeData:   func() error { return record("removeData") },
+		removeExtras: func() error { return record("removeExtras") },
+		dataDir:      func() string { return "/data" },
+		writeConfig: func(appPath string) error {
+			if appPath != "" {
+				calls = append(calls, "appPath="+appPath)
+			}
+			return record("writeConfig")
+		},
+		bundledApp: func() (string, error) {
+			return e.bundledApp, record("bundledApp")
+		},
+		plannedStop: func() error { return record("plannedStop") },
+		probeAPI: func() bool {
+			calls = append(calls, "probeAPI")
+			return !e.apiDown
+		},
 	}
 	return a, &calls, stdout, stderr
 }
@@ -113,16 +134,34 @@ func TestDispatch(t *testing.T) {
 		{name: "run rejects args", args: []string{"run", "x"}, wantCode: exitUsage},
 		{name: "install needs admin", args: []string{"install"}, env: env{}, wantCode: exitError, stderr: "administrador"},
 		{name: "install", args: []string{"install"}, env: admin, wantCode: exitOK,
-			wantCalls: []string{"prepareDirs", "newManager", "install"}, stderr: "instalado y en marcha"},
+			wantCalls: []string{"bundledApp", "prepareDirs", "writeConfig", "newManager", "status", "install"}, stderr: "instalado y en marcha"},
+		{name: "install over a running guardian marks the stop as planned", args: []string{"install"},
+			env: env{elevated: true, status: svc.Status{Installed: true, Running: true}}, wantCode: exitOK,
+			wantCalls: []string{"bundledApp", "prepareDirs", "writeConfig", "newManager", "status", "plannedStop", "install"}},
+		{name: "install goes on when the marker fails", args: []string{"install"},
+			env: env{elevated: true, status: svc.Status{Installed: true, Running: true}, errs: map[string]error{"plannedStop": boom}}, wantCode: exitOK,
+			wantCalls: []string{"bundledApp", "prepareDirs", "writeConfig", "newManager", "status", "plannedStop", "install"}, stderr: "prevista"},
 		{name: "install fails", args: []string{"install"}, env: env{elevated: true, errs: map[string]error{"install": boom}}, wantCode: exitError,
-			wantCalls: []string{"prepareDirs", "newManager", "install"}, stderr: "No se pudo instalar"},
+			wantCalls: []string{"bundledApp", "prepareDirs", "writeConfig", "newManager", "status", "install"}, stderr: "No se pudo instalar"},
 		{name: "install data dir fails", args: []string{"install"}, env: env{elevated: true, errs: map[string]error{"prepareDirs": boom}}, wantCode: exitError,
-			wantCalls: []string{"prepareDirs"}},
+			wantCalls: []string{"bundledApp", "prepareDirs"}},
+		{name: "install config fails", args: []string{"install"}, env: env{elevated: true, errs: map[string]error{"writeConfig": boom}}, wantCode: exitError,
+			wantCalls: []string{"bundledApp", "prepareDirs", "writeConfig"}, stderr: "configuración"},
 		{name: "install manager fails", args: []string{"install"}, env: env{elevated: true, errs: map[string]error{"newManager": boom}}, wantCode: exitError,
-			wantCalls: []string{"prepareDirs", "newManager"}},
+			wantCalls: []string{"bundledApp", "prepareDirs", "writeConfig", "newManager"}},
+		{name: "install takes the app shipped with the guardian", args: []string{"install"},
+			env: env{elevated: true, bundledApp: "/opt/Céntrate/centrate"}, wantCode: exitOK,
+			wantCalls: []string{"bundledApp", "prepareDirs", "appPath=/opt/Céntrate/centrate", "writeConfig", "newManager", "status", "install"}},
+		{name: "install without a bundled app keeps the configured one", args: []string{"install"},
+			env: env{elevated: true, errs: map[string]error{"bundledApp": boom}}, wantCode: exitOK,
+			wantCalls: []string{"bundledApp", "prepareDirs", "writeConfig", "newManager", "status", "install"}, stderr: "se conserva la ruta"},
 		{name: "install rejects args", args: []string{"install", "--force"}, env: admin, wantCode: exitUsage},
+		{name: "install rejects a relative app path", args: []string{"install", "--app-path", "centrate"}, env: admin, wantCode: exitUsage, stderr: "absoluta"},
+		{name: "install rejects a missing app path value", args: []string{"install", "--app-path"}, env: admin, wantCode: exitUsage},
 		{name: "uninstall", args: []string{"uninstall"}, env: admin, wantCode: exitOK,
-			wantCalls: []string{"newManager", "uninstall", "cleanupHosts", "removeData"}, stderr: "queda limpio"},
+			wantCalls: []string{"newManager", "uninstall", "cleanupHosts", "removeData", "removeExtras"}, stderr: "queda limpio"},
+		{name: "uninstall extras fail", args: []string{"uninstall"}, env: env{elevated: true, errs: map[string]error{"removeExtras": boom}}, wantCode: exitError,
+			wantCalls: []string{"newManager", "uninstall", "cleanupHosts", "removeData", "removeExtras"}, stderr: "restos"},
 		{name: "uninstall keep data", args: []string{"uninstall", "--keep-data"}, env: admin, wantCode: exitOK,
 			wantCalls: []string{"newManager", "uninstall", "cleanupHosts"}, stderr: "Datos conservados"},
 		{name: "uninstall bad flag", args: []string{"uninstall", "--purge"}, env: admin, wantCode: exitUsage},
@@ -136,10 +175,10 @@ func TestDispatch(t *testing.T) {
 		{name: "start", args: []string{"start"}, env: admin, wantCode: exitOK, wantCalls: []string{"newManager", "start"}},
 		{name: "install marked for deletion explains what to do", args: []string{"install"},
 			env: env{elevated: true, errs: map[string]error{"install": fmt.Errorf("svc: install: %w", svc.ErrMarkedForDeletion)}}, wantCode: exitError,
-			wantCalls: []string{"prepareDirs", "newManager", "install"}, stderr: "«Servicios»"},
+			wantCalls: []string{"bundledApp", "prepareDirs", "writeConfig", "newManager", "status", "install"}, stderr: "«Servicios»"},
 		{name: "install from an unprotected folder explains what to do", args: []string{"install"},
 			env: env{elevated: true, errs: map[string]error{"install": svc.ErrUntrustedExecutable}}, wantCode: exitError,
-			wantCalls: []string{"prepareDirs", "newManager", "install"}, stderr: "otros usuarios pueden modificar"},
+			wantCalls: []string{"bundledApp", "prepareDirs", "writeConfig", "newManager", "status", "install"}, stderr: "otros usuarios pueden modificar"},
 		{name: "start not installed", args: []string{"start"}, env: env{elevated: true, errs: map[string]error{"start": svc.ErrNotInstalled}}, wantCode: exitNotInstalled,
 			wantCalls: []string{"newManager", "start"}, stderr: "no está instalado"},
 		{name: "start disabled in login items", args: []string{"start"}, env: env{elevated: true, errs: map[string]error{"start": svc.ErrDisabledByUser}}, wantCode: exitError,
@@ -155,13 +194,28 @@ func TestDispatch(t *testing.T) {
 		{name: "stop error", args: []string{"stop"}, env: env{elevated: true, errs: map[string]error{"stop": boom}}, wantCode: exitError,
 			wantCalls: []string{"newManager", "stop"}, stderr: "boom"},
 		{name: "restart", args: []string{"restart"}, env: admin, wantCode: exitOK, wantCalls: []string{"newManager", "restart"}},
+		{name: "prepare-update is a planned stop", args: []string{"prepare-update"}, env: admin, wantCode: exitOK,
+			wantCalls: []string{"newManager", "stopPlanned:update"}, stderr: "detenido para actualizarlo"},
+		{name: "prepare-update not installed is already stopped", args: []string{"prepare-update"},
+			env: env{elevated: true, errs: map[string]error{"stopPlanned:update": svc.ErrNotInstalled}}, wantCode: exitOK,
+			wantCalls: []string{"newManager", "stopPlanned:update"}, stderr: "nada que parar"},
+		{name: "prepare-update error", args: []string{"prepare-update"}, env: env{elevated: true, errs: map[string]error{"stopPlanned:update": boom}}, wantCode: exitError,
+			wantCalls: []string{"newManager", "stopPlanned:update"}, stderr: "boom"},
+		{name: "prepare-update needs admin", args: []string{"prepare-update"}, env: env{}, wantCode: exitError, stderr: "administrador"},
+		{name: "prepare-update rejects args", args: []string{"prepare-update", "--now"}, env: admin, wantCode: exitUsage},
+		{name: "stop is never a planned stop", args: []string{"stop"}, env: env{elevated: true, status: svc.Status{Installed: true, Running: true}}, wantCode: exitOK,
+			wantCalls: []string{"newManager", "stop"}},
 		{name: "status without admin", args: []string{"status"}, env: env{status: svc.Status{Installed: true, Running: true}}, wantCode: exitOK,
-			wantCalls: []string{"newManager", "status"}, stdout: `{"installed":true,"running":true,"version":"1.2.3"}`},
+			wantCalls: []string{"newManager", "status", "probeAPI"}, stdout: `{"installed":true,"running":true,"version":"1.2.3","problems":[]}`},
+		{name: "status api unavailable", args: []string{"status"}, env: env{status: svc.Status{Installed: true, Running: true}, apiDown: true}, wantCode: exitOK,
+			wantCalls: []string{"newManager", "status", "probeAPI"}, stdout: `{"installed":true,"running":true,"version":"1.2.3","problems":["api_unavailable"]}`},
 		{name: "status not installed", args: []string{"status"}, wantCode: exitOK,
-			wantCalls: []string{"newManager", "status"}, stdout: `{"installed":false,"running":false,"version":"1.2.3"}`},
+			wantCalls: []string{"newManager", "status"}, stdout: `{"installed":false,"running":false,"version":"1.2.3","problems":[]}`},
 		{name: "status error", args: []string{"status"}, env: env{errs: map[string]error{"status": boom}}, wantCode: exitError,
 			wantCalls: []string{"newManager", "status"}},
-		{name: "has-active true", args: []string{"has-active"}, env: env{active: true}, wantCode: exitActive,
+		{name: "has-active normal", args: []string{"has-active"}, env: env{level: engine.ActiveNormal}, wantCode: exitActive,
+			wantCalls: []string{"hasActive"}, stdout: `{"active":true}`},
+		{name: "has-active strong", args: []string{"has-active"}, env: env{level: engine.ActiveStrong}, wantCode: exitActiveStrong,
 			wantCalls: []string{"hasActive"}, stdout: `{"active":true}`},
 		{name: "has-active false", args: []string{"has-active"}, wantCode: exitOK,
 			wantCalls: []string{"hasActive"}, stdout: `{"active":false}`},
@@ -215,7 +269,7 @@ func TestUninstallTwiceIsSafe(t *testing.T) {
 	if code := a.run([]string{"uninstall"}); code != exitOK {
 		t.Fatalf("second uninstall = %d", code)
 	}
-	if n := len(*calls); n != 8 {
+	if n := len(*calls); n != 10 {
 		t.Fatalf("calls = %v", *calls)
 	}
 }
@@ -251,7 +305,7 @@ func TestElevatedCommandsUseSystemPATH(t *testing.T) {
 }
 
 func TestUsageDocumentsExitCodes(t *testing.T) {
-	for _, want := range []string{"0 bien", "1 error", "2 uso", "3 el servicio no está", "10 hay un"} {
+	for _, want := range []string{"0 bien", "1 error", "2 uso", "3 el servicio no está", "10 hay un", "11 hay un"} {
 		if !strings.Contains(usageText, want) {
 			t.Errorf("usage text lacks %q", want)
 		}
@@ -265,5 +319,28 @@ func TestDefaultAppIsComplete(t *testing.T) {
 		if f := v.Field(i); f.Kind() == reflect.Func && f.IsNil() {
 			t.Errorf("defaultApp leaves %s nil", v.Type().Field(i).Name)
 		}
+	}
+}
+
+// prepare-update's manager logs to stderr: a planned-stop marker that could not be
+// written (svc.Manager.StopPlanned goes on with the stop) ends up in the installer's log.
+func TestPrepareUpdateLogsToStderr(t *testing.T) {
+	a, calls, _, stderr := newTestApp(env{elevated: true})
+	newManager := a.newManager
+	a.newManager = func(o svc.Options) (serviceManager, error) {
+		if o.Logger == nil {
+			t.Fatal("prepare-update must log somewhere visible")
+		}
+		o.Logger.Warn("planned-stop marker not written", "err", "read-only disk")
+		return newManager(o)
+	}
+	if code := a.run([]string{"prepare-update"}); code != exitOK {
+		t.Fatalf("prepare-update = %d: %s", code, stderr)
+	}
+	if !strings.Contains(stderr.String(), "read-only disk") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+	if strings.Join(*calls, ",") != "newManager,stopPlanned:update" {
+		t.Fatalf("calls = %v", *calls)
 	}
 }

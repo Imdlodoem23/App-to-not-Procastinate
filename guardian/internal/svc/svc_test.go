@@ -295,7 +295,9 @@ func testProgram(r Runner, logger *slog.Logger) *program {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	return newProgram(func() Runner { return r }, logger)
+	p := newProgram(func() Runner { return r }, logger)
+	p.stopping = func() bool { return false } // never ask the real systemd
+	return p
 }
 
 func TestProgramStartStop(t *testing.T) {

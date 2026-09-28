@@ -56,13 +56,19 @@ func (e *tempCreateError) Unwrap() error { return e.err }
 //     offset 0, truncate to the new size, fsync. That is not atomic, which is
 //     why Damaged and RestoreFromBackup exist.
 //
-// Callers hold m.mu.
+// Callers hold m.mu and have called m.read in the same critical section.
 func (m *Manager) write(data []byte) error {
 	if m.beforeWrite != nil {
 		m.beforeWrite()
 	}
-	target := m.Path
-	if resolved, err := filepath.EvalSymlinks(m.Path); err == nil {
+	// The path the operation read (see Manager.read): resolving again here
+	// could switch files between the read and the write.
+	path := m.cur
+	if err := validPath(path); err != nil {
+		return err
+	}
+	target := path
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
 		target = resolved
 	}
 	dir := filepath.Dir(target)

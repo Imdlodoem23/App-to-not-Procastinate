@@ -1,8 +1,10 @@
 /**
- * The rest of the Bloqueos form: «Duración: 1 h» · «hasta las 18:00» (presets, then the
- * duration and «Hasta las» fields in sync), «Modo: Estricto» (Normal | Estricto | Hardcore |
- * Examen, explained on the help line) and «Tu motivo» with «Guardar como plantilla |
- * Bloquear…». «Bloquear…» opens the confirmation card in the main window.
+ * The right column of the Bloqueos form and its action bar: «Duración: 1 h» · «hasta 18:00»
+ * (presets, then the duration and «Hasta las» fields in sync; «Duración: sin elegir» when the
+ * phrase gave no time), «Modo: Estricto» (Normal | Estricto | Hardcore | Examen in a 2 × 2 grid,
+ * explained on the help line) and «Tu motivo». Under both columns, pinned to the bottom of the
+ * window while the form scrolls, «Guardar como plantilla | Bloquear…» with its help line;
+ * «Bloquear…» opens the confirmation card in the main window.
  */
 import { BookmarkPlus, Check, Lock, MessageSquareQuote, Shield, Timer, X } from 'lucide-react';
 import { useState } from 'react';
@@ -14,7 +16,13 @@ import type { BlockMode } from '@centrate/shared/domain';
 import { BLOQUEOS_ES } from './i18n/es';
 import { CommitField, isPlainEnter } from './parts';
 import type { BloqueosActions, Notice } from './useBloqueosWindow';
-import { BLOQUEOS_IDS, TEMPLATE_LABEL_MAX, type DurationView, type ModeView } from './view';
+import {
+  BLOQUEOS_IDS,
+  BLOQUEOS_KEYS,
+  TEMPLATE_LABEL_MAX,
+  type DurationView,
+  type ModeView,
+} from './view';
 
 const E = BLOQUEOS_ES;
 
@@ -44,6 +52,7 @@ export function DurationSection(props: {
           label: p.label,
           help: p.help,
           tone: 'neutral' as const,
+          mnemonic: p.mnemonic,
         }))}
         onChange={(value) => {
           setError(null);
@@ -103,14 +112,17 @@ export function ModeSection(props: {
       datum={view.datum}
       datumTone={view.value === 'hardcore' || view.value === 'exam' ? 'red' : 'muted'}
     >
-      <Segmented<BlockMode>
-        id={BLOQUEOS_IDS.rows.modes}
-        label={E.mode.rowLabel}
-        value={view.value}
-        options={view.options}
-        onChange={actions.setMode}
-        help={E.mode.help[view.value]}
-      />
+      {/* Four modes do not fit one row of the column: a 2 × 2 grid, the help on two lines. */}
+      <div className="blq-grid-2 blq-help-2">
+        <Segmented<BlockMode>
+          id={BLOQUEOS_IDS.rows.modes}
+          label={E.mode.rowLabel}
+          value={view.value}
+          options={view.options}
+          onChange={actions.setMode}
+          help={E.mode.help[view.value]}
+        />
+      </div>
     </Section>
   );
 }
@@ -146,13 +158,13 @@ function NamingRow(props: {
         className="blq-row-2"
         help={props.notice?.text ?? E.actions.saveNameHelp}
         helpTone={props.notice?.tone ?? 'muted'}
-        helpLive="polite"
       >
         <Tile
           id="save"
           label={E.actions.saveName}
           icon={Check}
           size="door"
+          mnemonic={BLOQUEOS_KEYS.saveName}
           help={E.actions.saveNameHelp}
           onPress={actions.saveTemplate}
         />
@@ -161,6 +173,7 @@ function NamingRow(props: {
           label={E.actions.cancel}
           icon={X}
           size="door"
+          mnemonic={BLOQUEOS_KEYS.cancelName}
           help={E.actions.cancelHelp}
           onPress={actions.cancelTemplate}
         />
@@ -171,13 +184,9 @@ function NamingRow(props: {
 
 export function ReasonSection(props: {
   reason: string;
-  templateName: string | null;
-  problemText: string | null;
-  notice: Notice | undefined;
   actions: BloqueosActions;
 }): React.JSX.Element {
-  const { actions, notice } = props;
-  const helpId = `${BLOQUEOS_IDS.rows.actions}-help`;
+  const { actions } = props;
   return (
     <Section
       id={BLOQUEOS_IDS.reason}
@@ -197,8 +206,26 @@ export function ReasonSection(props: {
           event.preventDefault();
           actions.block();
         }}
-        describedBy={helpId}
+        describedBy={`${BLOQUEOS_IDS.rows.actions}-help`}
       />
+    </Section>
+  );
+}
+
+/**
+ * «Guardar como plantilla | Bloquear…» (or, while naming a template, the name and «Guardar |
+ * Cancelar»), pinned to the bottom of the window so the way forward and why it is disabled
+ * («Elige cuánto dura») are always in view. Results are announced by the window's region.
+ */
+export function FormActions(props: {
+  templateName: string | null;
+  problemText: string | null;
+  notice: Notice | undefined;
+  actions: BloqueosActions;
+}): React.JSX.Element {
+  const { actions, notice } = props;
+  return (
+    <div className="blq-actions" data-actions="">
       {props.templateName !== null ? (
         <NamingRow name={props.templateName} notice={notice} actions={actions} />
       ) : (
@@ -208,14 +235,13 @@ export function ReasonSection(props: {
           className="blq-row-2"
           help={notice?.text ?? props.problemText ?? E.actions.blockHelp}
           helpTone={notice?.tone ?? (props.problemText ? 'orange' : 'muted')}
-          helpLive="polite"
         >
           <Tile
             id="save"
             label={E.actions.save}
             icon={BookmarkPlus}
             size="door"
-            mnemonic="g"
+            mnemonic={BLOQUEOS_KEYS.save}
             help={E.actions.saveHelp}
             disabled={props.problemText !== null}
             disabledReason={props.problemText ?? undefined}
@@ -227,7 +253,7 @@ export function ReasonSection(props: {
             icon={Lock}
             size="door"
             door
-            mnemonic="b"
+            mnemonic={BLOQUEOS_KEYS.block}
             help={E.actions.blockHelp}
             disabled={props.problemText !== null}
             disabledReason={props.problemText ?? undefined}
@@ -235,6 +261,6 @@ export function ReasonSection(props: {
           />
         </TileRow>
       )}
-    </Section>
+    </div>
   );
 }

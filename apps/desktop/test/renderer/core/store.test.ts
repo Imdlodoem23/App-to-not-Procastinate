@@ -15,16 +15,16 @@ import type {
 import {
   DEFAULT_TEMPLATES,
   draftFromTemplate,
+  uiError,
   type DraftSeed,
   type UiSnapshot,
 } from '../../../src/shared/ui-state';
 import {
   applySnapshotTo,
-  cardForCommand,
   detailForRequest,
   initialUiState,
-  mainWithCard,
 } from '../../../src/renderer/src/store/reducers';
+import { confirmCommand } from '../../../src/renderer/src/app/commands';
 import { createAppStore } from '../../../src/renderer/src/store/store';
 import { bufferPushes, createPushHandlers, newIntentId } from '../../../src/renderer/src/app/push';
 import { createWindowServices } from '../../../src/renderer/src/app/window-services';
@@ -161,36 +161,102 @@ describe('reducers', () => {
         .bloqueos,
     ).toBe(s.detail.bloqueos);
   });
+});
 
-  it('opens a card from a template or a Bloqueos draft', () => {
+describe('confirm commands (tray template, Bloqueos draft)', () => {
+  let n = 0;
+  const mint = (): string => `intent-new-${(n += 1)}`;
+  const deberes = DEFAULT_TEMPLATES[0];
+  if (!deberes) throw new Error('no templates');
+
+  it('opens a card from a template or a Bloqueos draft, disarmed, with the button focused', () => {
     const { store } = storeFor('idle');
     const { snapshot } = store.getState();
-    const fromTemplate = cardForCommand(
+    const main = {
+      ...store.getState().main,
+      armed: { id: 'x', at: 1 },
+      help: { row: 'a', item: 'b' },
+    };
+    const fromTemplate = confirmCommand(
       { type: 'confirm-template', templateId: 'deberes' },
       snapshot,
-      'intent-1',
+      main,
+      mint,
     );
-    const deberes = DEFAULT_TEMPLATES[0];
-    if (!deberes) throw new Error('no templates');
-    expect(fromTemplate).toMatchObject({
-      intentId: 'intent-1',
+    expect(fromTemplate.opened).toBe(true);
+    expect(fromTemplate.focus).toBe('confirm');
+    expect(fromTemplate.dismissIntentId).toBeNull();
+    expect(fromTemplate.main).toMatchObject({ armed: null, help: null });
+    expect(fromTemplate.main.card).toMatchObject({
       origin: 'tray',
       templateId: 'deberes',
       step: 'edit',
       draft: draftFromTemplate(deberes, snapshot.prefs),
     });
-    expect(
-      cardForCommand({ type: 'confirm-template', templateId: 'nope' }, snapshot, 'x'),
-    ).toBeNull();
-    const draft = draftFromTemplate(deberes, snapshot.prefs);
-    const fromDraft = cardForCommand({ type: 'confirm-draft', draft }, snapshot, 'intent-2');
-    expect(fromDraft).toMatchObject({ origin: 'form', draft, templateId: null });
-    if (!fromDraft) throw new Error('card');
-    const main = mainWithCard(
-      { ...store.getState().main, armed: { id: 'x', at: 1 }, help: { row: 'a', item: 'b' } },
-      fromDraft,
+    expect(fromTemplate.main.card?.intentId).toMatch(/^intent-new-\d+$/);
+
+    const unknown = confirmCommand(
+      { type: 'confirm-template', templateId: 'nope' },
+      snapshot,
+      main,
+      mint,
     );
-    expect(main).toMatchObject({ card: fromDraft, armed: null, help: null });
+    expect(unknown.opened).toBe(false);
+    expect(unknown.main).toBe(main);
+
+    const draft = draftFromTemplate(deberes, snapshot.prefs);
+    const fromDraft = confirmCommand({ type: 'confirm-draft', draft }, snapshot, main, mint);
+    expect(fromDraft.main.card).toMatchObject({ origin: 'form', draft, templateId: null });
+  });
+
+  it('never replaces «Bloqueando…» or an unanswered create (it may have landed)', () => {
+    for (const id of ['pending', 'guardian-timeout'] as const) {
+      const { store } = storeFor(id);
+      const { snapshot, main } = store.getState();
+      expect(main.card).not.toBeNull();
+      const draft = draftFromTemplate(deberes, snapshot.prefs);
+      for (const command of [
+        { type: 'confirm-template', templateId: 'leer' } as const,
+        { type: 'confirm-draft', draft } as const,
+      ]) {
+        const result = confirmCommand(command, snapshot, main, mint);
+        expect(result.opened).toBe(false);
+        expect(result.main).toBe(main);
+        expect(result.dismissIntentId).toBeNull();
+      }
+    }
+  });
+
+  it('replaces a rejected create and dismisses it, with or without its card', () => {
+    const { store } = storeFor('guardian-timeout');
+    const { snapshot, main } = store.getState();
+    const create = snapshot.ops.create;
+    if (!create) throw new Error('fixture without a create');
+    const rejected: UiSnapshot = {
+      ...snapshot,
+      ops: {
+        ...snapshot.ops,
+        create: { ...create, error: uiError('rejected', 'duration_out_of_range', 422) },
+      },
+    };
+    const withCard = confirmCommand(
+      { type: 'confirm-template', templateId: 'leer' },
+      rejected,
+      main,
+      mint,
+    );
+    expect(withCard.opened).toBe(true);
+    expect(withCard.dismissIntentId).toBe(create.intentId);
+    expect(withCard.main.card?.intentId).not.toBe(create.intentId);
+
+    const cardless = confirmCommand(
+      { type: 'confirm-template', templateId: 'leer' },
+      rejected,
+      { ...main, card: null },
+      mint,
+    );
+    expect(cardless.opened).toBe(true);
+    expect(cardless.dismissIntentId).toBe(create.intentId);
   });
 });
 
@@ -287,7 +353,7 @@ describe('push handlers', () => {
   });
 
   it('opens the confirmation card for a tray template and focuses its button', () => {
-    const { handlers, services, store } = setup();
+    const { handlers, services, store, bridge } = setup();
     const confirm = vi.fn(() => true);
     services.registerFocus('confirm', confirm);
     handlers['ui:command']({ type: 'confirm-template', templateId: 'leer' });
@@ -295,6 +361,55 @@ describe('push handlers', () => {
     expect(card?.templateId).toBe('leer');
     expect(card?.intentId).toMatch(/^[A-Za-z0-9_.:-]{1,128}$/);
     expect(confirm).toHaveBeenCalledTimes(1);
+    expect(bridge.sent).toEqual([]);
+  });
+
+  it('keeps «Bloqueando…» and the unanswered card, and only focuses them', () => {
+    for (const id of ['pending', 'guardian-timeout'] as const) {
+      const { handlers, services, store, bridge } = setup(id);
+      const confirm = vi.fn(() => true);
+      services.registerFocus('confirm', confirm);
+      const before = store.getState().main;
+      handlers['ui:command']({ type: 'confirm-template', templateId: 'leer' });
+      expect(store.getState().main).toBe(before);
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(bridge.sent).toEqual([]);
+    }
+  });
+
+  it('dismisses the rejected create a tray template replaces', () => {
+    const { handlers, store, bridge } = setup('guardian-timeout');
+    const { snapshot } = store.getState();
+    const create = snapshot.ops.create;
+    if (!create) throw new Error('fixture without a create');
+    store.getState().applySnapshot(
+      bumped(snapshot, {
+        ops: { ...snapshot.ops, create: { ...create, error: uiError('rejected', 'x', 422) } },
+      }),
+    );
+    handlers['ui:command']({ type: 'confirm-template', templateId: 'leer' });
+    expect(store.getState().main.card?.templateId).toBe('leer');
+    expect(bridge.sent).toEqual([
+      { channel: 'block:create-dismiss', payload: { intentId: create.intentId } },
+    ]);
+  });
+
+  it("keeps a fixture's armed «¿Seguro?» through the retarget that follows its load", () => {
+    const { handlers, store } = setup('idle', 'detail');
+    const fixture = harnessFixture('emergency-ready');
+    handlers['ui:harness'](harnessLoad(fixture));
+    expect(store.getState().detail.armed?.id).toBe('emergency-unlock');
+    if (!fixture.detailRequest) throw new Error('fixture without a detail request');
+    handlers['ui:detail'](fixture.detailRequest);
+    expect(store.getState().detail.armed?.id).toBe('emergency-unlock');
+    // Any later retarget (a door) disarms, as does one after the local state changed.
+    handlers['ui:detail'](fixture.detailRequest);
+    expect(store.getState().detail.armed).toBeNull();
+    handlers['ui:harness'](harnessLoad(fixture));
+    store.getState().setHelp({ row: 'x', item: 'y' });
+    handlers['ui:detail'](fixture.detailRequest);
+    expect(store.getState().detail.armed).toBeNull();
+    expect(store.getState().detail.help).toBeNull();
   });
 
   it('retargets the detail window', () => {

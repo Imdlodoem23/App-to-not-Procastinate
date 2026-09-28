@@ -13,8 +13,16 @@
  *   for Bloqueos, Emergencia and Ajustes states), at device pixels;
  * - `<state>-<theme>-<w>x<h>@<scale>.main.png`: for detail states, the main window beside it;
  * - `manifest.<scale>.json`: what this worker wrote (merged into manifest.json by the script).
+ *
+ * Typeface (PROMPT §10 «Tipografía»): the shots feed the README and the web, so they must be
+ * in a family of the brief's stack. Before launching, the worker checks what the launch will
+ * resolve `system-ui` to (`fontPlan`, fontconfig on Linux) and, once the app is up, what
+ * Chromium really drew with (`renderedFonts`); either one outside the stack fails the capture
+ * unless `CENTRATE_CAPTURE_ANY_FONT=1` (`npm run capture -- --any-font`). The font is recorded
+ * in every manifest entry.
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import {
@@ -26,6 +34,7 @@ import {
 import type { WindowKind } from '../../src/shared/ui-state';
 import type { LaunchedApp } from '../support/app';
 import { settleWindow } from '../support/checks';
+import { fontPlan, renderedFonts, type PlatformFont } from '../support/fonts';
 import { THEMES, presetsByScale, selectedFixtures, type CaptureTheme } from '../support/matrix';
 import { expect, test } from '../support/test';
 
@@ -36,6 +45,22 @@ export interface CaptureShot {
   /** Device pixels. */
   width: number;
   height: number;
+}
+
+/** The typeface of a shot, as recorded in the manifest and docs/ui/index.html. */
+export interface CaptureFont {
+  /** Family Chromium drew the 400 text with. */
+  family: string;
+  /** The stack family it stands in for (Selawik → Segoe UI), else `null`. */
+  standsInFor: string | null;
+  /** In the brief's stack (or an accepted stand-in). */
+  inStack: boolean;
+  /** Platform face per weight («Ubuntu-Regular» for a variable font's 600 too). */
+  weights: Record<'400' | '600', PlatformFont | null>;
+  /** How it was chosen (`fontPlan().source`). */
+  source: string;
+  /** `process.platform` of the capture. */
+  platform: NodeJS.Platform;
 }
 
 export interface CaptureEntry {
@@ -51,9 +76,29 @@ export interface CaptureEntry {
   /** The primary shot first (detail window for detail states), then the main window. */
   shots: CaptureShot[];
   settled: boolean;
+  font: CaptureFont;
 }
 
 const OUT = process.env['CENTRATE_CAPTURE_OUT'];
+const ANY_FONT = process.env['CENTRATE_CAPTURE_ANY_FONT'] === '1';
+const FONT_HELP =
+  'install a family of the stack (Linux: `sudo apt-get install fonts-ubuntu`, or ' +
+  'fonts-noto-core; Selawik via CENTRATE_FONT_DIRS for Windows metrics), or pass --any-font';
+
+/** Before any launch: what `system-ui` will resolve to. Throws outside the stack. */
+function fontPreflight(): void {
+  const dir = mkdtempSync(join(tmpdir(), 'centrate-font-'));
+  try {
+    const plan = fontPlan(dir);
+    if (plan.expected && !plan.expected.ok && !ANY_FONT) {
+      throw new Error(
+        `The capture would render in ${plan.expected.family}: ${plan.source}; ${FONT_HELP}.`,
+      );
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 function listEnv<T extends string>(name: string, all: readonly T[]): T[] {
   const raw = process.env[name]?.trim();
@@ -80,8 +125,27 @@ async function shoot(page: Page, file: string, kind: WindowKind): Promise<Captur
   return { file, window: kind, ...pngSize(png) };
 }
 
+/** Once the app is up: what Chromium really drew with. Throws outside the stack. */
+async function appFont(app: LaunchedApp): Promise<CaptureFont> {
+  const rendered = await renderedFonts(app.electron.context(), await app.page('main'));
+  const font: CaptureFont = {
+    family: rendered.family,
+    standsInFor: rendered.standsInFor,
+    inStack: rendered.ok,
+    weights: rendered.weights,
+    source: app.fonts.source,
+    platform: process.platform,
+  };
+  if (!font.inStack && !ANY_FONT) {
+    throw new Error(`The app renders in ${font.family} (${font.source}); ${FONT_HELP}.`);
+  }
+  if (!font.inStack) console.warn(`[capture] NOT the brief's typeface: ${font.family}.`);
+  return font;
+}
+
 async function capture(
   app: LaunchedApp,
+  font: CaptureFont,
   fixture: HarnessFixture,
   theme: CaptureTheme,
   preset: DisplayPresetId,
@@ -112,6 +176,7 @@ async function capture(
     density: await main.evaluate(() => document.documentElement.dataset['density'] ?? null),
     shots,
     settled,
+    font,
   };
 }
 
@@ -119,14 +184,16 @@ for (const group of presetsByScale(presets)) {
   test(`capture @${group.scaleFactor}x (${group.presets.join(', ')})`, async ({ apps }) => {
     if (!OUT) throw new Error('Run through scripts/ui-capture.mjs (CENTRATE_CAPTURE_OUT)');
     mkdirSync(OUT, { recursive: true });
+    fontPreflight();
     const app = await apps.at(group.scaleFactor);
+    const font = await appFont(app);
     const entries: CaptureEntry[] = [];
     for (const preset of group.presets) {
       for (const theme of themes) {
         for (const fixture of fixtures) {
           entries.push(
             await test.step(`${fixture.id} ${theme} ${preset}`, () =>
-              capture(app, fixture, theme, preset)),
+              capture(app, font, fixture, theme, preset)),
           );
         }
       }

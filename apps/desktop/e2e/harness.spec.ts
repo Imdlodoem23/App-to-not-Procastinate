@@ -141,3 +141,45 @@ for (const group of presetsByScale()) {
     });
   }
 }
+
+/**
+ * Fixtures that arm an in-place «¿Seguro?» (`main.armed` / `detail.armed`, e.g.
+ * `emergency-ready`) must render it armed once loaded, detail window retargeted and shown:
+ * red outline (`data-outline="armed"`), label «¿Seguro? …» and the consequence in red on the
+ * row's help line. The screenshot matrix shows exactly this state, always after another
+ * fixture: so each one is loaded after a main-window fixture and after a detail one (the
+ * retarget and the show must not disarm it).
+ */
+const armedFixtures = fixtures.filter((f) => f.main.armed !== null || f.detail.armed !== null);
+
+test('armed fixtures render the in-place «¿Seguro?»', async ({ apps }) => {
+  test.skip(armedFixtures.length === 0, 'no armed fixture selected');
+  const combos = armedFixtures.flatMap((fixture) =>
+    (['idle', 'emergencia'] as const).map((before) => ({ fixture, before })),
+  );
+  for (const { fixture, before } of combos) {
+    await test.step(`${before} → ${fixture.id}`, async () => {
+      const app = await apps.at(DISPLAY_PRESETS[fixture.display].scaleFactor);
+      await app.harness.load(before, { display: fixture.display, theme: 'light' });
+      await settleMain(app);
+      await app.harness.load(fixture.id, { display: fixture.display, theme: 'light' });
+      await settleMain(app);
+      const kind = fixture.detail.armed !== null && fixture.window !== 'main' ? 'detail' : 'main';
+      if (kind === 'detail') {
+        await expect.poll(async () => (await app.harness.bounds()).detail?.visible).toBe(true);
+      }
+      const page = await app.page(kind);
+      const armed = page.locator('.c-tile[data-outline="armed"]');
+      const where = `${fixture.id} after ${before}`;
+      await expect.soft(armed, `${where}: one armed tile (red outline)`).toHaveCount(1);
+      await expect.soft(armed.first(), `${where}: «¿Seguro? …» label`).toHaveText(/^¿Seguro\?/);
+      const help =
+        (await armed.count()) === 1 ? await armed.first().getAttribute('aria-describedby') : null;
+      if (help) {
+        await expect
+          .soft(page.locator(`[id="${help}"]`), `${where}: consequence in red`)
+          .toHaveAttribute('data-tone', 'red');
+      }
+    });
+  }
+});

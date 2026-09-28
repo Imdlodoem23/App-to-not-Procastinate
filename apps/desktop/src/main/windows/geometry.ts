@@ -9,6 +9,10 @@
  *   the **anchored edge** (bottom on Windows, top on macOS), never downwards off screen.
  * - The detail window (600 wide) is glued to the left of the main window with a 6 DIP gap,
  *   to the right when there is no room, and pinned to the work area's left edge otherwise.
+ * - At fractional scale factors every window's left edge and anchored edge sit on the
+ *   display's device-pixel grid (`PixelGrid`), moved 0–3 DIP inward to get there: an origin
+ *   between two pixels makes the platform round the rect outwards (Linux/X11 converts it with
+ *   an enclosing-pixel rounding), so a 440 DIP window became 441–442 DIP wide at 125/150 %.
  */
 import { layout } from '@centrate/shared/design/tokens';
 import type { FrameInsets, Rect } from '../../shared/fixtures';
@@ -108,6 +112,128 @@ function distanceToRect(p: Point, r: Rect): number {
   const dx = Math.max(r.x - p.x, 0, p.x - (rectRight(r) - 1));
   const dy = Math.max(r.y - p.y, 0, p.y - (rectBottom(r) - 1));
   return Math.hypot(dx, dy);
+}
+
+// ---------------------------------------------------------------------------------------
+// Device-pixel grid
+// ---------------------------------------------------------------------------------------
+
+/** Physical pixel edges of a display: `origin + n / scaleFactor` DIP on each axis. */
+export interface PixelGrid {
+  origin: Point;
+  scaleFactor: number;
+}
+
+/** The grid of `display` (pixels counted from its top-left corner, like Windows does). */
+export function pixelGrid(display: Pick<DisplayInfo, 'bounds' | 'scaleFactor'>): PixelGrid {
+  return {
+    origin: { x: display.bounds.x, y: display.bounds.y },
+    scaleFactor: display.scaleFactor,
+  };
+}
+
+/** Most whole DIP an edge moves to reach the grid (4 DIP = 5 px at 125 %: 0–3 moves). */
+export const PIXEL_SNAP_MAX = 3;
+
+const GRID_EPSILON = 1e-6;
+
+/** Whether `value` (DIP) is a physical pixel edge of the axis starting at `origin`. */
+export function isOnPixelGrid(value: number, origin: number, scaleFactor: number): boolean {
+  const px = (value - origin) * scaleFactor;
+  return Math.abs(px - Math.round(px)) < GRID_EPSILON;
+}
+
+/**
+ * How far (DIP) an inset may exceed its nominal value once snapped at `scaleFactor`: 0 at
+ * 100 or 200 %, 3 at 125 % (a pixel edge every 4 DIP), 1 at 150 % (every 2 DIP). 0 as well
+ * when the grid is coarser than 4 DIP (110 %): the edge then stays where it was.
+ */
+export function pixelSnapSlack(scaleFactor: number): number {
+  if (!(scaleFactor > 0)) return 0;
+  for (let step = 1; step <= PIXEL_SNAP_MAX + 1; step += 1) {
+    if (isOnPixelGrid(step, 0, scaleFactor)) return step - 1;
+  }
+  return 0;
+}
+
+export interface SnapLimits {
+  min?: number;
+  max?: number;
+}
+
+/**
+ * `value` rounded to whole DIP, then moved 0–3 DIP towards `preferred` (−1: smaller, +1:
+ * larger) to the nearest device-pixel edge; failing that (a limit in the way), 1–3 DIP the
+ * other way. Candidates outside `limits` are skipped. Without a grid (`null`), an integer
+ * scale factor, or no edge within reach, the rounded value clamped to `limits`.
+ */
+export function snapToPixelGrid(
+  value: number,
+  axisOrigin: number,
+  grid: PixelGrid | null | undefined,
+  preferred: 1 | -1,
+  limits: SnapLimits = {},
+): number {
+  const min = limits.min ?? Number.NEGATIVE_INFINITY;
+  const max = limits.max ?? Number.POSITIVE_INFINITY;
+  const start = Math.min(Math.max(Math.round(value), min), Math.max(min, max));
+  if (!grid || !(grid.scaleFactor > 0) || Number.isInteger(grid.scaleFactor)) return start;
+  for (const direction of [preferred, -preferred]) {
+    for (let k = direction === preferred ? 0 : 1; k <= PIXEL_SNAP_MAX; k += 1) {
+      const candidate = start + direction * k;
+      if (candidate < min || candidate > max) continue;
+      if (isOnPixelGrid(candidate, axisOrigin, grid.scaleFactor)) return candidate;
+    }
+  }
+  return start;
+}
+
+function snapX(
+  value: number,
+  grid: PixelGrid | null | undefined,
+  preferred: 1 | -1,
+  limits?: SnapLimits,
+): number {
+  return snapToPixelGrid(value, grid?.origin.x ?? 0, grid, preferred, limits);
+}
+
+function snapY(
+  value: number,
+  grid: PixelGrid | null | undefined,
+  preferred: 1 | -1,
+  limits?: SnapLimits,
+): number {
+  return snapToPixelGrid(value, grid?.origin.y ?? 0, grid, preferred, limits);
+}
+
+/**
+ * Whether a window set to `requested` came out at another width although `requested` is whole
+ * pixels (left edge on the grid, width a whole number of pixels): the platform kept an older,
+ * rounded-up pixel size. Electron on Linux does that when the DIP size did not change, e.g.
+ * after an earlier off-grid placement: the size must be set again, via a different one.
+ */
+export function needsSizeReapply(
+  requested: Rect,
+  actual: Rect,
+  grid: PixelGrid | null | undefined,
+): boolean {
+  if (!grid || !(grid.scaleFactor > 0) || Number.isInteger(grid.scaleFactor)) return false;
+  const exact =
+    isOnPixelGrid(requested.x, grid.origin.x, grid.scaleFactor) &&
+    isOnPixelGrid(requested.width, 0, grid.scaleFactor);
+  return exact && actual.width !== requested.width;
+}
+
+// ---------------------------------------------------------------------------------------
+// User moves
+// ---------------------------------------------------------------------------------------
+
+/** Readback rounding between where a window was put and where it reports being (DIP). */
+export const MOVE_TOLERANCE = 1;
+
+/** Whether `actual`'s origin is more than `tolerance` DIP away from `expected`'s. */
+export function movedAway(actual: Rect, expected: Rect, tolerance = MOVE_TOLERANCE): boolean {
+  return Math.abs(actual.x - expected.x) > tolerance || Math.abs(actual.y - expected.y) > tolerance;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -216,28 +342,37 @@ export interface MainPlacementInput {
   /** Content height (clamped by the caller or here to the work area). */
   height: number;
   width?: number;
+  /** The display's pixel grid (`pixelGrid(display)`); omitted: whole DIP only. */
+  grid?: PixelGrid | null;
 }
 
 /**
  * Content rect of the main window at its corner: outer edges 10 DIP from the work area's
- * right edge and from the anchored edge.
+ * right edge and from the anchored edge, plus 0–3 DIP at fractional scales so the left and
+ * anchored edges are pixel edges (never closer than 10 DIP).
  */
 export function mainContentRect(input: MainPlacementInput): Rect {
-  const { workArea: wa, frame, anchor } = input;
-  const width = input.width ?? MAIN_CONTENT_WIDTH;
+  const { workArea: wa, frame, anchor, grid } = input;
+  const width = Math.round(input.width ?? MAIN_CONTENT_WIDTH);
   const height = clampContentHeight(input.height, maxContentHeight(wa, frame));
-  const outerWidth = width + frame.left + frame.right;
-  const outerHeight = height + frame.top + frame.bottom;
-  const outerX = rectRight(wa) - SCREEN_INSET - outerWidth;
-  const outerY =
-    anchor === 'bottom' ? rectBottom(wa) - SCREEN_INSET - outerHeight : wa.y + SCREEN_INSET;
-  return roundRect({ x: outerX + frame.left, y: outerY + frame.top, width, height });
+  const x0 = Math.round(rectRight(wa) - SCREEN_INSET - frame.right - width);
+  const x = snapX(x0, grid, -1, { max: x0 });
+  let y: number;
+  if (anchor === 'bottom') {
+    const bottom0 = Math.round(rectBottom(wa) - SCREEN_INSET - frame.bottom);
+    y = snapY(bottom0, grid, -1, { max: bottom0 }) - height;
+  } else {
+    const y0 = Math.round(wa.y + SCREEN_INSET + frame.top);
+    y = snapY(y0, grid, 1, { min: y0 });
+  }
+  return { x, y, width, height };
 }
 
 /**
  * New content rect when the height changes while the window is shown: the anchored edge of
  * `current` stays where it is (bottom: `y = bottom − height`; top: `y` unchanged), then the
- * window is kept inside the work area.
+ * window is kept inside the work area. With a grid, the left and anchored edges go to the
+ * nearest pixel edge (a no-op for a rect this module placed).
  */
 export function resizeAnchored(
   current: Rect,
@@ -245,13 +380,19 @@ export function resizeAnchored(
   anchor: WindowAnchor,
   workArea: Rect,
   frame: FrameInsets,
+  grid?: PixelGrid | null,
 ): Rect {
   const h = clampContentHeight(height, maxContentHeight(workArea, frame));
-  let y = anchor === 'bottom' ? rectBottom(current) - h : current.y;
-  const minY = workArea.y + frame.top;
-  const maxY = rectBottom(workArea) - frame.bottom - h;
-  y = Math.min(Math.max(y, minY), Math.max(minY, maxY));
-  return roundRect({ x: current.x, y, width: current.width, height: h });
+  const minY = Math.round(workArea.y + frame.top);
+  const maxY = Math.max(minY, Math.round(rectBottom(workArea) - frame.bottom - h));
+  let y: number;
+  if (anchor === 'bottom') {
+    y = snapY(rectBottom(current), grid, -1, { min: minY + h, max: maxY + h }) - h;
+  } else {
+    y = snapY(current.y, grid, 1, { min: minY, max: maxY });
+  }
+  const x = snapX(current.x, grid, -1);
+  return { x, y, width: Math.round(current.width), height: h };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -269,6 +410,8 @@ export interface DetailPlacementInput {
   frame: FrameInsets;
   width?: number;
   minHeight?: number;
+  /** The pixel grid of the display it goes on (`pixelGrid(display)`). */
+  grid?: PixelGrid | null;
 }
 
 export interface DetailPlacement {
@@ -280,10 +423,11 @@ export interface DetailPlacement {
 /**
  * Detail window rect: outer height = the main window's outer height (at least 480 of content),
  * clamped to the work area; aligned on the main window's anchored edge; left of it with a
- * 6 DIP gap, else right of it, else pinned to the work area's left edge.
+ * 6 DIP gap, else right of it, else pinned to the work area's left edge. With a grid, its
+ * content's left and anchored edges are pixel edges (the gap then grows by 0–3 DIP).
  */
 export function detailPlacement(input: DetailPlacementInput): DetailPlacement {
-  const { mainOuter, workArea: wa, anchor, frame } = input;
+  const { mainOuter, workArea: wa, anchor, frame, grid } = input;
   const width = input.width ?? DETAIL_CONTENT_WIDTH;
   const minContent = input.minHeight ?? DETAIL_MIN_CONTENT_HEIGHT;
   const outerWidth = width + frame.left + frame.right;
@@ -310,6 +454,34 @@ export function detailPlacement(input: DetailPlacementInput): DetailPlacement {
     x = wa.x;
     side = 'pinned';
   }
-  const outer = roundRect({ x, y, width: outerWidth, height: outerHeight });
-  return { outer, content: roundRect(contentFromOuter(outer, frame)), side };
+  const rounded = roundRect(
+    contentFromOuter({ x, y, width: outerWidth, height: outerHeight }, frame),
+  );
+  if (!grid) return { outer: outerFromContent(rounded, frame), content: rounded, side };
+
+  const minX = Math.round(wa.x + frame.left);
+  const maxX = Math.round(rectRight(wa) - frame.right - rounded.width);
+  const contentX =
+    side === 'left'
+      ? snapX(rounded.x, grid, -1, {
+          min: minX,
+          max: Math.round(mainOuter.x - DETAIL_GAP - frame.right - rounded.width),
+        })
+      : side === 'right'
+        ? snapX(rounded.x, grid, 1, {
+            min: Math.round(rectRight(mainOuter) + DETAIL_GAP + frame.left),
+            max: maxX,
+          })
+        : snapX(rounded.x, grid, 1, { min: minX, max: maxX });
+  const minY = Math.round(wa.y + frame.top);
+  const maxY = Math.max(minY, Math.round(rectBottom(wa) - frame.bottom - rounded.height));
+  const contentY =
+    anchor === 'bottom'
+      ? snapY(rectBottom(rounded), grid, -1, {
+          min: minY + rounded.height,
+          max: maxY + rounded.height,
+        }) - rounded.height
+      : snapY(rounded.y, grid, 1, { min: minY, max: maxY });
+  const content = { ...rounded, x: contentX, y: contentY };
+  return { outer: outerFromContent(content, frame), content, side };
 }

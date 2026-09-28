@@ -10,6 +10,13 @@
  * - At `commitAt` the entry becomes `sending` and gets its `Idempotency-Key`, generated then
  *   and reused by every retry: two automatic retries (1 s, 2 s) on a timeout or refused
  *   connection, then `failed` («No se pudo ampliar · Reintentar»).
+ * - A guardian refusal the same request can never overturn (any 4xx but 429: 409
+ *   `block_not_active` / `not_extendable`, 422 `extension_exceeds_max`, 404…) drops the entry
+ *   and returns the error (the renderer shows its `errorCopy`); only an answer that a retry
+ *   can change (timeout, unreachable, 429, 401, 503, 5xx) leaves a `failed` entry.
+ * - A `failed` entry never lingers: a new click on the same block drops it (the user moved
+ *   on, and its minutes no longer count against the 24 h), `dismiss()` drops it, and it
+ *   expires `EXTEND_FAILED_TTL_MS` after failing.
  * - On 200 the entry leaves the queue and the returned block replaces the old one in the
  *   same publish (after raising the version floor). The countdown only ever shows the
  *   guardian's `endsAt`; `projectedEndsAt` is for the undo line alone.
@@ -46,6 +53,17 @@ import type { SnapshotStore } from './store';
 /** Waits before the automatic retries of a timed-out or refused extension. */
 export const EXTEND_RETRY_DELAYS_MS: readonly number[] = [1_000, 2_000];
 
+/** A `failed` entry («No se pudo ampliar · Reintentar») leaves the queue this long after failing. */
+export const EXTEND_FAILED_TTL_MS = 60_000;
+
+/**
+ * A guardian refusal that resending the same request (same key and body, judged again) can
+ * never overturn. 429 `rate_limited` is the one 4xx a later «Reintentar» can pass.
+ */
+export function isFinalExtendRefusal(error: UiError): boolean {
+  return error.kind === 'rejected' && error.code !== 'rate_limited';
+}
+
 const ENTRY_ID_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 
 export function isExtendEntryId(value: unknown): value is string {
@@ -64,9 +82,12 @@ export interface ExtendDeps {
   onExtended: () => void;
   /** Retries exhausted on a timeout or refused connection. */
   onUnresponsive: () => void;
+  /** A final refusal dropped the entry (e.g. `block_not_active`: refresh the state). */
+  onRefused: (error: UiError) => void;
 }
 
 interface EntryRuntime {
+  /** `waiting`: the commit at `commitAt`; `failed`: the expiry after `EXTEND_FAILED_TTL_MS`. */
   timer: TimerHandle | null;
   key: string | null;
   sending: Promise<CommandResult<null>> | null;
@@ -82,10 +103,11 @@ export class ExtendQueue {
 
   constructor(private readonly deps: ExtendDeps) {}
 
-  /** Arm timers for `waiting` entries already in the snapshot (harness load). */
+  /** Arm timers for entries already in the snapshot (harness load). */
   adopt(): void {
     for (const entry of this.deps.store.get().ops.extendQueue) {
       if (entry.status === 'waiting') this.arm(entry);
+      else if (entry.status === 'failed') this.armExpiry(entry.id);
     }
   }
 
@@ -106,7 +128,15 @@ export class ExtendQueue {
     const block = s.state?.blocks.find((b) => b.id === id) ?? null;
     if (!block) return fail(uiError('rejected', 'block_not_active', 409));
     if (block.kind === 'punishment') return fail(uiError('rejected', 'not_extendable', 409));
-    const max = maxExtendMinutes(block, s.ops, now);
+    // An accepted click drops this block's failed entries: they no longer count.
+    const stale = new Set(
+      s.ops.extendQueue.filter((e) => e.blockId === id && e.status === 'failed').map((e) => e.id),
+    );
+    const live =
+      stale.size === 0
+        ? s.ops
+        : { ...s.ops, extendQueue: s.ops.extendQueue.filter((e) => !stale.has(e.id)) };
+    const max = maxExtendMinutes(block, live, now);
     if (addMinutes > max) {
       return fail(uiError('rejected', 'extension_exceeds_max', 422, { maxAddMinutes: max }));
     }
@@ -123,7 +153,8 @@ export class ExtendQueue {
       status: 'waiting',
       error: null,
     };
-    store.update((snap) => withEntry(snap, entry));
+    for (const staleId of stale) this.forget(staleId);
+    store.update((snap) => withEntry(withoutEntries(snap, stale), entry));
     this.arm(entry);
     return ok({ entryId: entry.id, commitAt });
   }
@@ -145,8 +176,20 @@ export class ExtendQueue {
     const rt = this.rt(entry.id);
     if (entry.status === 'sending' && rt.sending) return rt.sending;
     if (entry.status !== 'failed') return Promise.resolve(fail(uiError('rejected', 'not_failed', 409)));
+    this.disarm(entry.id);
     this.setStatus(entry.id, 'sending', null);
     return this.send(entry.id);
+  }
+
+  /**
+   * Drops a `failed` entry without resending it (Esc or «Descartar» on «No se pudo ampliar»,
+   * once a channel exists). `false` when the entry is not failed (any more).
+   */
+  dismiss(entryId: unknown): boolean {
+    const entry = this.find(entryId);
+    if (!entry || entry.status !== 'failed') return false;
+    this.drop(entry.id);
+    return true;
   }
 
   /** Commit every waiting entry now and wait for the sends («Salir»). */
@@ -166,10 +209,7 @@ export class ExtendQueue {
   reconcile(state: GuardianStateResponse): void {
     const blocks = new Map(state.blocks.map((b) => [b.id, b] as const));
     for (const entry of this.deps.store.get().ops.extendQueue) {
-      if (!blocks.has(entry.blockId) && entry.status !== 'sending') {
-        this.disarm(entry.id);
-        this.runtime.delete(entry.id);
-      }
+      if (!blocks.has(entry.blockId) && entry.status !== 'sending') this.forget(entry.id);
     }
     this.deps.store.update((s) => {
       let changed = false;
@@ -233,6 +273,29 @@ export class ExtendQueue {
     }
   }
 
+  /** A failed entry leaves the queue `EXTEND_FAILED_TTL_MS` from now, unless retried. */
+  private armExpiry(id: string): void {
+    if (this.stopped) return;
+    const rt = this.rt(id);
+    this.disarm(id);
+    rt.timer = this.deps.clock.setTimeout(() => {
+      rt.timer = null;
+      const entry = this.deps.store.get().ops.extendQueue.find((e) => e.id === id);
+      if (entry?.status === 'failed') this.drop(id);
+    }, EXTEND_FAILED_TTL_MS);
+  }
+
+  /** Stop the entry's timer and forget its key (the entry leaves the queue). */
+  private forget(id: string): void {
+    this.disarm(id);
+    this.runtime.delete(id);
+  }
+
+  private drop(id: string): void {
+    this.forget(id);
+    this.deps.store.update((s) => withoutEntry(s, id));
+  }
+
   private commit(id: string): Promise<CommandResult<null>> {
     const entry = this.deps.store.get().ops.extendQueue.find((e) => e.id === id);
     if (!entry || entry.status !== 'waiting') {
@@ -287,7 +350,14 @@ export class ExtendQueue {
           await sleep(clock, delay).promise;
           continue;
         }
+        if (isFinalExtendRefusal(uiErr)) {
+          // Same key and body would get the same answer: no «Reintentar», nothing lingers.
+          this.drop(id);
+          this.deps.onRefused(uiErr);
+          return fail(uiErr);
+        }
         this.setStatus(id, 'failed', uiErr);
+        this.armExpiry(id);
         if (isGuardianUnresponsive(uiErr)) this.deps.onUnresponsive();
         return fail(uiErr);
       }
@@ -312,6 +382,10 @@ function withEntry(s: UiSnapshot, entry: ExtendEntry): UiSnapshot {
 }
 
 function withoutEntry(s: UiSnapshot, id: string): UiSnapshot {
-  if (!s.ops.extendQueue.some((e) => e.id === id)) return s;
-  return { ...s, ops: { ...s.ops, extendQueue: s.ops.extendQueue.filter((e) => e.id !== id) } };
+  return withoutEntries(s, new Set([id]));
+}
+
+function withoutEntries(s: UiSnapshot, ids: ReadonlySet<string>): UiSnapshot {
+  if (ids.size === 0 || !s.ops.extendQueue.some((e) => ids.has(e.id))) return s;
+  return { ...s, ops: { ...s.ops, extendQueue: s.ops.extendQueue.filter((e) => !ids.has(e.id)) } };
 }

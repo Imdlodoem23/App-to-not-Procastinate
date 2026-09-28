@@ -139,6 +139,10 @@ type Engine struct {
 	cancel   context.CancelFunc
 	loopCtx  context.Context
 	wg       sync.WaitGroup
+	// ioWG tracks the hosts write and DNS flush workers (enforce.go); Stop waits for
+	// them once no turn can start any more, and then no new one starts (ioStopped).
+	ioWG      sync.WaitGroup
+	ioStopped bool
 	// inlineMu serializes commands while no loop runs.
 	inlineMu sync.Mutex
 
@@ -163,12 +167,18 @@ type Engine struct {
 	startedAt int64
 	lastWall  time.Time
 	loopMode  bool
+	// inlineCalibration runs a due calibration inside the turn even on the loop
+	// (TestClock).
+	inlineCalibration bool
 
 	mode          string
 	startProblems []string
 	diskFull      bool
 	curReq        *string
 	idem          []store.IdempotencyRecord
+	// replayedReqs are the req fingerprints of the events replayed at startup (with
+	// their latest trusted time), for addLostResponses.
+	replayedReqs map[string]int64
 
 	enf           enforcementPlan
 	enfDirty      bool
@@ -460,6 +470,7 @@ func (e *Engine) Stop() error {
 	e.wg.Wait()
 	e.inlineMu.Lock()
 	defer e.inlineMu.Unlock()
+	e.waitIO()
 	e.lifeMu.Lock()
 	e.running = false
 	opened := e.opened
@@ -475,7 +486,7 @@ func (e *Engine) Stop() error {
 			errs = append(errs, err)
 		}
 	}
-	if err := e.st.SaveClock(e.det.Snapshot()); err != nil {
+	if err := e.saveClock(e.st.LastSeq(), true); err != nil {
 		errs = append(errs, err)
 	}
 	if err := e.st.MarkCleanShutdown(); err != nil {
@@ -607,6 +618,7 @@ func (e *Engine) step() {
 
 // afterTurn reconciles enforcement when dirty or due and saves state when due.
 func (e *Engine) afterTurn() {
+	e.pollHosts()
 	if e.enfDirty || e.bootNow-e.lastReconcile >= reconcileEvery {
 		e.reconcile()
 	}
@@ -645,6 +657,9 @@ func (e *Engine) timeStep() {
 	if j.Suspended {
 		e.scheduleCalibration(e.bootNow + calibrateAfterBoot)
 		e.enfDirty = true
+		// The snapshot is from before the suspend; a crash now must not count the sleep
+		// as a stop.
+		e.markDirty(true)
 	}
 	dAwake := min(max(e.awakeNow-e.lastAwake, 0), maxAwakePerTick)
 	dBoot := max(e.bootNow-e.lastBoot, 0)
@@ -692,9 +707,19 @@ func (e *Engine) serverNow() string { return fmtTime(e.o.Clock.Wall()) }
 
 // commit appends a batch and applies it (§11.3 steps 3–6). On a store failure nothing
 // is applied and the error is the 503 read_only answer.
+//
+// run/clock.json is written first, at the log position the batch will end at: the
+// clock snapshot is never older than the log, whenever the guardian stops, so at the
+// next start a snapshot older than the log can only be an old copy put back or the
+// result of a failed write (restoreClock), and a calibration correction in the batch is
+// already in it.
 func (e *Engine) commit(b *batch) error {
 	if b.empty() {
 		return nil
+	}
+	if err := e.saveClock(e.st.LastSeq()+int64(len(b.events)), false); err != nil {
+		e.countError("clock_save")
+		e.log.Warn("clock snapshot save failed", "err", err)
 	}
 	out, err := e.st.AppendBatch(b.events)
 	if err != nil {
@@ -756,13 +781,15 @@ func (e *Engine) persistIfDue() {
 	if !e.urgent && e.bootNow-e.lastSave < saveEvery {
 		return
 	}
-	if err := e.saveState(); err != nil {
-		e.log.Warn("state save failed", "err", err)
-		e.countError("state_save")
-		return
-	}
-	if err := e.st.SaveClock(e.det.Snapshot()); err != nil {
+	// The clock snapshot is the last trace of this run (restoreClock): kept fresh even
+	// while state.json cannot be written.
+	serr := e.saveState()
+	if err := e.saveClock(e.st.LastSeq(), false); err != nil {
 		e.log.Warn("clock snapshot save failed", "err", err)
+	}
+	if serr != nil {
+		e.log.Warn("state save failed", "err", serr)
+		e.countError("state_save")
 	}
 }
 

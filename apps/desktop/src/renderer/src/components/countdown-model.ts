@@ -5,12 +5,12 @@
  * wakes it when the displayed second changes.
  */
 import {
-  countdownAnnouncement,
   countdownAria,
   nextTickDelay,
   splitCountdown,
   type CountdownParts,
 } from '../../../shared/format';
+import { SHARED_ES } from '../../../shared/i18n/es';
 
 export interface CountdownModel {
   remainingMs: number;
@@ -36,9 +36,47 @@ export function countdownModel(endsAt: string | number, nowMs: number): Countdow
 }
 
 /**
- * The polite announcement for a move from `prevMs` to `nextMs` remaining (15, 5 and 1 min, and
- * the end), or `null`. The first render (`prevMs === null`) never speaks.
+ * What a countdown's polite region says: `mark(15 | 5 | 1)` as it crosses those minutes and
+ * `end` when it reaches zero. `false`: the countdown has no live region (its owner announces,
+ * or nothing is worth announcing).
  */
-export function countdownSpeech(prevMs: number | null, nextMs: number): string | null {
-  return prevMs === null ? null : countdownAnnouncement(prevMs, nextMs);
+export type CountdownAnnounce = false | { mark(minutes: number): string; end: string };
+
+/** A block's countdown: «Quedan 15 minutos», «Queda 1 minuto», «Bloqueo terminado». */
+export const BLOCK_COUNTDOWN_ANNOUNCE: Exclude<CountdownAnnounce, false> = {
+  mark: SHARED_ES.remaining.announce,
+  end: SHARED_ES.remaining.ended,
+};
+
+/** The minutes a countdown announces as it crosses them. */
+export const COUNTDOWN_MARKS_MINUTES = [15, 5, 1] as const;
+
+/**
+ * A mark is spoken only while it is still true: within this long after crossing it. A jump
+ * over a mark (a sleep while visible, a stalled renderer) stays quiet rather than saying
+ * «Quedan 5 minutos» when 3 are left.
+ */
+export const COUNTDOWN_MARK_FRESH_MS = 30_000;
+
+/**
+ * The polite announcement for a move from `prevMs` to `nextMs` remaining, or `null`:
+ * - the first reading (`prevMs === null`, also after the window was hidden) never speaks;
+ * - reaching zero says `end`;
+ * - crossing exactly one mark says it, if that happened in the last 30 s; crossing several
+ *   at once, or long ago, says nothing.
+ */
+export function countdownSpeech(
+  prevMs: number | null,
+  nextMs: number,
+  texts: Exclude<CountdownAnnounce, false> = BLOCK_COUNTDOWN_ANNOUNCE,
+): string | null {
+  if (prevMs === null || nextMs >= prevMs) return null;
+  if (prevMs > 0 && nextMs <= 0) return texts.end;
+  if (nextMs <= 0) return null;
+  const crossed = COUNTDOWN_MARKS_MINUTES.filter(
+    (m) => prevMs > m * 60_000 && nextMs <= m * 60_000,
+  );
+  if (crossed.length !== 1) return null;
+  const minutes = crossed[0] as number;
+  return minutes * 60_000 - nextMs <= COUNTDOWN_MARK_FRESH_MS ? texts.mark(minutes) : null;
 }

@@ -6,15 +6,22 @@
 //
 // Usage (from apps/desktop, after `npm run build`):
 //   npm run capture [-- --states idle,typing] [--themes dark] [--presets 1366x768@125]
-//                   [--out <dir>] [--index-only]
+//                   [--out <dir>] [--index-only] [--any-font]
 //
 // - The shots are taken by the Playwright project `capture` (e2e/capture/screens.capture.ts),
 //   which this script runs with CENTRATE_CAPTURE=1; one app per scale factor, in parallel.
 // - Linux without a display: re-runs itself under
 //   `xvfb-run -a -s "-screen 0 2880x1800x24"` (the default xvfb screen is 640×480×8).
 // - `--index-only` rebuilds index.html from docs/ui/manifest.json without launching anything.
-// - A full run (no filter) replaces every PNG in the output folder; a filtered run replaces
+// - A full run (no filter) replaces every PNG in the output folder (old ones are removed only
+//   after the new ones are written, so a failed run never empties it); a filtered run replaces
 //   only the shots it takes and keeps the rest of the manifest.
+// - Typeface (PROMPT §10 «Tipografía»): the shots must be in a family of the brief's stack.
+//   On Linux, e2e/support/fonts.ts gives every launch a private fontconfig file that puts
+//   Selawik (Segoe UI's metrics, from CENTRATE_FONT_DIRS or installed), Ubuntu or Noto Sans
+//   behind `system-ui`. This script refuses to start when none is installed, and the capture
+//   fails when Chromium draws with anything else; `--any-font` downgrades both to a warning.
+//   The font is recorded in manifest.json and shown in index.html.
 //
 // The G-Helper reference screenshots (GPL) are never copied into the repository: index.html
 // names their local path in a comment and can show them next to ours from a file picker.
@@ -36,9 +43,18 @@ const GHELPER_SHOTS = [
 ];
 const THEME_LABELS = { light: 'Claro', dark: 'Oscuro' };
 const PRESET_ORDER = ['1920x1080@100', '1920x1080@150', '1366x768@100', '1366x768@125'];
+/** Families of the stack a Linux capture can use (e2e/support/fonts.ts), in preference order. */
+const LINUX_STACK_FONTS = ['Selawik', 'Ubuntu', 'Noto Sans'];
 
 function parseArgs(argv) {
-  const options = { states: '', themes: '', presets: '', out: DEFAULT_OUT, indexOnly: false };
+  const options = {
+    states: '',
+    themes: '',
+    presets: '',
+    out: DEFAULT_OUT,
+    indexOnly: false,
+    anyFont: false,
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const [name, inline] = arg.split(/=(.*)/s, 2);
@@ -53,6 +69,7 @@ function parseArgs(argv) {
     else if (name === '--presets') options.presets = value();
     else if (name === '--out') options.out = resolve(value());
     else if (name === '--index-only') options.indexOnly = true;
+    else if (name === '--any-font') options.anyFont = true;
     else if (name === '--help' || name === '-h') {
       console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n\n')[0]);
       process.exit(0);
@@ -84,20 +101,66 @@ function ensureDisplay() {
   process.exit(result.status ?? 1);
 }
 
+/**
+ * Linux: at least one family of the stack must be installed (or font folders given in
+ * CENTRATE_FONT_DIRS, which the capture itself checks), or the shots would be in DejaVu.
+ */
+function fontPreflight(options) {
+  if (process.platform !== 'linux' || process.env.CENTRATE_FONTS === 'system') return;
+  if (process.env.CENTRATE_UNDER_XVFB) return; // checked before the re-run under xvfb
+  if ((process.env.CENTRATE_FONT_DIRS ?? '').trim()) return;
+  const list = spawnSync('fc-list', [':', 'family'], { encoding: 'utf8' });
+  const installed = new Set(
+    (list.stdout ?? '')
+      .split('\n')
+      .flatMap((line) => line.split(','))
+      .map((name) => name.trim()),
+  );
+  const usable = LINUX_STACK_FONTS.filter((family) => installed.has(family));
+  if (usable.length > 0) {
+    console.log(`Typeface: ${usable[0]} (stands for system-ui through a private fontconfig file).`);
+    return;
+  }
+  const fallback =
+    spawnSync('fc-match', ['-f', '%{family[0]}', 'sans'], { encoding: 'utf8' }).stdout?.trim() ||
+    'an unknown font';
+  const message =
+    `No family of the brief's font stack is installed: the shots would be in ${fallback}. ` +
+    'Install one (`sudo apt-get install fonts-ubuntu`, or fonts-noto-core), or put Selawik ' +
+    '(Segoe UI metrics) in a folder named by CENTRATE_FONT_DIRS.';
+  if (!options.anyFont) throw new Error(`${message} (--any-font captures anyway.)`);
+  console.warn(`WARNING: ${message}`);
+}
+
+/** Per-worker manifests (`manifest.<scale>.json`) left in `out`. */
+function workerManifests(out) {
+  return readdirSync(out).filter((file) => /^manifest\..+\.json$/.test(file));
+}
+
+/** After a full run: removes the PNGs this run did not write (states or presets gone). */
+function pruneStale(out) {
+  const fresh = workerManifests(out);
+  if (fresh.length === 0) return;
+  const written = new Set();
+  for (const file of fresh) {
+    for (const entry of JSON.parse(readFileSync(join(out, file), 'utf8'))) {
+      for (const shot of entry.shots) written.add(shot.file);
+    }
+  }
+  for (const file of readdirSync(out)) {
+    if (file.endsWith('.png') && !written.has(file)) rmSync(join(out, file));
+  }
+}
+
 function runCapture(options) {
   if (!existsSync(MAIN_ENTRY)) {
     throw new Error(
       `${relative(REPO_ROOT, MAIN_ENTRY)} is missing: run \`npm run build -w apps/desktop\` first.`,
     );
   }
-  const filtered = Boolean(options.states || options.themes || options.presets);
   mkdirSync(options.out, { recursive: true });
-  if (!filtered) {
-    for (const file of readdirSync(options.out)) {
-      if (file.endsWith('.png') || /^manifest\..+\.json$/.test(file))
-        rmSync(join(options.out, file));
-    }
-  }
+  // Leftovers of an interrupted run would be merged as if they were new.
+  for (const file of workerManifests(options.out)) rmSync(join(options.out, file));
   const require = createRequire(join(APP_DIR, 'package.json'));
   const cli = join(dirname(require.resolve('@playwright/test/package.json')), 'cli.js');
   const env = {
@@ -107,13 +170,40 @@ function runCapture(options) {
     E2E_STATES: options.states,
     CENTRATE_CAPTURE_THEMES: options.themes,
     CENTRATE_CAPTURE_PRESETS: options.presets,
+    CENTRATE_CAPTURE_ANY_FONT: options.anyFont ? '1' : '',
   };
   const result = spawnSync(
     process.execPath,
     [cli, 'test', '-c', 'playwright.config.ts', '--project', 'capture', '--reporter', 'list'],
     { cwd: APP_DIR, stdio: 'inherit', env },
   );
+  const filtered = Boolean(options.states || options.themes || options.presets);
+  if (!filtered) pruneStale(options.out);
   return result.status ?? 1;
+}
+
+/** The distinct typefaces of `entries` (normally one), most shots first. */
+function fontsOf(entries) {
+  const byKey = new Map();
+  for (const entry of entries) {
+    if (!entry.font) continue;
+    const key = `${entry.font.family}|${entry.font.standsInFor ?? ''}`;
+    const known = byKey.get(key) ?? { ...entry.font, shots: 0 };
+    known.shots += entry.shots.length;
+    byKey.set(key, known);
+  }
+  return [...byKey.values()].sort((a, b) => b.shots - a.shots);
+}
+
+/** «Ubuntu (400 Ubuntu-Regular · 600 Ubuntu-Regular)», with the stand-in or the warning. */
+function describeFont(font) {
+  const faces = ['400', '600']
+    .map((w) => (font.weights?.[w] ? `${w} ${font.weights[w].postScriptName}` : null))
+    .filter(Boolean)
+    .join(' · ');
+  const standIn = font.standsInFor ? `, con las medidas de ${font.standsInFor}` : '';
+  const warning = font.inStack ? '' : ', fuera de la pila de la guía';
+  return `${font.family}${standIn}${faces ? ` (${faces})` : ''}${warning}`;
 }
 
 /** Merges the per-worker manifests into manifest.json (new shots replace old ones). */
@@ -126,16 +216,16 @@ function mergeManifest(out) {
       if (entry.shots.every((s) => existsSync(join(out, s.file)))) entries.set(keyOf(entry), entry);
     }
   }
-  for (const file of readdirSync(out)) {
-    if (!/^manifest\..+\.json$/.test(file)) continue;
+  for (const file of workerManifests(out)) {
     for (const entry of JSON.parse(readFileSync(join(out, file), 'utf8')))
       entries.set(keyOf(entry), entry);
     rmSync(join(out, file));
   }
   const list = [...entries.values()];
+  const fonts = fontsOf(list);
   writeFileSync(
     path,
-    `${JSON.stringify({ generatedAt: new Date().toISOString(), entries: list }, null, 2)}\n`,
+    `${JSON.stringify({ generatedAt: new Date().toISOString(), fonts, entries: list }, null, 2)}\n`,
   );
   return list;
 }
@@ -205,6 +295,15 @@ function renderIndex(entries, out) {
     })
     .join('');
   const nav = states.map((s) => `<a href="#${s.id}">${escapeHtml(s.label)}</a>`).join('');
+  const fonts = fontsOf(entries);
+  const how = {
+    linux: 'en Linux, puesta detrás de system-ui con un fontconfig propio de la captura',
+    win32: 'la del sistema en Windows',
+    darwin: 'la del sistema en macOS',
+  };
+  const fontLine = fonts.length
+    ? `<p>Tipografía: ${fonts.map((f) => `<span${f.inStack ? '' : ' class="off-stack"'}>${escapeHtml(describeFont(f))}</span>`).join('; ')}, ${escapeHtml(how[fonts[0].platform] ?? 'la del sistema')} (<code>e2e/support/fonts.ts</code>).</p>`
+    : '<p class="off-stack">Tipografía: sin registrar (capturas anteriores a manifest.fonts).</p>';
   const generated = new Date().toISOString().slice(0, 16).replace('T', ' ');
 
   return `<!doctype html>
@@ -242,6 +341,7 @@ ${GHELPER_SHOTS.map((p) => `    ${p}`).join('\n')}
   .shots { display: flex; gap: 6px; align-items: flex-end; }
   .shots img { display: block; outline: var(--size-border) solid var(--border); }
   figcaption { font-size: var(--font-size-12); color: var(--fg-muted); }
+  .off-stack { color: var(--red-text); }
   #reference { position: fixed; right: var(--space-4); bottom: var(--space-4); max-width: 45vw; max-height: 70vh; overflow: auto; background: var(--tile); border: var(--size-border) solid var(--border); padding: var(--space-2); display: flex; gap: var(--space-2); align-items: flex-end; }
   #reference[hidden] { display: none; }
   #reference img { display: block; max-width: 100%; }
@@ -252,6 +352,7 @@ ${GHELPER_SHOTS.map((p) => `    ${p}`).join('\n')}
 <header>
   <h1>Capturas de la interfaz.</h1>
   <p>${states.length} estados en claro y oscuro, en ${presets.length} pantallas, a tamaño real (DIP; el enlace abre la captura a píxel de pantalla). Generado el ${generated} UTC con <code>npm run capture -w apps/desktop</code>.</p>
+  ${fontLine}
   <form class="controls" onsubmit="return false">
     <fieldset><legend>Pantalla</legend>${presetRadios}</fieldset>
     <fieldset><legend>Tema</legend>
@@ -300,6 +401,7 @@ function main() {
   const options = parseArgs(process.argv.slice(2));
   let status = 0;
   if (!options.indexOnly) {
+    fontPreflight(options);
     ensureDisplay();
     status = runCapture(options);
   }

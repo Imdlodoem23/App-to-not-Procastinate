@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Céntrate</title>
+    <link rel="stylesheet" href="popup.css" />
+    <script type="module" src="popup.js"></script>
+  </head>
+  <body>
+    <main id="main" class="column popup" aria-busy="true">
+      <h1 class="visually-hidden">Céntrate</h1>
+      <p id="popup-live" class="visually-hidden" role="status"></p>
+      <section id="notices" class="section" aria-labelledby="notices-title" hidden>
+        <h2 id="notices-title" class="visually-hidden"></h2>
+        <div id="notices-list" class="notices"></div>
+        <p id="notices-help" class="help"></p>
+      </section>
+      <section id="block" class="section" aria-labelledby="block-title" hidden>
+        <div class="section-header">
+          <h2 id="block-title" class="section-title" tabindex="-1"></h2>
+          <span id="block-until" class="section-value"></span>
+        </div>
+        <div id="block-countdown" hidden></div>
+        <div id="block-bar" class="mode-bar" aria-hidden="true" hidden></div>
+        <p id="block-live" class="visually-hidden" aria-live="polite"></p>
+        <p id="block-help" class="help"></p>
+        <ul id="block-rows" class="rows" hidden></ul>
+      </section>
+      <section id="pairing" class="section" aria-labelledby="pairing-title" hidden>
+        <div class="section-header">
+          <h2 id="pairing-title" class="section-title"></h2>
+        </div>
+        <p id="pairing-intro" class="text-muted"></p>
+        <div id="pairing-slot"></div>
+      </section>
+    </main>
+    <footer class="column footer">
+      <div class="footer-status">
+        <span id="status-dot" class="dot"></span>
+        <span id="status-text" role="status"></span>
+        <span id="status-version" class="footer-version"></span>
+      </div>
+      <div class="tiles footer-tiles">
+        <button id="open-guide" class="tile tile--text tile--door" type="button">
+          <span id="open-guide-label" class="tile-label"></span>
+        </button>
+        <button id="retry" class="tile tile--text tile--door" type="button" hidden>
+          <span id="retry-label" class="tile-label"></span>
+        </button>
+      </div>
+      <p id="footer-help" class="help"></p>
+    </footer>
+  </body>
+</html>

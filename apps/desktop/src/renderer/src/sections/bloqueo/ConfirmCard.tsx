@@ -7,14 +7,7 @@
  * While the guardian has not confirmed: «Bloqueando…» (no spinner); no answer in 3 s:
  * «El guardián no responde · Reintentar · Reparar».
  */
-import {
-  useEffect,
-  useLayoutEffect,
-  useReducer,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { ConfirmButton, Field, HelpLine, Tile, TileRow, type HelpTone } from '../../components';
 import { useHelp } from '../../hooks/useHelp';
 import { useRepair } from '../../hooks/useRepair';
@@ -33,6 +26,8 @@ import type { BloqueoActions, BloqueoNotice, BloqueoRefs } from './useBloqueo';
 import { BLOQUEO_FIELD_ID, BLOQUEO_ROWS, type CardActionView, type CardView } from './view';
 
 const HELP_ID = 'bloqueo-card-help';
+/** Screen readers: what the confirm button commits (read with it, before the help line). */
+const SUMMARY_ID = 'bloqueo-card-summary';
 const REASON_ID = 'bloqueo-reason';
 
 const EDITOR_LABEL: Readonly<Record<CardField, string>> = {
@@ -106,18 +101,7 @@ export function ConfirmCard(props: {
   const actionsHelp = useHelp(BLOQUEO_ROWS.actions);
   const snapshot = useAppStore((s) => s.snapshot);
   const draft = useAppStore((s) => s.main.card?.draft ?? null);
-  const visible = useAppStore((s) => s.env.visible);
-
-  // Re-render when «Sí, bloquear 6 h» unlocks (real clock only; a frozen harness stays).
-  const [, tick] = useReducer((n: number) => n + 1, 0);
-  const frozen = snapshot.harness?.frozenNowMs ?? null;
-  useEffect(() => {
-    if (card.unlockAt === null || frozen !== null || !visible) return undefined;
-    const left = card.unlockAt - Date.now();
-    if (left <= 0) return undefined;
-    const timer = setTimeout(tick, left + 4);
-    return () => clearTimeout(timer);
-  }, [card.unlockAt, frozen, visible]);
+  // «Sí, bloquear 6 h» unlocks when `useBloqueo` re-renders the view at `wakeAt` (= unlockAt).
 
   // A new card puts the focus on its confirm button (Enter confirms).
   useLayoutEffect(() => {
@@ -170,11 +154,15 @@ export function ConfirmCard(props: {
         <div key={a.id} className={`bq-span-${a.span}`} {...hover}>
           <ConfirmButton
             ref={refs.primary}
-            className="bq-confirm"
+            // Busy («Bloqueando…») and locked («Sí, bloquear 6 h» for 2 s) ignore presses like
+            // a disabled button but keep a full-contrast label (bloqueo.css).
+            className={
+              a.busy ? 'bq-confirm bq-busy' : a.locked ? 'bq-confirm bq-locked' : 'bq-confirm'
+            }
             label={a.label}
-            disabled={a.disabled || a.locked}
+            disabled={a.disabled || a.locked || a.busy}
             mnemonic={a.mnemonic ?? undefined}
-            describedBy={HELP_ID}
+            describedBy={`${SUMMARY_ID} ${HELP_ID}`}
             onPress={actions.enter}
           />
         </div>
@@ -280,6 +268,9 @@ export function ConfirmCard(props: {
       </div>
 
       <div className="bq-actions">
+        <span id={SUMMARY_ID} className="sr-only">
+          {card.summary}
+        </span>
         <div className="bq-actions-grid">{card.actions.map(renderAction)}</div>
         <HelpLine id={HELP_ID} tone={helpTone} live="polite">
           {helpText}

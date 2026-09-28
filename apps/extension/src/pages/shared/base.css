@@ -1,0 +1,353 @@
+/*
+ * Base styles of the extension pages (blocked.html, popup, guide): the app's G-Helper look
+ * (PROMPT §10 «Estilo visual») on the shared design tokens. Every color, size and duration
+ * comes from tokens.css (bundled by esbuild); scripts/lint-colors.mjs rejects loose colors.
+ */
+@import '@centrate/shared/design/tokens.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-13);
+  font-weight: var(--font-weight-normal);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/*
+ * Chromium injects `body { font-family: system-ui; font-size: 75% }` into extension pages
+ * (popup and options): restate the font on body so text that inherits stays at 13 px.
+ */
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-13);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol,
+dl,
+dd,
+figure,
+blockquote {
+  margin: 0;
+}
+
+a {
+  color: var(--blue);
+  text-underline-offset: 2px;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+/* Focus: 2 px blue ring, keyboard only. */
+:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Layout: one 440 px column, 12 px side margins, 12 px between sections, no separators. */
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--section-gap);
+  width: var(--layout-main-width);
+  max-width: 100%;
+  margin-inline: auto;
+  padding: var(--layout-margin);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* «Cosa: valor» header: 16 px icon, bold title, live value on the right in normal weight. */
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--size-header);
+}
+
+.section-header > .icon {
+  flex: none;
+}
+
+.section-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-13);
+  font-weight: var(--font-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.section-value {
+  flex: none;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.text-muted {
+  color: var(--fg-muted);
+}
+
+.label {
+  font-size: var(--font-size-12);
+  line-height: var(--line-height-12);
+  color: var(--fg-muted);
+}
+
+/* Help line: 12 px grey, one line, its height always reserved. */
+.help {
+  min-height: var(--line-height-12);
+  font-size: var(--font-size-12);
+  line-height: var(--line-height-12);
+  color: var(--fg-muted);
+}
+
+.help[data-tone='red'] {
+  color: var(--red-text);
+}
+
+/* Countdown: 48 px, 600, tabular, seconds at 60 %. */
+.countdown {
+  font-size: var(--countdown-size);
+  line-height: var(--countdown-size);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-countdown);
+}
+
+.countdown-seconds {
+  opacity: var(--countdown-seconds-opacity);
+}
+
+/* Status dot (8 px) with its accent; always next to text. */
+.dot {
+  flex: none;
+  width: var(--size-status-dot);
+  height: var(--size-status-dot);
+  border-radius: 50%;
+  background: var(--accent, var(--neutral));
+}
+
+/* Tiles: a 4-column grid with 4 px gaps. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--layout-tile-gap);
+}
+
+.tile {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-width: 0;
+  height: var(--tile-height);
+  padding: 0 var(--space-2);
+  background: var(--tile);
+  color: var(--fg);
+  border: var(--size-border) solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-13);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color var(--duration-hover) linear;
+}
+
+.tile:hover {
+  background: var(--tile-hover);
+}
+
+.tile:active {
+  background: var(--tile-active);
+}
+
+/* Door (opens something) and secondary buttons: the secondary background. */
+.tile--door {
+  background: var(--tile-2);
+}
+
+.tile--door:hover {
+  background: var(--tile-2-hover);
+}
+
+.tile--door:active {
+  background: var(--tile-2-active);
+}
+
+/* Text-only tiles (32 px), icon left of the label. */
+.tile--text {
+  flex-direction: row;
+  gap: var(--space-2);
+  height: var(--size-tile-text);
+}
+
+.tile:disabled,
+.tile[aria-disabled='true'] {
+  opacity: var(--disabled-opacity);
+  cursor: default;
+}
+
+/* Busy («Reintentando…») but still focused: no hover or press feedback. */
+.tile[aria-disabled='true']:hover,
+.tile[aria-disabled='true']:active {
+  background: var(--tile);
+}
+
+.tile--door[aria-disabled='true']:hover,
+.tile--door[aria-disabled='true']:active {
+  background: var(--tile-2);
+}
+
+.tile-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The only filled control: the button that confirms, in blue. */
+.button-confirm {
+  appearance: none;
+  flex: none;
+  height: var(--size-field);
+  padding: 0 var(--space-4);
+  background: var(--blue);
+  color: var(--on-accent);
+  border: var(--size-border) solid var(--blue);
+  border-radius: var(--radius-md);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.button-confirm:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: default;
+}
+
+.link-button {
+  appearance: none;
+  min-height: var(--size-min-target);
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--blue);
+  font-size: var(--font-size-12);
+  line-height: var(--line-height-12);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* Fields: 44 px, 15 px text, control-colored border. */
+.field {
+  appearance: none;
+  min-width: 0;
+  height: var(--size-field);
+  padding: 0 var(--space-3);
+  background: var(--tile);
+  color: var(--fg);
+  border: var(--size-border) solid var(--control);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-15);
+  line-height: var(--line-height-15);
+}
+
+.field::placeholder {
+  color: var(--fg-muted);
+  opacity: 1;
+}
+
+.field[aria-invalid='true'] {
+  border-color: var(--red);
+}
+
+/* Pairing form (popup and guide). */
+.pairing-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.pairing-row {
+  display: flex;
+  gap: var(--layout-tile-gap);
+}
+
+.pairing-row .field {
+  flex: 1 1 auto;
+}
+
+.field--code {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+}
+
+.pairing-port {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.field--port {
+  width: 120px;
+}
+
+.pairing-more {
+  display: flex;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tile {
+    transition: none;
+  }
+}

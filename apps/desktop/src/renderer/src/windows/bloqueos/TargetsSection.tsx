@@ -1,8 +1,10 @@
 /**
- * «Qué bloquear: YouTube, Instagram» · «2 elegidos»: catalog search, the six categories and
- * «Otros» with checkboxes (a group opens to show its services), then «Dominios propios» and
- * «Apps del ordenador» side by side. In Examen the whitelist replaces the picker (it blocks
- * everything else).
+ * «Qué bloquear: YouTube +1», the left column of the form: catalog search, the six categories
+ * and «Otros» with checkboxes (a group opens to show its services), then «Dominios propios» and
+ * «Apps del ordenador». In Examen the whitelist replaces the picker (it blocks everything else).
+ *
+ * The results under the search box are not a live region (every keystroke would read every
+ * service again): the window announces their count once the typing stops.
  */
 import { AppWindow, Globe, ListChecks } from 'lucide-react';
 import { useState } from 'react';
@@ -14,7 +16,7 @@ import type { CatalogGroup, ServiceOption } from './catalog';
 import { BLOQUEOS_ES } from './i18n/es';
 import { EntryChip, ExpandButton, SuggestionChip, isPlainEnter } from './parts';
 import type { BloqueosActions, Notice } from './useBloqueosWindow';
-import { BLOQUEOS_IDS, type TargetsView } from './view';
+import { BLOQUEOS_IDS, BLOQUEOS_KEYS, type TargetsView } from './view';
 
 const T = BLOQUEOS_ES.targets;
 
@@ -114,13 +116,7 @@ export function TargetsSection(props: {
   const appsHelpId = 'blq-apps-help';
 
   return (
-    <Section
-      id={BLOQUEOS_IDS.targets}
-      icon={ListChecks}
-      title={view.title}
-      datum={view.datum}
-      datumTone="muted"
-    >
+    <Section id={BLOQUEOS_IDS.targets} icon={ListChecks} title={view.title}>
       {props.seedLine ? <p className="blq-note">{props.seedLine}</p> : null}
       {view.whitelist ? (
         <p className="blq-text">
@@ -141,7 +137,7 @@ export function TargetsSection(props: {
             }}
           />
           {view.search ? (
-            <div className="blq-results" aria-live="polite">
+            <div className="blq-results">
               {view.search.categories.map((group) => (
                 <div key={group.id} className="blq-group-row">
                   <Checkbox
@@ -177,7 +173,7 @@ export function TargetsSection(props: {
               ))}
             </div>
           )}
-          <div className="blq-two">
+          <div className="blq-entries">
             <div className="blq-col">
               <div className="blq-label">{T.domains.label}</div>
               <div className="blq-field-row">
@@ -199,6 +195,8 @@ export function TargetsSection(props: {
                   label={T.domains.add}
                   icon={Globe}
                   size="text"
+                  mnemonic={BLOQUEOS_KEYS.addDomain}
+                  describedBy={domainsHelpId}
                   onPress={actions.addDomain}
                 />
               </div>
@@ -218,7 +216,6 @@ export function TargetsSection(props: {
               <HelpLine
                 id={domainsHelpId}
                 tone={notices.domains?.tone ?? 'muted'}
-                live="polite"
                 className="blq-wrap"
               >
                 {notices.domains?.text ?? (view.domains.length > 0 ? T.removeHelp : T.domains.help)}
@@ -245,6 +242,8 @@ export function TargetsSection(props: {
                   label={T.apps.add}
                   icon={AppWindow}
                   size="text"
+                  mnemonic={BLOQUEOS_KEYS.addApp}
+                  describedBy={appsHelpId}
                   onPress={actions.addProcess}
                 />
               </div>
@@ -273,12 +272,7 @@ export function TargetsSection(props: {
                   ))}
                 </div>
               ) : null}
-              <HelpLine
-                id={appsHelpId}
-                tone={notices.apps?.tone ?? 'muted'}
-                live="polite"
-                className="blq-wrap"
-              >
+              <HelpLine id={appsHelpId} tone={notices.apps?.tone ?? 'muted'} className="blq-wrap">
                 {notices.apps?.text ?? (view.apps.length > 0 ? T.removeHelp : T.apps.help)}
               </HelpLine>
             </div>

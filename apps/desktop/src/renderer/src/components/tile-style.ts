@@ -50,3 +50,35 @@ export function tileVisual(input: TileStateInput): TileVisual {
   }
   return { surface, accent: null, outline: null, tint: false, hover: !dim, dim };
 }
+
+export interface TileHelpInput {
+  help?: string;
+  disabled?: boolean;
+  disabledReason?: string;
+  armed?: boolean;
+  armedHelp?: string;
+}
+
+/**
+ * A tile's current help text: the «¿Seguro?» consequence while armed, the reason while
+ * disabled (else its help), its help otherwise; `null` when it has none.
+ */
+export function tileHelpText(input: TileHelpInput): string | null {
+  if (input.armed) return input.armedHelp ?? null;
+  if (input.disabled) return input.disabledReason ?? input.help ?? null;
+  return input.help ?? null;
+}
+
+/**
+ * How a tile is described: by its row's help line and/or the element its owner names
+ * (`describedBy`); a tile with neither carries its current help text as `aria-description`.
+ */
+export function tileDescription(
+  rowHelpId: string | null,
+  describedBy: string | undefined,
+  helpText: string | null,
+): { describedBy: string | undefined; text: string | undefined } {
+  const ids = [...new Set([rowHelpId, describedBy].filter((id): id is string => Boolean(id)))];
+  if (ids.length > 0) return { describedBy: ids.join(' '), text: undefined };
+  return { describedBy: undefined, text: helpText ?? undefined };
+}

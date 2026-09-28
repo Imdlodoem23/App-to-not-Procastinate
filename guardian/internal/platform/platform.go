@@ -123,66 +123,79 @@ func EnsureDataDir() error {
 
 // EnsureDir creates dir and its missing parents and makes sure it is a real
 // directory (not a symlink or junction planted by someone else). dir must be
-// absolute. When the process is elevated it also takes the directory over:
+// absolute. When the process is elevated it also takes over the whole tree
+// (docs/ARCHITECTURE.md §11.1; details in takeover.go):
 //
-//   - Unix: owner root (uid 0, gid 0) and mode DirMode, set through a
-//     descriptor opened without following links.
+//   - The directory and every entry inside it must be owned by SYSTEM or
+//     Administrators (root). Otherwise, or when dir is not a plain directory
+//     (a standard user can pre-create folders in C:\ProgramData and plant
+//     files there), dir is renamed to "<dir>.untrusted-<unix time>" without
+//     opening anything inside, and created again.
+//   - In a trusted tree links, junctions, files with several hard links and
+//     special files are deleted (never what they point to), and every entry
+//     is re-owned and given the protected descriptor explicitly: Unix owner
+//     root:root, DirMode for dir itself and at most DirMode/FileMode inside
+//     (PrivateDirMode/SecretFileMode for private entries); Windows owner
+//     BUILTIN\Administrators and a protected DACL (SYSTEM and Administrators
+//     full control, Users read & execute; SYSTEM and Administrators only for
+//     private entries), set on the entry itself without propagation.
 //   - Windows: every missing directory is created atomically with its final
-//     security descriptor (owner BUILTIN\Administrators; protected DACL:
-//     SYSTEM and Administrators full control, Users read & execute, inherited
-//     by everything inside), so it never carries C:\ProgramData's inherited
-//     ACL, which lets every user add files. An existing tree is trusted only
-//     if the directory and everything inside it are plain files and folders
-//     owned by SYSTEM or Administrators, with no link, junction or file with
-//     several hard links. Otherwise (a standard user can pre-create folders in
-//     C:\ProgramData and plant files there) the directory is renamed to
-//     "<dir>.untrusted-<unix time>", without opening anything inside, and
-//     created again. Finally its owner and DACL are reset, which also resets
-//     the inherited entries of what it contains. The call also makes
+//     security descriptor, so it never carries C:\ProgramData's inherited
+//     ACL, which lets every user add files. The call also makes
 //     Administrators the default owner of everything the process creates
-//     afterwards, so the guardian's own files always pass that check.
+//     afterwards, so the guardian's own files always pass the check.
 //
 // Without elevation (development and unit tests) it only creates the directory.
 func EnsureDir(dir string) error {
-	return ensureDir(dir, false)
+	_, err := ensureDir(dir, false)
+	return err
 }
 
 // EnsurePrivateDir is EnsureDir for directories only administrators may read,
-// such as the one holding secrets: Unix mode PrivateDirMode; Windows DACL with
-// SYSTEM and Administrators only.
+// such as the one holding secrets: Unix mode PrivateDirMode (SecretFileMode
+// files); Windows DACL with SYSTEM and Administrators only.
 func EnsurePrivateDir(dir string) error {
-	return ensureDir(dir, true)
+	_, err := ensureDir(dir, true)
+	return err
 }
 
-func ensureDir(dir string, private bool) error {
+// EnsureDirReport is EnsureDir (EnsurePrivateDir when private) that also
+// says what the takeover moved aside or deleted. The report is empty without
+// elevation.
+func EnsureDirReport(dir string, private bool) (TakeoverReport, error) {
+	return ensureDir(dir, private)
+}
+
+func ensureDir(dir string, private bool) (TakeoverReport, error) {
+	var rep TakeoverReport
 	if dir == "" {
-		return errors.New("platform: empty directory path")
+		return rep, errors.New("platform: empty directory path")
 	}
 	if !filepath.IsAbs(dir) {
-		return fmt.Errorf("platform: %q is not an absolute path", dir)
+		return rep, fmt.Errorf("platform: %q is not an absolute path", dir)
 	}
 	dir = filepath.Clean(dir)
 	if elevated() {
-		if err := secureDir(dir, private); err != nil {
-			return fmt.Errorf("platform: secure %s: %w", dir, err)
+		if err := secureDir(dir, private, &rep); err != nil {
+			return rep, fmt.Errorf("platform: secure %s: %w", dir, err)
 		}
-		return nil
+		return rep, nil
 	}
 	mode := DirMode
 	if private {
 		mode = PrivateDirMode
 	}
 	if err := os.MkdirAll(dir, mode); err != nil {
-		return fmt.Errorf("platform: create %s: %w", dir, err)
+		return rep, fmt.Errorf("platform: create %s: %w", dir, err)
 	}
 	fi, err := os.Lstat(dir)
 	if err != nil {
-		return fmt.Errorf("platform: stat %s: %w", dir, err)
+		return rep, fmt.Errorf("platform: stat %s: %w", dir, err)
 	}
 	if !isPlainDir(fi) {
-		return fmt.Errorf("platform: %s is not a plain directory", dir)
+		return rep, fmt.Errorf("platform: %s is not a plain directory", dir)
 	}
-	return nil
+	return rep, nil
 }
 
 func isPlainDir(fi fs.FileInfo) bool {

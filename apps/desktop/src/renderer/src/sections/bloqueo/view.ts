@@ -11,7 +11,15 @@ import { BLOCK_MODES } from '@centrate/shared/domain';
 import type { GuardianStateResponse } from '@centrate/shared/guardian-api';
 import { durationLabel } from '@centrate/shared/parser';
 import { POINT_RULES } from '@centrate/shared/points';
-import { formatPoints, modeLabel, splitCountdown, targetsLabel } from '../../../../shared/format';
+import {
+  LOCALE,
+  formatPoints,
+  modeLabel,
+  splitCountdown,
+  targetNames,
+  targetsLabel,
+} from '../../../../shared/format';
+import { SHARED_ES } from '../../../../shared/i18n/es';
 import {
   EXTEND_PRESETS,
   activePunishment,
@@ -25,6 +33,8 @@ import {
   modeAccent,
   primaryBlock,
   queuedExtendMinutes,
+  UI_TIMINGS,
+  type BlockDraft,
   type BlockTemplate,
   type BloqueoVariant,
   type CardField,
@@ -129,7 +139,17 @@ export interface TemplateTileView extends TileView {
 }
 
 export type FieldLine =
-  { kind: 'hint'; text: string } | { kind: 'chips'; chips: ChipView[]; note: LineView | null };
+  | { kind: 'hint'; text: string }
+  | {
+      kind: 'chips';
+      chips: ChipView[];
+      note: LineView | null;
+      /**
+       * Screen readers, once typing pauses: every chip understood (not only those that fit)
+       * and what was not («Entendido: YouTube, 1 h, hasta 18:00»).
+       */
+      announce: string;
+    };
 
 export interface ComposerView {
   value: string;
@@ -158,6 +178,11 @@ export interface CardActionView {
   disabled: boolean;
   /** Pressable but ignored: «Sí, bloquear 6 h» during its 2 s (keeps focus). */
   locked: boolean;
+  /**
+   * «Bloqueando…»: waiting for the guardian. Presses are ignored like `disabled`, but the label
+   * is the only sign that a block is being made, so it keeps full contrast.
+   */
+  busy: boolean;
   /** Grid columns out of 4. */
   span: 1 | 2 | 3 | 4;
   mnemonic?: string | null;
@@ -177,15 +202,31 @@ export interface CardView {
   reason: string;
   actions: CardActionView[];
   actionsHelp: CardLine;
-  /** `consequenceAt + 2 s` while locked (the component re-renders then). */
+  /** `consequenceAt + 2 s` while locked (`BloqueoView.wakeAt` re-renders then). */
   unlockAt: number | null;
   problem: DraftProblem | null;
+  /**
+   * Screen readers: what the confirm button commits, read with it (`aria-describedby`):
+   * «Bloquea YouTube durante 1 hora, hasta las 18:00, modo Estricto».
+   */
+  summary: string;
 }
 
+/**
+ * The undo line. `announce` is spoken once when the line appears (a polite live region of its
+ * own); the visible line, with its ticking «Deshacer (4 s)», is never live.
+ */
 export type UndoView =
-  | { kind: 'waiting'; entryId: string; text: string; button: string; buttonLabel: string }
-  | { kind: 'sending'; text: string }
-  | { kind: 'failed'; entryId: string; text: string; button: string };
+  | {
+      kind: 'waiting';
+      entryId: string;
+      text: string;
+      button: string;
+      buttonLabel: string;
+      announce: string;
+    }
+  | { kind: 'sending'; entryId: string; text: string; announce: null }
+  | { kind: 'failed'; entryId: string; text: string; button: string; announce: string };
 
 export interface ExtendView {
   blockId: BlockId;
@@ -241,6 +282,12 @@ export interface BloqueoView {
   variant: BloqueoVariant;
   header: HeaderView;
   body: BloqueoBody;
+  /**
+   * The next instant after `nowMs` when a label changes off the wall-clock second: «Sí,
+   * bloquear 6 h» unlocking, «Deshacer (4 s)» and «Emergencia: 8:12» (each counts down to its
+   * own target). The section re-renders exactly then; `null` when nothing waits.
+   */
+  wakeAt: number | null;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -293,12 +340,33 @@ export function assignMnemonics(
   });
 }
 
+/** Header names of what a block blocks, with categories shortened («Redes», «Vídeo»). */
+function shortTargetNames(block: Block): string[] {
+  if (block.whitelistOnly) return [BLOQUEO_ES.header.whitelistShort];
+  const short = { ...block.targets, categoryIds: [] };
+  const categories = block.targets.categoryIds.map(
+    (id) => BLOQUEO_ES.header.categoryShort[id] ?? id,
+  );
+  // `targetNames` order: services, categories, apps, custom domains, custom processes.
+  const names = targetNames(short, false);
+  const services = block.targets.serviceIds.length;
+  return [...names.slice(0, services), ...categories, ...names.slice(services)];
+}
+
+/** «YouTube +2» from a list of names (one name shown). */
+function firstPlus(names: readonly string[]): string {
+  const [first = SHARED_ES.targets.none, ...rest] = names;
+  return rest.length > 0 ? `${first} ${SHARED_ES.targets.more(rest.length)}` : first;
+}
+
 /**
- * Header titles for a block, longest first. The section shows the longest one that fits next
- * to its datum and pill in the real font (measured at layout time), e.g. «Bloqueo: YouTube,
- * Instagram · Estricto», else «Bloqueo: YouTube +1 · Estricto».
+ * Header titles for a block, longest first; every one keeps «Cosa:» («Bloqueo:», «Castigo:»).
+ * The section shows the longest one that fits next to its datum and pill in the real font
+ * (measured at layout time) and, if not even the last fits, lets the header wrap:
+ * «Bloqueo: YouTube, Instagram · Estricto», «Bloqueo: YouTube +1 · Estricto»,
+ * «Bloqueo: Redes +2 · Estricto», «Bloqueo: 3 · Estricto» (or «Bloqueo: Estricto»).
  */
-function blockTitles(block: Block, punishment: Punishment | null): string[] {
+export function blockTitles(block: Block, punishment: Punishment | null): string[] {
   if (punishment) {
     const level = BLOQUEO_ES.punishment.level[punishment.level];
     return [
@@ -308,13 +376,13 @@ function blockTitles(block: Block, punishment: Punishment | null): string[] {
     ];
   }
   const mode = modeLabel(block.mode);
-  const titles = [2, 1].map((names) =>
-    BLOQUEO_ES.header.active(targetsLabel(block.targets, block.whitelistOnly, names), mode),
-  );
-  // Last resort (wide fallback fonts only): the lock icon already says «Bloqueo».
-  titles.push(
-    BLOQUEO_ES.header.activeShort(targetsLabel(block.targets, block.whitelistOnly, 1), mode),
-  );
+  const count = targetNames(block.targets, block.whitelistOnly).length;
+  const titles = [
+    BLOQUEO_ES.header.active(targetsLabel(block.targets, block.whitelistOnly, 2), mode),
+    BLOQUEO_ES.header.active(targetsLabel(block.targets, block.whitelistOnly, 1), mode),
+    BLOQUEO_ES.header.active(firstPlus(shortTargetNames(block)), mode),
+    count > 1 ? BLOQUEO_ES.header.activeCount(count, mode) : BLOQUEO_ES.header.activeMode(mode),
+  ];
   return [...new Set(titles)];
 }
 
@@ -429,7 +497,9 @@ function fieldLine(text: string, nowMs: number, enter: FieldEnter['kind']): Fiel
   const noteWidth = note ? estimateTextWidth(note.text, CHIP_METRICS.fontPx) + 8 : 0;
   const budget = CONTENT_WIDTH - noteWidth;
   const fitted = chips.length > 0 && budget >= 96 ? fitChips(chips, budget) : [];
-  return { kind: 'chips', chips: fitted, note };
+  const understood = chips.length > 0 ? BLOQUEO_ES.field.understood(chips.map((c) => c.label)) : '';
+  const announce = [understood, note?.text ?? ''].filter((t) => t !== '').join('. ');
+  return { kind: 'chips', chips: fitted, note, announce };
 }
 
 function templateHelp(template: BlockTemplate, prefs: UiPrefs): string {
@@ -512,6 +582,21 @@ function composerView(
 
 const MODE_ORDER: readonly BlockMode[] = BLOCK_MODES;
 
+const listFormat = new Intl.ListFormat(LOCALE, { style: 'long', type: 'conjunction' });
+
+/** «Bloquea YouTube e Instagram durante 1 hora, hasta las 18:00, modo Estricto». */
+function cardSummary(draft: BlockDraft, minutes: number, endsAtMs: number, nowMs: number): string {
+  const names = draft.whitelistOnly
+    ? [BLOQUEO_ES.card.summaryWhitelist]
+    : targetNames(draft.targets, false);
+  const duration = BLOQUEO_ES.card.durationWords(Math.floor(minutes / 60), minutes % 60);
+  const until = untilPhrase(endsAtMs, nowMs);
+  const mode = modeLabel(draft.mode);
+  return names.length === 0
+    ? BLOQUEO_ES.card.summaryNoTargets(duration, until, mode)
+    : BLOQUEO_ES.card.summary(listFormat.format(names), duration, until, mode);
+}
+
 function cardView(
   variant: BloqueoVariant,
   snapshot: UiSnapshot,
@@ -569,6 +654,7 @@ function cardView(
     primary: false,
     disabled: !editable,
     locked: false,
+    busy: false,
     span: 1,
   };
   let actions: CardActionView[];
@@ -582,6 +668,7 @@ function cardView(
         primary: true,
         disabled: true,
         locked: false,
+        busy: true,
         span: 3,
       },
     ];
@@ -594,6 +681,7 @@ function cardView(
         primary: false,
         disabled: false,
         locked: false,
+        busy: false,
         span: 1,
       },
       {
@@ -603,6 +691,7 @@ function cardView(
         primary: true,
         disabled: false,
         locked: false,
+        busy: false,
         span: 3,
       },
     ];
@@ -620,6 +709,7 @@ function cardView(
         primary: true,
         disabled: problem !== null || !editable,
         locked,
+        busy: false,
         span: 3,
       },
     ];
@@ -678,6 +768,7 @@ function cardView(
     actionsHelp,
     unlockAt: card ? consequenceUnlockAt(card) : null,
     problem,
+    summary: cardSummary(draft, minutes, endsAtMs, nowMs),
   };
 }
 
@@ -706,22 +797,34 @@ function undoView(entries: readonly ExtendEntry[], nowMs: number): UndoView | nu
   switch (pick.status) {
     case 'waiting': {
       const seconds = Math.max(1, Math.ceil((pick.commitAt - nowMs) / 1000));
+      const ends = endsPhrase(Date.parse(pick.projectedEndsAt), nowMs);
       return {
         kind: 'waiting',
         entryId: pick.id,
-        text: BLOQUEO_ES.active.undoLine(plus, endsPhrase(Date.parse(pick.projectedEndsAt), nowMs)),
+        text: BLOQUEO_ES.active.undoLine(plus, ends),
         button: BLOQUEO_ES.active.undo(seconds),
         buttonLabel: BLOQUEO_ES.active.undoLabel(plus),
+        announce: BLOQUEO_ES.active.undoAnnounce(
+          plus,
+          ends,
+          Math.round(UI_TIMINGS.extendUndoMs / 1000),
+        ),
       };
     }
     case 'sending':
-      return { kind: 'sending', text: BLOQUEO_ES.active.sending(plus) };
+      return {
+        kind: 'sending',
+        entryId: pick.id,
+        text: BLOQUEO_ES.active.sending(plus),
+        announce: null,
+      };
     case 'failed':
       return {
         kind: 'failed',
         entryId: pick.id,
         text: BLOQUEO_ES.active.failed,
         button: BLOQUEO_ES.card.retry,
+        announce: BLOQUEO_ES.active.failedAnnounce,
       };
   }
 }
@@ -930,6 +1033,41 @@ function activeView(
 }
 
 // ---------------------------------------------------------------------------------------
+// Wake-ups
+// ---------------------------------------------------------------------------------------
+
+/**
+ * The next instant after `nowMs` when a whole-second countdown to `targetMs` (rounded up, like
+ * `splitCountdown` and «Deshacer (N s)») shows a new value; `null` once it is reached.
+ */
+export function nextSecondChange(targetMs: number, nowMs: number): number | null {
+  const left = targetMs - nowMs;
+  if (!(left > 0)) return null;
+  const into = left % 1000;
+  return nowMs + (into === 0 ? 1000 : into);
+}
+
+function viewWakeAt(snapshot: UiSnapshot, body: BloqueoBody, nowMs: number): number | null {
+  const at: number[] = [];
+  const add = (ms: number | null): void => {
+    if (ms !== null && ms > nowMs) at.push(ms);
+  };
+  if (body.kind === 'card') add(body.unlockAt);
+  if (body.kind === 'active') {
+    const undo = body.extend?.undo;
+    if (undo?.kind === 'waiting') {
+      const entry = snapshot.ops.extendQueue.find((e) => e.id === undo.entryId);
+      if (entry) add(nextSecondChange(entry.commitAt, nowMs));
+    }
+    const emergency = snapshot.state?.emergency;
+    if (body.emergency?.kind === 'link' && emergency?.status === 'counting') {
+      add(nextSecondChange(Date.parse(emergency.readyAt), nowMs));
+    }
+  }
+  return at.length > 0 ? Math.min(...at) : null;
+}
+
+// ---------------------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------------------
 
@@ -957,5 +1095,5 @@ export function deriveBloqueoView(
       body = activeView(variant, snapshot, main, nowMs);
       break;
   }
-  return { variant, header, body };
+  return { variant, header, body, wakeAt: viewWakeAt(snapshot, body, nowMs) };
 }

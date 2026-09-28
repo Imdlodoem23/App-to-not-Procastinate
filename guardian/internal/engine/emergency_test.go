@@ -501,9 +501,7 @@ func TestEmergencyRebootAndRestart(t *testing.T) {
 		blk := env.create(durationReq(ModeNormal, 60, "youtube"))
 		em := emgRequest(t, env, blk.ID)
 		env.advance(time.Minute)
-		if err := env.e.Stop(); err != nil {
-			t.Fatal(err)
-		}
+		env.shutdown() // an OS reboot (a manual stop first is priced, §10.12 step 9)
 		env.clk.Reboot()
 		e := env.open()
 		c := env.eventsOf(EvEmergencyCancelled)

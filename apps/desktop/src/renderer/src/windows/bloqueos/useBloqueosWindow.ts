@@ -4,6 +4,11 @@
  * the window is shown (docs/DESKTOP.md §5.1) and kept in component state. Every action applies
  * at once; «Bloquear…» hands the draft to the main window's confirmation card
  * (`window:confirm-draft`), never to the guardian directly.
+ *
+ * Screen readers: results appear in help lines that are not live regions (some mount with the
+ * result already in them); `announcement` carries each one to the window's single polite
+ * region, which is there from the start. The catalog search reports its result count once the
+ * typing stops.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CategoryId } from '@centrate/shared/catalog';
@@ -11,6 +16,7 @@ import type { BlockMode, ScheduleId } from '@centrate/shared/domain';
 import { emptyTargets } from '@centrate/shared/guardian-api';
 import type { TargetSpec } from '@centrate/shared/domain';
 import { errorCopy } from '../../i18n/errors';
+import { useAnnouncer, type Announcement } from './announcer';
 import { useNow } from '../../hooks/useNow';
 import { useAppStore, useAppStoreApi } from '../../store/context';
 import {
@@ -18,6 +24,7 @@ import {
   withMode,
   type BlockDraft,
   type BloqueosLocalState,
+  type DetailRequest,
   type DraftEnd,
 } from '../../../../shared/ui-state';
 import {
@@ -84,11 +91,15 @@ export interface BloqueosActions {
   openEmergency(): void;
 }
 
+/** Quiet time after the last keystroke before the search result count is announced. */
+export const SEARCH_ANNOUNCE_DELAY_MS = 600;
+
 export interface BloqueosWindowApi {
   view: BloqueosView;
   local: BloqueosLocalState;
   nowMs: number;
   notices: Partial<Record<NoticeArea, Notice>>;
+  announcement: Announcement | null;
   actions: BloqueosActions;
 }
 
@@ -111,6 +122,9 @@ export function useBloqueosWindow(): BloqueosWindowApi {
   const [pendingSchedules, setPendingSchedules] = useState<Record<string, boolean>>({});
   const [processNames, setProcessNames] = useState<readonly string[]>([]);
   const [notices, setNotices] = useState<Partial<Record<NoticeArea, Notice>>>({});
+  const { announcement, announce } = useAnnouncer();
+  /** The request (door) during which the user picked a duration (`BloqueosData`). */
+  const [pickedFor, setPickedFor] = useState<DetailRequest | null>(null);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -120,15 +134,19 @@ export function useBloqueosWindow(): BloqueosWindowApi {
     };
   }, []);
 
-  const notify = useCallback((area: NoticeArea, notice: Notice | null) => {
-    setNotices((current) => {
-      if (!notice && !current[area]) return current;
-      const next = { ...current };
-      if (notice) next[area] = notice;
-      else delete next[area];
-      return next;
-    });
-  }, []);
+  const notify = useCallback(
+    (area: NoticeArea, notice: Notice | null) => {
+      if (notice) announce(notice.text);
+      setNotices((current) => {
+        if (!notice && !current[area]) return current;
+        const next = { ...current };
+        if (notice) next[area] = notice;
+        else delete next[area];
+        return next;
+      });
+    },
+    [announce],
+  );
 
   const loadSchedules = useCallback(() => {
     void bridge.invoke('schedules:list', null).then(
@@ -191,15 +209,29 @@ export function useBloqueosWindow(): BloqueosWindowApi {
     [updateForm],
   );
 
+  const durationPicked = pickedFor !== null && pickedFor === env.detail;
   const view = useMemo(
     () =>
       deriveBloqueosView({ env, snapshot, main: api.getState().main, detail }, nowMs, {
         schedules,
         pendingSchedules,
         processNames,
+        durationPicked,
       } satisfies BloqueosData),
-    [api, env, snapshot, detail, nowMs, schedules, pendingSchedules, processNames],
+    [api, env, snapshot, detail, nowMs, schedules, pendingSchedules, processNames, durationPicked],
   );
+
+  // The search result count, once the typing stops (never on every keystroke).
+  const search = view.targets.search;
+  const resultCount = search ? search.categories.length + search.services.length : null;
+  useEffect(() => {
+    if (resultCount === null || !env.visible) return undefined;
+    const timer = setTimeout(
+      () => announce(E.targets.results(resultCount)),
+      SEARCH_ANNOUNCE_DELAY_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [detail.bloqueos.search, resultCount, env.visible, announce]);
 
   const actions = useMemo<BloqueosActions>(() => {
     const local = (): BloqueosLocalState => api.getState().detail.bloqueos;
@@ -216,7 +248,10 @@ export function useBloqueosWindow(): BloqueosWindowApi {
       notify(area, result.note ? { text: result.note, tone: 'muted' } : null);
     };
 
-    const setEnd = (end: DraftEnd): void => updateForm((form) => ({ ...form, end }));
+    const setEnd = (end: DraftEnd): void => {
+      updateForm((form) => ({ ...form, end }));
+      setPickedFor(api.getState().env.detail);
+    };
 
     const confirmDraft = (draft: BlockDraft): void => {
       bridge.send('window:confirm-draft', { draft });
@@ -289,6 +324,7 @@ export function useBloqueosWindow(): BloqueosWindowApi {
         notify('actions', null);
       },
       saveTemplate: () => {
+        if (view.problem) return;
         const l = local();
         const name = l.templateName ?? '';
         const problem = templateNameProblem(name);
@@ -335,6 +371,7 @@ export function useBloqueosWindow(): BloqueosWindowApi {
         const template = s.snapshot.templates.find((t) => t.id === id);
         if (!template) return;
         updateForm(() => draftFromTemplate(template, s.snapshot.prefs));
+        setPickedFor(s.env.detail);
         scrollToSection('blq-targets');
       },
       deleteTemplate: (id) => {
@@ -396,5 +433,5 @@ export function useBloqueosWindow(): BloqueosWindowApi {
     };
   }, [api, bridge, notify, updateLocal, updateForm, updateTargets, loadSchedules, view]);
 
-  return { view, local: detail.bloqueos, nowMs, notices, actions };
+  return { view, local: detail.bloqueos, nowMs, notices, announcement, actions };
 }

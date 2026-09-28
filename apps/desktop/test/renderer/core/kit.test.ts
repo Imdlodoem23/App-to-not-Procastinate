@@ -8,13 +8,23 @@ import {
 } from '@centrate/shared/design/tokens';
 import { confirmButtonColors, selectedTileTop } from '../../../src/renderer/src/components/colors';
 import {
+  BLOCK_COUNTDOWN_ANNOUNCE,
   countdownModel,
   countdownSpeech,
   endsAtMs,
 } from '../../../src/renderer/src/components/countdown-model';
 import { splitMnemonic } from '../../../src/renderer/src/components/mnemonic';
-import { RowHelpRegistry, rowHelpText } from '../../../src/renderer/src/components/row-help';
-import { tileVisual } from '../../../src/renderer/src/components/tile-style';
+import {
+  helpAsText,
+  RowHelpRegistry,
+  rowAnnouncement,
+  rowHelpText,
+} from '../../../src/renderer/src/components/row-help';
+import {
+  tileDescription,
+  tileHelpText,
+  tileVisual,
+} from '../../../src/renderer/src/components/tile-style';
 import { RENDERER_ES } from '../../../src/renderer/src/i18n/es';
 
 const THEMES: ThemeName[] = ['light', 'dark'];
@@ -128,6 +138,30 @@ describe('row help line', () => {
     expect(rowHelpText(registry, 'a', fallback).text).toBe('Ayuda A');
   });
 
+  it('announces results and the armed consequence, never hover help or the resting text', () => {
+    const registry = new RowHelpRegistry();
+    registry.set('salir', {
+      text: 'Los bloqueos siguen activos aunque salgas',
+      tone: 'muted',
+      armed: false,
+    });
+    // Hover/focus help is the tile's description, not an announcement.
+    expect(rowAnnouncement(registry, undefined, null)).toBeNull();
+    expect(rowAnnouncement(registry, 'Reparado', null)).toBe('Reparado');
+    // Back to the resting help (the text the row mounted with): silent.
+    expect(
+      rowAnnouncement(registry, 'Cancelar es lo recomendado', 'Cancelar es lo recomendado'),
+    ).toBeNull();
+    expect(rowAnnouncement(registry, 'No se ha podido', 'Cancelar es lo recomendado')).toBe(
+      'No se ha podido',
+    );
+    registry.set('unlock', { text: 'Perderás 620 puntos', tone: 'red', armed: true });
+    expect(rowAnnouncement(registry, 'Reparado', null)).toBe('Perderás 620 puntos');
+    expect(helpAsText('')).toBeNull();
+    expect(helpAsText(3)).toBe('3');
+    expect(helpAsText({ type: 'span' })).toBeNull();
+  });
+
   it('notifies subscribers only on real changes', () => {
     const registry = new RowHelpRegistry();
     let calls = 0;
@@ -193,6 +227,68 @@ describe('countdownModel', () => {
     expect(countdownSpeech(14 * 60_000, 13 * 60_000)).toBeNull();
     expect(countdownSpeech(61_000, 59_000)).toBe('Queda 1 minuto');
     expect(countdownSpeech(400, -10)).toBe('Bloqueo terminado');
+    expect(countdownSpeech(0, -1_000)).toBeNull();
+  });
+
+  it('never reads a mark that is no longer true', () => {
+    const MIN = 60_000;
+    // Several marks at once (20 → 3 min): quiet, not «Quedan 5 minutos».
+    expect(countdownSpeech(20 * MIN, 3 * MIN)).toBeNull();
+    // One mark, jumped long ago (7 → 3 min): quiet.
+    expect(countdownSpeech(7 * MIN, 3 * MIN)).toBeNull();
+    // Within 30 s of the mark: still true enough.
+    expect(countdownSpeech(5 * MIN + 1_000, 5 * MIN - 29_000)).toBe('Quedan 5 minutos');
+    // An extension moves time up: nothing to say.
+    expect(countdownSpeech(4 * MIN, 19 * MIN)).toBeNull();
+    // A jump to the end still says it ended (true now).
+    expect(countdownSpeech(20 * MIN, 0)).toBe('Bloqueo terminado');
+  });
+
+  it("uses the owner's words", () => {
+    const texts = {
+      mark: (m: number) => `Faltan ${m} min para poder desbloquear`,
+      end: 'Ya puedes',
+    };
+    expect(countdownSpeech(5 * 60_000 + 500, 5 * 60_000 - 500, texts)).toBe(
+      'Faltan 5 min para poder desbloquear',
+    );
+    expect(countdownSpeech(500, 0, texts)).toBe('Ya puedes');
+    expect(BLOCK_COUNTDOWN_ANNOUNCE.end).toBe('Bloqueo terminado');
+  });
+});
+
+describe('tile descriptions', () => {
+  it('picks the consequence while armed, the reason while disabled, else the help', () => {
+    expect(tileHelpText({ help: 'Ayuda' })).toBe('Ayuda');
+    expect(tileHelpText({ help: 'Ayuda', disabled: true, disabledReason: 'Escribe BORRAR' })).toBe(
+      'Escribe BORRAR',
+    );
+    expect(tileHelpText({ help: 'Ayuda', disabled: true })).toBe('Ayuda');
+    expect(tileHelpText({ help: 'Ayuda', armed: true, armedHelp: 'Se borra todo' })).toBe(
+      'Se borra todo',
+    );
+    expect(tileHelpText({})).toBeNull();
+  });
+
+  it("links the row help line or the owner's element, else carries the text itself", () => {
+    expect(tileDescription('pie-help', undefined, 'x')).toEqual({
+      describedBy: 'pie-help',
+      text: undefined,
+    });
+    expect(tileDescription(null, 'borrar-desc', 'x')).toEqual({
+      describedBy: 'borrar-desc',
+      text: undefined,
+    });
+    expect(tileDescription('a-help', 'a-help', 'x').describedBy).toBe('a-help');
+    expect(tileDescription('a-help', 'b', 'x').describedBy).toBe('a-help b');
+    expect(tileDescription(null, undefined, 'Escribe BORRAR')).toEqual({
+      describedBy: undefined,
+      text: 'Escribe BORRAR',
+    });
+    expect(tileDescription(null, undefined, null)).toEqual({
+      describedBy: undefined,
+      text: undefined,
+    });
   });
 });
 

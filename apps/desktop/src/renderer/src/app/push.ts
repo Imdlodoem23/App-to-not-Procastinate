@@ -9,8 +9,11 @@
  *   `focusField` focuses «¿Qué quieres hacer?» synchronously.
  * - `ui:prepare-show`: render the latest state synchronously (`flushSync`), measure and answer
  *   `window:show-ack` before main shows the window (≤ 50 ms).
- * - `ui:detail`: retarget the detail window.
- * - `ui:command`: focus the field, or open the confirmation card from a template or a draft.
+ * - `ui:detail`: retarget the detail window (a fixture's own retarget, right after its
+ *   `ui:harness`, keeps the fixture's armed «¿Seguro?» and help).
+ * - `ui:command`: focus the field, or open the confirmation card from a template or a draft
+ *   through section 2's guarded transitions (`commands.ts`): never over «Bloqueando…» or an
+ *   unanswered create, which only get the focus.
  * - `ui:harness`: replace the renderer-local state with a fixture's.
  */
 import { flushSync } from 'react-dom';
@@ -21,9 +24,10 @@ import {
   type PushChannel,
   type PushPayload,
 } from '../../../shared/ipc';
-import { isIntentId } from '../../../shared/ui-state';
-import { cardForCommand, detailForRequest, mainWithCard } from '../store/reducers';
+import type { IntentId } from '../../../shared/ui-state';
+import { detailForRequest } from '../store/reducers';
 import type { AppStore } from '../store/store';
+import { confirmCommand } from './commands';
 import type { WindowServices } from './window-services';
 
 export type PushHandlers = { [C in PushChannel]: (payload: PushPayload<C>) => void };
@@ -58,8 +62,11 @@ export function bufferPushes(bridge: CentrateBridge): PushBuffer {
   };
 }
 
-/** A new id per confirmation card (sent as the guardian's `Idempotency-Key`). */
-export function newIntentId(): string {
+/**
+ * A new id per confirmation card (sent as the guardian's `Idempotency-Key`): a UUID, or 32
+ * hex digits, both within `isIntentId`.
+ */
+export function newIntentId(): IntentId {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
@@ -70,6 +77,8 @@ export function createPushHandlers(
   services: WindowServices,
 ): PushHandlers {
   const state = (): AppStore => store.getState();
+  /** The detail local state a harness load set, until a retarget or a change replaces it. */
+  let fixtureDetail: AppStore['detail'] | null = null;
   return {
     'ui:snapshot': (snapshot) => state().applySnapshot(snapshot),
 
@@ -95,8 +104,10 @@ export function createPushHandlers(
 
     'ui:detail': (request) => {
       const s = state();
+      const fromFixture = fixtureDetail !== null && s.detail === fixtureDetail;
+      fixtureDetail = null;
       s.setEnv({ detail: request });
-      s.updateDetail((detail) => detailForRequest(detail, request, s.snapshot));
+      s.updateDetail((detail) => detailForRequest(detail, request, s.snapshot, fromFixture));
     },
 
     'ui:command': (command) => {
@@ -104,17 +115,19 @@ export function createPushHandlers(
         services.focusField();
         return;
       }
-      const intentId = newIntentId();
-      const card = isIntentId(intentId)
-        ? cardForCommand(command, state().snapshot, intentId)
-        : null;
-      if (!card) return;
-      flushSync(() => state().updateMain((main) => mainWithCard(main, card)));
-      services.focus('confirm');
+      const s = state();
+      const result = confirmCommand(command, s.snapshot, s.main, newIntentId);
+      if (result.opened) flushSync(() => s.updateMain(() => result.main));
+      if (result.dismissIntentId) {
+        s.bridge.send('block:create-dismiss', { intentId: result.dismissIntentId });
+      }
+      // The new card's button, or the card that stays («Bloqueando…», «Reintentar»).
+      if (!services.focus('confirm')) services.focusField();
     },
 
     'ui:harness': (load) => {
       flushSync(() => state().loadHarness(load));
+      fixtureDetail = state().detail;
     },
   };
 }

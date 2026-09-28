@@ -3,6 +3,12 @@
  * detail window's local state (fixture-settable); the guardian's preview is fetched whenever the
  * window is shown or the blocks change. Every write goes through main (`emergency:*`), which
  * patches the snapshot, so the counting and ready stages come from `state.emergency`.
+ *
+ * Screen readers: the help lines are not live regions (a stage mounts them with their text
+ * already in them). The window's one polite region (`announcement`) says each new stage with
+ * the result that caused it («Cancelada: no has perdido nada. Emergencia: YouTube, espera de
+ * 10 min»), the phrase turning right or wrong, a refused paste and failures; in the ready stage
+ * the row's own region says failures and the armed «¿Seguro?».
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EmergencyPreviewResponse } from '@centrate/shared/guardian-api';
@@ -11,8 +17,14 @@ import { errorCopy } from '../../i18n/errors';
 import { newIntentId } from '../../app/push';
 import { useAppStore, useAppStoreApi } from '../../store/context';
 import type { EmergenciaLocalState } from '../../../../shared/ui-state';
+import { useAnnouncer, type Announcement } from '../bloqueos/announcer';
 import { EMERGENCIA_ES } from './i18n/es';
-import { deriveEmergenciaView, type EmergenciaView } from './view';
+import {
+  deriveEmergenciaView,
+  stageAnnouncement,
+  type EmergenciaStage,
+  type EmergenciaView,
+} from './view';
 
 export interface EmergenciaNotice {
   text: string;
@@ -26,6 +38,8 @@ export interface EmergenciaApi {
   /** The guardian's preview is on its way (the harness waits for it before a screenshot). */
   loading: boolean;
   notice: EmergenciaNotice | null;
+  /** The window's polite region. */
+  announcement: Announcement | null;
   setPhrase(text: string): void;
   refusePaste(): void;
   request(): void;
@@ -49,7 +63,10 @@ export function useEmergencia(): EmergenciaApi {
   });
   const [busy, setBusy] = useState<EmergenciaApi['busy']>(null);
   const [notice, setNotice] = useState<EmergenciaNotice | null>(null);
+  const { announcement, announce } = useAnnouncer();
   const mounted = useRef(true);
+  /** A result that changes the stage, said with the stage it leads to. */
+  const pendingNotice = useRef<string | null>(null);
   /** Reused while the same request is retried (the guardian replays, never duplicates). */
   const requestIntent = useRef<string | null>(null);
   const confirmIntent = useRef<string | null>(null);
@@ -116,9 +133,40 @@ export function useEmergencia(): EmergenciaApi {
     [api],
   );
 
-  const fail = useCallback((text: string) => {
-    if (mounted.current) setNotice({ text, tone: 'red' });
-  }, []);
+  // Read by the callbacks below, which resolve after later renders.
+  const stage = useRef<EmergenciaStage>(view.stage);
+  stage.current = view.stage;
+
+  // A new stage speaks (not the first one: the window's title says it as it opens).
+  const spokenStage = useRef<EmergenciaStage>(view.stage);
+  useEffect(() => {
+    if (spokenStage.current === view.stage) return;
+    spokenStage.current = view.stage;
+    announce(stageAnnouncement(view, pendingNotice.current));
+    pendingNotice.current = null;
+    // Only a stage change speaks; `view` is read with it.
+  }, [view.stage, announce]);
+
+  // The phrase turning right or wrong (not every keystroke, not the stage showing).
+  const phraseNow = view.phrase?.status ?? null;
+  const spokenPhrase = useRef(phraseNow);
+  useEffect(() => {
+    const before = spokenPhrase.current;
+    spokenPhrase.current = phraseNow;
+    if (before === null || before === phraseNow) return;
+    if (phraseNow === 'ok') announce(EMERGENCIA_ES.announce.phraseOk);
+    else if (phraseNow === 'mismatch') announce(EMERGENCIA_ES.announce.phraseMismatch);
+  }, [phraseNow, announce]);
+
+  const fail = useCallback(
+    (text: string) => {
+      if (!mounted.current) return;
+      setNotice({ text, tone: 'red' });
+      // The ready row's own region says it there.
+      if (stage.current !== 'ready') announce(text);
+    },
+    [announce],
+  );
 
   return {
     view,
@@ -126,12 +174,16 @@ export function useEmergencia(): EmergenciaApi {
     busy,
     loading,
     notice,
+    announcement,
     setPhrase: (text) => {
       requestIntent.current = null;
       setNotice(null);
       updateLocal((l) => ({ ...l, phrase: text }));
     },
-    refusePaste: () => setNotice({ text: EMERGENCIA_ES.phrase.pasted, tone: 'orange' }),
+    refusePaste: () => {
+      setNotice({ text: EMERGENCIA_ES.phrase.pasted, tone: 'orange' });
+      announce(EMERGENCIA_ES.announce.pasted);
+    },
     request: () => {
       const req = view.request;
       if (!req || req.disabledReason || busy) return;
@@ -173,6 +225,12 @@ export function useEmergencia(): EmergenciaApi {
             return;
           }
           setNotice({ text: EMERGENCIA_ES.cancelled, tone: 'green' });
+          // Said with the stage it leads to, or now if that stage is already showing.
+          if (stage.current === 'counting' || stage.current === 'ready') {
+            pendingNotice.current = EMERGENCIA_ES.cancelled;
+          } else {
+            announce(EMERGENCIA_ES.cancelled);
+          }
         },
         () => {
           if (mounted.current) setBusy(null);

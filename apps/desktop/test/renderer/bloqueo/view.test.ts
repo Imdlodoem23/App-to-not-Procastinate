@@ -6,6 +6,7 @@ import {
   harnessFixture,
   type HarnessStateId,
 } from '../../../src/shared/fixtures';
+import type { Block } from '@centrate/shared/domain';
 import { parseIntent } from '@centrate/shared/parser';
 import type { UiState } from '../../../src/shared/ui-state';
 import { uiError } from '../../../src/shared/ui-state';
@@ -15,8 +16,10 @@ import {
   CONTENT_WIDTH,
   RESERVED_MNEMONICS,
   assignMnemonics,
+  blockTitles,
   deriveBloqueoView,
   examplePhrase,
+  nextSecondChange,
   type ActiveView,
   type BloqueoView,
   type CardView,
@@ -72,6 +75,123 @@ describe('deriveBloqueoView over every fixture', () => {
     expect(estimateTextWidth(shortest, 13, true) + datum + pill + 24).toBeLessThanOrEqual(
       CONTENT_WIDTH,
     );
+  });
+
+  it.each(HARNESS_STATE_IDS)('%s: every header title keeps «Cosa:»', (id) => {
+    for (const title of view(id).header.titles) expect(title).toMatch(/^(Bloqueo|Castigo): \S/);
+  });
+});
+
+describe('header titles', () => {
+  const block = (targets: Partial<Block['targets']>, whitelistOnly = false): Block => {
+    const base = mainState('one-block').snapshot.state?.blocks[0];
+    if (!base) throw new Error('no block');
+    return {
+      ...base,
+      whitelistOnly,
+      targets: {
+        serviceIds: [],
+        categoryIds: [],
+        appIds: [],
+        customDomains: [],
+        customProcesses: [],
+        ...targets,
+      },
+    };
+  };
+
+  it('steps down keeping «Bloqueo:»: two names, one, the short category, the count', () => {
+    expect(blockTitles(block({ categoryIds: ['social', 'video', 'games'] }), null)).toEqual([
+      'Bloqueo: Redes sociales, Vídeo y streaming +1 · Estricto',
+      'Bloqueo: Redes sociales +2 · Estricto',
+      'Bloqueo: Redes +2 · Estricto',
+      'Bloqueo: 3 · Estricto',
+    ]);
+    expect(blockTitles(block({ serviceIds: ['youtube'], categoryIds: ['news'] }), null)).toEqual([
+      'Bloqueo: YouTube, Noticias y deportes · Estricto',
+      'Bloqueo: YouTube +1 · Estricto',
+      'Bloqueo: 2 · Estricto',
+    ]);
+  });
+
+  it('one target ends with the mode alone; the whitelist has a short name', () => {
+    expect(blockTitles(block({ categoryIds: ['social'] }), null)).toEqual([
+      'Bloqueo: Redes sociales · Estricto',
+      'Bloqueo: Redes · Estricto',
+      'Bloqueo: Estricto',
+    ]);
+    expect(blockTitles({ ...block({}, true), mode: 'exam' }, null)).toEqual([
+      'Bloqueo: Todo salvo la lista blanca · Examen',
+      'Bloqueo: solo lista blanca · Examen',
+      'Bloqueo: Examen',
+    ]);
+  });
+
+  it('three-blocks and hardcore-block keep «Bloqueo:» down to the last title', () => {
+    expect(view('three-blocks').header.titles).toEqual([
+      'Bloqueo: Redes sociales · Estricto',
+      'Bloqueo: Redes · Estricto',
+      'Bloqueo: Estricto',
+    ]);
+    expect(view('hardcore-block').header.titles).toEqual([
+      'Bloqueo: TikTok, Instagram +1 · Hardcore',
+      'Bloqueo: TikTok +2 · Hardcore',
+      'Bloqueo: 3 · Hardcore',
+    ]);
+  });
+
+  it('a punishment keeps «Castigo:»', () => {
+    expect(view('punishment').header.titles).toEqual([
+      'Castigo: todas las distracciones · 60 min',
+      'Castigo: todas las distracciones',
+      'Castigo: 60 min',
+    ]);
+  });
+});
+
+describe('wake-ups off the wall-clock second', () => {
+  it('nextSecondChange: when a rounded-up countdown shows its next value', () => {
+    expect(nextSecondChange(10_300, 10_000)).toBe(10_300);
+    expect(nextSecondChange(12_300, 10_000)).toBe(10_300);
+    expect(nextSecondChange(12_000, 10_000)).toBe(11_000);
+    expect(nextSecondChange(10_000, 10_000)).toBeNull();
+    expect(nextSecondChange(9_000, 10_000)).toBeNull();
+  });
+
+  it('«Sí, bloquear 6 h»: wakes exactly at unlockAt, and is unlocked from then on', () => {
+    const c = card(view('confirm-over-4h'));
+    const unlockAt = c.unlockAt ?? NaN;
+    expect(view('confirm-over-4h').wakeAt).toBe(unlockAt);
+    const confirm = (at: number) =>
+      card(view('confirm-over-4h', at)).actions.find((a) => a.id === 'confirm');
+    expect(confirm(unlockAt - 1)?.locked).toBe(true);
+    // An Enter 50 ms after the unlock finds an enabled button (the view re-derived at wakeAt).
+    expect(confirm(unlockAt)?.locked).toBe(false);
+    expect(confirm(unlockAt + 50)).toMatchObject({ locked: false, disabled: false });
+    expect(view('confirm-over-4h', unlockAt).wakeAt).toBeNull();
+  });
+
+  it('«Deshacer (N s)» and «Emergencia: m:ss» change on their own second', () => {
+    const undo = mainState('extend-undo').snapshot.ops.extendQueue[0];
+    if (!undo) throw new Error('no entry');
+    const wake = view('extend-undo').wakeAt ?? NaN;
+    expect((undo.commitAt - wake) % 1000).toBe(0);
+    expect(wake).toBeGreaterThan(NOW);
+    expect(wake - NOW).toBeLessThanOrEqual(1000);
+    const button = (at: number) => {
+      const u = active(view('extend-undo', at)).extend?.undo;
+      return u?.kind === 'waiting' ? u.button : null;
+    };
+    expect(button(wake - 1)).toBe('Deshacer (4 s)');
+    expect(button(wake)).toBe('Deshacer (3 s)');
+
+    const readyAt = Date.parse(
+      mainState('emergency-waiting').snapshot.state?.emergency?.readyAt ?? '',
+    );
+    const next = view('emergency-waiting').wakeAt ?? NaN;
+    expect((readyAt - next) % 1000).toBe(0);
+    expect(view('one-block').wakeAt).toBeNull();
+    expect(view('idle').wakeAt).toBeNull();
   });
 });
 
@@ -144,6 +264,8 @@ describe('typing', () => {
   it('shows the chips of what was understood', () => {
     const v = view('typing');
     expect(chipLabels(v)).toEqual(['YouTube', '1 h', 'hasta 18:00']);
+    const said = composer(v).line;
+    expect(said.kind === 'chips' && said.announce).toBe('Entendido: YouTube, 1 h, hasta 18:00');
     expect(composer(v).enter).toBe('card');
     const line = composer(v).line;
     expect(line.kind === 'chips' && line.note).toBeNull();
@@ -163,6 +285,9 @@ describe('typing', () => {
       tone: 'muted',
       text: 'No he entendido: "mañana tarde"',
     });
+    expect(line.kind === 'chips' && line.announce).toBe(
+      'Entendido: YouTube. No he entendido: "mañana tarde"',
+    );
     expect(composer(v).enter).toBe('bloqueos');
   });
 
@@ -232,6 +357,38 @@ describe('confirmation card', () => {
       tone: 'muted',
       text: 'Solo se puede ampliar, nunca acortar',
     });
+    expect(c.summary).toBe('Bloquea YouTube durante 1 hora, hasta las 18:00, modo Normal');
+  });
+
+  it('the summary names every target, the spoken duration, the end and the mode', () => {
+    const state = mainState('confirm-normal');
+    const current = state.main.card;
+    if (!current) throw new Error('no card');
+    const withDraft = (draft: Partial<typeof current.draft>): CardView =>
+      card(
+        deriveBloqueoView(
+          {
+            ...state,
+            main: { ...state.main, card: { ...current, draft: { ...current.draft, ...draft } } },
+          },
+          NOW,
+        ),
+      );
+    expect(
+      withDraft({
+        targets: { ...current.draft.targets, serviceIds: ['youtube', 'instagram', 'tiktok'] },
+        mode: 'strict',
+      }).summary,
+    ).toBe('Bloquea YouTube, Instagram y TikTok durante 1 hora, hasta las 18:00, modo Estricto');
+    expect(withDraft({ targets: { ...current.draft.targets, serviceIds: [] } }).summary).toBe(
+      'Nada elegido para bloquear. 1 hora, hasta las 18:00, modo Normal',
+    );
+    expect(card(view('confirm-hardcore')).summary).toBe(
+      'Bloquea Juegos durante 1 hora y 30 minutos, hasta las 18:30, modo Hardcore',
+    );
+    expect(card(view('confirm-exam')).summary).toBe(
+      'Bloquea todo salvo la lista blanca durante 3 horas, hasta las 20:00, modo Examen',
+    );
   });
 
   it('explains the hovered mode', () => {
@@ -293,7 +450,13 @@ describe('confirmation card', () => {
     expect(c.actions.find((a) => a.id === 'confirm')).toMatchObject({
       label: 'Bloqueando…',
       disabled: true,
+      busy: true,
     });
+    expect(c.summary).toBe('Bloquea YouTube durante 1 hora, hasta las 18:00, modo Normal');
+    // Only «Bloqueando…» is busy (full contrast); a locked or ready button is not.
+    for (const id of ['confirm-normal', 'confirm-over-4h', 'guardian-timeout'] as const) {
+      expect(card(view(id)).actions.every((a) => !a.busy)).toBe(true);
+    }
     expect(c.actions.find((a) => a.id === 'edit')?.disabled).toBe(true);
     expect(c.modes.every((m) => m.disabled)).toBe(true);
   });
@@ -365,7 +528,7 @@ describe('active', () => {
       titles: [
         'Bloqueo: YouTube, Instagram · Estricto',
         'Bloqueo: YouTube +1 · Estricto',
-        'YouTube +1 · Estricto',
+        'Bloqueo: 2 · Estricto',
       ],
       datum: 'hasta 17:42',
       datumTone: 'default',
@@ -435,6 +598,7 @@ describe('active', () => {
       text: '+30 min · termina a las 18:12',
       button: 'Deshacer (4 s)',
       buttonLabel: 'Deshacer la ampliación de +30 min',
+      announce: '+30 min, termina a las 18:12. Puedes deshacerlo durante 5 segundos',
     });
     expect(active(view('extend-undo', NOW + 3_000)).extend?.undo).toMatchObject({
       button: 'Deshacer (1 s)',
@@ -454,13 +618,16 @@ describe('active', () => {
     });
     expect(active(deriveBloqueoView(withStatus('sending'), NOW)).extend?.undo).toEqual({
       kind: 'sending',
+      entryId: entry.id,
       text: '+30 min · ampliando…',
+      announce: null,
     });
     expect(active(deriveBloqueoView(withStatus('failed'), NOW)).extend?.undo).toEqual({
       kind: 'failed',
       entryId: entry.id,
       text: 'No se pudo ampliar',
       button: 'Reintentar',
+      announce: 'No se pudo ampliar: puedes reintentarlo',
     });
   });
 

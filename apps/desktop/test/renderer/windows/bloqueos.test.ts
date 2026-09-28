@@ -3,6 +3,7 @@ import { emptyTargets } from '@centrate/shared/guardian-api';
 import type { Schedule } from '@centrate/shared/domain';
 import {
   HARNESS_NOW,
+  HARNESS_STATE_IDS,
   fixtureUiState,
   harnessFixture,
   makeSchedules,
@@ -33,11 +34,23 @@ import {
   scheduleRow,
 } from '../../../src/renderer/src/windows/bloqueos/schedules';
 import {
+  BLOQUEOS_KEYS,
+  TARGETS_TITLE_MAX,
   deriveBloqueosView,
+  fitLabel,
+  fixedBloqueosKeys,
+  formProblem,
+  seedLeavesDurationOpen,
   suggestedTemplateName,
   templateNameProblem,
   type BloqueosData,
+  type BloqueosView,
 } from '../../../src/renderer/src/windows/bloqueos/view';
+import {
+  allocateMnemonics,
+  duplicateKeys,
+} from '../../../src/renderer/src/windows/bloqueos/mnemonics';
+import { BLOQUEOS_ES } from '../../../src/renderer/src/windows/bloqueos/i18n/es';
 
 const NOW = HARNESS_NOW;
 const MIN = 60_000;
@@ -57,7 +70,6 @@ describe('Bloqueos view per fixture', () => {
     const view = deriveBloqueosView(detailState('bloqueos'), NOW, READY);
     expect(view.seedLine).toBeNull();
     expect(view.targets.title).toBe('Qué bloquear: nada aún');
-    expect(view.targets.datum).toBeNull();
     expect(view.targets.groups.map((g) => g.name)).toEqual([
       'Redes sociales',
       'Vídeo y streaming',
@@ -69,7 +81,8 @@ describe('Bloqueos view per fixture', () => {
     ]);
     expect(view.targets.groups.at(-1)?.categoryId).toBeNull();
     expect(view.duration.title).toBe('Duración: 1 h');
-    expect(view.duration.datum).toBe('hasta las 18:00');
+    expect(view.duration.datum).toBe('hasta 18:00');
+    expect(view.duration.open).toBe(false);
     expect(view.duration.presets.map((p) => [p.label, p.selected])).toEqual([
       ['30 min', false],
       ['1 h', true],
@@ -113,17 +126,79 @@ describe('Bloqueos view per fixture', () => {
     expect(view.exam.allowed).toMatch(/ y \d+ más$/);
   });
 
-  it('opens with what the phrase said (bloqueos-prefilled)', () => {
-    const view = deriveBloqueosView(detailState('bloqueos-prefilled'), NOW, READY);
+  it('opens with what the phrase said and invents no duration (bloqueos-prefilled)', () => {
+    const state = detailState('bloqueos-prefilled');
+    expect(seedLeavesDurationOpen(state)).toBe(true);
+    const view = deriveBloqueosView(state, NOW, READY);
     expect(view.seedLine).toBe('De tu frase «no veo YouTube mañana tarde»: completa lo que falta');
     expect(view.targets.title).toBe('Qué bloquear: YouTube');
-    expect(view.targets.datum).toBe('1 elegido');
     const video = view.targets.groups.find((g) => g.id === 'video');
     expect(video?.picked).toBe(1);
     expect(video?.services.find((s) => s.id === 'youtube')?.checked).toBe(true);
-    expect(view.problem).toBeNull();
+    // «mañana tarde» was not understood: no duration is shown as chosen.
+    expect(view.duration.open).toBe(true);
+    expect(view.duration.title).toBe('Duración: sin elegir');
+    expect(view.duration.datum).toBeNull();
+    expect(view.duration.presets.some((p) => p.selected)).toBe(false);
+    expect(view.duration.fields.minutesText).toBe('');
+    expect(view.duration.fields.untilText).toBe('');
+    expect(view.problem).toBe('no_duration');
+    expect(view.problemText).toBe('Elige cuánto dura');
     expect(view.active.title).toBe('Activos: ninguno');
     expect(view.active.emergency).toBe(false);
+  });
+
+  it('shows the duration once the user picks one', () => {
+    const view = deriveBloqueosView(detailState('bloqueos-prefilled'), NOW, {
+      ...READY,
+      durationPicked: true,
+    });
+    expect(view.duration.open).toBe(false);
+    expect(view.duration.title).toBe('Duración: 1 h');
+    expect(view.duration.presets.find((p) => p.selected)?.label).toBe('1 h');
+    expect(view.problem).toBeNull();
+  });
+
+  it('keeps the 1 h default when opened without a seed, or with a seed that had a time', () => {
+    const plain = detailState('bloqueos');
+    expect(seedLeavesDurationOpen(plain)).toBe(false);
+    const prefilled = detailState('bloqueos-prefilled');
+    const request = prefilled.env.detail;
+    if (request?.name !== 'bloqueos' || !request.seed) throw new Error('fixture without a seed');
+    const timed: UiState = {
+      ...prefilled,
+      env: {
+        ...prefilled.env,
+        detail: { ...request, seed: { ...request.seed, end: { kind: 'duration', minutes: 45 } } },
+      },
+    };
+    expect(seedLeavesDurationOpen(timed)).toBe(false);
+    expect(deriveBloqueosView(timed, NOW, READY).duration.open).toBe(false);
+    const more: UiState = {
+      ...prefilled,
+      env: { ...prefilled.env, detail: { ...request, seed: null } },
+    };
+    expect(deriveBloqueosView(more, NOW, READY).duration.title).toBe('Duración: 1 h');
+  });
+
+  it('asks for targets before the duration', () => {
+    const form = detailState('bloqueos').detail.bloqueos.form;
+    expect(formProblem(form, NOW, true)).toBe('no_targets');
+    const withTarget = { ...form, targets: { ...emptyTargets(), serviceIds: ['youtube'] } };
+    expect(formProblem(withTarget, NOW, true)).toBe('no_duration');
+    expect(formProblem(withTarget, NOW, false)).toBeNull();
+    expect(formProblem({ ...withTarget, end: { kind: 'duration', minutes: 2 } }, NOW, false)).toBe(
+      'too_short',
+    );
+  });
+
+  it('fits long titles in their column', () => {
+    expect(fitLabel('YouTube', TARGETS_TITLE_MAX)).toBe('YouTube');
+    expect(fitLabel('Noticias y deportes +12', TARGETS_TITLE_MAX)).toBe('Noticias y deportes +12');
+    const long = fitLabel('universidad-de-ejemplo-online.es +2', TARGETS_TITLE_MAX);
+    expect(long.length).toBeLessThanOrEqual(TARGETS_TITLE_MAX);
+    expect(long).toMatch(/^universidad-de-ejemp…/);
+    expect(long.endsWith('… +2')).toBe(true);
   });
 
   it('says the schedules are loading, or why they could not load', () => {
@@ -389,6 +464,57 @@ describe('Bloqueos schedules', () => {
       locked: true,
       description: 'En curso: podrás cambiarlo cuando acabe',
     });
+  });
+});
+
+/** Every Alt + letter a Bloqueos view gives its tiles. */
+function viewKeys(view: BloqueosView): (string | undefined)[] {
+  return [
+    BLOQUEOS_KEYS.addDomain,
+    BLOQUEOS_KEYS.addApp,
+    ...view.duration.presets.map((p) => p.mnemonic),
+    ...view.mode.options.map((o) => o.mnemonic),
+    BLOQUEOS_KEYS.save,
+    BLOQUEOS_KEYS.block,
+    ...view.templates.rows.flatMap((r) => [r.useKey, r.removeKey]),
+    ...view.exam.tiles.map((t) => t.mnemonic),
+    BLOQUEOS_KEYS.customize,
+  ];
+}
+
+describe('Bloqueos Alt + letter', () => {
+  it('gives every tile a key, unique in the window, in every fixture', () => {
+    for (const id of HARNESS_STATE_IDS) {
+      const view = deriveBloqueosView(detailState(id), NOW, READY);
+      const keys = viewKeys(view);
+      const templateTiles = view.templates.rows.flatMap((r) =>
+        r.builtin ? [r.useKey] : [r.useKey, r.removeKey],
+      );
+      expect(templateTiles.every(Boolean), id).toBe(true);
+      expect(duplicateKeys(keys), id).toEqual([]);
+    }
+  });
+
+  it('underlines a letter of the label where one is free', () => {
+    const view = deriveBloqueosView(detailState('bloqueos'), NOW, READY);
+    expect(view.duration.presets.map((p) => p.mnemonic)).toEqual(['m', '1', '2', '3']);
+    expect(view.mode.options.map((o) => o.mnemonic)).toEqual(['n', 'e', 'h', 'x']);
+    expect(view.templates.rows.map((r) => r.useKey)).toEqual(['u', 's', 'r']);
+    // The naming row replaces the action row: «Guardar» may share its key, nothing else may.
+    expect(duplicateKeys(fixedBloqueosKeys())).toEqual([BLOQUEOS_KEYS.saveName]);
+    expect(BLOQUEOS_ES.templates.use.toLowerCase()).toContain('u');
+  });
+
+  it('allocates free keys, label letters first', () => {
+    expect(allocateMnemonics(['Usar', 'Usar', 'Usar'], ['a'])).toEqual(['u', 's', 'r']);
+    expect(allocateMnemonics(['Guía'], ['g', 'u'])).toEqual(['i']);
+    expect(allocateMnemonics(['Ab'], ['a', 'b'])).toEqual(['c']);
+    const all = allocateMnemonics(
+      Array.from({ length: 40 }, () => 'x'),
+      [],
+    );
+    expect(all.filter(Boolean)).toHaveLength(36);
+    expect(all.at(-1)).toBeUndefined();
   });
 });
 

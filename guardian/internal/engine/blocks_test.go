@@ -338,9 +338,7 @@ func TestCompletionAfterDowntime(t *testing.T) {
 	env.open()
 	b := env.create(durationReq(ModeNormal, 30, "youtube"))
 	env.advance(10 * time.Minute)
-	if err := env.e.Stop(); err != nil {
-		t.Fatal(err)
-	}
+	env.shutdown()
 	env.clk.RebootAfter(time.Hour)
 	e := env.open()
 	rec := e.block(b.ID)

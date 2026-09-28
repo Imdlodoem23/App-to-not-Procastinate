@@ -7,10 +7,15 @@ import {
 } from '../../../src/shared/fixtures';
 import type { UiState } from '../../../src/shared/ui-state';
 import {
+  EMERGENCIA_KEYS,
   deriveEmergenciaView,
   localPreview,
   phraseStatus,
+  stageAnnouncement,
+  stageFocus,
 } from '../../../src/renderer/src/windows/emergencia/view';
+import { EMERGENCIA_ES } from '../../../src/renderer/src/windows/emergencia/i18n/es';
+import { duplicateKeys } from '../../../src/renderer/src/windows/bloqueos/mnemonics';
 
 const NOW = HARNESS_NOW;
 const MIN = 60_000;
@@ -229,5 +234,57 @@ describe('Emergencia: unavailable and done', () => {
       lost: 'Has perdido 620 puntos y tu racha de 5 días',
       balance: 'Saldo: 620 puntos',
     });
+  });
+});
+
+describe('Emergencia: keyboard and screen readers', () => {
+  it('says each new stage with its datum, and what caused it first', () => {
+    const waiting = deriveEmergenciaView(detailState('emergency-waiting'), NOW, null);
+    expect(stageAnnouncement(waiting)).toBe('Emergencia: esperando, lista a las 17:08');
+    const ready = deriveEmergenciaView(detailState('emergency-ready'), NOW, null);
+    expect(stageAnnouncement(ready)).toBe('Emergencia: lista, hasta las 17:04');
+    const request = deriveEmergenciaView(detailState('emergencia'), NOW, null);
+    expect(stageAnnouncement(request, EMERGENCIA_ES.cancelled)).toBe(
+      'Cancelada: no has perdido nada. Emergencia: YouTube, espera de 10 min',
+    );
+  });
+
+  it('never says «terminado» for the wait, nor the visible lines word for word', () => {
+    expect(EMERGENCIA_ES.waitMark(5)).toBe('Podrás desbloquear en 5 minutos');
+    expect(EMERGENCIA_ES.waitMark(1)).toBe('Podrás desbloquear en 1 minuto');
+    expect(EMERGENCIA_ES.waitEnd).not.toMatch(/terminado/i);
+    // The polite region never repeats a visible line (tests and screen readers find one).
+    const { phraseOk, phraseMismatch, pasted } = EMERGENCIA_ES.announce;
+    const spoken: string[] = [phraseOk, phraseMismatch, pasted];
+    const visible = [
+      EMERGENCIA_ES.phrase.ok,
+      EMERGENCIA_ES.phrase.pasted,
+      EMERGENCIA_ES.phrase.mismatch,
+    ];
+    for (const text of spoken) {
+      for (const line of visible) expect(text.toLowerCase()).not.toContain(line.toLowerCase());
+    }
+  });
+
+  it('focuses the way that keeps the block in every stage', () => {
+    expect(stageFocus('request')).toBe('phrase');
+    expect(stageFocus('counting')).toBe('cancel');
+    expect(stageFocus('ready')).toBe('cancel');
+    expect(stageFocus('done')).toBe('close');
+    expect(stageFocus('unavailable')).toBe('close');
+  });
+
+  it('gives every tile its own Alt + letter, found in its label', () => {
+    expect(duplicateKeys(Object.values(EMERGENCIA_KEYS))).toEqual([]);
+    const labels = {
+      stay: EMERGENCIA_ES.actions.stay,
+      request: EMERGENCIA_ES.actions.request(10),
+      cancel: EMERGENCIA_ES.actions.cancel,
+      unlock: EMERGENCIA_ES.actions.unlock,
+      close: EMERGENCIA_ES.actions.close,
+    };
+    for (const [tile, key] of Object.entries(EMERGENCIA_KEYS)) {
+      expect(labels[tile as keyof typeof labels].toLowerCase()).toContain(key);
+    }
   });
 });

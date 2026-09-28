@@ -56,9 +56,34 @@
     letter-spacing: 0.12em;
   }
 
-  .c-help.aj-wrap {
-    white-space: normal;
-    overflow: visible;
+  /* «Tema», «Modo por defecto»: three compact tiles on the right of a 48 px row. The row's
+     description shows the hovered option's help, so the kit's own help line under the tiles is
+     kept for screen readers only (it is what the tiles' aria-describedby reads). */
+  .aj-choice .c-settings-control .c-tilerow {
+    width: calc(3 * 80px + 2 * var(--layout-tile-gap));
+  }
+
+  .aj-choice .c-tilerow > .c-help {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    min-height: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* A group's result line: always mounted (a live region), no room taken while empty (the
+     negative margin cancels the section's gap; the text puts it back). */
+  .aj-notice {
+    margin-top: calc(-1 * var(--space-2));
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+
+  .aj-notice-text {
+    display: block;
+    margin-top: var(--space-2);
   }
 
   .aj-rows .c-settings-control > .c-tile {

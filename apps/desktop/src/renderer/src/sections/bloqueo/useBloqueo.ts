@@ -12,6 +12,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   type RefObject,
@@ -55,7 +56,10 @@ import {
 } from './reducer';
 import { BLOQUEO_SECTION_ID, deriveBloqueoView, type BloqueoView } from './view';
 
-/** A one-line notice that is not in the snapshot (a refused extension, «Ya ampliado»…). */
+/**
+ * A one-line notice that is not in the snapshot (a refused extension, «Ya ampliado»,
+ * «Ampliación deshecha»…). Extend notices are also spoken by the extend row's live region.
+ */
 export interface BloqueoNotice {
   scope: 'card' | 'extend';
   /** The card it belongs to (`scope: 'card'`). */
@@ -97,6 +101,8 @@ export interface BloqueoActions {
 }
 
 const NOTICE_MS = 4_000;
+/** Lands a wake-up just past its instant (timers and `Date.now()` may disagree by a ms). */
+const WAKE_EPSILON_MS = 4;
 const ESC_STAGE_PRIORITY: Readonly<Record<EscapeStage, number>> = {
   extendOther: ESC_PRIORITY.extendOther,
   consequence: ESC_PRIORITY.consequence,
@@ -131,6 +137,17 @@ export function useBloqueo(): {
   const now = useNow(idle ? 4_000 : 1_000);
   const view = useMemo(() => deriveBloqueoView({ snapshot, main }, now), [snapshot, main, now]);
   const frozen = snapshot.harness?.frozenNowMs != null;
+
+  // Labels that count to their own instant, not to the wall-clock second: re-derive exactly at
+  // `wakeAt` («Sí, bloquear 6 h» unlocks 2 s after the consequence, not at the next second, so
+  // an Enter right then is not dropped; «Deshacer (N s)» and «Emergencia: m:ss» stay on time).
+  const [, wake] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    if (view.wakeAt === null || frozen || !visible) return undefined;
+    const delay = Math.max(0, view.wakeAt - Date.now()) + WAKE_EPSILON_MS;
+    const timer = setTimeout(wake, delay);
+    return () => clearTimeout(timer);
+  }, [view.wakeAt, now, frozen, visible]);
 
   const refs: BloqueoRefs = {
     field: useRef<HTMLInputElement>(null),
@@ -185,6 +202,21 @@ export function useBloqueo(): {
     if (active && active !== document.body) return;
     (refs.field.current ?? sectionRoot())?.focus({ preventScroll: true });
   }, [view.body.kind, refs.field]);
+
+  // The undo line's button («Deshacer (N s)», «Reintentar») goes away when its entry moves on
+  // (5 s later, or sent): a keyboard user on it goes back to the extend row, not to <body>.
+  const undoKind = view.body.kind === 'active' ? (view.body.extend?.undo?.kind ?? null) : null;
+  const previousUndo = useRef(undoKind);
+  useLayoutEffect(() => {
+    const was = previousUndo.current;
+    previousUndo.current = undoKind;
+    if (was === undoKind || (was !== 'waiting' && was !== 'failed')) return;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    (refs.firstExtend.current ?? refs.field.current ?? sectionRoot())?.focus({
+      preventScroll: true,
+    });
+  }, [undoKind, refs.firstExtend, refs.field]);
 
   // --- helpers -------------------------------------------------------------------------------
   const clock = useCallback(() => snapshotNow(api.getState().snapshot), [api]);
@@ -373,14 +405,12 @@ export function useBloqueo(): {
       undo(entryId) {
         requestFocus('extend');
         void bridge.invoke('block:extend-undo', { entryId }).then((r) => {
-          if (r === 'too_late') {
-            setNotice({
-              scope: 'extend',
-              intentId: null,
-              text: BLOQUEO_ES.active.tooLate,
-              tone: 'muted',
-            });
-          }
+          setNotice({
+            scope: 'extend',
+            intentId: null,
+            text: r === 'too_late' ? BLOQUEO_ES.active.tooLate : BLOQUEO_ES.active.undone,
+            tone: 'muted',
+          });
         });
       },
       retryExtend(entryId) {

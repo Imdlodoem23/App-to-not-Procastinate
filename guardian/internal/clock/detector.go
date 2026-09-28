@@ -88,6 +88,17 @@ type JumpResult struct {
 	// set before the lag appeared ends later than promised by at most the
 	// lag, as it already would have without Resync.
 	TrustedShift time.Duration
+	// Correction is how far Calibrate (or Resync) moved EffectiveNow back
+	// because it ran ahead of the reference by more than the tolerance; zero
+	// in every other result. It is also part of Delta (and of WallOffset),
+	// which may additionally hold a jump the same call's Tick saw.
+	//
+	// When the trusted clock ran ahead because a reboot restore trusted a
+	// wall clock that was ahead, the caller moves back by Correction every
+	// trusted deadline created at or after the restore, in the same batch
+	// (docs/ARCHITECTURE.md §4; see RestoreJump.Shift), so a block or an
+	// allowance created while T ran ahead lasts exactly what it promised.
+	Correction time.Duration
 }
 
 // Jumped reports whether a wall-clock jump was detected.
@@ -156,6 +167,13 @@ type RestoreResult struct {
 	// snapshot's own wall clock and offset by more than a year. A snapshot
 	// that is consistent with itself is always used, however odd.
 	Discarded bool
+	// Restore is the restore jump of a reboot (set when the snapshot was used
+	// and SameBoot is false): the trusted clock had reached SavedT when the
+	// snapshot was taken and restarted at RestoredT. Persist it until a
+	// calibration resolves it (docs/ARCHITECTURE.md §4, §10.2): blocks
+	// completed with an endsAt in (SavedT, RestoredT] may be resurrected, and
+	// deadlines created at or after RestoredT move back with a Correction.
+	Restore RestoreJump
 }
 
 // Detector tracks a trusted clock that wall-clock changes cannot move and
@@ -304,6 +322,7 @@ func (d *Detector) Restore(prev Snapshot) RestoreResult {
 	}
 	d.baseWall, d.baseMono, d.off = t, m, w.Sub(t)
 	d.lastMono, d.lastAwake, d.awakeKnown = m, a, true
+	res.Restore = RestoreJump{SavedT: prev.Trusted, RestoredT: t}
 	return res
 }
 
@@ -382,6 +401,7 @@ func (d *Detector) calibrate(ref time.Time, forward bool) JumpResult {
 	if gap < 0 {
 		r.Delta = addSat(r.Delta, negSat(gap))
 		r.Forward = r.Delta > 0
+		r.Correction = negSat(gap)
 	} else {
 		r.TrustedShift = gap
 	}

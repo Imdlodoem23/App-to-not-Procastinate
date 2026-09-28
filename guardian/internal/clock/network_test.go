@@ -311,14 +311,14 @@ func TestAgreed(t *testing.T) {
 		{"largest group wins", at(0, time.Second, time.Minute, time.Minute+time.Second, time.Minute+2*time.Second), time.Minute + time.Second, true},
 	}
 	for _, c := range cases {
-		got, ok := agreed(c.answers, now)
-		if ok != c.ok || (ok && !got.Equal(base.Add(c.want))) {
+		got, n, ok := agreed(c.answers, now)
+		if ok != c.ok || (ok && !got.Equal(base.Add(c.want))) || (ok && n < minAgreeing) {
 			t.Errorf("%s: got %v, %v; want %v, %v", c.name, got, ok, base.Add(c.want), c.ok)
 		}
 	}
 	// Answers taken at different moments are projected to the same instant.
 	later := []answer{{server: base, local: now}, {server: base.Add(10 * time.Second), local: now.Add(10 * time.Second)}}
-	if got, ok := agreed(later, now.Add(10*time.Second)); !ok || !got.Equal(base.Add(10*time.Second)) {
+	if got, n, ok := agreed(later, now.Add(10*time.Second)); !ok || n != 2 || !got.Equal(base.Add(10*time.Second)) {
 		t.Errorf("projection: got %v, %v", got, ok)
 	}
 }

@@ -65,10 +65,27 @@ export const EMERGENCIA_ES = {
 
   waiting: 'Esperando',
   waitingHelp: 'Cuando acabe tendrás 5 min para desbloquear; si no, el bloqueo sigue',
+  /** Screen readers, as the wait crosses 15, 5 and 1 min (the window says when it is ready). */
+  waitMark: (minutes: number): string =>
+    minutes === 1 ? 'Podrás desbloquear en 1 minuto' : `Podrás desbloquear en ${minutes} minutos`,
+  waitEnd: 'Ya puedes desbloquear',
+  /** Screen readers, while the time to confirm runs out. */
+  decideMark: (minutes: number): string =>
+    minutes === 1 ? 'Queda 1 minuto para decidir' : `Quedan ${minutes} minutos para decidir`,
+  decideEnd: 'Se acabó el tiempo: el bloqueo sigue',
   /** «Tienes 4:30 para decidir» (the countdown is its own element). */
   readyLead: 'Tienes',
   readyTail: 'para decidir; después, el bloqueo sigue',
   cancelled: 'Cancelada: no has perdido nada',
+
+  /** What the window's polite region says (never the same words as a visible line). */
+  announce: {
+    /** «Emergencia: esperando, lista a las 17:08». */
+    stage: (title: string, datum: string | null): string => (datum ? `${title}, ${datum}` : title),
+    phraseOk: 'Frase correcta: ya puedes empezar la espera',
+    phraseMismatch: 'La frase tiene un error: revísala',
+    pasted: 'Pegar no está permitido: tienes que teclear la frase',
+  },
 
   done: {
     /** «Se ha cancelado 1 bloqueo». */

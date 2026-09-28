@@ -20,8 +20,14 @@
 //     root-only location.
 //
 // An explicit stop always ends with exit code 0, so failure recovery only
-// applies to crashes and start failures. Every command it runs is a fixed
-// binary with fixed arguments; nothing is built from external data.
+// applies to crashes and start failures. A stop that is part of an OS
+// shutdown (Windows SERVICE_CONTROL_SHUTDOWN; systemd reporting the system
+// as stopping) goes to ShutdownRunner.Shutdown, which writes the planned-stop
+// marker. Installers and updaters stop the service with StopPlanned (or call
+// WritePlannedStop first), so a stop to replace the files is not penalized
+// (docs/ARCHITECTURE.md §10.12 step 9, §13). CheckActive answers has-active
+// with exit code 0, 10 or 11 (HasActiveLevel). Every command it runs is a
+// fixed binary with fixed arguments; nothing is built from external data.
 package svc
 
 import (
@@ -265,6 +271,8 @@ type program struct {
 	logger          *slog.Logger
 	stopTimeout     time.Duration
 	shutdownTimeout time.Duration
+	// stopping reports whether a stop is part of an OS shutdown (systemd).
+	stopping func() bool
 
 	mu     sync.Mutex
 	runner Runner
@@ -277,6 +285,7 @@ func newProgram(newRunner func() Runner, logger *slog.Logger) *program {
 		logger:          logger,
 		stopTimeout:     StopTimeout,
 		shutdownTimeout: ShutdownTimeout,
+		stopping:        systemStopping,
 	}
 }
 
@@ -303,6 +312,9 @@ func (p *program) Start(service.Service) error {
 }
 
 // Stop cancels the Runner's context and waits up to stopTimeout for its Stop.
+// When the stop is part of an OS shutdown (systemd reports the system as
+// stopping; Windows calls Shutdown instead) a ShutdownRunner gets Shutdown,
+// which writes the planned-stop marker first (docs/ARCHITECTURE.md §13).
 // It always returns nil: an error would make the service exit with a failure
 // code, and Windows would then "recover" an intentional stop by restarting
 // the guardian (during an update, while its files are being replaced).
@@ -312,7 +324,11 @@ func (p *program) Stop(service.Service) error {
 		return nil
 	}
 	cancel()
-	p.bounded("stop", p.stopTimeout, func(context.Context) error { return r.Stop() })
+	op, fn := "stop", func(context.Context) error { return r.Stop() }
+	if sr, ok := r.(ShutdownRunner); ok && p.stopping != nil && p.stopping() {
+		op, fn = "shutdown", sr.Shutdown
+	}
+	p.bounded(op, p.stopTimeout, fn)
 	return nil
 }
 

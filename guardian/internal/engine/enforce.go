@@ -63,7 +63,37 @@ type hostsState struct {
 	lastTamper    int64
 	overrideSeen  bool
 	pendingTamper []string
+	// job is the hosts write running on a worker, flush the DNS flush after it; their
+	// results are collected by awaitHosts and pollHosts on the engine goroutine.
+	job   *hostsJob
+	flush chan error
+	// flushAgain: another change was written while a flush ran.
+	flushAgain bool
+	// failing: the last write failed; retries wait for retryAtBoot and do not hold the
+	// turn.
+	failing bool
+	// recheck: the watcher reported a change while a write ran; verify once it ends.
+	recheck bool
 }
+
+// hostsJob is one hosts write (§11.3 step 5).
+type hostsJob struct {
+	desired []string
+	until   int64
+	done    chan error
+}
+
+// hostsWriteBudget is how long a turn waits for a hosts write and the DNS flush after
+// it (§11.3 step 5: a 1 s budget, retries continue in the background). A file held by
+// an antivirus makes hosts.Manager retry for several seconds, and a flush runs system
+// commands: neither may hold every API request, long poll and watcher notice.
+const hostsWriteBudget = time.Second
+
+// hostsRetryAfter is how long a failed hosts write waits before the next attempt.
+const hostsRetryAfter = 5 * time.Second
+
+// ioStopWait bounds how long Stop waits for a hosts write or flush still running.
+const ioStopWait = 2 * time.Second
 
 // modeRank orders modes for the hosts cap and schedule weakening (§10.3, §10.10).
 func modeRank(mode string) int {
@@ -329,11 +359,16 @@ func (e *Engine) extRulesFingerprint() string {
 	return hex.EncodeToString(sum[:])
 }
 
-// applyHosts writes the hosts section when it differs from what should be there.
+// applyHosts writes the hosts section when it differs from what should be there. The
+// write runs on a worker; the turn waits for it (and the DNS flush after it) at most
+// hostsWriteBudget, then goes on while the worker finishes (pollHosts collects the
+// result on a later turn, protection.hosts shows "locked" meanwhile). One write runs at
+// a time; a failed one is retried after hostsRetryAfter without holding a turn.
 func (e *Engine) applyHosts(domains []string, until int64) {
+	e.pollHosts()
 	desired := validHostsDomains(domains)
 	h := &e.hosts
-	if h.retryAtBoot > e.bootNow {
+	if h.job != nil || h.retryAtBoot > e.bootNow {
 		return
 	}
 	_, header := e.o.Hosts.(HostsSectionHeader)
@@ -348,32 +383,123 @@ func (e *Engine) applyHosts(domains []string, until int64) {
 			return
 		}
 	}
-	var err error
+	job := &hostsJob{desired: desired, until: until, done: make(chan error, 1)}
+	hm := e.o.Hosts
+	e.ioWG.Add(1)
+	go func() {
+		defer e.ioWG.Done()
+		job.done <- writeHosts(hm, desired, until)
+	}()
+	h.job = job
+	if hash := hashDomains(desired); hash != e.state.HostsHash {
+		e.state.HostsPendingHash = hash
+		e.markDirty(true)
+	}
+	budget := hostsWriteBudget
+	if h.failing {
+		budget = 0
+	}
+	e.awaitHosts(budget)
+}
+
+// writeHosts brings the hosts layer to desired (worker goroutine).
+func writeHosts(hm HostsManager, desired []string, until int64) error {
 	switch {
 	case len(desired) == 0:
-		err = e.o.Hosts.Remove()
+		return hm.Remove()
 	default:
-		if hh, ok := e.o.Hosts.(HostsSectionHeader); ok {
-			err = hh.ApplyUntil(desired, time.UnixMilli(until).UTC())
-		} else {
-			err = e.o.Hosts.Apply(desired)
+		if hh, ok := hm.(HostsSectionHeader); ok {
+			return hh.ApplyUntil(desired, time.UnixMilli(until).UTC())
+		}
+		return hm.Apply(desired)
+	}
+}
+
+// awaitHosts waits up to budget for the running hosts write and the flush after it;
+// a zero budget only collects what already finished.
+func (e *Engine) awaitHosts(budget time.Duration) {
+	if budget <= 0 {
+		e.pollHosts()
+		return
+	}
+	t := time.NewTimer(budget)
+	defer t.Stop()
+	for {
+		var job, flush chan error
+		if e.hosts.job != nil {
+			job = e.hosts.job.done
+		}
+		flush = e.hosts.flush
+		if job == nil && flush == nil {
+			return
+		}
+		select {
+		case err := <-job:
+			e.hostsWritten(err)
+		case err := <-flush:
+			e.hostsFlushed(err)
+		case <-t.C:
+			if e.hosts.job != nil {
+				e.hosts.ok, e.hosts.status = false, "locked"
+				e.log.Warn("hosts write still running after its budget; it continues in the background")
+			}
+			return
 		}
 	}
+}
+
+// pollHosts collects a finished hosts write or flush without waiting.
+func (e *Engine) pollHosts() {
+	if j := e.hosts.job; j != nil {
+		select {
+		case err := <-j.done:
+			e.hostsWritten(err)
+		default:
+		}
+	}
+	if f := e.hosts.flush; f != nil {
+		select {
+		case err := <-f:
+			e.hostsFlushed(err)
+		default:
+		}
+	}
+}
+
+// hostsWritten records the result of the running write.
+func (e *Engine) hostsWritten(err error) {
+	h := &e.hosts
+	job := h.job
+	h.job = nil
+	if job == nil {
+		return
+	}
+	e.state.HostsPendingHash = ""
 	if err != nil {
 		h.ok = false
 		h.status = classifyHostsErr(err)
 		h.appliedValid = false
+		h.failing = true
+		h.retryAtBoot = max(h.retryAtBoot, e.bootNow+hostsRetryAfter)
 		e.countError("hosts_write")
-		e.log.Warn("hosts write failed", "err", err, "entries", len(desired))
+		e.log.Warn("hosts write failed", "err", err, "entries", len(job.desired))
 		return
 	}
-	changed := !h.appliedValid || !slices.Equal(desired, h.applied)
-	h.applied, h.appliedValid, h.ok, h.status = desired, true, true, "ok"
-	h.appliedUntil = until
+	changed := !h.appliedValid || !slices.Equal(job.desired, h.applied)
+	h.applied, h.appliedValid, h.ok, h.status, h.failing = job.desired, true, true, "ok", false
+	h.appliedUntil = job.until
 	h.lastAppliedAt = ptr(e.now)
-	e.state.HostsHash = hashDomains(desired)
+	if hash := hashDomains(job.desired); hash != e.state.HostsHash {
+		e.state.HostsHash = hash
+		e.markDirty(true)
+	}
 	if changed {
 		e.flushDNS()
+	}
+	// The plan moved on while it ran (write again), or the file changed meanwhile.
+	if h.recheck || job.until != e.enf.Until || !slices.Equal(job.desired, validHostsDomains(e.enf.HostsDomains)) {
+		h.recheck = false
+		e.enfDirty = true
 	}
 }
 
@@ -407,18 +533,73 @@ func hashDomains(domains []string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// flushDNS flushes the resolver cache after a hosts change.
+// flushDNS flushes the resolver cache after a hosts change, on a worker (it runs
+// system commands for up to hosts.FlushTimeout); one flush at a time, and a change
+// written meanwhile gets another one when it ends.
 func (e *Engine) flushDNS() {
-	ctx, cancel := context.WithTimeout(context.Background(), hosts.FlushTimeout)
-	defer cancel()
-	err := e.o.DNS.FlushDNS(ctx)
-	e.hosts.lastFlush = &FlushInfo{At: e.display(e.now), OK: err == nil, Method: "system"}
+	h := &e.hosts
+	if e.ioStopped {
+		return
+	}
+	if h.flush != nil {
+		h.flushAgain = true
+		return
+	}
+	ch := make(chan error, 1)
+	dns := e.o.DNS
+	e.ioWG.Add(1)
+	go func() {
+		defer e.ioWG.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), hosts.FlushTimeout)
+		defer cancel()
+		ch <- dns.FlushDNS(ctx)
+	}()
+	h.flush = ch
+}
+
+// hostsFlushed records a finished flush.
+func (e *Engine) hostsFlushed(err error) {
+	h := &e.hosts
+	h.flush = nil
+	h.lastFlush = &FlushInfo{At: e.display(e.now), OK: err == nil, Method: "system"}
+	if h.flushAgain {
+		h.flushAgain = false
+		e.flushDNS()
+	}
+}
+
+// waitIO waits (at most ioStopWait) for the hosts write and flush workers at Stop and
+// records a write that finished, so the final state.json holds the hash of the section
+// on disk (or the pending one, when the write is still running).
+func (e *Engine) waitIO() {
+	defer func() {
+		e.ioStopped = true
+		e.pollHosts()
+	}()
+	done := make(chan struct{})
+	go func() {
+		e.ioWG.Wait()
+		close(done)
+	}()
+	t := time.NewTimer(ioStopWait)
+	defer t.Stop()
+	select {
+	case <-done:
+	case <-t.C:
+		e.log.Warn("a hosts write or DNS flush was still running at stop")
+	}
 }
 
 // onHostsChanged handles a hosts watcher notice (§10.10): when our section is no
 // longer what it should be, re-apply (within ~1 s, or after the contention backoff) and
 // log tamper_detected{hosts} at most once a minute while blocks are active.
 func (e *Engine) onHostsChanged() {
+	e.pollHosts()
+	if e.hosts.job != nil {
+		// Our own write may not have landed yet: verify once it has.
+		e.hosts.recheck = true
+		return
+	}
 	desired := validHostsDomains(e.enf.HostsDomains)
 	ok, err := e.o.Hosts.Verify(desired)
 	if err == nil && ok {

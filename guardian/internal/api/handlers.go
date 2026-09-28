@@ -14,7 +14,7 @@ import (
 // of docs/ARCHITECTURE.md §8.8; idempotent routes store the same status in the engine.
 func handlerTable() map[string]handlerSpec {
 	m := map[string]handlerSpec{
-		"health": {serve: hHealth},
+		"health":   {serve: hHealth},
 		"getState": {serve: hState},
 		"diagnostics": {serve: readCmd(func(c *call) (engine.DiagnosticsResponse, error) {
 			return c.s.eng.Diagnostics(c.ctx)
@@ -323,7 +323,9 @@ func (c *call) longPoll(waitMs int) (func(), *engine.APIError) {
 	if !c.s.polls.acquire(key) {
 		return nil, c.rateLimited(time.Second, "too many concurrent long polls for this token")
 	}
+	// The engine refuses a wait above longPollMaxMs; the deadline never exceeds it.
+	wait := min(waitMs, embedded.API().Limits.LongPollMaxMs)
 	rc := http.NewResponseController(c.w)
-	_ = rc.SetWriteDeadline(time.Now().Add(time.Duration(waitMs)*time.Millisecond + longPollGrace))
+	_ = rc.SetWriteDeadline(time.Now().Add(time.Duration(wait)*time.Millisecond + longPollGrace))
 	return func() { c.s.polls.release(key) }, nil
 }

@@ -8,9 +8,16 @@
 //
 //	# >>> CENTRATE START
 //	# Managed by Centrate. Do not edit: changes are restored.
+//	# centrate-hosts v1 until=2026-09-27T17:42:00Z count=1
 //	0.0.0.0 example.com
 //	:: example.com
 //	# <<< CENTRATE END
+//
+// The third line, written by ApplyUntil (not by Apply), records the latest
+// trusted end of the active blocks and the number of domains, so the guardian
+// keeps enforcing if every state file is lost; Section and SectionInfo parse
+// it (docs/ARCHITECTURE.md §10.10, §10.12). Verify keeps whatever until the
+// file has; VerifyUntil requires a given one.
 //
 // Every blocked domain gets an IPv4 and an IPv6 line. Domains are strict ASCII
 // hostnames (see ValidateDomain): the hosts file has no wildcards, so the
@@ -53,9 +60,16 @@
 // deletes a marker together with its neighbours. Duplicated sections are
 // merged into one at the position of the first. Lines between the markers of
 // a well-formed section belong to Céntrate and are discarded, as its header
-// warns.
+// warns. The header line is claimed from beside a stray marker only in the
+// exact form FormatSectionHeader writes.
 //
 // # Backups and restore
+//
+// The first time a Manager reads an existing, usable hosts file it writes
+// BackupDir/hosts.original (the file with any Céntrate section taken out)
+// unless that file already exists: it is never overwritten, is the last
+// resort of Recover and RestoreFromBackup, and RestoreOriginal writes it
+// back.
 //
 // Before a write, the file is copied to BackupDir/hosts.bak (older copies
 // rotate to hosts.bak.1 and hosts.bak.2) when its user part (everything
@@ -89,6 +103,22 @@
 // hosts file (platform.HostsPath, normally
 // %SystemRoot%\System32\drivers\etc\hosts) under Exclusions. Nothing else
 // is needed: the browser extension keeps blocking meanwhile.
+//
+// # Budget and hashes
+//
+// The section holds at most SectionBudget domains (hostsMaxDomains from the
+// generated contract data). Apply and ApplyUntil refuse a longer list with
+// ErrOverBudget instead of cutting it alphabetically; ApplyPrioritized takes
+// the domains in priority groups and drops the lowest-priority ones. The
+// engine persists LastSectionHash (SectionHash: SHA-256 of the sorted domain
+// list) and compares it with CurrentSectionHash at the next start to detect a
+// section changed while the guardian was stopped.
+//
+// # Path
+//
+// With Resolve set (the engine passes platform.HostsPath, which follows the
+// Windows DataBasePath registry value), the path is re-read every
+// ResolveEvery (60 s) and the Manager moves to the new file when it changes.
 //
 // # Watching and DNS
 //

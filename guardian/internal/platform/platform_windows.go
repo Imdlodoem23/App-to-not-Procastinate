@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 	"unsafe"
 
@@ -33,11 +34,12 @@ const (
 	// secretFileSDDL: SYSTEM, Administrators and the file's owner only
 	// (Administrators or SYSTEM when elevated; the developer otherwise).
 	secretFileSDDL = "D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;OW)"
+	// dataFileSDDL and privateFileSDDL are what the takeover gives files:
+	// the entries of dataDirSDDL and privateDirSDDL without inheritance
+	// flags, owner Administrators.
+	dataFileSDDL    = "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1200a9;;;BU)"
+	privateFileSDDL = "O:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)"
 )
-
-// secureAttempts bounds how often secureDir moves an untrusted directory
-// aside and recreates it before giving up.
-const secureAttempts = 3
 
 func defaultDataDir() string {
 	base, err := windows.KnownFolderPath(windows.FOLDERID_ProgramData, 0)
@@ -67,9 +69,13 @@ func IsElevated() bool {
 func UseSystemPATH() {}
 
 // secureDir creates dir (and missing parents) atomically with the guardian's
-// security descriptor, moves aside any existing tree it cannot trust, and
-// resets the directory's owner and DACL. See EnsureDir.
-func secureDir(dir string, private bool) error {
+// security descriptor and takes over the whole tree (see takeover.go): an
+// untrusted tree is moved aside and created again; in a trusted one links,
+// junctions and multi-linked files are deleted and every entry gets owner
+// Administrators and the protected DACL, set through handles opened on the
+// entry itself (never on a link's target) with SetKernelObjectSecurity, which
+// changes that one object and propagates nothing.
+func secureDir(dir string, private bool, rep *TakeoverReport) error {
 	// Objects this process creates from now on are owned by Administrators
 	// even where local policy makes the creating account the owner.
 	setDefaultOwnerAdministrators()
@@ -85,36 +91,7 @@ func secureDir(dir string, private bool) error {
 	if err != nil {
 		return err
 	}
-	for attempt := 1; ; attempt++ {
-		if err := createSecure(dir, sd, parentSD); err != nil {
-			return err
-		}
-		problem, err := untrustedEntry(dir, true)
-		if err != nil {
-			return err
-		}
-		if problem == "" {
-			break
-		}
-		if attempt == secureAttempts {
-			return fmt.Errorf("cannot trust %s: %s", dir, problem)
-		}
-		if err := moveAside(dir); err != nil {
-			return fmt.Errorf("cannot trust %s (%s) and could not move it aside: %w", dir, problem, err)
-		}
-	}
-	owner, _, err := sd.Owner()
-	if err != nil {
-		return err
-	}
-	dacl, _, err := sd.DACL()
-	if err != nil {
-		return err
-	}
-	// Also pushes the inheritable entries down to the (verified) children.
-	return windows.SetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT,
-		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
-		owner, nil, dacl, nil)
+	return secureLoop(windowsTree{}, dir, private, func() error { return createSecure(dir, sd, parentSD) }, rep)
 }
 
 // createSecure creates dir with sd if it does not exist, creating missing
@@ -150,97 +127,191 @@ func createSecure(dir string, sd, parentSD *windows.SECURITY_DESCRIPTOR) error {
 	return nil
 }
 
-// untrustedEntry walks the tree at path without following links and returns
-// why it cannot be trusted, or "" when every entry is a plain file or
-// directory owned by SYSTEM or Administrators and no file has extra hard
-// links. Only a failure to inspect the root itself is returned as an error.
-func untrustedEntry(path string, root bool) (string, error) {
-	info, err := inspect(path)
-	if err != nil {
-		if root {
-			return "", err
-		}
-		return fmt.Sprintf("%s cannot be inspected (%v)", path, err), nil
-	}
-	switch {
-	case info.reparse:
-		return path + " is a link or junction", nil
-	case !info.ownerTrusted:
-		return path + " is owned by another account", nil
-	case !info.dir && info.links > 1:
-		return path + " has more than one hard link", nil
-	case !info.dir:
-		return "", nil
-	}
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return fmt.Sprintf("%s cannot be listed (%v)", path, err), nil
-	}
-	for _, e := range entries {
-		if problem, _ := untrustedEntry(filepath.Join(path, e.Name()), false); problem != "" {
-			return problem, nil
-		}
-	}
-	return "", nil
-}
+// windowsTree implements treeOps with handles opened with
+// FILE_FLAG_OPEN_REPARSE_POINT: no operation follows a link or junction.
+type windowsTree struct{}
 
-type entryInfo struct {
-	dir, reparse, ownerTrusted bool
-	links                      uint32
-}
-
-// inspect reads an entry's attributes, link count and owner through a handle
-// opened on the entry itself (never on a link's target).
-func inspect(path string) (entryInfo, error) {
-	p, err := windows.UTF16PtrFromString(path)
+func (windowsTree) inspect(path string) (treeEntry, error) {
+	h, err := openEntry(path, windows.FILE_READ_ATTRIBUTES|windows.READ_CONTROL)
 	if err != nil {
-		return entryInfo{}, err
-	}
-	h, err := windows.CreateFile(p, windows.FILE_READ_ATTRIBUTES|windows.READ_CONTROL,
-		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil,
-		windows.OPEN_EXISTING, windows.FILE_FLAG_OPEN_REPARSE_POINT|windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
-	if err != nil {
-		return entryInfo{}, err
+		return treeEntry{}, err
 	}
 	defer windows.CloseHandle(h)
 	var bhfi windows.ByHandleFileInformation
 	if err := windows.GetFileInformationByHandle(h, &bhfi); err != nil {
-		return entryInfo{}, err
+		return treeEntry{}, err
 	}
-	info := entryInfo{
-		dir:     bhfi.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0,
-		reparse: bhfi.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0,
-		links:   bhfi.NumberOfLinks,
-	}
-	sd, err := windows.GetSecurityInfo(h, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+	e := treeEntry{kind: entryKindOf(bhfi.FileAttributes), links: uint64(bhfi.NumberOfLinks)}
+	sd, err := windows.GetSecurityInfo(h, windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
-		return entryInfo{}, err
+		return treeEntry{}, err
 	}
 	owner, _, err := sd.Owner()
 	if err != nil {
-		return entryInfo{}, err
+		return treeEntry{}, err
 	}
-	info.ownerTrusted = trustedOwner(owner)
-	return info, nil
+	e.trusted = trustedOwner(owner)
+	e.private = privateDescriptor(sd)
+	return e, nil
+}
+
+func entryKindOf(attrs uint32) entryKind {
+	switch {
+	case attrs&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0:
+		return entryLink
+	case attrs&windows.FILE_ATTRIBUTE_DIRECTORY != 0:
+		return entryDir
+	}
+	return entryFile
+}
+
+// openEntry opens the entry itself (a link or junction, not its target;
+// directories too) with access and every sharing mode.
+func openEntry(path string, access uint32) (windows.Handle, error) {
+	p, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return windows.InvalidHandle, err
+	}
+	h, err := windows.CreateFile(p, access,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil,
+		windows.OPEN_EXISTING, windows.FILE_FLAG_OPEN_REPARSE_POINT|windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
+	if err != nil {
+		return windows.InvalidHandle, &fs.PathError{Op: "open", Path: path, Err: err}
+	}
+	return h, nil
 }
 
 func trustedOwner(owner *windows.SID) bool {
 	return owner != nil && (owner.IsWellKnown(windows.WinLocalSystemSid) || owner.IsWellKnown(windows.WinBuiltinAdministratorsSid))
 }
 
-// moveAside renames dir to "<dir>.untrusted-<unix time>" so a fresh one can be
-// created. Renaming touches only the top entry: nothing inside a tree another
-// account controls is ever opened, changed or deleted.
-func moveAside(dir string) error {
-	base := dir + ".untrusted-" + strconv.FormatInt(time.Now().Unix(), 10)
-	aside := base
-	for i := 1; ; i++ {
-		if _, err := os.Lstat(aside); errors.Is(err, fs.ErrNotExist) {
-			break
-		}
-		aside = base + "-" + strconv.Itoa(i)
+// privateDescriptor reports whether sd has a protected DACL whose allow
+// entries only name SYSTEM, Administrators and OWNER RIGHTS (deny entries
+// are fine): the descriptors of secret/ and of WriteSecretFile.
+func privateDescriptor(sd *windows.SECURITY_DESCRIPTOR) bool {
+	ctrl, _, err := sd.Control()
+	if err != nil || ctrl&windows.SE_DACL_PROTECTED == 0 {
+		return false
 	}
-	return os.Rename(dir, aside)
+	dacl, _, err := sd.DACL()
+	if err != nil || dacl == nil {
+		return false // a NULL DACL grants everyone everything
+	}
+	for i := uint32(0); i < uint32(dacl.AceCount); i++ {
+		var ace *windows.ACCESS_ALLOWED_ACE
+		if err := windows.GetAce(dacl, i, &ace); err != nil {
+			return false
+		}
+		switch ace.Header.AceType {
+		case windows.ACCESS_DENIED_ACE_TYPE:
+			continue
+		case windows.ACCESS_ALLOWED_ACE_TYPE:
+			sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
+			if !sid.IsWellKnown(windows.WinLocalSystemSid) && !sid.IsWellKnown(windows.WinBuiltinAdministratorsSid) &&
+				!sid.IsWellKnown(windows.WinCreatorOwnerRightsSid) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func (windowsTree) list(dir string) ([]string, error) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, len(ents))
+	for i, e := range ents {
+		names[i] = e.Name()
+	}
+	return names, nil
+}
+
+// remove deletes the entry: DeleteFile removes a file link or one name of a
+// multi-linked file, RemoveDirectory a directory symlink or junction, never
+// what it points to.
+func (windowsTree) remove(path string) error { return os.Remove(path) }
+
+// secure sets owner Administrators and the protected DACL through a handle
+// on the entry itself, after checking through that handle that it is still
+// the kind inspect saw. Directories get dataDirSDDL (privateDirSDDL when
+// private); files the same entries without inheritance flags.
+func (windowsTree) secure(path string, e treeEntry, root, private bool) error {
+	sddl := dataDirSDDL
+	switch {
+	case e.kind == entryDir && private:
+		sddl = privateDirSDDL
+	case e.kind == entryFile && private:
+		sddl = privateFileSDDL
+	case e.kind == entryFile:
+		sddl = dataFileSDDL
+	}
+	sd, err := windows.SecurityDescriptorFromString(sddl)
+	if err != nil {
+		return err
+	}
+	const access = windows.READ_CONTROL | windows.WRITE_DAC | windows.WRITE_OWNER | windows.FILE_READ_ATTRIBUTES
+	h, err := openEntry(path, access)
+	if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		// A DACL that denies SYSTEM WRITE_DAC or WRITE_OWNER: with backup
+		// semantics, SeRestorePrivilege grants them anyway.
+		enableTakeoverPrivileges()
+		h, err = openEntry(path, access)
+	}
+	if err != nil {
+		return err
+	}
+	defer windows.CloseHandle(h)
+	var bhfi windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(h, &bhfi); err != nil {
+		return err
+	}
+	switch now := entryKindOf(bhfi.FileAttributes); {
+	case now != e.kind:
+		return fmt.Errorf("%s changed while it was secured", path)
+	case now == entryFile && bhfi.NumberOfLinks > 1:
+		return fmt.Errorf("%s has more than one hard link", path)
+	}
+	return windows.SetKernelObjectSecurity(h,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, sd)
+}
+
+var takeoverPrivileges sync.Once
+
+// enableTakeoverPrivileges enables SeRestorePrivilege and
+// SeTakeOwnershipPrivilege in the process token (best effort, once).
+func enableTakeoverPrivileges() {
+	takeoverPrivileges.Do(func() {
+		for _, name := range []string{"SeRestorePrivilege", "SeTakeOwnershipPrivilege"} {
+			_ = enablePrivilege(name)
+		}
+	})
+}
+
+// enablePrivilege enables one privilege the process token holds.
+func enablePrivilege(name string) error {
+	var tok windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, &tok); err != nil {
+		return err
+	}
+	defer tok.Close()
+	namePtr, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return err
+	}
+	var luid windows.LUID
+	if err := windows.LookupPrivilegeValue(nil, namePtr, &luid); err != nil {
+		return err
+	}
+	tp := windows.Tokenprivileges{
+		PrivilegeCount: 1,
+		Privileges:     [1]windows.LUIDAndAttributes{{Luid: luid, Attributes: windows.SE_PRIVILEGE_ENABLED}},
+	}
+	return windows.AdjustTokenPrivileges(tok, false, &tp, 0, nil, nil)
 }
 
 // tokenOwner is TOKEN_OWNER.

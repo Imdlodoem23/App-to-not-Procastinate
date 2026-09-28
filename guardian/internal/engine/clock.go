@@ -71,19 +71,29 @@ func (e *Engine) scheduleCalibration(at time.Duration) {
 }
 
 // maybeCalibrate starts a due calibration: asynchronously on the loop (the result
-// comes back as a command), synchronously inline (tests).
+// comes back as a command), synchronously inline (tests, and POST /v1/_test/clock so a
+// fake-clock run stays deterministic).
+//
+// The answer describes the moment NetworkNow returned; it is applied later, after the
+// engine finished whatever turn it was in (a long test advance, a suspend in between).
+// The boot-clock time since then is added to it, so the comparison with T is made at
+// one instant: otherwise the delay would read as T running ahead and move it back.
 func (e *Engine) maybeCalibrate() {
 	if !e.state.Settings.ServerTimeCheck || e.cal.inFlight || e.bootNow < e.cal.dueBoot {
 		return
 	}
 	e.cal.inFlight = true
 	nt := e.o.NetworkTime
+	clk := e.o.Clock
 	trusted := e.det.EffectiveNow
-	if !e.loopMode {
+	if !e.loopMode || e.inlineCalibration {
 		ctx, cancel := context.WithTimeout(context.Background(), calibrateTimeout)
 		ref, ok := nt.NetworkNow(ctx, trusted)
+		sampled := clk.Boot()
 		cancel()
-		e.onCalibration(ref, ok)
+		e.readClocks()
+		e.now = e.trustedNowMs()
+		e.onCalibration(answerNow(ref, ok, e.bootNow-sampled), ok)
 		return
 	}
 	e.lifeMu.Lock()
@@ -97,16 +107,26 @@ func (e *Engine) maybeCalibrate() {
 		defer e.wg.Done()
 		ctx, cancel := context.WithTimeout(parent, calibrateTimeout)
 		ref, ok := nt.NetworkNow(ctx, trusted)
+		sampled := clk.Boot()
 		cancel()
 		_ = e.exec(context.Background(), func() {
 			if e.opened {
 				e.readClocks()
 				e.now = e.trustedNowMs()
-				e.onCalibration(ref, ok)
+				e.onCalibration(answerNow(ref, ok, e.bootNow-sampled), ok)
 				e.afterTurn()
 			}
 		})
 	}()
+}
+
+// answerNow moves a network time answer by the boot-clock time elapsed since it was
+// received (never back), so it describes the moment it is applied.
+func answerNow(ref time.Time, ok bool, elapsed time.Duration) time.Time {
+	if !ok || elapsed <= 0 {
+		return ref
+	}
+	return ref.Add(elapsed)
 }
 
 // onCalibration applies a calibration answer (§10.2 Calibration and Correction).

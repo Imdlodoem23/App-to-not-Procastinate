@@ -7,7 +7,12 @@
  *   npm run e2e -w apps/desktop                                           # Windows, macOS
  *
  * Projects:
- * - `electron`: the suite (`e2e/*.spec.ts`): layout matrix, axe, flows, perf.
+ * - `electron`: the suite (`e2e/*.spec.ts`): layout matrix, axe, keyboard and ARIA, flows,
+ *   perf.
+ *
+ * Linux: every launch renders in a family of the brief's font stack (Ubuntu, Noto Sans, or
+ * Selawik as Segoe UI) through a private fontconfig file (`e2e/support/fonts.ts`); install
+ * `fonts-ubuntu` (or `fonts-noto-core`) on the runner.
  * - `capture`: the screenshot matrix (`e2e/capture/*.capture.ts`), only when
  *   `CENTRATE_CAPTURE=1`; run it with `npm run capture -w apps/desktop` (scripts/ui-capture.mjs),
  *   which also writes docs/ui/index.html.

@@ -80,10 +80,19 @@ type Idempotency struct {
 }
 
 // idemLookup returns a *ReplayedResponse for a stored identical request, 409
-// idempotency_conflict for the same key with another path or body, or nil.
+// idempotency_conflict for the same key with another path or body, or nil. A request
+// whose events are in the log but whose record was lost (addLostResponses) is never run
+// again: 409 idempotency_conflict with details.reason "response_lost".
 func (e *Engine) idemLookup(k *Idempotency) error {
 	e.idem = store.PruneIdempotency(e.idem, e.now)
 	for _, r := range e.idem {
+		if r.Lookup == "" {
+			if k.Req != "" && r.Req == k.Req {
+				return apiErr("idempotency_conflict", "the request with this Idempotency-Key was applied, but its response was lost in a restart",
+					map[string]any{"reason": "response_lost"})
+			}
+			continue
+		}
 		if r.Lookup != k.Lookup || r.Scope != k.Scope {
 			continue
 		}
@@ -112,4 +121,32 @@ func (e *Engine) idemStore(k *Idempotency, status int, res any) {
 	})
 	e.idem = store.PruneIdempotency(e.idem, e.now)
 	e.markDirty(true)
+}
+
+// addLostResponses turns the idempotent requests whose events were replayed at startup
+// but whose records did not reach state.json (a crash between the append and the state
+// write, §11.3) into records without a response (Lookup ""), so a retry with the same
+// key is refused instead of running the mutation a second time (§8.6). They are pruned
+// like any record and persisted with state.json.
+func (e *Engine) addLostResponses() {
+	reqs := e.replayedReqs
+	e.replayedReqs = nil
+	if len(reqs) == 0 {
+		return
+	}
+	have := make(map[string]bool, len(e.idem))
+	for _, r := range e.idem {
+		have[r.Req] = true
+	}
+	added := false
+	for req, at := range reqs {
+		if !have[req] {
+			e.idem = append(e.idem, store.IdempotencyRecord{Req: req, CreatedAtMs: at})
+			added = true
+		}
+	}
+	if added {
+		e.idem = store.PruneIdempotency(e.idem, e.now)
+		e.markDirty(true)
+	}
 }

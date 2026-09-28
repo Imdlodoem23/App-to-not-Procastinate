@@ -9,6 +9,10 @@
  *   the per-browser guides (incognito included) and «Copiar diagnóstico»;
  * - Datos: «Borrar todos mis datos», enabled once BORRAR is typed.
  *
+ * Tema and Modo por defecto are rows like the others: three compact tiles on the right, the
+ * description on the left saying what the hovered or focused option does. Every tile has an
+ * Alt + letter unique in the window (`AJUSTES_KEYS`, `allocateMnemonics` for the guides).
+ *
  * Features behind flags (sounds, big notices, CSV export) are hidden, never greyed out.
  * Weakening guardian settings wait 24 h: pending changes say when they apply.
  */
@@ -30,9 +34,36 @@ import {
   type UiState,
 } from '../../../../shared/ui-state';
 import { RENDERER_ES } from '../../i18n/es';
+import { allocateMnemonics } from '../bloqueos/mnemonics';
 import { AJUSTES_ES } from './i18n/es';
 
 const A = AJUSTES_ES;
+
+/**
+ * Alt + letter of the window's fixed tiles (the letter is in the label). The per-browser guides
+ * and each extension row's «Guía…» get the free ones (`allocateMnemonics`).
+ */
+export const AJUSTES_KEYS = {
+  theme: { system: 's', light: 'c', dark: 'o' } satisfies Record<ThemePreference, string>,
+  mode: { normal: 'n', strict: 'e', hardcore: 'h' } satisfies Record<DefaultBlockMode, string>,
+  /** «Reparar» or «Instalar». */
+  repair: 'r',
+  pairingNew: 'u',
+  diagnostics: 'p',
+  delete: 'b',
+} as const;
+
+function fixedAjustesKeys(): string[] {
+  const k = AJUSTES_KEYS;
+  return [
+    ...Object.values(k.theme),
+    ...Object.values(k.mode),
+    k.repair,
+    k.pairingNew,
+    k.diagnostics,
+    k.delete,
+  ];
+}
 
 export const AJUSTES_IDS = {
   general: 'aj-general',
@@ -136,6 +167,8 @@ export interface ExtensionRowView {
   description: string;
   /** The guide that fixes what is missing (`null` when nothing is). */
   guide: GuideId | null;
+  /** Alt + letter of its «Guía…» tile. */
+  guideKey?: string | undefined;
 }
 
 export type PairingView =
@@ -155,7 +188,7 @@ export interface AjustesView {
   general: {
     title: string;
     theme: ThemePreference;
-    themeOptions: { value: ThemePreference; label: string; help: string }[];
+    themeOptions: { value: ThemePreference; label: string; help: string; mnemonic: string }[];
     autostart: boolean;
     /** `null` while the guardian has not answered. */
     dailyGoal: { value: string; note: string | null } | null;
@@ -163,7 +196,13 @@ export interface AjustesView {
   bloqueo: {
     title: string;
     defaultMode: DefaultBlockMode;
-    modeOptions: { value: DefaultBlockMode; label: string; help: string; tone: Accent }[];
+    modeOptions: {
+      value: DefaultBlockMode;
+      label: string;
+      help: string;
+      tone: Accent;
+      mnemonic: string;
+    }[];
     /** Guardian settings rows; empty until the app can read them (`settings`). */
     guardianSettings: GuardianSettingRowView[];
   };
@@ -175,7 +214,7 @@ export interface AjustesView {
     /** Browsers running without the extension during a block. */
     missing: { id: string; title: string }[];
     pairing: PairingView;
-    guides: { id: GuideId; label: string; help: string }[];
+    guides: { id: GuideId; label: string; help: string; mnemonic: string | undefined }[];
     diagnostics: { description: string; tone: 'muted' | 'green' };
   };
   datos: {
@@ -366,14 +405,23 @@ export function deriveAjustesView(
   const extensionTrouble = extensions.some((e) => e.tone !== 'green') || missing.length > 0;
   const sistemaKey = guardian.key === 'ok' && extensionTrouble ? 'extension' : guardian.key;
 
+  // The per-browser guides first (always there), then each extension row's «Guía…».
+  const withGuide = extensions.flatMap((e, i) => (e.guide !== null ? [i] : []));
+  const listKeys = allocateMnemonics(
+    [...GUIDES.map((id) => A.sistema.guides[id]), ...withGuide.map(() => A.sistema.guide)],
+    fixedAjustesKeys(),
+  );
+  const guideKeys = new Map(withGuide.map((row, i) => [row, listKeys[GUIDES.length + i]]));
+
   return {
     general: {
-      title: A.general.title,
+      title: A.general.title[snapshot.prefs.theme],
       theme: snapshot.prefs.theme,
       themeOptions: THEME_OPTIONS.map((value) => ({
         value,
         label: A.general.themes[value],
         help: A.general.themeHelp[value],
+        mnemonic: AJUSTES_KEYS.theme[value],
       })),
       autostart: snapshot.prefs.autostart,
       dailyGoal:
@@ -392,6 +440,7 @@ export function deriveAjustesView(
         label: modeLabel(value),
         help: A.bloqueo.modeHelp[value],
         tone: modeAccent(value),
+        mnemonic: AJUSTES_KEYS.mode[value],
       })),
       guardianSettings: guardianSettingRows(settings, pending, nowMs),
     },
@@ -409,13 +458,16 @@ export function deriveAjustesView(
         description: guardian.description,
         repair: guardian.repair,
       },
-      extensions,
+      extensions: extensions.map((e, i) =>
+        e.guide === null ? e : { ...e, guideKey: guideKeys.get(i) },
+      ),
       missing,
       pairing: pairingView(local.pairing, nowMs),
-      guides: GUIDES.map((id) => ({
+      guides: GUIDES.map((id, i) => ({
         id,
         label: A.sistema.guides[id],
         help: A.sistema.guidesHelp[id],
+        mnemonic: listKeys[i],
       })),
       diagnostics:
         local.diagnostics === 'guardian'

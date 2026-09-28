@@ -46,10 +46,10 @@ events and never touch enforcement.
 | `reduce.go` | core | `applyEvent` (dispatches to every reducer) and the core reducers |
 | `clock.go` | core | tick jumps, calibration, correction, resurrection, boot hold (§4, §10.2) |
 | `blocks.go`, `validate.go` | core | blocks: create, extend, list, get, credit, complete, punishment and cancellation helpers, request validation |
-| `enforce.go`, `frozen.go` | core | enforcement rendering and reconcile, hosts tamper, problems, frozen mode |
+| `enforce.go`, `frozen.go` | core | enforcement rendering and reconcile, hosts writes and DNS flushes on workers (1 s turn budget), hosts tamper, problems, frozen mode |
 | `procdetect.go` | core | process watcher detections → `process_closed` / attempts |
 | `days.go` | core | `day_closed` and the points summary |
-| `startup.go` | core | the startup and recovery ladder |
+| `startup.go`, `restore.go` | core | the startup and recovery ladder; the clock restore (newest sealed snapshot by log position, stops that cannot be measured) and the stopped-service check |
 | `queries.go`, `hasactive.go`, `testclock.go`, `util.go`, `errors.go` | core | health, state, diagnostics, points, events; `HasActive` for the CLI; the test clock; helpers; `APIError` |
 | `study.go` (+ `study_test.go`) | Study Mode | §5.4, §10.4, §10.5, Nuclear supervisor, nuclear heartbeat |
 | `emergency.go` (+ test) | emergency | §5.6, §10.6 |
