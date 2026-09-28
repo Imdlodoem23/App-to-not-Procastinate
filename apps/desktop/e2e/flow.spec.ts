@@ -330,24 +330,38 @@ test('emergency: phrase by hand (paste refused) → waiting → ready → «¿Se
       w.__unlockLog.push(`${Math.round(performance.now() - t0)} ${text}`);
     };
     const name = (t: EventTarget | null): string => {
+      if (t === null) return 'null';
       if (!(t instanceof Element)) return t === window ? 'window' : 'document';
       const tile = t.closest<HTMLElement>('[data-tile-id]');
-      return tile?.dataset['tileId'] ?? (t.id || t.tagName.toLowerCase());
+      const tag = t.tagName.toLowerCase();
+      return tile ? `${tile.dataset['tileId']}/${tag}` : t.id || tag;
     };
     w.__unlockLog = [];
     const types = [
       'pointerdown',
       'click',
+      'mouseover',
+      'mouseout',
       'mouseleave',
       'focusin',
       'focusout',
       'blur',
+      'keydown',
       'visibilitychange',
     ];
     for (const type of types) {
       window.addEventListener(
         type,
-        (e) => log(`${type} ${name(e.target)}${e instanceof MouseEvent ? ` ${e.detail}` : ''}`),
+        (e) => {
+          // Mouse events say where they happened and where from: a trusted event far from the
+          // test's pointer is the real cursor.
+          const mouse =
+            e instanceof MouseEvent
+              ? ` →${name(e.relatedTarget)} ${e.detail} @${e.clientX},${e.clientY}`
+              : '';
+          const key = e instanceof KeyboardEvent ? ` ${e.key}` : '';
+          log(`${type} ${name(e.target)}${mouse}${key}${e.isTrusted ? '' : ' untrusted'}`);
+        },
         true,
       );
     }
