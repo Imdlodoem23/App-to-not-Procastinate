@@ -42,9 +42,9 @@ func syncDir(dir string) error {
 	return cerr
 }
 
-func isDiskFull(err error) bool {
-	return errors.Is(err, syscall.ENOSPC) || errors.Is(err, syscall.EDQUOT)
-}
+// diskFullErrnos are the codes besides ENOSPC that a write returns when the file
+// system has no room for it (see isDiskFull): the account's quota is used up.
+var diskFullErrnos = []error{syscall.EDQUOT}
 
 // trustedOwner checks that path is a regular file owned by root (§10.12 step 4). A
 // process without administrator rights (development, unit tests) trusts its own

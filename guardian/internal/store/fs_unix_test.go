@@ -6,8 +6,13 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
+
+// diskFullErrors are the errors a write returns on this OS when the file system,
+// or the account's quota, has no room left.
+var diskFullErrors = []error{syscall.ENOSPC, syscall.EDQUOT}
 
 // A planted key reachable through a symlink or a second hard link is compromised.
 func TestPlantedKeyIsReplaced(t *testing.T) {
