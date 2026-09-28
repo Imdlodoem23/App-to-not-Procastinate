@@ -70,3 +70,22 @@ Todo esto es opcional. Sin ello, la app funciona al 100 % sin cuenta y sin inter
 
 - El servicio **se duerme tras 15 minutos sin uso**; la primera petición después tarda alrededor de un minuto. Las horas gratuitas del mes se comparten entre todos los servicios gratuitos de tu cuenta.
 - La base de datos gratuita **caduca a los 30 días** de crearla (Render avisa por email) y tiene 1 GB. Al recrearla, la app vuelve a subir las estadísticas, pero se pierden los amigos, las invitaciones y los compañeros. Para que dure, cambia `centrate-db` a un plan de pago en Render (**centrate-db → Upgrade**).
+
+## 6. Buscar la marca en los registros de marcas antes de publicar
+
+La marca de Céntrate (una «C» con un punto en la boca, `assets/brand/icon.svg`) se rediseñó porque la primera versión se parecía a otras (`DECISIONS.md`, «Marca e iconos»). La comparación automática ya está hecha, pero las búsquedas de marcas figurativas necesitan una persona:
+
+1. En <https://www.tmdn.org/tmview/> → **Búsqueda por imagen**: sube `apps/desktop/build/icons/512x512.png`, territorios UE y España, clases de Niza 9 y 42. Repite la búsqueda por códigos de Viena: 26.01 (círculos y elipses) y 27.05 (letras con grafismo especial), con la letra C.
+2. En <https://branddb.wipo.int> → **Image** con la misma imagen y los mismos códigos de Viena.
+3. Si algo se parece mucho (sobre todo en la clase 9, software), dímelo antes de la primera versión y ajusto la marca. Si no, apunta la fecha de la búsqueda en `DECISIONS.md`.
+
+## 7. Material de la web: dejar que GitHub Actions abra su pull request
+
+El workflow **Marketing assets** (`.github/workflows/marketing-assets.yml`) regenera las capturas y los vídeos de la web desde la app real con cada release (y cuando lo lanzas a mano), comprueba sus presupuestos de peso y abre un pull request contra `main` con ellos. Necesita un ajuste del repositorio y, mejor, un secreto:
+
+1. **Obligatorio.** En <https://github.com/Imdlodoem23/App-to-not-Procastinate/settings/actions> → **General → Workflow permissions**, marca **Allow GitHub Actions to create and approve pull requests** y pulsa **Save**. Viene desactivado: sin él, cada release y cada ejecución manual fallan en el último paso («Open or update the pull request») y el material nuevo se queda en el artifact de la ejecución.
+2. **Opcional, pero recomendado: el secreto `MARKETING_PR_TOKEN`.** GitHub no lanza otros workflows en un pull request abierto con el token automático de Actions, así que ese pull request no pasa el CI (lint, formato y los presupuestos de peso de la web). Con un token tuyo, sí:
+   1. En <https://github.com/settings/personal-access-tokens/new> crea un **fine-grained token**: nombre «Céntrate marketing», la caducidad que quieras (al caducar, repite estos pasos), **Only select repositories** → `App-to-not-Procastinate` y, en **Repository permissions**, **Contents: Read and write** y **Pull requests: Read and write**.
+   2. En el repositorio: **Settings → Secrets and variables → Actions → New repository secret**, nombre `MARKETING_PR_TOKEN`, y pega el token.
+
+   Sin el secreto, el workflow funciona igual y ya comprueba los presupuestos antes de abrir el pull request; para que pase también el CI, ciérralo y vuelve a abrirlo.

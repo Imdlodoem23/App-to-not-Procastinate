@@ -1,13 +1,14 @@
 /**
  * GDPR access and erasure (owner: CORE). docs/API.md §13.
  *
- * - `buildExport` returns every row about the user. Other people appear only as id and display
- *   name; no tokens, code hashes or provider tokens.
+ * - `buildExport` returns every stored value about the user. Other people appear only as id
+ *   and display name; no tokens, code hashes or provider tokens.
  * - `deleteAccount` deletes the user row (every foreign key to `user` cascades) and the
  *   user's sign-in codes, which better-auth keys by email.
- * - `USER_DATA_COVERAGE` names, for every table that holds data about a user, where the export
- *   puts it or why it does not. test/gdpr.test.ts walks the schema: a new table with a user
- *   column fails the test until it is listed here and covered.
+ * - `USER_DATA_COVERAGE` classifies every column of every table that holds data about a user:
+ *   either where the export puts it, or `not exported: <why>`. test/gdpr.test.ts walks the
+ *   schema: a new table with a user column, or a new column in one of these tables, fails the
+ *   test until it is classified here (and, when exported, found in the export).
  */
 import type { CloudDevice, CloudExport } from '@centrate/shared/cloud-api';
 import { asc, eq, inArray } from 'drizzle-orm';
@@ -25,24 +26,184 @@ import {
 import { exportSocialData } from '../social/export';
 import { loadMe } from './profile';
 
-export const USER_DATA_COVERAGE = Object.freeze({
-  user: 'me.user',
-  profiles: 'me.profile, me.sharing, me.consentUpdatedAt',
-  session: 'sessions (without tokens)',
-  account: 'loginMethods (provider and date; provider tokens are never stored)',
-  verification: 'not exported: sign-in codes (hashed, 10 min); deleted by email',
-  app_auth_codes: 'not exported: desktop login codes (hashed, 60 s)',
-  devices: 'devices',
-  daily_stats: 'dailyStats',
-  friend_invites: 'invites (without codes or hashes)',
-  friendships: 'friends',
-  user_blocks: 'blocks',
-  presence: 'presence',
-  partner_links: 'partnerLinks',
-  accountability_events: 'accountabilityEvents, approvalDecisions',
-  usage_counters: 'usageCounters',
-  ai_usage: 'aiUsage',
-} as const);
+/** Marks a column the export leaves out; the text after it says why. */
+export const NOT_EXPORTED = 'not exported:';
+
+const SAME_USER = 'the user (me.user.id)';
+const TECHNICAL_UPDATED_AT = `${NOT_EXPORTED} technical timestamp of the last write`;
+const ALWAYS_NULL = `${NOT_EXPORTED} always null (never stored)`;
+
+export const USER_DATA_COVERAGE: Readonly<Record<string, Readonly<Record<string, string>>>> =
+  Object.freeze({
+    user: {
+      id: 'me.user.id',
+      name: `${NOT_EXPORTED} always '' (the Google first name moves to me.profile.displayName at sign-up)`,
+      email: 'me.user.email',
+      email_verified: `${NOT_EXPORTED} technical flag set by the sign-in method`,
+      image: ALWAYS_NULL,
+      created_at: 'me.user.createdAt',
+      updated_at: TECHNICAL_UPDATED_AT,
+    },
+    session: {
+      id: `${NOT_EXPORTED} internal id (sessions.current marks the caller's)`,
+      expires_at: 'sessions.expiresAt',
+      token: `${NOT_EXPORTED} secret (the bearer token)`,
+      created_at: 'sessions.createdAt',
+      updated_at: TECHNICAL_UPDATED_AT,
+      ip_address: ALWAYS_NULL,
+      user_agent: ALWAYS_NULL,
+      user_id: SAME_USER,
+    },
+    account: {
+      id: `${NOT_EXPORTED} internal id`,
+      account_id: 'loginMethods.accountId',
+      provider_id: 'loginMethods.provider',
+      user_id: SAME_USER,
+      access_token: `${NOT_EXPORTED} always null (provider tokens are dropped before storage)`,
+      refresh_token: `${NOT_EXPORTED} always null (provider tokens are dropped before storage)`,
+      id_token: `${NOT_EXPORTED} always null (provider tokens are dropped before storage)`,
+      access_token_expires_at: ALWAYS_NULL,
+      refresh_token_expires_at: ALWAYS_NULL,
+      scope: `${NOT_EXPORTED} the fixed OAuth scopes we ask for (openid email profile)`,
+      password: `${NOT_EXPORTED} always null (no passwords)`,
+      created_at: 'loginMethods.createdAt',
+      updated_at: TECHNICAL_UPDATED_AT,
+    },
+    verification: {
+      id: `${NOT_EXPORTED} sign-in code (hashed, 10 min); deleted by email`,
+      identifier: `${NOT_EXPORTED} sign-in code (hashed, 10 min); deleted by email`,
+      value: `${NOT_EXPORTED} sign-in code (hashed, 10 min); deleted by email`,
+      expires_at: `${NOT_EXPORTED} sign-in code (hashed, 10 min); deleted by email`,
+      created_at: `${NOT_EXPORTED} sign-in code (hashed, 10 min); deleted by email`,
+      updated_at: `${NOT_EXPORTED} sign-in code (hashed, 10 min); deleted by email`,
+    },
+    rate_counters: {
+      key: `${NOT_EXPORTED} anti-abuse counter keyed by an HMAC of an address, not linked to the account; kept one day`,
+      window_start: `${NOT_EXPORTED} see key`,
+      count: `${NOT_EXPORTED} see key`,
+      expires_at: `${NOT_EXPORTED} see key`,
+    },
+    profiles: {
+      user_id: SAME_USER,
+      display_name: 'me.profile.displayName',
+      time_zone: 'me.profile.timeZone',
+      daily_goal_minutes: 'me.profile.dailyGoalMinutes',
+      share_sync: 'me.sharing.syncStats',
+      share_ranking: 'me.sharing.ranking',
+      share_presence: 'me.sharing.presence',
+      partner_emails: 'me.sharing.partnerEmails',
+      coach_enabled: 'me.sharing.coach',
+      consent_updated_at: 'me.consentUpdatedAt',
+      ranking_since: 'me.rankingSince',
+      created_at: `${NOT_EXPORTED} written with the account (me.user.createdAt)`,
+      updated_at: TECHNICAL_UPDATED_AT,
+    },
+    app_auth_codes: {
+      code_hash: `${NOT_EXPORTED} desktop login code (hashed, 60 s)`,
+      user_id: `${NOT_EXPORTED} desktop login code (hashed, 60 s)`,
+      challenge: `${NOT_EXPORTED} desktop login code (hashed, 60 s)`,
+      port: `${NOT_EXPORTED} desktop login code (hashed, 60 s)`,
+      expires_at: `${NOT_EXPORTED} desktop login code (hashed, 60 s)`,
+      created_at: `${NOT_EXPORTED} desktop login code (hashed, 60 s)`,
+    },
+    devices: {
+      id: 'devices.id',
+      user_id: SAME_USER,
+      install_id: 'devices.installId',
+      session_id: `${NOT_EXPORTED} internal link to a session (devices.current marks the caller's)`,
+      name: 'devices.name',
+      platform: 'devices.platform',
+      app_version: 'devices.appVersion',
+      created_at: 'devices.createdAt',
+      last_sync_at: 'devices.lastSyncAt',
+    },
+    daily_stats: {
+      device_id: 'dailyStats.deviceId',
+      user_id: SAME_USER,
+      day: 'dailyStats.day',
+      rev: 'dailyStats.rev',
+      focus_minutes: 'dailyStats.focusMinutes',
+      study_minutes: 'dailyStats.studyMinutes',
+      blocks_completed: 'dailyStats.blocksCompleted',
+      study_sessions: 'dailyStats.studySessions',
+      attempts: 'dailyStats.attempts',
+      emergency_unlocks: 'dailyStats.emergencyUnlocks',
+      punishments: 'dailyStats.punishments',
+      points_earned: 'dailyStats.pointsEarned',
+      points_lost: 'dailyStats.pointsLost',
+      updated_at: TECHNICAL_UPDATED_AT,
+    },
+    friend_invites: {
+      id: 'invites.id',
+      inviter_id: SAME_USER,
+      code_hash: `${NOT_EXPORTED} secret (hash of the invite code)`,
+      max_uses: 'invites.maxUses',
+      uses: 'invites.uses',
+      expires_at: 'invites.expiresAt',
+      created_at: 'invites.createdAt',
+    },
+    friendships: {
+      user_id: SAME_USER,
+      friend_id: 'friends.userId',
+      created_at: 'friends.since',
+    },
+    user_blocks: {
+      blocker_id: SAME_USER,
+      blocked_id: 'blocks.userId',
+      created_at: 'blocks.createdAt',
+    },
+    presence: {
+      user_id: SAME_USER,
+      state: 'presence.state',
+      since: 'presence.since',
+      ends_at: 'presence.endsAt',
+      expires_at: `${NOT_EXPORTED} technical expiry (three minutes after the last heartbeat)`,
+    },
+    partner_links: {
+      id: 'partnerLinks.id',
+      owner_id: 'partnerLinks.owner.userId',
+      partner_id: 'partnerLinks.partner.userId',
+      status: 'partnerLinks.status',
+      require_approval: 'partnerLinks.requireApproval',
+      approval_off_at: 'partnerLinks.approvalOffAt',
+      ends_at: 'partnerLinks.endsAt',
+      created_at: 'partnerLinks.createdAt',
+      accepted_at: 'partnerLinks.acceptedAt',
+    },
+    accountability_events: {
+      id: 'accountabilityEvents.eventId, approvalDecisions.eventId',
+      owner_id: 'the user (own events), approvalDecisions.owner.userId',
+      client_ref: `${NOT_EXPORTED} random idempotency id the app generated`,
+      kind: 'accountabilityEvents.kind',
+      occurred_at: 'accountabilityEvents.occurredAt',
+      created_at: `${NOT_EXPORTED} server receipt time (≈ occurredAt)`,
+      approval_status: 'accountabilityEvents.approval.status, approvalDecisions.decision',
+      approval_deadline: 'accountabilityEvents.approval.deadline',
+      decided_by: `the user as decider (approvalDecisions); owners see the outcome, not who decided, as in the app`,
+      decided_at: 'accountabilityEvents.approval.decidedAt, approvalDecisions.decidedAt',
+      note: 'accountabilityEvents.approval.note, approvalDecisions.note',
+    },
+    usage_counters: {
+      user_id: SAME_USER,
+      day: 'usageCounters.day',
+      key: 'usageCounters.key',
+      count: 'usageCounters.count',
+    },
+    ai_usage: {
+      user_id: SAME_USER,
+      day: 'aiUsage.day',
+      feature: 'aiUsage.feature',
+      requests: 'aiUsage.requests',
+      input_tokens: 'aiUsage.inputTokens',
+      output_tokens: 'aiUsage.outputTokens',
+      reserved_tokens: `${NOT_EXPORTED} held only while a call is in flight`,
+      reserved_micro_usd: `${NOT_EXPORTED} held only while a call is in flight`,
+      reserved_until: `${NOT_EXPORTED} held only while a call is in flight`,
+      cache_read_tokens: `${NOT_EXPORTED} billing detail of the same requests`,
+      cache_write_tokens: `${NOT_EXPORTED} billing detail of the same requests`,
+      cost_micro_usd: `${NOT_EXPORTED} billing detail of the same requests`,
+    },
+  });
 
 const iso = (d: Date): string => d.toISOString();
 const isoOrNull = (d: Date | null): string | null => (d ? d.toISOString() : null);
@@ -71,7 +232,11 @@ export async function buildExport(db: Db, caller: ExportCaller, now: Date): Prom
   const me = caller.userId;
   const meResponse = await loadMe(db, me);
   const accounts = await db
-    .select({ providerId: account.providerId, createdAt: account.createdAt })
+    .select({
+      providerId: account.providerId,
+      accountId: account.accountId,
+      createdAt: account.createdAt,
+    })
     .from(account)
     .where(eq(account.userId, me))
     .orderBy(asc(account.createdAt));
@@ -108,13 +273,21 @@ export async function buildExport(db: Db, caller: ExportCaller, now: Date): Prom
     schemaVersion: 1,
     exportedAt: iso(now),
     me: meResponse,
-    loginMethods: accounts.map((a) => ({ provider: a.providerId, createdAt: iso(a.createdAt) })),
+    loginMethods: accounts.map((a) => ({
+      provider: a.providerId,
+      accountId: a.accountId,
+      createdAt: iso(a.createdAt),
+    })),
     sessions: sessions.map((s) => ({
       createdAt: iso(s.createdAt),
       expiresAt: iso(s.expiresAt),
       current: s.id === caller.sessionId,
     })),
-    devices: deviceRows.map((d) => toCloudDevice(d, caller.deviceId)),
+    // The export adds the installation id, which /v1/devices never shows.
+    devices: deviceRows.map((d) => ({
+      ...toCloudDevice(d, caller.deviceId),
+      installId: d.installId,
+    })),
     dailyStats: statRows.map((r) => ({
       deviceId: r.deviceId,
       day: r.day,

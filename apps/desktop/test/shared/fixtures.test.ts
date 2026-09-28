@@ -2,14 +2,18 @@ import {
   emergencyPreviewResponseSchema,
   healthResponseSchema,
   isCreateBlockRequest,
+  isScheduleInput,
+  isSettingsRequest,
   listSchedulesResponseSchema,
   pairedExtensionsResponseSchema,
   pairingCodeResponseSchema,
+  rewardsResponseSchema,
   settingsResponseSchema,
   stateResponseSchema,
   validateResponse,
   type Schema,
 } from '@centrate/shared/guardian-api';
+import { ACHIEVEMENTS, isLocalDay } from '@centrate/shared/points';
 import { parseIntent } from '@centrate/shared/parser';
 import { describe, expect, it } from 'vitest';
 import {
@@ -18,7 +22,11 @@ import {
   HARNESS_NOW,
   HARNESS_STATE_IDS,
   PHASE1_REQUIRED_STATES,
+  PHASE5_STATES,
+  fixtureInLocale,
+  fixtureSurface,
   fixtureUiState,
+  fixtureWindowKind,
   harnessFixture,
   harnessLoad,
   isHarnessStateId,
@@ -27,12 +35,21 @@ import {
   type HarnessStateId,
 } from '../../src/shared/fixtures';
 import { formatClock, formatRemaining, splitCountdown } from '../../src/shared/format';
+import { PHASE5_INVOKE_GUARDS } from '../../src/shared/ipc-payloads';
+import { phase5InvokeStubs } from '../../src/shared/phase5-stubs';
+import { statsPeriod } from '../../src/shared/stats';
 import {
   bloqueoVariant,
   draftMinutes,
   draftNeedsConsequence,
   finishedNotice,
   isBootHold,
+  isDetailName,
+  isSurfaceKind,
+  nuclearEndsAt,
+  nuclearPunishment,
+  onboardingActive,
+  onboardingStepStatus,
   primaryBlock,
   type BloqueoVariant,
 } from '../../src/shared/ui-state';
@@ -73,12 +90,30 @@ const EXPECTED_VARIANT: Record<HarnessStateId, BloqueoVariant> = {
   'bloqueos-prefilled': 'idle',
   'ajustes-pairing': 'idle',
   'ajustes-delete': 'idle',
+  'stats-empty': 'idle',
+  'stats-week': 'idle',
+  rewards: 'active',
+  'rewards-short-points': 'active',
+  logros: 'idle',
+  'onboarding-1': 'idle',
+  'onboarding-2': 'idle',
+  'onboarding-3': 'idle',
+  'onboarding-4': 'idle',
+  'onboarding-5': 'idle',
+  'mini-timer': 'active',
+  osd: 'active',
+  nuclear: 'punishment',
+  'ajustes-full': 'active',
+  schedules: 'idle',
+  'exam-whitelist': 'idle',
+  'update-available': 'idle',
 };
 
 describe('harness registry', () => {
-  it('covers every Phase 1 state once', () => {
+  it('covers every Phase 1 and Phase 5 state once', () => {
     expect(new Set(HARNESS_STATE_IDS).size).toBe(HARNESS_STATE_IDS.length);
     for (const id of PHASE1_REQUIRED_STATES) expect(HARNESS_STATE_IDS).toContain(id);
+    for (const id of PHASE5_STATES) expect(HARNESS_STATE_IDS).toContain(id);
     for (const id of EXTRA_STATES) expect(PHASE1_REQUIRED_STATES).not.toContain(id);
     expect(isHarnessStateId('idle')).toBe(true);
     expect(isHarnessStateId('nope')).toBe(false);
@@ -105,7 +140,12 @@ describe.each(HARNESS_STATE_IDS.map((id) => [id]))('fixture %s', (id) => {
     valid(emergencyPreviewResponseSchema, f.fake.emergencyPreview);
     valid(pairingCodeResponseSchema, f.fake.pairingCode);
     valid(pairedExtensionsResponseSchema, { extensions: f.fake.extensions });
+    valid(rewardsResponseSchema, f.fake.rewards);
+    expect(isSettingsRequest(f.fake.settings.settings)).toBe(true);
     if (f.detail.ajustes.pairing) valid(pairingCodeResponseSchema, f.detail.ajustes.pairing);
+    if (f.main.onboarding.pairing) valid(pairingCodeResponseSchema, f.main.onboarding.pairing);
+    const schedule = f.detail.bloqueos.schedule;
+    if (schedule) expect(isScheduleInput(schedule.input)).toBe(true);
     const create = f.snapshot.ops.create;
     if (create) expect(isCreateBlockRequest(create.request)).toBe(true);
   });
@@ -119,13 +159,19 @@ describe.each(HARNESS_STATE_IDS.map((id) => [id]))('fixture %s', (id) => {
     expect(f.id).toBe(id);
     expect(f.nowMs).toBe(HARNESS_NOW);
     expect(f.snapshot.harness).toEqual({ stateId: id, frozenNowMs: HARNESS_NOW });
-    if (f.window === 'main') {
+    if (f.window === 'main' || isSurfaceKind(f.window)) {
       expect(f.detailRequest).toBeNull();
+      expect(fixtureUiState(f).env.window).toBe(f.window);
+      expect(fixtureWindowKind(f)).toBe(f.window);
+      expect(fixtureSurface(f)).toBe(isSurfaceKind(f.window) ? f.window : null);
     } else {
+      expect(isDetailName(f.window)).toBe(true);
       expect(f.detailRequest?.name).toBe(f.window);
       expect(fixtureUiState(f).env.window).toBe('detail');
       expect(fixtureUiState(f, 'main').env.detail).toBeNull();
     }
+    // Only the onboarding fixtures show it (the rest are past the first run).
+    expect(onboardingActive(f.snapshot)).toBe(id.startsWith('onboarding-'));
     expect(harnessLoad(f)).toEqual({ stateId: id, main: f.main, detail: f.detail });
   });
 });
@@ -210,6 +256,116 @@ describe('fixture content', () => {
     expect(f.display).toBe('1366x768@125');
     expect(f.expect.density).toBe('compact');
     expect(fixtureUiState(f).env.layout.maxContentHeight).toBeLessThan(540);
+  });
+});
+
+describe('Phase 5 fixtures', () => {
+  it('answer every Phase 5 read from the fixture, with payloads their guards accept', () => {
+    for (const id of PHASE5_STATES) {
+      const f = harnessFixture(id);
+      const stubs = phase5InvokeStubs(
+        () => f,
+        () => f.nowMs,
+      );
+      expect(stubs['rewards:list'](null)).toEqual({ ok: true, value: f.fake.rewards });
+      expect(stubs['settings:get'](null)).toEqual({ ok: true, value: f.fake.settings });
+      const put = { settings: f.fake.settings.settings };
+      expect(PHASE5_INVOKE_GUARDS['settings:put'](put)).toBe(true);
+      const week = stubs['stats:overview']({ range: 'week', anchor: null });
+      expect(week.ok && week.value.buckets).toHaveLength(7);
+    }
+  });
+
+  it('stats-week shows a full past week; stats-empty the empty state', () => {
+    const week = harnessFixture('stats-week');
+    const anchor = week.detail.estadisticas.anchor;
+    expect(anchor !== null && isLocalDay(anchor)).toBe(true);
+    const overview = week.local.stats.overview.week;
+    expect({ from: overview.from, to: overview.to }).toEqual(statsPeriod('week', anchor ?? ''));
+    expect(overview.empty).toBe(false);
+    expect(overview.totals.blockMinutes).toBeGreaterThan(0);
+    expect(overview.topTargets.length).toBeGreaterThan(0);
+    expect(overview.hours).toHaveLength(24);
+    expect(week.local.stats.overview.month.buckets).toHaveLength(30);
+    expect(week.local.stats.overview.day.buckets).toHaveLength(24);
+    const heat = week.local.stats.heatmap;
+    expect(heat.cells.at(-1)?.day).toBe('2026-09-28');
+    expect(heat.cells.every((c) => c.level >= 0 && c.level <= 4)).toBe(true);
+    const empty = harnessFixture('stats-empty');
+    for (const range of ['day', 'week', 'month'] as const) {
+      expect(empty.local.stats.overview[range].empty).toBe(true);
+      expect(empty.local.stats.overview[range].totals.attempts).toBe(0);
+    }
+    expect(empty.local.stats.events.entries).toEqual([]);
+  });
+
+  it('rewards: affordable offers of blocked services; «Te faltan 40 puntos» when short', () => {
+    const rich = harnessFixture('rewards').fake.rewards;
+    expect(rich.offers.find((o) => o.offerId === 'youtube-15')).toMatchObject({
+      available: true,
+      shortBy: 0,
+    });
+    expect(rich.offers.find((o) => o.offerId === 'netflix-45')?.unavailableReason).toBe(
+      'not_blocked',
+    );
+    const short = harnessFixture('rewards-short-points');
+    const offer = short.fake.rewards.offers.find((o) => o.offerId === 'youtube-15');
+    expect(offer).toMatchObject({ available: false, shortBy: 40 });
+    const stub = phase5InvokeStubs(
+      () => short,
+      () => short.nowMs,
+    )['rewards:redeem'];
+    const redeem = stub({ intentId: 'i-1', offerId: 'youtube-15' });
+    expect(redeem.ok ? null : redeem.error.code).toBe('insufficient_points');
+  });
+
+  it('logros lists every achievement; onboarding walks the five steps', () => {
+    const logros = harnessFixture('logros');
+    expect(logros.local.achievements.map((a) => a.id)).toEqual(ACHIEVEMENTS.map((a) => a.id));
+    expect(logros.snapshot.progress).toMatchObject({ achieved: 3, total: 8 });
+    const steps = [1, 2, 3, 4, 5].map((n) => {
+      const f = harnessFixture(`onboarding-${n}` as HarnessStateId);
+      return f.snapshot.prefs.onboarding.step;
+    });
+    expect(steps).toEqual(['welcome', 'guardian', 'extension', 'camera', 'first-block']);
+    const guardian = harnessFixture('onboarding-2');
+    expect(onboardingStepStatus(guardian.snapshot, 'guardian')).toBe('todo');
+    const extension = harnessFixture('onboarding-3');
+    expect(onboardingStepStatus(extension.snapshot, 'extension')).toBe('todo');
+    expect(extension.main.onboarding.pairing?.code).toBe('482913');
+    expect(onboardingStepStatus(harnessFixture('onboarding-4').snapshot, 'camera')).toBe(
+      'unavailable',
+    );
+    expect(harnessFixture('onboarding-5').main.composer.text).toBe('no veo YouTube en 25 minutos');
+  });
+
+  it('surfaces: mini timer, OSD and Nuclear («vuelves a las 18:40»)', () => {
+    expect(harnessFixture('mini-timer').snapshot.prefs.miniTimer.visible).toBe(true);
+    const osd = harnessFixture('osd');
+    expect(osd.snapshot.osd?.text).toBe('+15 min · hasta las 17:57');
+    expect(fixtureInLocale(osd, 'en').snapshot.osd?.text).toBe('+15 min · until 5:57 PM');
+    const nuclear = harnessFixture('nuclear');
+    expect(nuclearPunishment(nuclear.snapshot.state)?.level).toBe('nuclear');
+    expect(formatClock(Date.parse(nuclearEndsAt(nuclear.snapshot.state) ?? ''))).toBe('18:40');
+    expect(nuclear.snapshot.nuclear.overlay).toBe('shown');
+    expect(nuclearPunishment(harnessFixture('punishment').snapshot.state)).toBeNull();
+  });
+
+  it('Ajustes and Bloqueos show pending weakening changes and the editors', () => {
+    const ajustes = harnessFixture('ajustes-full');
+    expect(ajustes.fake.settings.pending.map((p) => p.field)).toEqual([
+      'dailyGoalMinutes',
+      'attemptPenalties',
+    ]);
+    expect(ajustes.snapshot.updater.status).toBe('available');
+    expect(ajustes.snapshot.shortcuts.failed).toEqual(['extend-15']);
+    const exam = harnessFixture('exam-whitelist');
+    expect(exam.detailRequest).toEqual({ name: 'bloqueos', seed: null, focus: 'exam' });
+    expect(exam.fake.settings.pending[0]?.field).toBe('studyWhitelist.extraDomains');
+    expect(harnessFixture('schedules').detail.bloqueos.schedule?.id).toBeNull();
+    const update = harnessFixture('update-available').snapshot;
+    expect(update.app.updateVersion).toBe('0.2.0');
+    expect(update.updater.status).toBe('ready');
   });
 });
 

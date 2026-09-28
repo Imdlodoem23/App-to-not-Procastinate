@@ -16,6 +16,11 @@ describe('renderer URLs', () => {
   it('carries the window kind and, in the harness, the state', () => {
     expect(rendererQuery('main', null)).toEqual({ window: 'main' });
     expect(rendererQuery('detail', 'bloqueos')).toEqual({ window: 'detail', state: 'bloqueos' });
+    expect(rendererQuery('main', 'idle', true)).toEqual({
+      window: 'main',
+      state: 'idle',
+      'neutral-service-icons': '1',
+    });
     expect(rendererUrl(DEV, { window: 'main', state: 'idle' })).toBe(
       'http://localhost:5173/?window=main&state=idle',
     );

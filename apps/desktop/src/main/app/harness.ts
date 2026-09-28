@@ -25,7 +25,11 @@ import {
 } from '../../shared/fixtures';
 import type { Locale } from '../../shared/i18n/locale';
 import type { HarnessLoad } from '../../shared/ipc';
-import type { DetailName, DetailRequest } from '../../shared/ui-state';
+import {
+  defaultDetailRequest as sharedDefaultDetailRequest,
+  type DetailName,
+  type DetailRequest,
+} from '../../shared/ui-state';
 import type { TrayController } from '../tray/controller';
 import { fakeDisplaySource, type FakeDisplaySource } from '../windows/fake-display';
 import type { WindowShell } from '../windows/shell';
@@ -94,14 +98,7 @@ function coreHarness(core: Core): CoreHarness {
 
 /** The request a door would send, for `openDetail(name)` outside a detail fixture. */
 export function defaultDetailRequest(name: DetailName): DetailRequest {
-  switch (name) {
-    case 'bloqueos':
-      return { name, seed: null, focus: null };
-    case 'emergencia':
-      return { name, blockIds: null };
-    case 'ajustes':
-      return { name, group: null };
-  }
+  return sharedDefaultDetailRequest(name);
 }
 
 const FOCUS_PROBE = `new Promise((resolve) => {
@@ -167,6 +164,11 @@ export function createHarnessApi(deps: HarnessDeps): HarnessApi {
       if (!shell.window('main')?.isVisible()) await shell.show('harness', { focusField: false });
       await shell.openDetail(detailFor(name), { show: true });
       await shell.flushRenderers();
+    },
+
+    // Phase 5 stub: PLATFORM shows its surface windows here (`PlatformServices.harnessLoad`).
+    openSurface(kind) {
+      return Promise.reject(new Error(`surface windows are not registered yet: ${kind}`));
     },
 
     async advance(ms: number) {

@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   FEATURES,
   FEATURE_NAMES,
+  PHASE1_FEATURES,
   featureEnabled,
   resolveFeatures,
 } from '../../src/shared/features';
 import {
   INVOKE_CHANNELS,
+  PHASE5_INVOKE_CHANNELS,
+  PHASE5_SEND_CHANNELS,
   PUSH_CHANNELS,
   SEND_CHANNELS,
   isInvokeChannel,
@@ -19,7 +22,13 @@ describe('IPC channel lists', () => {
 
   it('are unique across kinds and follow `area:action`', () => {
     expect(new Set(all).size).toBe(all.length);
-    for (const channel of all) expect(channel).toMatch(/^[a-z]+:[a-z-]+$/);
+    for (const channel of all) expect(channel).toMatch(/^[a-z]+(?:-[a-z]+)*:[a-z-]+$/);
+  });
+
+  it('list the Phase 5 channels among the invoke and send channels', () => {
+    for (const c of PHASE5_INVOKE_CHANNELS) expect(INVOKE_CHANNELS).toContain(c);
+    for (const c of PHASE5_SEND_CHANNELS) expect(SEND_CHANNELS).toContain(c);
+    expect(new Set(PHASE5_INVOKE_CHANNELS).size).toBe(PHASE5_INVOKE_CHANNELS.length);
   });
 
   it('guards accept only their own kind', () => {
@@ -41,15 +50,18 @@ describe('IPC channel lists', () => {
 });
 
 describe('feature flags', () => {
-  it('ship all off in Phase 1', () => {
-    for (const name of FEATURE_NAMES) expect(FEATURES[name]).toBe(false);
+  it('ship every Phase 5 feature on and Study Mode off', () => {
+    for (const name of FEATURE_NAMES) expect(FEATURES[name], name).toBe(name !== 'study');
+    for (const name of FEATURE_NAMES) expect(PHASE1_FEATURES[name], name).toBe(false);
     expect(Object.isFrozen(FEATURES)).toBe(true);
+    expect(Object.isFrozen(PHASE1_FEATURES)).toBe(true);
   });
 
   it('resolve overrides and capabilities', () => {
-    const flags = resolveFeatures({ study: true, bogus: true, stats: 'yes' });
+    const flags = resolveFeatures({ study: true, bogus: true, stats: 'yes', osd: false });
     expect(flags.study).toBe(true);
-    expect(flags.stats).toBe(false);
+    expect(flags.stats).toBe(true);
+    expect(flags.osd).toBe(false);
     expect('bogus' in flags).toBe(false);
     expect(featureEnabled(flags, 'study', null)).toBe(true);
     expect(featureEnabled(flags, 'study', ['blocks'])).toBe(false);

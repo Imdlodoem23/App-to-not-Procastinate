@@ -8,6 +8,7 @@ import {
   isDraftSeed,
   isLayoutReport,
 } from '../../../src/main/windows/send-guards';
+import { PHASE5_VALID_SEND } from '../../shared/phase5-payloads';
 
 const VALID: { [C in SendChannel]: unknown } = {
   'window:layout': { height: 512, density: 'regular', scroll: false },
@@ -21,6 +22,7 @@ const VALID: { [C in SendChannel]: unknown } = {
   'app:open-guide': { guide: 'extension-chromium' },
   'app:quit': null,
   'app:renderer-error': { message: 'boom', stack: null },
+  ...PHASE5_VALID_SEND,
 };
 
 describe('send guards', () => {

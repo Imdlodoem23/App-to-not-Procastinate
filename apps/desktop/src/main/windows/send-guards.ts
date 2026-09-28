@@ -9,9 +9,13 @@
  * them is validated strictly by `isCreateBlockRequest` before anything reaches the guardian.
  */
 import { BLOCK_MODES, type BlockMode, type TargetSpec } from '@centrate/shared/domain';
+import { ACHIEVEMENTS } from '@centrate/shared/points';
 import { GUIDE_IDS, type SendChannel, type SendPayload } from '../../shared/ipc';
+import { PHASE5_SEND_GUARDS } from '../../shared/ipc-payloads';
+import { isStatsRange } from '../../shared/stats';
 import {
   AJUSTES_GROUPS,
+  BLOQUEOS_FOCUS,
   isDetailName,
   isIntentId,
   type BlockDraft,
@@ -121,8 +125,6 @@ export function isDraftSeed(value: unknown): value is DraftSeed {
   );
 }
 
-const BLOQUEOS_FOCUS = ['form', 'active', 'templates', 'schedules'] as const;
-
 export function isDetailRequest(value: unknown): value is DetailRequest {
   if (!isRecord(value) || !isDetailName(value['name'])) return false;
   switch (value['name']) {
@@ -147,6 +149,18 @@ export function isDetailRequest(value: unknown): value is DetailRequest {
         (value['group'] === null ||
           (typeof value['group'] === 'string' &&
             (AJUSTES_GROUPS as readonly string[]).includes(value['group'])))
+      );
+    case 'estadisticas':
+      return (
+        hasOnlyKeys(value, ['name', 'range']) &&
+        (value['range'] === null || isStatsRange(value['range']))
+      );
+    case 'recompensas':
+      return hasOnlyKeys(value, ['name']);
+    case 'logros':
+      return (
+        hasOnlyKeys(value, ['name', 'focus']) &&
+        (value['focus'] === null || ACHIEVEMENTS.some((a) => a.id === value['focus']))
       );
   }
 }
@@ -199,4 +213,7 @@ export const SEND_GUARDS: { readonly [C in SendChannel]: Guard<SendPayload<C>> }
     hasOnlyKeys(v, ['message', 'stack']) &&
     isShortString(v['message'], MAX_ERROR_MESSAGE) &&
     (v['stack'] === null || isShortString(v['stack'], MAX_STACK)),
+
+  // Phase 5: validators written with the contract (docs/DESKTOP.md §15).
+  ...PHASE5_SEND_GUARDS,
 };

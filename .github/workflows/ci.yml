@@ -37,6 +37,15 @@ jobs:
         # guardian/internal/embedded is generated from packages/shared (docs/ARCHITECTURE.md §12).
         if: runner.os == 'Linux'
         run: node scripts/gen-guardian-data.mjs && git diff --exit-code guardian/internal/embedded
+      - name: Brand icons and third-party notices are fresh
+        # Every icon is drawn from assets/brand (docs/brand.md) and each product's notices come
+        # from ASSET-LICENSES.json and the packages it ships (scripts/gen-third-party-notices.mjs).
+        if: runner.os == 'Linux'
+        run: |
+          node scripts/gen-app-icons.mjs --check
+          node apps/desktop/scripts/gen-tray-icons.mjs --check
+          node apps/extension/scripts/gen-icons.mjs --check
+          node scripts/gen-third-party-notices.mjs --check
       - name: Typecheck
         run: npm run typecheck
         env:

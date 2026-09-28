@@ -347,6 +347,10 @@ export const ACCOUNT_JS = `'use strict';
             say('');
           } else if (r.status === 429) {
             say('Has pedido demasiados códigos. Espera unos minutos y vuelve a intentarlo.', 'error');
+          } else if (r.status === 503 && r.data && r.data.error && r.data.error.code === 'feature_disabled') {
+            say('Hoy ya no podemos enviar más códigos por email. Vuelve a intentarlo mañana.', 'error');
+          } else if (r.status >= 500) {
+            say(OFFLINE, 'error');
           } else {
             say('Revisa la dirección de email y vuelve a intentarlo.', 'error');
           }

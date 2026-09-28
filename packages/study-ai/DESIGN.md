@@ -437,13 +437,16 @@ visible phone.
 
 ### 6.9 Generic classifier (no profile, other camera, stale profile)
 
-**Baseline:**
+**Study directions** (one per screen; learned for the whole session, never frozen):
 
-- The median pose and box of the first 20 s of face frames in which input is active and the foreground is not a distraction.
-- Failing that, of the first 20 s of face frames.
+- A **calm** frame faces a screen: lookDown < 0.45 and absolute pitch > −20°. Writing or reading right after the click on «Empezar» is therefore never the screen pose.
+- **Opening baseline:** the median pose and box of the first 20 s of calm face frames without a distraction or a phone. Failing 3 s of those, of such frames with lookDown < 0.45; failing that, of the first 20 s of face frames. A screen watched without input (a lecture) becomes the baseline this way.
+- **Input directions:** calm face frames with fresh input (`hint.idleMs` < 2 s; `inputActive` when the caller omits the field), no F_dist and no phone. A pose seen like that for 3 s (gaps < 5 s, otherwise the candidate starts over) becomes a direction; its centre is the rolling median of its last 80 samples.
+- At most 3 directions, the opening baseline included while no input direction lies within 12° of it. The least recently looked-at one makes room for a new one; directions that drift within 12° of each other merge.
 - Until 3 s of face frames exist, `ready = false` and `predict` returns a neutral study-leaning answer (p_screen 0.8).
+- A second monitor the user types or scrolls on is thereby a screen. One only watched, never touched, is not: pose alone cannot tell it from looking away (see §11).
 
-**Rules:**
+**Rules** (against the direction that fits best: lowest rule cost, then the nearest; `relativePose` uses the same one):
 
 - pStudy = exp(−(max(0,|dyaw|−10)/30)⁴ − (max(0,dpitch−15)/15)⁴) when dpitch ≥ −70°. Looking down counts as study.
 - pStudy is split into screen/paper by the sign of dpitch.
@@ -454,7 +457,7 @@ visible phone.
 
 - Trust {phone: 0, away: 0}.
 - Thresholds: phone 0.5, person 0.5.
-- Eyes: fit (0.15, −0.004), `closedDelta` 0.45, reliable.
+- Eyes, judged online: from the last 240 blink values of calm fresh-input frames (fewer than 20: of the opening baseline's calm frames). The profile's glare rule applies: unreliable when the median is > 0.5 or the spread is > 0.15. The spread is IQR/1.349, so real blinks and eyes closed just after the last keystroke do not count. Fit (clamp(median, 0.15, 0.5), −0.004), `closedDelta` 0.45. With fewer than 20 values the eyes are unknown (unreliable): no drowsiness from eyes not yet seen.
 
 ### 6.10 «¡Estaba estudiando!» learning
 
@@ -1051,6 +1054,8 @@ It must cover:
 - A calculator held and moved near the face can read as a phone. The doubt period and the personal `thresholds.phone` soften this.
 - With glasses glare (`eyes.reliable = false`) drowsiness detection is off; no strike is lost, since drowsiness never strikes.
 - A camera change without recalibrating falls back to the generic classifier. It is less precise, but it never punishes looking down.
+- The generic classifier learns a second screen only from keyboard or mouse input on it (§6.9). A second monitor that is only watched, at 40° or more, reads as looking away until the user types or scrolls there, or calibrates. The safety net is DECISION's: in generic mode a pose-only doubt (`looking_away`/`unknown`) should stop at DUDA (requested, not yet in §7.6).
+- The generic classifier keeps the session's opening pose (the first 20 s of calm frames) as a screen. A user who starts by looking elsewhere without touching the keyboard teaches it that direction until three other screens displace it.
 - The pitch sign must be checked once by hand in the demo, on a real face.
 
 ## Appendix: how A and B were merged

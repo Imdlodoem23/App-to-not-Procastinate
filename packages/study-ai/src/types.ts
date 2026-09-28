@@ -429,6 +429,11 @@ export interface ClassifierObserveHint {
   inputActive: boolean;
   distraction: boolean;
   phone: boolean;
+  /**
+   * Keyboard/mouse idle time of this tick (`null`: unknown). The generic classifier learns a
+   * screen direction only from fresh input (< 2 s); without the field it uses `inputActive`.
+   */
+  idleMs?: number | null;
 }
 
 export type ClassifierKind = 'personal' | 'generic';

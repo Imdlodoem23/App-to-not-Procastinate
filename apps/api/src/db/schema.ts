@@ -41,7 +41,10 @@ const created = () => tstz('created_at').notNull().defaultNow();
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
-  /** better-auth requires it; we keep it empty or the Google name, never shown to others. */
+  /**
+   * better-auth requires it. '' once the account exists: the Google first name only seeds the
+   * display name (`ensureProfile`), and later updates are blanked (auth hooks).
+   */
   name: text('name').notNull(),
   email: text('email').notNull().unique(),
   emailVerified: boolean('email_verified').notNull().default(false),
@@ -138,6 +141,11 @@ export const profiles = pgTable(
     partnerEmails: boolean('partner_emails').notNull().default(false),
     coachEnabled: boolean('coach_enabled').notNull().default(false),
     consentUpdatedAt: tstz('consent_updated_at'),
+    /**
+     * When `share_ranking` was last turned on (null while off). Friends' rankings count this
+     * person's days only from then (docs/API.md §8.2), never retroactively.
+     */
+    rankingSince: tstz('ranking_since'),
     createdAt: created(),
     updatedAt: tstz('updated_at').notNull().defaultNow(),
   },
@@ -147,6 +155,7 @@ export const profiles = pgTable(
       sql`${t.dailyGoalMinutes} IS NULL OR ${t.dailyGoalMinutes} BETWEEN 15 AND 600`,
     ),
     check('profiles_ranking_needs_sync', sql`NOT ${t.shareRanking} OR ${t.shareSync}`),
+    check('profiles_ranking_since', sql`${t.shareRanking} = (${t.rankingSince} IS NOT NULL)`),
   ],
 );
 
@@ -412,6 +421,25 @@ export const usageCounters = pgTable(
   (t) => [primaryKey({ name: 'usage_counters_pk', columns: [t.userId, t.day, t.key] })],
 );
 
+/**
+ * Durable anti-abuse counters that are not tied to an account (src/lib/counters.ts): the global
+ * daily cap on sign-in emails and the per-address sign-in email limits. Per-address keys hold
+ * an HMAC of the normalised address, never the address itself. Deleted once `expires_at` passes.
+ */
+export const rateCounters = pgTable(
+  'rate_counters',
+  {
+    key: text('key').notNull(),
+    windowStart: tstz('window_start').notNull(),
+    count: integer('count').notNull().default(0),
+    expiresAt: tstz('expires_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ name: 'rate_counters_pk', columns: [t.key, t.windowStart] }),
+    index('rate_counters_expires_idx').on(t.expiresAt),
+  ],
+);
+
 /** Per-user AI use per UTC day and feature. Requests are reserved before the call. */
 export const aiUsage = pgTable(
   'ai_usage',
@@ -429,6 +457,13 @@ export const aiUsage = pgTable(
     cacheReadTokens: bigint('cache_read_tokens', { mode: 'number' }).notNull().default(0),
     cacheWriteTokens: bigint('cache_write_tokens', { mode: 'number' }).notNull().default(0),
     costMicroUsd: bigint('cost_micro_usd', { mode: 'number' }).notNull().default(0),
+    /** Worst-case cost held by calls in flight (per-user daily spend cap, COACH). */
+    reservedMicroUsd: bigint('reserved_micro_usd', { mode: 'number' }).notNull().default(0),
+    /**
+     * When the call in flight must have settled (one per user and feature); null when none.
+     * A past value is a call whose process died: its amounts stay held until the day ends.
+     */
+    reservedUntil: tstz('reserved_until'),
   },
   (t) => [
     primaryKey({ name: 'ai_usage_pk', columns: [t.userId, t.day, t.feature] }),

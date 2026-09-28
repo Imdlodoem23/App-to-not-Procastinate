@@ -86,16 +86,51 @@ export function fromZodError(error: ZodError, where: 'body' | 'query' | 'params'
   return validationFailed(issues);
 }
 
-/** Connection-level Postgres failures: the database is down or unreachable. */
+/** Socket errors: the database host is down, unreachable or dropped the connection. */
+const NETWORK_CODES: ReadonlySet<string> = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ECONNABORTED',
+  'ENOTFOUND',
+  'ETIMEDOUT',
+  'EAI_AGAIN',
+  'ENETUNREACH',
+  'ENETDOWN',
+  'EHOSTUNREACH',
+  'EHOSTDOWN',
+  'EPIPE',
+]);
+
+/** Postgres SQLSTATEs that mean «not now», not «wrong query». */
+const UNAVAILABLE_SQLSTATES: ReadonlySet<string> = new Set([
+  '53300', // too many connections
+  '57014', // statement cancelled (statement_timeout: the database is too slow right now)
+  '57P01', // admin shutdown
+  '57P02', // crash shutdown
+  '57P03', // cannot connect now
+]);
+
+/**
+ * node-postgres and pg-pool connection failures that carry no `code`: a connect that timed out
+ * («Connection terminated due to connection timeout», «timeout expired»), a pool with every
+ * connection busy past `connectionTimeoutMillis` («timeout exceeded when trying to connect»),
+ * a server that went away («Connection terminated unexpectedly») and the client-side
+ * `query_timeout` («Query read timeout»).
+ */
+const PG_CONNECTION_MESSAGE =
+  /^(Connection terminated|timeout exceeded when trying to connect|timeout expired$|Query read timeout$|Client has encountered a connection error)/;
+
+/** Connection-level Postgres failures: the database is down, unreachable or overloaded. */
 export function isDatabaseUnavailable(err: unknown, depth = 0): boolean {
   if (!err || typeof err !== 'object') return false;
   const code = (err as { code?: unknown }).code;
-  if (
-    typeof code === 'string' &&
-    (['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'ETIMEDOUT', 'EAI_AGAIN'].includes(code) ||
-      code.startsWith('08') || // connection exception
-      code === '57P01' || // admin shutdown
-      code === '57P03') // cannot connect now
+  if (typeof code === 'string') {
+    if (NETWORK_CODES.has(code) || UNAVAILABLE_SQLSTATES.has(code)) return true;
+    if (code.startsWith('08')) return true; // connection exception class
+  } else if (
+    code === undefined &&
+    err instanceof Error &&
+    PG_CONNECTION_MESSAGE.test(err.message)
   ) {
     return true;
   }

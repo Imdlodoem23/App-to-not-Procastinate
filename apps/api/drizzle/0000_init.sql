@@ -50,6 +50,8 @@ CREATE TABLE "ai_usage" (
 	"cache_read_tokens" bigint DEFAULT 0 NOT NULL,
 	"cache_write_tokens" bigint DEFAULT 0 NOT NULL,
 	"cost_micro_usd" bigint DEFAULT 0 NOT NULL,
+	"reserved_micro_usd" bigint DEFAULT 0 NOT NULL,
+	"reserved_until" timestamp with time zone,
 	CONSTRAINT "ai_usage_pk" PRIMARY KEY("user_id","day","feature"),
 	CONSTRAINT "ai_usage_feature" CHECK ("ai_usage"."feature" IN ('interpret', 'coach'))
 );
@@ -164,10 +166,20 @@ CREATE TABLE "profiles" (
 	"partner_emails" boolean DEFAULT false NOT NULL,
 	"coach_enabled" boolean DEFAULT false NOT NULL,
 	"consent_updated_at" timestamp with time zone,
+	"ranking_since" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "profiles_goal_range" CHECK ("profiles"."daily_goal_minutes" IS NULL OR "profiles"."daily_goal_minutes" BETWEEN 15 AND 600),
-	CONSTRAINT "profiles_ranking_needs_sync" CHECK (NOT "profiles"."share_ranking" OR "profiles"."share_sync")
+	CONSTRAINT "profiles_ranking_needs_sync" CHECK (NOT "profiles"."share_ranking" OR "profiles"."share_sync"),
+	CONSTRAINT "profiles_ranking_since" CHECK ("profiles"."share_ranking" = ("profiles"."ranking_since" IS NOT NULL))
+);
+--> statement-breakpoint
+CREATE TABLE "rate_counters" (
+	"key" text NOT NULL,
+	"window_start" timestamp with time zone NOT NULL,
+	"count" integer DEFAULT 0 NOT NULL,
+	"expires_at" timestamp with time zone NOT NULL,
+	CONSTRAINT "rate_counters_pk" PRIMARY KEY("key","window_start")
 );
 --> statement-breakpoint
 CREATE TABLE "session" (
@@ -253,6 +265,7 @@ CREATE INDEX "friendships_friend_idx" ON "friendships" USING btree ("friend_id")
 CREATE UNIQUE INDEX "partner_links_owner_partner_uq" ON "partner_links" USING btree ("owner_id","partner_id");--> statement-breakpoint
 CREATE INDEX "partner_links_partner_idx" ON "partner_links" USING btree ("partner_id");--> statement-breakpoint
 CREATE INDEX "presence_expires_idx" ON "presence" USING btree ("expires_at");--> statement-breakpoint
+CREATE INDEX "rate_counters_expires_idx" ON "rate_counters" USING btree ("expires_at");--> statement-breakpoint
 CREATE INDEX "session_user_id_idx" ON "session" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "user_blocks_blocked_idx" ON "user_blocks" USING btree ("blocked_id");--> statement-breakpoint
 CREATE INDEX "verification_identifier_idx" ON "verification" USING btree ("identifier");

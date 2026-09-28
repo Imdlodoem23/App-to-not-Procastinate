@@ -82,5 +82,12 @@ export function detailForRequest(
       return { ...base, emergencia: { ...base.emergencia, blockIds: request.blockIds } };
     case 'ajustes':
       return { ...base, ajustes: { ...base.ajustes, group: request.group } };
+    case 'estadisticas':
+      return request.range
+        ? { ...base, estadisticas: { ...base.estadisticas, range: request.range } }
+        : base;
+    case 'recompensas':
+    case 'logros':
+      return base;
   }
 }

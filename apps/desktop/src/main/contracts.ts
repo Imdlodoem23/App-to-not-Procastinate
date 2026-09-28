@@ -7,6 +7,9 @@
  * - MAIN-WINDOW implements `CoreHost` and `WindowHost` (`src/main/windows/**`), wires
  *   everything in `src/main/index.ts` and installs `HarnessApi` in harness mode.
  * - HARNESS drives `HarnessApi` from Playwright (`electronApp.evaluate`).
+ * - Phase 5 (docs/DESKTOP.md §15): PLATFORM implements `PlatformServices` (mini timer, OSD,
+ *   Nuclear overlay, updater, shortcuts, reminders, active window) and publishes their state
+ *   through `Core.patchSnapshot`; it also replaces the core's Phase 5 stub handlers.
  *
  * Changing this file is a lead decision: every owner compiles against it.
  */
@@ -15,8 +18,21 @@ import type { ThemeName } from '@centrate/shared/design/tokens';
 import type { GuardianClient } from '@centrate/shared/guardian-api';
 import type { FeatureFlags } from '../shared/features';
 import type { DisplayPresetId, HarnessFixture, HarnessStateId, Rect } from '../shared/fixtures';
-import type { InitPayload, InvokeHandlers, SendHandlers, ShowReason } from '../shared/ipc';
-import type { Platform, UiSnapshot, WindowKind } from '../shared/ui-state';
+import type {
+  InitPayload,
+  InvokeHandlers,
+  Phase5SendChannel,
+  SendHandlers,
+  ShowReason,
+} from '../shared/ipc';
+import type {
+  DetailName,
+  Platform,
+  PlatformSnapshotPatch,
+  SurfaceKind,
+  UiSnapshot,
+  UiWindow,
+} from '../shared/ui-state';
 
 // ---------------------------------------------------------------------------------------
 // Time
@@ -76,7 +92,10 @@ export interface Core {
   getSnapshot(): UiSnapshot;
   /** Called after every `rev` change (microtask-coalesced). */
   subscribe(listener: (snapshot: UiSnapshot) => void): () => void;
-  /** Every invoke channel except `app:init` (which `registerIpcHandlers` answers). */
+  /**
+   * Every invoke channel except `app:init` (which `registerIpcHandlers` answers). The Phase 5
+   * ones start as `phase5InvokeStubs` (`src/shared/phase5-stubs.ts`) until PLATFORM overrides them.
+   */
   readonly handlers: Omit<InvokeHandlers, 'app:init'>;
   /** Send channels that belong to the core. */
   readonly sendHandlers: Pick<SendHandlers, 'block:create-dismiss'>;
@@ -84,6 +103,11 @@ export interface Core {
   /** `CoreHost.visibility()` changed: poll cadence and notification suppression follow. */
   visibilityChanged(): void;
   refreshNow(reason: RefreshReason): void;
+  /**
+   * Phase 5: publish main-owned platform state (progress, updater, active window, shortcuts,
+   * OSD, Nuclear, `app.updateVersion`) in the snapshot; a new `rev` only when something changed.
+   */
+  patchSnapshot(patch: PlatformSnapshotPatch): void;
   /** «Salir»: send waiting extensions now (within `budgetMs`), stop timers, close the DB. */
   shutdown(budgetMs: number): Promise<void>;
   /** Present only in harness mode. */
@@ -127,12 +151,36 @@ export interface IpcSenderInfo {
   frameUrl: string | null;
 }
 
-/** Implemented by MAIN-WINDOW, used by `registerIpcHandlers`. */
+/**
+ * Implemented by MAIN-WINDOW, used by `registerIpcHandlers`. Phase 5 surfaces (mini timer, OSD,
+ * Nuclear) are PLATFORM's windows: its registration makes `windowOf` and `initPayload` know them.
+ */
 export interface WindowHost {
   /** The trusted window a sender belongs to (registry + app URL check), else `null` (reject). */
-  windowOf(sender: IpcSenderInfo): WindowKind | null;
+  windowOf(sender: IpcSenderInfo): UiWindow | null;
   /** `app:init` for that window; `registerIpcHandlers` adds the current snapshot. */
-  initPayload(window: WindowKind): Omit<InitPayload, 'snapshot'>;
+  initPayload(window: UiWindow): Omit<InitPayload, 'snapshot'>;
+}
+
+// ---------------------------------------------------------------------------------------
+// Platform services (PLATFORM, Phase 5)
+// ---------------------------------------------------------------------------------------
+
+/**
+ * PLATFORM's services (`src/main/{activewin,updater,reminders,shortcuts}/**` and
+ * `src/main/windows/{mini-timer,osd,nuclear}*.ts`), created by the bootstrap after the core and
+ * the shell. They read the snapshot (`core.subscribe`) and publish their state with
+ * `core.patchSnapshot`; renderers only ever see the snapshot.
+ */
+export interface PlatformServices {
+  /** The Phase 5 send channels (`src/main/windows/ipc-window.ts` routes them here). */
+  readonly sendHandlers: Pick<SendHandlers, Phase5SendChannel>;
+  /** After `core.start()`: surfaces, shortcuts, reminders, updater checks, active window. */
+  start(): void;
+  /** Harness `load`: reflect the fixture (show its surface, stop real timers). */
+  harnessLoad(fixture: HarnessFixture): Promise<void>;
+  /** Before quit: unregister shortcuts, close the surfaces, stop timers. */
+  dispose(): void;
 }
 
 /** Serialisable tray menu (built into an Electron `Menu` by MAIN-WINDOW; asserted by e2e). */
@@ -193,8 +241,13 @@ export interface HarnessApi {
   /** Tray-click show path; resolves with ms from the call to the field having focus. */
   showMain(): Promise<number>;
   hideMain(): void;
-  /** Open (or retarget) the detail window like a door would. */
-  openDetail(name: HarnessFixture['window']): Promise<void>;
+  /** Open (or retarget) the detail window like a door would (`main`: nothing to open). */
+  openDetail(name: 'main' | DetailName): Promise<void>;
+  /**
+   * Phase 5: show a surface (mini timer, OSD, Nuclear overlay) with the current snapshot and
+   * resolve once it rendered. PLATFORM implements it with its windows.
+   */
+  openSurface(kind: SurfaceKind): Promise<void>;
   /** Advance the frozen clock; resolves after the resulting publish reached the renderers. */
   advance(ms: number): Promise<void>;
   trayClick(): void;

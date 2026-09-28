@@ -7,7 +7,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { Writable } from 'node:stream';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { AI_KILL_SWITCH_KEY } from '../src/coach/budget';
+import { AI_KILL_SWITCH_KEY, costMicroUsd, tokensOf, worstCaseAttempts } from '../src/coach/budget';
 import { CoachModelError } from '../src/coach/model';
 import {
   INTERPRET_SYSTEM,
@@ -15,7 +15,8 @@ import {
   STUDY_PLAN_SYSTEM,
   WEEKLY_SUMMARY_SYSTEM,
 } from '../src/coach/prompts';
-import { anthropicUserHash, reserve } from '../src/coach/quota';
+import { anthropicUserHash, reserve, settle } from '../src/coach/quota';
+import { ENDPOINTS, estimateInputTokens, SETTLE_MARGIN_MS } from '../src/coach/service';
 import type { Config } from '../src/config';
 import { aiGlobalDaily, aiUsage, dailyStats, devices, meta } from '../src/db/schema';
 import {
@@ -313,10 +314,14 @@ describe('coach routes', () => {
       expect(model.calls[0]).toMatchObject({
         feature: 'coach',
         model: 'claude-opus-5',
-        maxTokens: 8000,
+        maxTokens: 4000,
         effort: 'low',
         system: SPLIT_TASK_SYSTEM,
+        deadlineMs: 60_000,
       });
+      expect(model.calls[0]?.inputTokensBound).toBe(
+        estimateInputTokens(SPLIT_TASK_SYSTEM, model.calls[0]?.user ?? ''),
+      );
       expect(model.calls[0]?.user).toContain(
         '<tarea>Trabajo de historia sobre la Revolución francesa</tarea>',
       );
@@ -330,7 +335,7 @@ describe('coach routes', () => {
       expect(res.statusCode).toBe(422);
       expect(res.json().error.code).toBe('coach_refused');
 
-      model.script = () => ({ kind: 'incomplete', attempts: [attempt({ outputTokens: 8000 })] });
+      model.script = () => ({ kind: 'incomplete', attempts: [attempt({ outputTokens: 4000 })] });
       res = await post(u, '/v1/coach/split-task', splitBody);
       expect(res.statusCode).toBe(502);
       expect(res.json().error.code).toBe('coach_incomplete');
@@ -366,7 +371,7 @@ describe('coach routes', () => {
       const [row] = await usageRows(u.userId);
       expect(row?.requests).toBe(6);
       expect(row?.reservedTokens).toBe(0);
-      expect(row?.outputTokens).toBe(0 + 8000 + 400);
+      expect(row?.outputTokens).toBe(0 + 4000 + 400);
       const [global] = await t.db.select().from(aiGlobalDaily);
       expect(global?.reservedMicroUsd).toBe(0);
     });
@@ -397,9 +402,10 @@ describe('coach routes', () => {
       expect(plan.advice).toEqual(['Repasa un poco cada día.']);
       expect(model.calls[0]).toMatchObject({
         model: 'claude-opus-5',
-        maxTokens: 16_000,
-        effort: 'medium',
+        maxTokens: 8000,
+        effort: 'low',
         system: STUDY_PLAN_SYSTEM,
+        deadlineMs: 80_000,
       });
       expect(model.calls[0]?.user).toContain('2026-10-03 (sábado)');
       expect(model.calls[0]?.user).not.toContain('2026-10-04');
@@ -534,7 +540,9 @@ describe('coach routes', () => {
     });
 
     it('refuses a call whose worst case does not fit in the daily tokens', async () => {
-      await start({ AI_USER_DAILY_TOKENS: '14000' });
+      // A split task (worst case about 17 000 tokens with the fallback hop) fits; a study plan
+      // (about 30 000) does not.
+      await start({ AI_USER_DAILY_TOKENS: '25000' });
       const u = await person();
       model.script = () => ok(splitOutput);
       expect((await post(u, '/v1/coach/split-task', splitBody)).statusCode).toBe(200);
@@ -544,8 +552,36 @@ describe('coach routes', () => {
       const quota = await app.inject({ method: 'GET', url: '/v1/coach/quota', headers: u.headers });
       expect(quota.json<CoachQuotaResponse>().coach).toEqual({
         requestsLeft: 9,
-        tokensLeft: 14_000 - 1600,
+        tokensLeft: 25_000 - 1600,
       });
+    });
+
+    it('caps what one user can spend in a day, both buckets together', async () => {
+      const u = await person();
+      model.script = (request) =>
+        request.feature === 'interpret'
+          ? ok(interpretOutput, [attempt({ model: 'claude-haiku-4-5' })])
+          : ok(splitOutput);
+      // 0.30 USD already spent today: a split task's worst case (about 0.25 USD with the
+      // fallback hop) no longer fits in the default 0.50 USD, a phrase (about 0.01) does.
+      await t.db.insert(aiUsage).values({
+        userId: u.userId,
+        day: '2026-09-28',
+        feature: 'coach',
+        requests: 1,
+        costMicroUsd: 300_000,
+      });
+      const split = await post(u, '/v1/coach/split-task', splitBody);
+      expect(split.statusCode).toBe(429);
+      expect(split.json().error).toMatchObject({
+        code: 'quota_exceeded',
+        resetsAt: '2026-09-29T00:00:00.000Z',
+      });
+      expect((await post(u, '/v1/coach/interpret', interpretBody())).statusCode).toBe(200);
+      expect(model.calls.map((c) => c.feature)).toEqual(['interpret']);
+      // Someone else still has their whole share.
+      const other = await person();
+      expect((await post(other, '/v1/coach/split-task', splitBody)).statusCode).toBe(200);
     });
 
     it('lets exactly N of many parallel calls through', async () => {
@@ -560,23 +596,193 @@ describe('coach routes', () => {
       expect(model.calls).toHaveLength(5);
     });
 
-    it('reserves atomically: 20 parallel reservations with a limit of 10 give exactly 10', async () => {
+    const input = (userId: string, extra: Partial<Parameters<typeof reserve>[2]> = {}) => ({
+      userId,
+      feature: 'coach' as const,
+      now: clock.now(),
+      tokens: 100,
+      costMicroUsd: 10,
+      holdMs: 90_000,
+      ...extra,
+    });
+
+    it('reserves atomically, one call in flight per user and feature', async () => {
       const u = await person();
       const cfg = testConfig(env({ AI_USER_DAILY_COACH_REQUESTS: '10' }));
       const outcomes = await Promise.all(
-        Array.from({ length: 20 }, () =>
-          reserve(t.db, cfg, {
-            userId: u.userId,
-            feature: 'coach',
-            now: clock.now(),
-            tokens: 100,
-            costMicroUsd: 10,
-          }),
-        ),
+        Array.from({ length: 20 }, () => reserve(t.db, cfg, input(u.userId))),
       );
-      expect(outcomes.filter((o) => o.ok)).toHaveLength(10);
+      expect(outcomes.filter((o) => o.ok)).toHaveLength(1);
+      for (const o of outcomes.filter((o) => !o.ok)) {
+        expect(o).toEqual({ ok: false, reason: 'busy', retryAfterMs: 90_000 });
+      }
+      // The other bucket is independent.
+      expect((await reserve(t.db, cfg, input(u.userId, { feature: 'interpret' }))).ok).toBe(true);
+
+      // One after another, the request limit holds exactly.
+      const first = outcomes.find((o) => o.ok);
+      if (!first?.ok) throw new Error('unreachable');
+      await settle(t.db, first.reservation, [], 0);
+      let granted = 1;
+      for (let i = 0; i < 12; i += 1) {
+        const r = await reserve(t.db, cfg, input(u.userId));
+        if (!r.ok) {
+          expect(r).toMatchObject({ reason: 'quota' });
+          continue;
+        }
+        granted += 1;
+        await settle(t.db, r.reservation, [], 0);
+      }
+      expect(granted).toBe(10);
+      const rows = await usageRows(u.userId);
+      expect(rows.find((r) => r.feature === 'coach')).toMatchObject({
+        requests: 10,
+        reservedTokens: 0,
+        reservedMicroUsd: 0,
+        reservedUntil: null,
+      });
+    });
+
+    it('answers 429 rate_limited while the same user has a coach call running', async () => {
+      const u = await person();
+      let finish: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      model.script = async () => {
+        await gate;
+        return ok(splitOutput);
+      };
+      const first = post(u, '/v1/coach/split-task', splitBody);
+      // Wait until the first call is at the model.
+      while (model.calls.length === 0) await new Promise((r) => setTimeout(r, 5));
+      const second = await post(u, '/v1/coach/split-task', splitBody);
+      expect(second.statusCode).toBe(429);
+      expect(second.json().error).toMatchObject({
+        code: 'rate_limited',
+        retryAfterSeconds: (ENDPOINTS['split-task'].deadlineMs + SETTLE_MARGIN_MS) / 1000,
+      });
+      expect(second.headers['retry-after']).toBe('90');
+      // Other people are not held up.
+      const other = await person();
+      const otherCall = post(other, '/v1/coach/split-task', splitBody);
+      while (model.calls.length < 2) await new Promise((r) => setTimeout(r, 5));
+      finish();
+      expect((await first).statusCode).toBe(200);
+      expect((await otherCall).statusCode).toBe(200);
+      model.script = () => ok(splitOutput);
+      expect((await post(u, '/v1/coach/split-task', splitBody)).statusCode).toBe(200);
       const [row] = await usageRows(u.userId);
-      expect(row).toMatchObject({ requests: 10, reservedTokens: 1000 });
+      // The refused call is not counted.
+      expect(row).toMatchObject({ requests: 2, reservedTokens: 0, reservedUntil: null });
+    });
+
+    it('answers busy, not quota, when only the other call in flight is in the way', async () => {
+      const u = await person();
+      const cfg = testConfig(env({ AI_USER_DAILY_BUDGET_USD: '0.1' }));
+      const interpret = await reserve(
+        t.db,
+        cfg,
+        input(u.userId, { feature: 'interpret', costMicroUsd: 30_000, holdMs: 20_000 }),
+      );
+      expect(interpret.ok).toBe(true);
+      // 80 000 fits in 100 000 once the phrase settles, but not next to its 30 000: busy
+      // (retryable), not quota (until tomorrow).
+      const coach = await reserve(t.db, cfg, input(u.userId, { costMicroUsd: 80_000 }));
+      expect(coach).toEqual({ ok: false, reason: 'busy', retryAfterMs: 20_000 });
+      // The phrase settles at 50 000: now 80 000 does not fit at all.
+      if (!interpret.ok) throw new Error('unreachable');
+      await settle(t.db, interpret.reservation, [attempt({ model: 'claude-haiku-4-5' })], 50_000);
+      expect(await reserve(t.db, cfg, input(u.userId, { costMicroUsd: 80_000 }))).toMatchObject({
+        reason: 'quota',
+      });
+      // A call that can never fit under the cap is a configuration problem.
+      expect(await reserve(t.db, cfg, input(u.userId, { costMicroUsd: 100_001 }))).toEqual({
+        ok: false,
+        reason: 'budget',
+      });
+    });
+
+    it('stops blocking after a reservation that never settled, but keeps its amounts', async () => {
+      const u = await person();
+      const cfg = testConfig(env());
+      const lost = await reserve(t.db, cfg, input(u.userId, { costMicroUsd: 200_000 }));
+      expect(lost.ok).toBe(true);
+      // The process died: nothing settles it. Until its hold ends the user waits.
+      expect(await reserve(t.db, cfg, input(u.userId))).toMatchObject({ reason: 'busy' });
+      clock.advance(90_001);
+      // The spend cap still counts the lost 0.20 USD: 0.35 more does not fit in 0.50.
+      expect(
+        await reserve(t.db, cfg, input(u.userId, { now: clock.now(), costMicroUsd: 350_000 })),
+      ).toMatchObject({ reason: 'quota' });
+      const next = await reserve(t.db, cfg, input(u.userId, { now: clock.now() }));
+      if (!next.ok) throw new Error('expected a reservation');
+      await settle(t.db, next.reservation, [attempt()], 16_000);
+      const [row] = await usageRows(u.userId);
+      expect(row).toMatchObject({
+        requests: 2,
+        reservedTokens: 100,
+        reservedMicroUsd: 200_000,
+        reservedUntil: null,
+        costMicroUsd: 16_000,
+      });
+      // A late settle of the lost call frees its amounts without touching a newer call.
+      const newer = await reserve(t.db, cfg, input(u.userId, { now: clock.now() }));
+      if (!newer.ok || !lost.ok) throw new Error('expected reservations');
+      await settle(t.db, lost.reservation, [], 0);
+      const [after] = await usageRows(u.userId);
+      expect(after).toMatchObject({
+        reservedTokens: 100,
+        reservedMicroUsd: 10,
+        reservedUntil: newer.reservation.until,
+      });
+    });
+
+    it('books what a failed call may have cost', async () => {
+      const u = await person();
+      const [row0] = await usageRows(u.userId);
+      expect(row0).toBeUndefined();
+      const hop = attempt({ model: 'claude-opus-5', inputTokens: 900, outputTokens: 4000 });
+      model.script = () => {
+        throw new CoachModelError('unavailable', 'APIUserAbortError', null, {
+          billing: 'bound',
+          attempts: [hop],
+        });
+      };
+      expect((await post(u, '/v1/coach/split-task', splitBody)).statusCode).toBe(503);
+      let [row] = await usageRows(u.userId);
+      expect(row).toMatchObject({
+        costMicroUsd: costMicroUsd([hop]),
+        outputTokens: 4000,
+        reservedMicroUsd: 0,
+      });
+
+      // Certainly not billed (429 before any output): nothing.
+      model.script = () => {
+        throw new CoachModelError('unavailable', 'RateLimitError', 429);
+      };
+      expect((await post(u, '/v1/coach/split-task', splitBody)).statusCode).toBe(503);
+      [row] = await usageRows(u.userId);
+      expect(row?.costMicroUsd).toBe(costMicroUsd([hop]));
+
+      // Anything unexpected: the whole reservation, fallback hop included.
+      model.script = () => {
+        throw new Error('boom');
+      };
+      expect((await post(u, '/v1/coach/split-task', splitBody)).statusCode).toBe(500);
+      [row] = await usageRows(u.userId);
+      const user = model.calls[2]?.user ?? '';
+      const worst = worstCaseAttempts(
+        'claude-opus-5',
+        estimateInputTokens(SPLIT_TASK_SYSTEM, user),
+        4000,
+      );
+      expect(row?.costMicroUsd).toBe(costMicroUsd([hop]) + costMicroUsd(worst));
+      // Both hops' input as cache writes: all tokens but the two outputs.
+      expect(row?.cacheWriteTokens).toBe(tokensOf(worst) - 2 * 4000 + hop.cacheWriteTokens);
+      const [global] = await t.db.select().from(aiGlobalDaily);
+      expect(global).toMatchObject({ costMicroUsd: row?.costMicroUsd, reservedMicroUsd: 0 });
+      expect(logs.join('')).toContain('"outcome":"failed_unexpected"');
     });
 
     it('stops at the global daily budget and health reports it', async () => {
@@ -594,11 +800,21 @@ describe('coach routes', () => {
       expect(model.calls).toHaveLength(0);
       expect(await usageRows(u.userId)).toHaveLength(0);
 
+      // Amounts held by calls in flight do not switch the coach off in /health…
       await t.db
         .update(aiGlobalDaily)
-        .set({ costMicroUsd: 1_000_000 })
+        .set({ costMicroUsd: 100_000, reservedMicroUsd: 900_000 })
         .where(eq(aiGlobalDaily.day, '2026-09-28'));
-      const health = (await app.inject({ method: 'GET', url: '/health' })).json<HealthResponse>();
+      let health = (await app.inject({ method: 'GET', url: '/health' })).json<HealthResponse>();
+      expect(health.capabilities.coach).toEqual({ enabled: true, reason: null });
+
+      // …settled spend does.
+      await t.db
+        .update(aiGlobalDaily)
+        .set({ costMicroUsd: 1_000_000, reservedMicroUsd: 0 })
+        .where(eq(aiGlobalDaily.day, '2026-09-28'));
+      clock.advance(60_000);
+      health = (await app.inject({ method: 'GET', url: '/health' })).json<HealthResponse>();
       expect(health.capabilities.coach).toEqual({ enabled: false, reason: 'budget' });
     });
   });

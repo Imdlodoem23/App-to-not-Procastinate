@@ -24,6 +24,7 @@ import type {
   BlockMode,
   IsoUtc,
   Punishment,
+  ScheduleId,
   TargetSpec,
 } from '@centrate/shared/domain';
 import type {
@@ -32,6 +33,8 @@ import type {
   GuardianStateResponse,
   HealthResponse,
   PairingCodeResponse,
+  RedeemRewardResponse,
+  ScheduleInput,
 } from '@centrate/shared/guardian-api';
 import {
   GUARDIAN_LIMITS,
@@ -40,8 +43,32 @@ import {
   emptyTargets,
 } from '@centrate/shared/guardian-api';
 import type { ParseResult } from '@centrate/shared/parser';
-import { FEATURES, type FeatureFlags } from './features';
+import type { AchievementId } from '@centrate/shared/points';
+import { FEATURES, featureEnabled, type FeatureFlags } from './features';
 import { SHARED, SHARED_EN, SHARED_ES, type LanguagePreference, type Locale } from './i18n';
+import {
+  INITIAL_ACTIVE_WINDOW,
+  INITIAL_NUCLEAR,
+  INITIAL_SHORTCUTS,
+  INITIAL_UPDATER,
+  type ActiveWindowStatus,
+  type NuclearStatus,
+  type OnboardingStepStatus,
+  type OsdMessage,
+  type ProgressState,
+  type ShortcutStatus,
+  type UpdaterState,
+} from './platform';
+import {
+  DEFAULT_FEATURE_PREFS,
+  ONBOARDING_STEPS,
+  applyFeaturePrefsPatch,
+  type FeaturePrefs,
+  type FeaturePrefsPatch,
+  type OnboardingStep,
+  type ShortcutAction,
+} from './prefs';
+import type { CsvExportResult, EventLogFilter, StatsRange } from './stats';
 
 // ---------------------------------------------------------------------------------------
 // Windows
@@ -54,11 +81,40 @@ export function toPlatform(value: string): Platform {
   return value === 'win32' || value === 'darwin' ? value : 'linux';
 }
 
-/** Phase 1 has the main window and one reusable detail window (mini, OSD… come with flags). */
+/** The two windows the shell manages: the main window and the one reusable detail window. */
 export type WindowKind = 'main' | 'detail';
 
-/** Detail windows of Phase 1. Later: study, resumen, estadisticas, recompensas, logros. */
-export const DETAIL_NAMES = ['bloqueos', 'emergencia', 'ajustes'] as const;
+/**
+ * Phase 5 windows with a renderer of their own (PLATFORM creates them, SURFACES draws them):
+ * the 180×44 mini timer, the OSD pill and the full-screen Nuclear overlay (one per display).
+ * Each loads the same bundle as `index.html?window=<kind>`.
+ */
+export const SURFACE_KINDS = ['mini-timer', 'osd', 'nuclear'] as const;
+export type SurfaceKind = (typeof SURFACE_KINDS)[number];
+
+/** Any window that runs a Céntrate renderer (what `app:init` and `RenderEnv` name). */
+export type UiWindow = WindowKind | SurfaceKind;
+
+export function isSurfaceKind(value: unknown): value is SurfaceKind {
+  return typeof value === 'string' && (SURFACE_KINDS as readonly string[]).includes(value);
+}
+
+export function isUiWindow(value: unknown): value is UiWindow {
+  return value === 'main' || value === 'detail' || isSurfaceKind(value);
+}
+
+/**
+ * Views of the detail window. Phase 5 adds Estadísticas, Recompensas and Logros (Study Mode
+ * and Resumen join with the study flag).
+ */
+export const DETAIL_NAMES = [
+  'bloqueos',
+  'emergencia',
+  'ajustes',
+  'estadisticas',
+  'recompensas',
+  'logros',
+] as const;
 export type DetailName = (typeof DETAIL_NAMES)[number];
 
 export function isDetailName(value: unknown): value is DetailName {
@@ -271,8 +327,12 @@ export type TemplateInput = Omit<BlockTemplate, 'id' | 'builtin'> & { id: string
 /** Examen needs a whitelist, so it cannot be the phrase default. */
 export type DefaultBlockMode = Exclude<BlockMode, 'exam'>;
 
-/** App-only preferences (the guardian's settings are separate: `GET /v1/settings`). */
-export interface UiPrefs {
+/**
+ * App-only preferences (the guardian's settings are separate: `settings:get`). The Phase 5
+ * fields (`FeaturePrefs`: OSD, sounds, reminders, shortcuts, mini timer, Pomodoro,
+ * onboarding) live in `prefs.ts` with their validators.
+ */
+export interface UiPrefs extends FeaturePrefs {
   v: 1;
   theme: ThemePreference;
   autostart: boolean;
@@ -285,12 +345,14 @@ export interface UiPrefs {
   language: LanguagePreference;
 }
 
+/** `prefs:set`: any subset; Phase 5 objects merge key by key (`FeaturePrefsPatch`). */
 export type UiPrefsPatch = Partial<
   Pick<
     UiPrefs,
     'theme' | 'autostart' | 'defaultMode' | 'lastReason' | 'closeHintShown' | 'language'
   >
->;
+> &
+  FeaturePrefsPatch;
 
 export const DEFAULT_PREFS: Readonly<UiPrefs> = Object.freeze({
   v: 1,
@@ -300,6 +362,7 @@ export const DEFAULT_PREFS: Readonly<UiPrefs> = Object.freeze({
   lastReason: '',
   closeHintShown: false,
   language: 'system',
+  ...DEFAULT_FEATURE_PREFS,
 });
 
 /** Categories the «Deberes» and «Leer» templates block. */
@@ -431,6 +494,39 @@ export interface UiSnapshot {
   features: FeatureFlags;
   app: AppInfo;
   harness: HarnessInfo | null;
+
+  // Phase 5 (docs/DESKTOP.md §15): main-owned state of the platform services (`platform.ts`).
+  /** Mascot phase and achievements count; `null` until main read the local event log. */
+  progress: ProgressState | null;
+  updater: UpdaterState;
+  activeWindow: ActiveWindowStatus;
+  shortcuts: ShortcutStatus;
+  /** The big notice on screen (the OSD window shows it); `null` when none. */
+  osd: OsdMessage | null;
+  nuclear: NuclearStatus;
+}
+
+/** The Phase 5 part of a snapshot that main's platform services publish (`Core.patchSnapshot`). */
+export type PlatformSnapshotPatch = Partial<
+  Pick<
+    UiSnapshot,
+    'progress' | 'updater' | 'activeWindow' | 'shortcuts' | 'osd' | 'nuclear' | 'app'
+  >
+>;
+
+/** Fresh Phase 5 snapshot fields (nothing known yet). */
+export function initialPlatformState(): Pick<
+  UiSnapshot,
+  'progress' | 'updater' | 'activeWindow' | 'shortcuts' | 'osd' | 'nuclear'
+> {
+  return {
+    progress: null,
+    updater: { ...INITIAL_UPDATER },
+    activeWindow: { ...INITIAL_ACTIVE_WINDOW },
+    shortcuts: { failed: [...INITIAL_SHORTCUTS.failed] },
+    osd: null,
+    nuclear: { ...INITIAL_NUCLEAR },
+  };
 }
 
 export function initialLink(nowMs: number): GuardianLink {
@@ -451,11 +547,47 @@ export function initialSnapshot(
     stateReceivedAt: null,
     health: null,
     ops: { create: null, lastCreated: null, extendQueue: [] },
-    prefs: { ...prefs },
+    prefs: clonePrefs(prefs),
     templates: templates.map((t) => ({ ...t })),
     features,
     app,
     harness: null,
+    ...initialPlatformState(),
+  };
+}
+
+/**
+ * `prefs` with a (validated) `prefs:set` patch applied: plain fields replace, Phase 5 objects
+ * merge key by key. Main's prefs store and the browser harness both apply patches this way.
+ */
+export function applyUiPrefsPatch(prefs: Readonly<UiPrefs>, patch: UiPrefsPatch): UiPrefs {
+  const { osd, sounds, reminders, shortcuts, miniTimer, pomodoro, onboarding, ...plain } = patch;
+  const base: UiPrefs = { ...clonePrefs(prefs) };
+  for (const [key, value] of Object.entries(plain)) {
+    if (value !== undefined) Object.assign(base, { [key]: value });
+  }
+  return applyFeaturePrefsPatch(base, {
+    osd,
+    sounds,
+    reminders,
+    shortcuts,
+    miniTimer,
+    pomodoro,
+    onboarding,
+  });
+}
+
+/** A deep copy of `prefs` (the Phase 5 fields are objects). */
+export function clonePrefs(prefs: Readonly<UiPrefs>): UiPrefs {
+  const position = prefs.miniTimer.position;
+  return {
+    ...prefs,
+    sounds: { ...prefs.sounds },
+    reminders: { ...prefs.reminders },
+    shortcuts: { ...prefs.shortcuts },
+    miniTimer: { ...prefs.miniTimer, position: position ? { ...position } : null },
+    pomodoro: { ...prefs.pomodoro },
+    onboarding: { ...prefs.onboarding },
   };
 }
 
@@ -509,6 +641,14 @@ export interface ConfirmCardState {
   editing: CardField | null;
 }
 
+/** Onboarding (shown in the main window while `onboardingActive`): what a screenshot needs. */
+export interface OnboardingLocalState {
+  /** Step 3: the pairing code shown at 32 px. */
+  pairing: PairingCodeResponse | null;
+  /** Step 2: «Instalando…» while the elevation prompt is up. */
+  installing: boolean;
+}
+
 export interface MainLocalState {
   composer: ComposerState;
   card: ConfirmCardState | null;
@@ -516,6 +656,7 @@ export interface MainLocalState {
   extendOther: { open: boolean; text: string };
   armed: ArmedState | null;
   help: HelpFocus | null;
+  onboarding: OnboardingLocalState;
 }
 
 export interface BloqueosLocalState {
@@ -529,6 +670,19 @@ export interface BloqueosLocalState {
   processInput: string;
   /** Non-null while naming a new template («Guardar como plantilla»). */
   templateName: string | null;
+  /** The schedule being created or edited (`null`: the list only). */
+  schedule: ScheduleEditorState | null;
+  /** Exam mode's whitelist editor (the extras live in the guardian's `studyWhitelist`). */
+  exam: { domainInput: string; processInput: string };
+}
+
+/** «Nuevo horario» / a schedule row's «Editar…»: the form before `schedules:create|update`. */
+export interface ScheduleEditorState {
+  /** `null`: a new schedule. */
+  id: ScheduleId | null;
+  input: ScheduleInput;
+  /** The last rejection (`schedule_in_progress`, `schedule_starting_soon`…), for the help line. */
+  error: UiError | null;
 }
 
 export interface EmergenciaLocalState {
@@ -549,25 +703,70 @@ export interface AjustesLocalState {
   deleteWord: string;
   /** «Copiado» feedback of «Copiar diagnóstico». */
   diagnostics: 'guardian' | 'fallback' | null;
+  /** «Atajo global»: the action whose new key combination is being recorded. */
+  capturing: ShortcutAction | null;
+}
+
+export interface EstadisticasLocalState {
+  range: StatsRange;
+  /** Any day of the period shown; `null`: today. */
+  anchor: string | null;
+  eventFilter: EventLogFilter;
+  /** «Guardado: centrate-eventos.csv» after «Exportar CSV». */
+  exported: CsvExportResult | null;
+}
+
+export interface RecompensasLocalState {
+  /** Shown after a redemption («Canjeado: 15 min de YouTube hasta las 17:15»). */
+  redeemed: RedeemRewardResponse | null;
 }
 
 export interface DetailLocalState {
   bloqueos: BloqueosLocalState;
   emergencia: EmergenciaLocalState;
   ajustes: AjustesLocalState;
+  estadisticas: EstadisticasLocalState;
+  recompensas: RecompensasLocalState;
   armed: ArmedState | null;
   help: HelpFocus | null;
 }
 
 /** Bloqueos is opened with: an optional seed and a section to scroll to. */
+/** Where Bloqueos scrolls to when opened (`exam`: Modo examen and its whitelist). */
+export const BLOQUEOS_FOCUS = ['form', 'active', 'templates', 'schedules', 'exam'] as const;
+export type BloqueosFocus = (typeof BLOQUEOS_FOCUS)[number];
+
 export type DetailRequest =
   | {
       name: 'bloqueos';
       seed: DraftSeed | null;
-      focus: 'form' | 'active' | 'templates' | 'schedules' | null;
+      focus: BloqueosFocus | null;
     }
   | { name: 'emergencia'; blockIds: BlockId[] | null }
-  | { name: 'ajustes'; group: AjustesGroup | null };
+  | { name: 'ajustes'; group: AjustesGroup | null }
+  /** Opens on `range` (`null`: the window keeps its own, «Semana» at first). */
+  | { name: 'estadisticas'; range: StatsRange | null }
+  | { name: 'recompensas' }
+  /** `focus`: the achievement to highlight (a «¡Logro!» notification click). */
+  | { name: 'logros'; focus: AchievementId | null };
+
+/** The request a door sends when it has nothing more specific to say. */
+export function defaultDetailRequest(name: DetailName): DetailRequest {
+  switch (name) {
+    case 'bloqueos':
+      return { name, seed: null, focus: null };
+    case 'emergencia':
+      return { name, blockIds: null };
+    case 'ajustes':
+      return { name, group: null };
+    case 'estadisticas':
+      return { name, range: null };
+    case 'recompensas':
+      return { name };
+    case 'logros':
+      return { name, focus: null };
+  }
+}
 
 export function initialMainLocal(): MainLocalState {
   return {
@@ -576,6 +775,7 @@ export function initialMainLocal(): MainLocalState {
     extendOther: { open: false, text: '' },
     armed: null,
     help: null,
+    onboarding: { pairing: null, installing: false },
   };
 }
 
@@ -588,9 +788,13 @@ export function initialDetailLocal(prefs: UiPrefs = DEFAULT_PREFS): DetailLocalS
       domainInput: '',
       processInput: '',
       templateName: null,
+      schedule: null,
+      exam: { domainInput: '', processInput: '' },
     },
     emergencia: { blockIds: null, phrase: '', result: null },
-    ajustes: { group: null, pairing: null, deleteWord: '', diagnostics: null },
+    ajustes: { group: null, pairing: null, deleteWord: '', diagnostics: null, capturing: null },
+    estadisticas: { range: 'week', anchor: null, eventFilter: 'all', exported: null },
+    recompensas: { redeemed: null },
     armed: null,
     help: null,
   };
@@ -601,7 +805,7 @@ export function initialDetailLocal(prefs: UiPrefs = DEFAULT_PREFS): DetailLocalS
 // ---------------------------------------------------------------------------------------
 
 export interface RenderEnv {
-  window: WindowKind;
+  window: UiWindow;
   platform: Platform;
   layout: WindowLayout;
   /** Detail window only: the view it shows. */
@@ -654,6 +858,13 @@ export const UI_TIMINGS = Object.freeze({
   showAckTimeoutMs: 50,
   /** Windows: a blur this close to a tray click means the click should hide. */
   trayBlurGraceMs: 250,
+  /** The OSD pill stays this long (a new notice restarts it). */
+  osdMs: 2_000,
+  /** Nuclear heartbeat while the overlay covers every display. */
+  nuclearHeartbeatMs: GUARDIAN_LIMITS.nuclearHeartbeatIntervalMs,
+  /** Updates are checked at start (after this delay) and then every 6 h. */
+  updateFirstCheckMs: 30_000,
+  updateCheckIntervalMs: 6 * 3_600_000,
 });
 
 /** +15 min | +30 min | +1 h (then «Otro…»). */
@@ -789,6 +1000,71 @@ export function maxExtendMinutes(block: Block, ops: UiOps, nowMs: number): numbe
     0,
     GUARDIAN_LIMITS.blockMaxMinutes - remaining - queuedExtendMinutes(ops, block.id),
   );
+}
+
+// ---------------------------------------------------------------------------------------
+// Phase 5 selectors (docs/DESKTOP.md §15)
+// ---------------------------------------------------------------------------------------
+
+/** Whether a feature shows for this snapshot (its flag and, if any, its guardian capability). */
+export function snapshotFeature(
+  snapshot: Pick<UiSnapshot, 'features' | 'health'>,
+  name: keyof FeatureFlags,
+): boolean {
+  return featureEnabled(snapshot.features, name, snapshot.health?.capabilities ?? null);
+}
+
+/**
+ * The main window shows the onboarding (centred, instead of its sections) until it is
+ * finished or skipped. Main centres the window while this holds.
+ */
+export function onboardingActive(
+  snapshot: Pick<UiSnapshot, 'features' | 'health' | 'prefs'>,
+): boolean {
+  return snapshotFeature(snapshot, 'onboarding') && !snapshot.prefs.onboarding.done;
+}
+
+/** «Guardián · paso 2 de 5»: 1-based position of a step. */
+export function onboardingStepNumber(step: OnboardingStep): number {
+  return ONBOARDING_STEPS.indexOf(step) + 1;
+}
+
+/**
+ * What each step's header shows on the right: the guardian answers → `done` («Instalado»);
+ * an extension connected → `done`; the camera test is `unavailable` until Study Mode ships
+ * (`optional` once it does); the first block is `done` once any block is active.
+ */
+export function onboardingStepStatus(
+  snapshot: Pick<UiSnapshot, 'link' | 'state' | 'features' | 'health'>,
+  step: OnboardingStep,
+): OnboardingStepStatus {
+  switch (step) {
+    case 'welcome':
+      return 'done';
+    case 'guardian':
+      return snapshot.link.status === 'ok' ? 'done' : 'todo';
+    case 'extension':
+      return snapshot.state?.protection.extensions.some((e) => e.connected) ? 'done' : 'todo';
+    case 'camera':
+      return snapshotFeature(snapshot, 'study') ? 'optional' : 'unavailable';
+    case 'first-block':
+      return (snapshot.state?.blocks.length ?? 0) > 0 ? 'done' : 'todo';
+  }
+}
+
+/**
+ * The Nuclear punishment the overlay covers the screens for (latest end), or `null`. The
+ * overlay shows whenever `state.nuclearActive` holds, even if the punishment list lags.
+ */
+export function nuclearPunishment(state: GuardianStateResponse | null): Punishment | null {
+  if (!state?.nuclearActive) return null;
+  return state.punishments.find((p) => p.level === 'nuclear' && p.status === 'active') ?? null;
+}
+
+/** The end the Nuclear overlay counts down to («Castigo · vuelves a las 18:40»). */
+export function nuclearEndsAt(state: GuardianStateResponse | null): IsoUtc | null {
+  if (!state?.nuclearActive) return null;
+  return nuclearPunishment(state)?.endsAt ?? activePunishment(state)?.endsAt ?? null;
 }
 
 // ---------------------------------------------------------------------------------------

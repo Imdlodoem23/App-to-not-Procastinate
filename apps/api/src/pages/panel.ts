@@ -60,7 +60,8 @@ async function readApi<T>(
   const { cookie, authorization } = request.headers;
   if (typeof cookie === 'string') headers.cookie = cookie;
   if (typeof authorization === 'string') headers.authorization = authorization;
-  const res = await app.inject({ method: 'GET', url, headers });
+  // The caller's address, so per-IP limits (app.ts) count the caller, not «localhost».
+  const res = await app.inject({ method: 'GET', url, headers, remoteAddress: request.ip });
   let body: unknown;
   try {
     body = res.body ? JSON.parse(res.body) : null;

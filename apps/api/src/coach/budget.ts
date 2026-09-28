@@ -1,12 +1,14 @@
 /**
- * Prices, the global daily AI budget and the database kill switch (owner: COACH). Health reads
- * `readAiRuntime` to report `coach: budget` or `coach: kill_switch`. docs/API.md §10.2.
+ * Prices, worst cases, the per-user and global daily AI budgets and the database kill switch
+ * (owner: COACH). Health reads `readAiRuntime` to report `coach: budget` or
+ * `coach: kill_switch`. docs/API.md §10.2.
  */
 import { eq } from 'drizzle-orm';
 import type { Config } from '../config';
 import type { Db } from '../db/client';
 import { aiGlobalDaily, meta } from '../db/schema';
 import type { CoachModelAttempt } from './model';
+import { SERVER_FALLBACK_TARGETS, worstCaseAttempt } from './model';
 
 /** The UTC day AI quotas and the budget count against. */
 export function utcDay(at: Date): string {
@@ -60,30 +62,60 @@ export function costMicroUsd(attempts: readonly CoachModelAttempt[]): number {
   return Math.ceil(total);
 }
 
-/** Upper bound of one call: every input token written to the cache, every output token used. */
-export function worstCaseCostMicroUsd(
+/**
+ * Upper bound of one call, as the attempts it could bill: the requested model with every input
+ * token written to the cache and `maxTokens` of output, plus, for models sent with refusal
+ * fallbacks, a second hop on the dearest of the requested model and its documented fallbacks
+ * (named after the fallback on a tie). That hop may read the declined partial answer as extra
+ * input (up to `maxTokens`) and write its own `maxTokens` (each hop has its own output limit).
+ */
+export function worstCaseAttempts(
   model: string,
   inputTokens: number,
   maxTokens: number,
-): number {
-  const p = priceOf(model);
-  return Math.ceil(inputTokens * p.input * 1.25 + maxTokens * p.output);
+): CoachModelAttempt[] {
+  const first = worstCaseAttempt(model, inputTokens, maxTokens);
+  const targets = SERVER_FALLBACK_TARGETS[model];
+  if (!targets || targets.length === 0) return [first];
+  const dearest = [model, ...targets].reduce((a, b) =>
+    priceOf(b).output >= priceOf(a).output ? b : a,
+  );
+  return [first, worstCaseAttempt(dearest, inputTokens + maxTokens, maxTokens)];
+}
+
+/** Tokens the attempts count against `AI_USER_DAILY_TOKENS`. */
+export function tokensOf(attempts: readonly CoachModelAttempt[]): number {
+  return attempts.reduce(
+    (sum, a) => sum + a.inputTokens + a.outputTokens + a.cacheReadTokens + a.cacheWriteTokens,
+    0,
+  );
 }
 
 export const budgetMicroUsd = (config: Config): number =>
   Math.round(config.ai.limits.globalDailyBudgetUsd * 1_000_000);
 
-/** True when today's spent plus reserved cost reaches `AI_GLOBAL_DAILY_BUDGET_USD`. */
+/** One user's daily spend cap (`AI_USER_DAILY_BUDGET_USD`, never above the global budget). */
+export const userBudgetMicroUsd = (config: Config): number =>
+  Math.round(
+    Math.min(config.ai.limits.userDailyBudgetUsd, config.ai.limits.globalDailyBudgetUsd) *
+      1_000_000,
+  );
+
+/**
+ * True when today's settled cost reaches `AI_GLOBAL_DAILY_BUDGET_USD`. Amounts held by calls in
+ * flight are left out: they settle within the call's deadline, and a few parallel reservations
+ * must not make /health report the coach as off for everyone.
+ */
 export async function isGlobalBudgetExhausted(db: Db, config: Config, now: Date): Promise<boolean> {
   const budget = budgetMicroUsd(config);
   if (budget <= 0) return true;
   const rows = await db
-    .select({ cost: aiGlobalDaily.costMicroUsd, reserved: aiGlobalDaily.reservedMicroUsd })
+    .select({ cost: aiGlobalDaily.costMicroUsd })
     .from(aiGlobalDaily)
     .where(eq(aiGlobalDaily.day, utcDay(now)))
     .limit(1);
   const row = rows[0];
-  return row ? row.cost + row.reserved >= budget : false;
+  return row ? row.cost >= budget : false;
 }
 
 /**

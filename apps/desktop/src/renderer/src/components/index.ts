@@ -19,6 +19,7 @@ export { ConfirmButton, type ConfirmButtonProps } from './ConfirmButton';
 export { HelpLine, type HelpTone } from './HelpLine';
 export { Pill, Chip, StatusDot, Bar, ProgressBar } from './Pill';
 export { Countdown } from './Countdown';
+export { ServiceIcon, NEUTRAL_SERVICE_ICONS } from './ServiceIcon';
 export { Field, type FieldProps } from './Field';
 export {
   Segmented,

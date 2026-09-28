@@ -9,6 +9,7 @@
 import { isIdOf } from '@centrate/shared/domain';
 import { GUARDIAN_LIMITS, isCreateBlockRequest } from '@centrate/shared/guardian-api';
 import type { InvokeChannel, InvokeReq } from '../shared/ipc';
+import { PHASE5_INVOKE_GUARDS } from '../shared/ipc-payloads';
 import { isIntentId } from '../shared/ui-state';
 import { isTemplateInput, isUiPrefsPatch } from './db/prefs-store';
 import { isExtendEntryId } from './guardian/extend-queue';
@@ -112,6 +113,9 @@ export const INVOKE_GUARDS: { [C in InvokeChannel]: Guard<C> } = {
   'guardian:repair': (req): req is null => isNone(req),
 
   'system:process-names': (req): req is null => isNone(req),
+
+  // Phase 5: validators written with the contract (docs/DESKTOP.md §15).
+  ...PHASE5_INVOKE_GUARDS,
 };
 
 /** Channels whose answer is not a `CommandResult` (a bad payload gets their own fallback). */

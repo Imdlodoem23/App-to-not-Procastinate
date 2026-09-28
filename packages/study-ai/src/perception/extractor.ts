@@ -61,7 +61,7 @@ export class FeatureExtractor {
     let objects = this.objects.at(t, STUDY_AI_CONSTANTS.objectHoldMs);
     if (input.objects !== null && input.objects !== undefined) {
       const run = selectObjects(input.objects, width, height, this.threshold);
-      const phone = this.phone.update(run.phone, t, faceBox, width, height);
+      const phone = this.phone.update(run.phones, t, faceBox, width, height);
       objects = this.objects.ran(t, { phone, book: run.book, person: run.person });
     }
 

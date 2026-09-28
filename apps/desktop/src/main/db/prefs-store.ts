@@ -27,6 +27,12 @@ import {
   type UiPrefsPatch,
 } from '../../shared/ui-state';
 import { isLanguagePreference } from '../../shared/i18n/locale';
+import {
+  applyFeaturePrefsPatch,
+  isFeaturePrefKey,
+  isFeaturePrefsPatchEntry,
+  sanitizeFeaturePrefs,
+} from '../../shared/prefs';
 
 export const PREFS_FILE = 'prefs.json';
 export const TEMPLATE_LABEL_MAX = 40;
@@ -71,6 +77,8 @@ export function sanitizePrefs(value: unknown): UiPrefs {
     closeHintShown:
       typeof r['closeHintShown'] === 'boolean' ? r['closeHintShown'] : DEFAULT_PREFS.closeHintShown,
     language: isLanguagePreference(r['language']) ? r['language'] : DEFAULT_PREFS.language,
+    // Phase 5 fields (OSD, sounds, reminders, shortcuts, mini timer, Pomodoro, onboarding).
+    ...sanitizeFeaturePrefs(r),
   };
 }
 
@@ -98,7 +106,8 @@ export function isUiPrefsPatch(value: unknown): value is UiPrefsPatch {
         if (!isLanguagePreference(v)) return false;
         break;
       default:
-        return false;
+        // Phase 5 fields validate in `src/shared/prefs.ts`.
+        if (!isFeaturePrefKey(key) || !isFeaturePrefsPatchEntry(key, v)) return false;
     }
   }
   return true;
@@ -112,7 +121,7 @@ export function applyPrefsPatch(prefs: UiPrefs, patch: UiPrefsPatch): UiPrefs {
   if (patch.lastReason !== undefined) next.lastReason = patch.lastReason;
   if (patch.closeHintShown !== undefined) next.closeHintShown = patch.closeHintShown;
   if (patch.language !== undefined) next.language = patch.language;
-  return next;
+  return applyFeaturePrefsPatch(next, patch);
 }
 
 function isStringList(v: unknown, max: number): v is string[] {

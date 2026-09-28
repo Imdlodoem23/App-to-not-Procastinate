@@ -29,6 +29,7 @@ import {
   type ScheduleInput,
 } from '@centrate/shared/guardian-api';
 import type { HarnessFixture } from '../../shared/fixtures';
+import { phase5InvokeStubs } from '../../shared/phase5-stubs';
 import {
   UI_TIMINGS,
   fail,
@@ -452,6 +453,13 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
   }
 
   const handlers: Core['handlers'] = {
+    // Phase 5 (docs/DESKTOP.md §15): fixture answers in harness mode, `not_implemented`
+    // otherwise, until PLATFORM overrides each channel below this spread.
+    ...phase5InvokeStubs(
+      () => (mode === 'harness' ? currentFixture : null),
+      () => options.clock.now(),
+    ),
+
     'block:create': (req) =>
       session.create.create(req?.intentId, req?.request).then((r) => {
         if (!r.ok) log.info('block_create_failed', { kind: r.error.kind, code: r.error.code });
@@ -747,6 +755,14 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
     visibilityChanged(): void {
       if (stopped) return;
       session.poller.reschedule();
+    },
+    patchSnapshot(patch): void {
+      store.update((s) => {
+        const changed = (Object.keys(patch) as (keyof typeof patch)[]).some(
+          (key) => patch[key] !== undefined && JSON.stringify(patch[key]) !== JSON.stringify(s[key]),
+        );
+        return changed ? { ...s, ...patch } : s;
+      });
     },
     refreshNow(reason: RefreshReason): void {
       if (stopped) return;

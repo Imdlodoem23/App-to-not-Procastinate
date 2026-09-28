@@ -30,27 +30,17 @@ import type {
   SendChannel,
   SendPayload,
 } from '../../../shared/ipc';
+import { phase5InvokeStubs } from '../../../shared/phase5-stubs';
 import {
   UI_TIMINGS,
+  applyUiPrefsPatch,
+  defaultDetailRequest as defaultRequest,
   fail,
   ok,
   uiError,
-  type DetailName,
-  type DetailRequest,
   type UiSnapshot,
 } from '../../../shared/ui-state';
 import type { RendererRoute } from './route';
-
-function defaultRequest(name: DetailName): DetailRequest {
-  switch (name) {
-    case 'bloqueos':
-      return { name, seed: null, focus: null };
-    case 'emergencia':
-      return { name, blockIds: null };
-    case 'ajustes':
-      return { name, group: null };
-  }
-}
 
 type Handler<C extends InvokeChannel> = (req: InvokeReq<C>) => InvokeRes<C>;
 
@@ -94,6 +84,8 @@ export function createMemoryBridge(route: RendererRoute): CentrateBridge {
   };
 
   const handlers: { [C in InvokeChannel]: Handler<C> } = {
+    // Phase 5 reads answer from the fixture (`fixture.fake`, `fixture.local`).
+    ...phase5InvokeStubs(() => fixture, now),
     'app:init': () => init,
     'block:create': ({ intentId, request }) => {
       publish({
@@ -241,7 +233,7 @@ export function createMemoryBridge(route: RendererRoute): CentrateBridge {
       return ok(templates);
     },
     'prefs:set': (patch) => {
-      const prefs = { ...snapshot.prefs, ...patch };
+      const prefs = applyUiPrefsPatch(snapshot.prefs, patch);
       publish({ ...snapshot, prefs });
       return ok(prefs);
     },

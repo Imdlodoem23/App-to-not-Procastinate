@@ -102,7 +102,8 @@ async function checkLayout(
     soft(content.height, `${where}: content height (budget ${budget})`).toBeLessThanOrEqual(budget);
   }
 
-  if (fixture.window === 'main') return;
+  // Main-window and surface fixtures (mini timer, OSD, Nuclear) open no detail window.
+  if (fixture.detailRequest === null) return;
   const detailBounds = bounds.detail;
   soft(detailBounds?.visible, `${where}: detail window shown`).toBe(true);
   soft(
@@ -164,7 +165,8 @@ test('armed fixtures render the in-place «¿Seguro?»', async ({ apps }) => {
       await settleMain(app);
       await app.harness.load(fixture.id, { display: fixture.display, theme: 'light' });
       await settleMain(app);
-      const kind = fixture.detail.armed !== null && fixture.window !== 'main' ? 'detail' : 'main';
+      const kind =
+        fixture.detail.armed !== null && fixture.detailRequest !== null ? 'detail' : 'main';
       if (kind === 'detail') {
         await expect.poll(async () => (await app.harness.bounds()).detail?.visible).toBe(true);
       }

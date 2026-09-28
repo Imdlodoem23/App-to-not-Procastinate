@@ -5,13 +5,21 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
   attemptsOf,
+  billedOnFailure,
   buildParams,
   createAnthropicCoachModel,
   readMessage,
   SERVER_FALLBACK_BETA,
   toModelError,
 } from '../src/coach/anthropic';
-import { costMicroUsd, nextUtcMidnight, priceOf, worstCaseCostMicroUsd } from '../src/coach/budget';
+import {
+  costMicroUsd,
+  nextUtcMidnight,
+  priceOf,
+  tokensOf,
+  userBudgetMicroUsd,
+  worstCaseAttempts,
+} from '../src/coach/budget';
 import {
   canonicalPhrase,
   GENERIC_CLARIFICATION,
@@ -35,8 +43,10 @@ import {
   studyPlanAnswer,
   studyPlanUserMessage,
 } from '../src/coach/study-plan';
+import { ENDPOINTS, estimateInputTokens } from '../src/coach/service';
 import { clampText, promptSafe, typographicMinus, userData } from '../src/coach/text';
 import { weeklyAnswer, weeklyUserMessage } from '../src/coach/weekly';
+import { deriveCapabilities } from '../src/config';
 import { testConfig } from './helpers/app';
 
 const intent = (overrides: Partial<InterpretOutput>): InterpretOutput => ({
@@ -261,9 +271,15 @@ describe('study-plan: days and minutes the user has', () => {
       days: ['2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03'],
       truncated: false,
     });
+    // Four weeks per plan, whatever the exam date.
     const far = studyDays({ ...body, examDate: '2027-03-01', daysOff: [] });
-    expect(far.days).toHaveLength(60);
+    expect(far.days).toHaveLength(28);
+    expect(far.days.at(-1)).toBe('2026-10-25');
     expect(far.truncated).toBe(true);
+    expect(studyPlanUserMessage(body, far.days, true)).toContain('más de 28 días');
+    expect(studyDays({ ...body, examDate: '2026-10-26', daysOff: [] })).toMatchObject({
+      truncated: false,
+    });
     const message = studyPlanUserMessage(body, studyDays(body).days, false);
     expect(message).toContain('<asignatura>Matemáticas</asignatura>');
     expect(message).toContain('2026-10-03 (sábado)');
@@ -410,10 +426,65 @@ describe('costs and budget', () => {
         },
       ]),
     ).toBe(500 + 250 + 500 + 250 + 750);
-    expect(worstCaseCostMicroUsd('claude-haiku-4-5', 1000, 1024)).toBe(1250 + 5120);
     expect(nextUtcMidnight(new Date('2026-12-31T23:59:59.000Z')).toISOString()).toBe(
       '2027-01-01T00:00:00.000Z',
     );
+  });
+
+  it('reserves the worst case: every input token a cache write, max output, a fallback hop', () => {
+    // Haiku runs without fallbacks: one hop.
+    const haiku = worstCaseAttempts('claude-haiku-4-5', 1000, 1024);
+    expect(haiku).toHaveLength(1);
+    expect(costMicroUsd(haiku)).toBe(1250 + 5120);
+    expect(tokensOf(haiku)).toBe(2024);
+    // Opus 5 may decline half way and hand over to Opus 4.8, which reads the partial answer
+    // (up to max_tokens) as extra input and writes its own max_tokens.
+    const opus = worstCaseAttempts('claude-opus-5', 3000, 8000);
+    expect(opus.map((a) => [a.model, a.cacheWriteTokens, a.outputTokens])).toEqual([
+      ['claude-opus-5', 3000, 8000],
+      ['claude-opus-4-8', 11_000, 8000],
+    ]);
+    expect(costMicroUsd(opus)).toBe(18_750 + 200_000 + 68_750 + 200_000);
+    expect(tokensOf(opus)).toBe(11_000 + 19_000);
+    // The second hop is never priced below the requested model.
+    const fable = worstCaseAttempts('claude-fable-5-1', 100, 100);
+    expect(fable[1]?.model).toBe('claude-fable-5-1');
+  });
+
+  it('fits the largest study plan under the default per-user cap', () => {
+    // 30 topics of 80 characters over the 28 days a plan covers: the biggest request.
+    const body: StudyPlanRequest = {
+      subject: 'x'.repeat(80),
+      examDate: '2027-03-01',
+      today: '2026-09-28',
+      dailyMinutes: 600,
+      topics: Array.from({ length: 30 }, () => 'y'.repeat(80)),
+      level: 'intermediate',
+      daysOff: [],
+    };
+    const { days, truncated } = studyDays(body);
+    const user = studyPlanUserMessage(body, days, truncated);
+    const { maxTokens } = ENDPOINTS['study-plan'];
+    const worst = worstCaseAttempts(
+      'claude-opus-5',
+      estimateInputTokens(STUDY_PLAN_SYSTEM, user),
+      maxTokens,
+    );
+    expect(costMicroUsd(worst)).toBeLessThanOrEqual(userBudgetMicroUsd(testConfig()));
+    expect(tokensOf(worst)).toBeLessThanOrEqual(testConfig().ai.limits.userDailyTokens);
+  });
+
+  it('caps one user at AI_USER_DAILY_BUDGET_USD, never above the global budget', () => {
+    expect(userBudgetMicroUsd(testConfig())).toBe(500_000);
+    expect(userBudgetMicroUsd(testConfig({ AI_USER_DAILY_BUDGET_USD: '0.3' }))).toBe(300_000);
+    expect(
+      userBudgetMicroUsd(
+        testConfig({ AI_USER_DAILY_BUDGET_USD: '5', AI_GLOBAL_DAILY_BUDGET_USD: '1' }),
+      ),
+    ).toBe(1_000_000);
+    // 0 turns the coach off, and health says why.
+    const off = testConfig({ ANTHROPIC_API_KEY: 'k', AI_USER_DAILY_BUDGET_USD: '0' });
+    expect(deriveCapabilities(off).coach).toEqual({ enabled: false, reason: 'budget' });
   });
 
   it('hashes the user id for metadata.user_id', () => {
@@ -453,6 +524,7 @@ describe('Anthropic adapter', () => {
     schema,
     userHash: 'a'.repeat(32),
     deadlineMs: 1000,
+    inputTokensBound: 3000,
   };
 
   it('builds the request: cached system, effort, fallbacks for Opus 5, metadata', () => {
@@ -583,6 +655,136 @@ describe('Anthropic adapter', () => {
     const mapped = toModelError(make(401));
     expect(mapped.message).not.toContain('secret message');
     expect(mapped.errorType).toBe('AuthenticationError');
+    // An `error` event in the middle of a stream has no status: its type decides.
+    const event = (type: string) =>
+      new Anthropic.APIError(
+        undefined,
+        { type: 'error', error: { type } },
+        'x',
+        undefined,
+        type as never,
+      );
+    expect(toModelError(event('overloaded_error')).reason).toBe('unavailable');
+    expect(toModelError(event('api_error')).reason).toBe('unavailable');
+    expect(toModelError(event('authentication_error')).reason).toBe('misconfigured');
+    expect(toModelError(event('invalid_request_error')).reason).toBe('rejected');
+    // A body cut off half way surfaces as a plain AnthropicError.
+    expect(toModelError(new Anthropic.AnthropicError('terminated')).reason).toBe('unavailable');
+  });
+
+  it('says what a failed call may have cost', () => {
+    const request = { model: 'claude-opus-5', maxTokens: 8000, inputTokensBound: 3000 };
+    const nothingSeen = { opened: false, start: null, switchedTo: [], finished: false };
+    const headers = new Headers();
+    const status = (code: number) =>
+      Anthropic.APIError.generate(code, undefined, 'secret message', headers);
+    const connection = (code: string) =>
+      new Anthropic.APIConnectionError({
+        cause: Object.assign(new TypeError('fetch failed'), { cause: { code } }),
+      });
+
+    // Answered without running the model, or never sent: nothing.
+    for (const err of [
+      status(400),
+      status(401),
+      status(429),
+      status(529),
+      connection('ENOTFOUND'),
+    ]) {
+      expect(billedOnFailure(err, request, nothingSeen, undefined)).toEqual({
+        billing: 'none',
+        attempts: [],
+      });
+    }
+    // Sent, usage unknown: one hop at its worst case.
+    const oneHop = [
+      {
+        model: 'claude-opus-5',
+        inputTokens: 0,
+        cacheWriteTokens: 3000,
+        cacheReadTokens: 0,
+        outputTokens: 8000,
+      },
+    ];
+    for (const err of [
+      status(500),
+      status(503),
+      new Anthropic.APIUserAbortError(),
+      new Anthropic.APIConnectionTimeoutError(),
+      connection('ECONNRESET'),
+    ]) {
+      expect(billedOnFailure(err, request, nothingSeen, undefined)).toEqual({
+        billing: 'bound',
+        attempts: oneHop,
+      });
+    }
+    // Aborted in the middle: the input message_start reported, max output, and the fallback
+    // model the stream switched to at its worst.
+    const usage = {
+      input_tokens: 900,
+      output_tokens: 1,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 700,
+    } as BetaMessage['usage'];
+    const midway = {
+      opened: true,
+      start: { model: 'claude-opus-5', usage },
+      switchedTo: ['claude-opus-4-8'],
+      finished: false,
+    };
+    expect(billedOnFailure(new Anthropic.APIUserAbortError(), request, midway, undefined)).toEqual({
+      billing: 'bound',
+      attempts: [
+        {
+          model: 'claude-opus-5',
+          inputTokens: 900,
+          cacheReadTokens: 700,
+          cacheWriteTokens: 0,
+          outputTokens: 8000,
+        },
+        {
+          model: 'claude-opus-4-8',
+          inputTokens: 0,
+          cacheWriteTokens: 11_000,
+          cacheReadTokens: 0,
+          outputTokens: 8000,
+        },
+      ],
+    });
+    // An overloaded event after message_start may have been billed.
+    const overloaded = new Anthropic.APIError(
+      undefined,
+      undefined,
+      'x',
+      undefined,
+      'overloaded_error',
+    );
+    expect(
+      billedOnFailure(overloaded, request, { ...midway, switchedTo: [] }, undefined).billing,
+    ).toBe('bound');
+    // …but not before it.
+    expect(
+      billedOnFailure(overloaded, request, { ...nothingSeen, opened: true }, undefined).billing,
+    ).toBe('none');
+    // A pre-output decline: message_start names the fallback model.
+    const declined = billedOnFailure(
+      new Anthropic.APIUserAbortError(),
+      request,
+      { ...midway, start: { model: 'claude-opus-4-8', usage }, switchedTo: [] },
+      undefined,
+    );
+    expect(declined.attempts.map((a) => [a.model, a.outputTokens])).toEqual([
+      ['claude-opus-5', 0],
+      ['claude-opus-4-8', 8000],
+    ]);
+    // message_delta arrived before the failure: the exact usage.
+    const snapshot = message({ usage: { ...usage, output_tokens: 1234 } });
+    expect(
+      billedOnFailure(connection('ECONNRESET'), request, { ...midway, finished: true }, snapshot),
+    ).toMatchObject({
+      billing: 'exact',
+      attempts: [{ model: 'claude-opus-5', outputTokens: 1234 }],
+    });
   });
 
   it('exists only with a key and the switch on', () => {

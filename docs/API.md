@@ -72,12 +72,14 @@ Nothing else reads `process.env`. `apps/api/.env.example` documents every variab
 | `APP_ORIGINS`                                                      | empty              | CORS allow-list (comma-separated origins). Empty = closed             |
 | `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`                        | unset              | Google sign-in                                                        |
 | `RESEND_API_KEY` + `EMAIL_FROM`                                    | unset              | Email sign-in codes and partner emails                                |
+| `SIGNIN_EMAILS_PER_DAY`                                            | `50`               | Global cap on sign-in code emails per UTC day (§12); `0` = none       |
 | `ANTHROPIC_API_KEY`                                                | unset              | Coach and phrase interpretation                                       |
 | `AI_ENABLED`                                                       | `true`             | Global kill switch for the coach                                      |
 | `AI_MODEL_INTERPRET`                                               | `claude-haiku-4-5` | Fast cheap model for phrases the local parser failed on               |
 | `AI_MODEL_COACH`                                                   | `claude-opus-5`    | Capable model for the coach                                           |
 | `AI_USER_DAILY_INTERPRET_REQUESTS`, `AI_USER_DAILY_COACH_REQUESTS` | `30`, `10`         | Per user per UTC day                                                  |
 | `AI_USER_DAILY_TOKENS`                                             | `150000`           | Input + output tokens per user per UTC day, all AI features           |
+| `AI_USER_DAILY_BUDGET_USD`                                         | `0.5`              | Per-user spend cap per UTC day, both buckets; `0` turns the coach off |
 | `AI_GLOBAL_DAILY_BUDGET_USD`                                       | `2`                | Global spend cap per UTC day; `0` turns the coach off                 |
 
 Rules (`config.ts`):
@@ -93,18 +95,21 @@ Rules (`config.ts`):
 ### Capabilities
 
 `deriveCapabilities(config, runtime)` computes `CloudCapabilities`, one entry per feature,
-`{ enabled, reason }` with `reason ∈ missing_key | kill_switch | budget | database_down`:
+`{ enabled, reason }` with `reason ∈ missing_key | kill_switch | budget | database_down`
+(`budget`: a daily allowance is spent until 00:00 UTC, the AI budget for `coach`, the
+sign-in emails for `emailLogin`):
 
 | Feature          | Needs                                                                                          |
 | ---------------- | ---------------------------------------------------------------------------------------------- |
 | `accounts`       | database + `BETTER_AUTH_SECRET` + `BETTER_AUTH_URL` + at least one sign-in method              |
 | `googleLogin`    | `accounts` + Google pair                                                                       |
-| `emailLogin`     | `accounts` + Resend pair                                                                       |
+| `emailLogin`     | `accounts` + Resend pair + today's sign-in emails below `SIGNIN_EMAILS_PER_DAY`                |
 | `sync`, `social` | `accounts`                                                                                     |
 | `partnerEmails`  | `accounts` + Resend pair                                                                       |
 | `coach`          | `accounts` + `ANTHROPIC_API_KEY` + `AI_ENABLED` + no `meta.ai_kill_switch` + budget left today |
 
-`GET /health` reports them with the live database state and budget. A disabled feature answers
+`GET /health` reports them with the database state and budgets (read at most every 10 s,
+§12). A disabled feature answers
 `503 { error: { code: 'feature_disabled', feature, reason } }`. Without a database (or with
 accounts off) every `/v1` route answers 503 `feature_disabled` for `accounts`; a database that
 stops answering at runtime surfaces as 503 `database_unavailable`.
@@ -118,7 +123,8 @@ apps/api/
   drizzle/               SQL migrations, applied at boot and in tests        (architect)
   .env.example                                                               (architect)
   src/
-    server.ts            process entry: config, pool, migrations, janitor    CORE
+    server.ts            process entry: config, --check, signals             CORE
+    boot.ts              startServer(): pool, migrations with retry, janitor CORE
     app.ts               buildApp(): helmet, cors, rate limit, sessions,
                          error envelope, minimal logs, route registration    architect (shared)
     config.ts            env parsing, capabilities                           architect (shared)
@@ -132,10 +138,13 @@ apps/api/
     lib/profile.ts       getProfile, requireConsent, requireDisplayName       CORE (shared use)
     lib/mailer.ts        Resend via fetch                                     CORE
     lib/gdpr.ts          export, account deletion, USER_DATA_COVERAGE         CORE
+    lib/counters.ts      durable fixed-window counters (rate_counters)        CORE
+    lib/ip-limit.ts      client keys (IPv6 /64), pre-session IP gate          CORE
     auth/index.ts        better-auth instance, /api/auth/* routes             CORE
     auth/session.ts      resolveSession (cookie or bearer), createSessionRow  CORE
     auth/csrf.ts         Origin rule for cookie writes                        CORE
     auth/email.ts        the sign-in code email                               CORE
+    auth/email-limits.ts sign-in email caps (mailbox, global)                 CORE
     routes/health.ts     GET /health                                          architect
     routes/app-auth.ts   desktop loopback login                               CORE
     routes/me.ts         account, consent, devices, export, delete            CORE
@@ -192,7 +201,13 @@ npm packages external). Scripts: `build`, `start` (`node dist/server.mjs`), `dev
     can still type the code in the computer's browser, which the desktop login needs.
   - No passwords.
 - `bearer()` plugin: the desktop app sends `Authorization: Bearer <session token>`.
-- Accounts with the same verified email are linked (`accountLinking.trustedProviders`).
+- **Account linking:** a Google sign-in joins an existing account with the same email only when
+  Google's token says `email_verified: true` (every Gmail address and every verified one).
+  Google is deliberately **not** in `trustedProviders`: a trusted provider skips that check, so
+  a Google identity with an unverified address could take over the account created with an
+  email code (better-auth's `requireLocalEmailVerified` does not stop it, since code sign-ins
+  mark the address verified). An unverified match redirects to
+  `/cuenta?error=google&error=account_not_linked` and signs nobody in.
 - **Sessions**: 60 days, sliding (`updateAge` 1 day), no cookie cache (revocation is
   immediate). Cookies `HttpOnly; Secure (production); SameSite=Lax`, first-party on the API
   domain. `trustedOrigins = [BETTER_AUTH_URL, …APP_ORIGINS]`.
@@ -201,7 +216,9 @@ npm packages external). Scripts: `build`, `start` (`node dist/server.mjs`), `dev
   (`image` always null).
 - `databaseHooks.user.create.before` keeps only the first word of the name in `user.name` and
   sets `image` null; `user.create.after` inserts the `profiles` row (`ensureProfile`): every
-  switch off, `displayName` = that first name, or null for email sign-ups. `getProfile` creates
+  switch off, `displayName` = that first name, or null for email sign-ups; then it sets
+  `user.name` to `''`, so the name lives only in the display name the user sees and edits (no
+  stale Google name behind). `user.update.before` blanks any later name. `getProfile` creates
   the row lazily too. `account` hooks drop the Google access, refresh and id tokens before they
   are stored (we never call Google APIs).
 - **Reachable endpoints** (everything else better-auth offers answers our 404), one Fastify
@@ -210,7 +227,8 @@ npm packages external). Scripts: `build`, `start` (`node dist/server.mjs`), `dev
   - with Google: `POST /api/auth/sign-in/social`, `GET /api/auth/callback/google` (errors
     redirect to `/cuenta?error=…`);
   - with email: `POST /api/auth/email-otp/send-verification-otp` (`type: 'sign-in'` only,
-    else 400) and `POST /api/auth/sign-in/email-otp`.
+    else 400; the sign-in email caps of §12 run before better-auth creates a code) and
+    `POST /api/auth/sign-in/email-otp`.
 - `createAuth(ctx, log)` returns `{ resolveSession, routes }`. `resolveSession(headers)`
   (`src/auth/session.ts`) reads the session straight from the table on every request: the
   bearer token (raw, or better-auth's signed `token.signature`) or the signed cookie
@@ -316,7 +334,7 @@ Conventions:
 | POST `/v1/app-auth/authorize` | C    | form `{challenge, state, port}` → 303 to the loopback                  | CORE  |
 | POST `/v1/app-auth/token`     | P    | `AppTokenRequest` → `AppTokenResponse`                                 | CORE  |
 | POST `/v1/app-auth/logout`    | S    | → 204                                                                  | CORE  |
-| GET `/v1/me`                  | S    | → `MeResponse { user, profile, sharing, consentUpdatedAt }`            | CORE  |
+| GET `/v1/me`                  | S    | → `MeResponse { user, profile, sharing, consentUpdatedAt, … }`         | CORE  |
 | PATCH `/v1/me`                | S    | `PatchMeRequest { profile?, sharing? }` → `MeResponse`                 | CORE  |
 | GET `/v1/me/export`           | S    | → `CloudExport` as an attachment (`centrate-datos.json`)               | CORE  |
 | DELETE `/v1/me`               | F    | `{ confirm: 'BORRAR' }` → 204, hard delete with cascade                | CORE  |
@@ -324,12 +342,16 @@ Conventions:
 | PATCH `/v1/devices/:id`       | S    | `{ name }` → `CloudDevice`                                             | CORE  |
 | DELETE `/v1/devices/:id`      | S    | → 204 (device, its stats and its session)                              | CORE  |
 
-`PATCH /v1/me` rules: `displayName` trimmed 1–40 chars without control characters;
+`PATCH /v1/me` rules: `displayName` trimmed 1–40 chars without control characters, and once
+set it can be changed but not cleared (`null` is 400; `PatchMeRequest` types it as `string`,
+and `routes/me.ts` fails to compile if the type and the schema ever accept different bodies);
 `timeZone` a valid IANA zone; `dailyGoalMinutes` 15–600 or null. `sharing.ranking: true` needs
 `syncStats` on (already or in the same request), else 400; `syncStats: false` also turns
 `ranking` off (a database CHECK enforces it). Turning `presence` off deletes the presence row.
 Turning `syncStats` off keeps uploaded stats (the app offers «Borrar también los datos subidos»,
-which calls `DELETE /v1/sync/days`). Any switch change sets `consentUpdatedAt`.
+which calls `DELETE /v1/sync/days`). Any switch change sets `consentUpdatedAt`. Turning `ranking`
+on stores `rankingSince` (kept while it stays on, cleared when it goes off, a CHECK ties the two;
+§8.2).
 
 ### 5.2 Sync and stats (CORE)
 
@@ -386,7 +408,7 @@ except `GET /v1/coach/quota`, which needs only the capability.
 | GET `/v1/coach/quota`           | → `CoachQuotaResponse { interpret, coach, resetsAt }`                           |
 | POST `/v1/coach/interpret`      | `InterpretRequest { text, timeZone, now }` → `{ canonicalText, clarification }` |
 | POST `/v1/coach/split-task`     | `SplitTaskRequest` → `SplitTaskResponse { steps (2–12), firstStepTip }`         |
-| POST `/v1/coach/study-plan`     | `StudyPlanRequest` → `StudyPlanResponse { days (≤ 60), advice }`                |
+| POST `/v1/coach/study-plan`     | `StudyPlanRequest` → `StudyPlanResponse { days (≤ 28), advice }`                |
 | POST `/v1/coach/weekly-summary` | `WeeklySummaryRequest { week, stats }` → `{ headline, highlights, suggestion }` |
 
 ### 5.6 Pages (HTML, §11)
@@ -396,7 +418,7 @@ except `GET /v1/coach/quota`, which needs only the capability.
 
 ## 6. Database
 
-Postgres through Drizzle (`src/db/schema.ts`), 18 tables. Conventions: `timestamptz`
+Postgres through Drizzle (`src/db/schema.ts`), 19 tables. Conventions: `timestamptz`
 everywhere; `day` columns are `date` holding the civil date of whoever produced the number
 (never converted to UTC); app ids are `uuid` (`gen_random_uuid()`), user ids are better-auth's
 text ids; **every foreign key to `user` cascades**, so deleting the user row erases everything
@@ -419,6 +441,7 @@ about them (the one exception is `accountability_events.decided_by`, set null).
 | `partner_links`         | `id`, unique `(owner_id, partner_id)` | status, requireApproval, approvalOffAt, endsAt                                                |
 | `accountability_events` | `id`, unique `(owner_id, client_ref)` | kind, times, approval status/deadline/decider/note (≤ 140)                                    |
 | `usage_counters`        | `(user_id, day, key)`                 | small daily counters (`partner_email`)                                                        |
+| `rate_counters`         | `(key, window_start)`                 | durable anti-abuse counters not tied to an account (sign-in emails; HMAC keys, no addresses)  |
 | `ai_usage`              | `(user_id, day, feature)`             | requests, reserved/used tokens, cost. **No text**                                             |
 | `ai_global_daily`       | `day`                                 | global requests, cost, reserved cost                                                          |
 | `meta`                  | `key`                                 | `server_epoch`, `janitor_last_run`                                                            |
@@ -441,8 +464,10 @@ depend on it, they filter by time):
 | `partner_links`                             | when `ends_at` passes; `approval_off_at` applied |
 | `accountability_events`                     | 30 days after creation                           |
 | `usage_counters`                            | after 7 days                                     |
+| `rate_counters`                             | past `expires_at` (end of the window, ≤ 1 day)   |
 | `ai_usage`, `ai_global_daily`               | after 90 days                                    |
 | `daily_stats`                               | days older than 2 years                          |
+| `user.name`                                 | emptied once the profile exists (§4.1)           |
 
 ## 7. Sync model
 
@@ -462,10 +487,24 @@ depend on it, they filter by time):
 - **Read-back:** `GET /v1/stats` sums devices per day (`focusMinutes` capped at 1440,
   `studyMinutes` capped at focus) and sets `goalMet` against the profile's goal; `deviceDays`
   lets one computer show «tus otros ordenadores» without double-counting itself.
-- **Database replaced:** `serverEpoch` (in `/health` and `/v1/sync/state`) changes when the
-  free Postgres is recreated; the app calls `GET /v1/sync/state`, re-uploads what the server
-  lacks and tells the user «La nube se ha reiniciado». Friendships, invites and partner links
-  are lost; the app says so.
+- **Database replaced:** the free Postgres expires (§15) and a new one is empty. Everything in
+  it is gone: better-auth's users, sessions and Google links, our devices, profiles and
+  **sharing choices**, stats, friendships, invites, blocks and partner links. So the old token
+  gets 401 everywhere (`GET /v1/sync/state` included), and the only thing that tells the app
+  why is the public `serverEpoch`. The sequence:
+  1. The app remembers the last `serverEpoch` it saw, plus the sharing choices, display name,
+     time zone and goal the user last set (locally, never only in the cloud).
+  2. At start (and before treating a 401 as a plain sign-out) it reads `GET /health`. A
+     different `serverEpoch` means the cloud was reset: it drops the token, the device id and
+     the outbox (stats are rebuilt from the guardian log in step 4; queued partner events have
+     no partner any more), **keeps all local data**, and shows «La nube se ha reiniciado:
+     vuelve a conectar». Friends and partners are gone; the app says so.
+  3. The user connects again (§4.2 loopback login). That creates a new account and device with
+     every switch off. The app shows the remembered choices and, once the user confirms,
+     re-applies them with `PATCH /v1/me` (profile and `sharing`, at least `syncStats` for step
+     4). Consent is never restored silently.
+  4. `GET /v1/sync/state?deviceId=<new id>` and `daysToReupload(localDays, state)`; the result
+     goes through the outbox in batches of 100.
 - **Trust:** stats are self-reported and could be forged. Acceptable: rankings are among
   friends only and never public, and the caps bound abuse. Documented, not defended further.
 
@@ -500,6 +539,14 @@ depend on it, they filter by time):
   `isoWeekOf`). Invalid → 400.
 - Needs `sharing.ranking` (reciprocity). Entries: the caller plus friends with ranking on,
   minus blocks.
+- **Never retroactive.** A friend's days count only from the civil day (in that friend's zone)
+  of the latest of: the friendship's `created_at`, the friend's `rankingSince` and the
+  caller's `rankingSince` (when each last turned the ranking on). So a new friend, or someone
+  who just turned the ranking on, never sees earlier weeks, and the pair see each other over
+  the same days. A friend whose first counted day is after the week is not in that week's
+  entries at all (rather than a misleading 0). Granularity is the day: the first day counts
+  whole. The caller's own entry keeps its full history. Unfriending (or a block) and
+  befriending again starts over.
 - Per user and day: `SUM(focus_minutes)` across devices capped at 1440 (study capped at
   focus). `activeDays` = days with focus > 0; `goalDays` = days meeting that person's own goal.
   `day` values are each user's civil dates, so everyone is compared Monday–Sunday in their own
@@ -576,23 +623,29 @@ The Anthropic key lives only in the backend environment. Model choice and SDK us
 | Endpoint         | Model (env override)                      | Settings                                                            | `max_tokens` | Deadline |
 | ---------------- | ----------------------------------------- | ------------------------------------------------------------------- | ------------ | -------- |
 | `interpret`      | `claude-haiku-4-5` (`AI_MODEL_INTERPRET`) | no thinking, no effort (Haiku 4.5 rejects it), `temperature: 0`     | 1024         | 20 s     |
-| `split-task`     | `claude-opus-5` (`AI_MODEL_COACH`)        | adaptive thinking (Opus 5's default: omit `thinking`), effort `low` | 8000         | 60 s     |
-| `study-plan`     | `claude-opus-5`                           | effort `medium`                                                     | 16000        | 80 s     |
+| `split-task`     | `claude-opus-5` (`AI_MODEL_COACH`)        | adaptive thinking (Opus 5's default: omit `thinking`), effort `low` | 4000         | 60 s     |
+| `study-plan`     | `claude-opus-5`                           | effort `low`, at most 28 days per plan                              | 8000         | 80 s     |
 | `weekly-summary` | `claude-opus-5`                           | effort `low`                                                        | 4000         | 45 s     |
 
 - **One client** (`createAnthropicCoachModel`, wired as the default `coachModel` in `buildApp`):
   created only when the key is set and `AI_ENABLED` is true, with every option explicit
-  (`apiKey`, `authToken: null`, `baseURL`, `logLevel: 'off'`, `maxRetries: 1`) so no stray
+  (`apiKey`, `authToken: null`, `baseURL`, `logLevel: 'off'`, `maxRetries: 0`) so no stray
   `ANTHROPIC_*` variable changes where the key goes or what gets logged. Each call carries its
   deadline as both the SDK `timeout` and an `AbortSignal`, so the retry never outlives it (the
-  app waits 90 s for coach calls). Tests inject a fake behind the `CoachModel` seam.
-- **Structured outputs**: `output_config.format = betaZodOutputFormat(schema)` on
-  `client.beta.messages.create` (the beta namespace is needed for fallbacks), parsed by us with
-  the same zod schema **after** checking `stop_reason`. `messages.parse` is not used: it throws
-  on truncated JSON before the usage can be read, and a truncated answer must still be billed.
-  Model schemas hold only types and enums (the API cannot enforce lengths or ranges); the
-  server clamps lengths, counts and minutes afterwards. Non-streaming (all `max_tokens`
-  ≤ 16 000).
+  app wakes a sleeping server first, then waits 100 s for the coach answer, §14). Tests inject
+  a fake behind the `CoachModel` seam.
+- **Streaming**: every call goes through `client.beta.messages.stream(params, { signal })`
+  (the beta namespace is needed for fallbacks) and `finalMessage()`. The adapter watches the
+  events as they arrive: `message_start` (the serving model and its input usage), a `fallback`
+  content block (a second model took over) and `message_delta` (the final usage). So a call
+  cut off half way (our deadline, a reset connection, an `error` event) still says what it may
+  have cost (§10.2).
+- **Structured outputs**: `output_config.format` from `betaZodOutputFormat(schema)`, sent
+  without its `parse` function so the SDK leaves the text alone; we parse it with the same zod
+  schema **after** checking `stop_reason` (the SDK's own parsing throws on truncated JSON
+  before the usage can be read, and a truncated answer must still be billed). Model schemas
+  hold only types and enums (the API cannot enforce lengths or ranges); the server clamps
+  lengths, counts and minutes afterwards.
 - **Refusal fallbacks**: SDK 0.128 supports them. Requests to `claude-opus-5` (and
   `claude-fable-5-1`) send `betas: ['server-side-fallback-2026-07-01']` and
   `fallbacks: 'default'`: a request the model declines may be answered by the fallback model
@@ -604,9 +657,14 @@ The Anthropic key lives only in the backend environment. Model choice and SDK us
   `coach_incomplete`. Both are billed.
 - **SDK errors**, most specific first: 401/403 → 503 `coach_unavailable` plus an error log
   (misconfigured key, by class name and status only); 429, 5xx, 529 overloaded, 408/409,
-  timeouts, network errors and our deadline → 503 `coach_unavailable` (warn log); other 4xx
-  → 500 `internal_error`, logged by class only. The provider's message is never logged or
-  returned (it can quote the key or the input).
+  timeouts, network errors, `error` events in the stream and our deadline → 503
+  `coach_unavailable` (warn log); other 4xx → 500 `internal_error`, logged by class only. The
+  provider's message is never logged or returned (it can quote the key or the input).
+- **One retry, only when certainly unbilled**: the SDK's own retries are off (they would also
+  repeat attempts that may have been billed). The adapter retries once, inside the deadline
+  and after `retry-after` (at most 5 s), a 429 or 529 answered before any output (also as an
+  `error` event before `message_start`) and a connection that never left (ECONNREFUSED,
+  ENOTFOUND, EAI_AGAIN, ENETUNREACH, EHOSTUNREACH, connect timeout). Nothing else is retried.
 - **Prompt caching**: each endpoint has one frozen Spanish system prompt with
   `cache_control: { type: 'ephemeral' }` (deterministic: no dates, ids or unsorted data).
   Everything variable goes in the user message, the user's text wrapped in
@@ -623,13 +681,16 @@ The Anthropic key lives only in the backend environment. Model choice and SDK us
   `−5` in answers), encouraging, never shaming, no emojis. If the text suggests distress, the
   answer is kind and mentions the 024 line (Spain).
 - **Nothing the model returns is executed**; every output is validated again on the server.
-- **Logs**: one `coach call` line per call (endpoint, served model, outcome, attempts, token
-  counts, cost in micro-USD, time). Never the prompt, the answer or the user id.
+- **Logs**: one `coach call` line per call (endpoint, served model, outcome, `billing`,
+  attempts, token counts, cost in micro-USD booked, time). Never the prompt, the answer or the
+  user id.
 
 ### 10.1 Endpoint behaviour
 
 Order of checks on every POST: capability (503) → session (401) → `sharing.coach` (403) →
-database kill switch (503 `kill_switch`) → body (400) → quota and budget (429 / 503) → model.
+database kill switch (503 `kill_switch`) → body (400) → one call in flight (429
+`rate_limited`), quotas and spend cap (429 `quota_exceeded`), global budget (503 `budget`) →
+model.
 Nothing is reserved for a request that fails validation.
 
 - **interpret** runs only when the user taps «Preguntar al coach» under «No he entendido: …»,
@@ -655,7 +716,8 @@ Nothing is reserved for a request that fails validation.
   `complete: true`, nothing unparsed, no domains and exactly the step's minutes; else null.
 - **study-plan**: `today` within a day of the server's UTC date, `examDate` 1–366 days after
   it, at least one study day left (400 otherwise). The server computes the study days
-  (`[today, examDate − 1]`, at most 60, minus `daysOff`) and gives the model that exact list;
+  (`[today, examDate − 1]`, at most 28 calendar days, minus `daysOff`; a later exam gets a
+  plan for the first four weeks and the prompt says so) and gives the model that exact list;
   it then keeps only listed days, once each, in order, at most 6 items a day of at least
   5 minutes, scales each day down to `dailyMinutes` (dropping the last items if still over),
   keeps topics ≤ 80 chars and advice ≤ 5 items of ≤ 200.
@@ -667,28 +729,71 @@ Nothing is reserved for a request that fails validation.
   summary text is stored (the app caches its own). Headline ≤ 120, ≤ 4 highlights of ≤ 160,
   suggestion ≤ 240.
 - **quota** (`GET /v1/coach/quota`, capability only): requests left per bucket and
-  `tokensLeft` = `AI_USER_DAILY_TOKENS` − (used + reserved), `resetsAt` = next 00:00 UTC.
+  `tokensLeft` = `AI_USER_DAILY_TOKENS` − (used + reserved), `resetsAt` = next 00:00 UTC. The
+  spend cap is not reported: a call whose worst case no longer fits answers 429
+  `quota_exceeded` even with requests left.
 
 ### 10.2 Quotas, budget and kill switch
 
 - Per user per UTC day: `interpret` requests, `coach` requests (split-task, study-plan,
-  weekly-summary) and tokens (input + output + cache reads + cache writes, both buckets
-  together). Global: spend per UTC day against `AI_GLOBAL_DAILY_BUDGET_USD`.
+  weekly-summary), tokens (input + output + cache reads + cache writes, both buckets
+  together) and spend (`AI_USER_DAILY_BUDGET_USD`, both buckets together, never above the
+  global budget). Global: spend per UTC day against `AI_GLOBAL_DAILY_BUDGET_USD`.
+- **Worst case of a call** (`worstCaseAttempts` in `src/coach/budget.ts`): estimated input
+  (characters / 3 + 1 500 for the schema and framing), all of it priced as cache writes, plus
+  `max_tokens` of output; for models sent with `fallbacks: 'default'` a second hop on the
+  dearest of the model and its documented fallbacks (Opus 4.8 for Opus 5), reading up to
+  `max_tokens` of declined partial answer as extra input and writing its own `max_tokens`.
+  With the defaults: interpret ≈ 0.011 USD, split-task and weekly-summary ≈ 0.26, study-plan
+  ≈ 0.48–0.50 (the largest request is tested to fit under the default per-user cap).
 - **Reserve, call, settle** (`src/coach/quota.ts`). Before calling, one transaction takes a
-  per-user advisory lock (`pg_advisory_xact_lock`: the token limit spans both buckets, so a
-  row lock is not enough), checks requests and used + reserved + worst case against the
-  limits (else 429 `quota_exceeded` with `resetsAt`, the next 00:00 UTC), then reserves the
-  worst-case cost globally with a conditional upsert on `ai_global_daily` (applied only while
-  `cost + reserved + $c ≤ budget`; no row → 503 `feature_disabled`, `reason: 'budget'`, and
-  `/health` shows it) and finally the request and worst-case tokens on the user row. Worst
-  case = estimated input (characters / 3 + 1 500 for the schema and framing) + `max_tokens`;
-  its cost assumes every input token is a cache write. After the call the reservation is
-  replaced by the real usage of every attempt and its cost; a provider error releases the
-  tokens and the cost but keeps the request counted. Tested: 20 parallel reservations with a
-  limit of 10 give exactly 10; 8 parallel calls with a limit of 5 give 5 model calls.
-- Consequences of worst-case reservations: with `AI_USER_DAILY_TOKENS` below about 19 000 a
-  study plan never fits, and with `AI_GLOBAL_DAILY_BUDGET_USD` below about 0.43 neither does
-  its worst-case cost. The defaults (150 000 tokens, 2 USD) leave room.
+  per-user advisory lock (`pg_advisory_xact_lock`: the limits span both buckets, so a row lock
+  is not enough) and checks, in order:
+  1. **One call in flight per user and bucket.** The row's `reserved_until` (deadline + 30 s)
+     still ahead → 429 `rate_limited` with `retryAfterSeconds` until then. So one account can
+     never hold more than one worst-case reservation per bucket.
+  2. **Requests**, then **tokens and spend**: used (or spent) + held + this call's worst case
+     against the limits → 429 `quota_exceeded` with `resetsAt` (the next 00:00 UTC). If the
+     call would fit once the user's call in the other bucket settles, 429 `rate_limited`
+     instead (retryable).
+  3. **Global budget**: a conditional upsert on `ai_global_daily`, applied only while
+     `cost + reserved + $c ≤ budget`; no row → 503 `feature_disabled`, `reason: 'budget'`.
+     A call whose worst case alone exceeds the per-user cap or the global budget can never
+     run: 503 `budget` as well.
+  4. The request, the worst-case tokens and cost and `reserved_until` go on the user row.
+- **What a call books** (`CoachBilling` in `src/coach/model.ts`; the log line's `billing`
+  says which: `exact`, `none` or `bound`). After the call the reservation is replaced by what
+  the provider billed or may have billed; the request stays counted either way:
+  - an answer (ok, refused or incomplete), or a failure after `message_delta`: the real usage
+    of every attempt in `usage.iterations`;
+  - certainly not billed (400/401/402/403/404/409/413/422/429, 529 or those `error` types
+    before `message_start`, a connection that never left): nothing;
+  - sent but the final usage never arrived (our deadline, an SDK timeout, a connection reset,
+    500/502/503/504, an `error` event after `message_start`): an upper bound, every model
+    that may have run with `max_tokens` of output — the requested one with the input that
+    `message_start` reported (or the estimate), a pre-output decline (a `message_start` naming
+    another model) at its input, and the model of each `fallback` block at its worst case;
+  - anything unexpected: the whole reservation.
+- A reservation that never settles (the process died mid-call) stops blocking the user once
+  `reserved_until` passes; its amounts stay held for the rest of the day (conservative). A late
+  settle only frees its own amounts. `/health` reports `coach: budget` from **settled** spend
+  only, so reservations in flight (gone within `deadline + 30 s`) never switch the coach off
+  for everyone; while they fill the budget, new calls get 503 `budget` for that time.
+- Tested: 20 parallel reservations for one user give exactly one (the rest `busy`), then the
+  request limit holds exactly; a second call while the first runs → 429 `rate_limited`; the
+  per-user cap spans both buckets and leaves other users alone; busy vs quota; lost
+  reservations; worst-case booking of failed calls through the real SDK against a fake SSE
+  server (500, reset after `message_start`, deadline with a `fallback` block).
+- Why 0.5 USD per user (25 % of the default budget) and not less: every endpoint's worst case
+  must fit on its own, and a study plan's is about 0.49 USD with the fallback hop. With the
+  defaults one account can spend at most a quarter of the day's budget and hold at most one
+  reservation per bucket at a time. Raise `AI_GLOBAL_DAILY_BUDGET_USD` and keep the per-user
+  cap to lower that share.
+- Consequences of worst-case reservations: with `AI_USER_DAILY_TOKENS` below about 32 000 a
+  study plan never fits (429 `quota_exceeded`), and with `AI_USER_DAILY_BUDGET_USD` or
+  `AI_GLOBAL_DAILY_BUDGET_USD` below about 0.5 neither does its cost (503 `budget`). The token
+  limit stays at 150 000: interpret volume (about 4 500 tokens a phrase) is what it bounds; the
+  spend cap bounds the Opus calls.
 - **Prices** (micro-USD per token, `MODEL_PRICES` in `src/coach/budget.ts`, skill 2026-09):
   `claude-haiku-4-5` 1 / 5, `claude-sonnet-5` 2 / 10, `claude-opus-5` 5 / 25, `claude-opus-4-8`
   5 / 25, `claude-opus-5-5` 4 / 20, `claude-fable-5-1` 10 / 50, …; cache writes 1.25× input,
@@ -703,8 +808,8 @@ Nothing is reserved for a request that fails validation.
   ```
 
   Both answer 503 `feature_disabled` with `reason: 'kill_switch'` and `/health` reports it
-  (`RuntimeState.aiKillSwitch`). `AI_GLOBAL_DAILY_BUDGET_USD=0` also turns the coach off
-  (`budget`).
+  (`RuntimeState.aiKillSwitch`). `AI_GLOBAL_DAILY_BUDGET_USD=0` or
+  `AI_USER_DAILY_BUDGET_USD=0` also turns the coach off (`budget`).
 
 - No prompt or answer text is stored or logged; only `ai_usage` / `ai_global_daily` counters
   change (tested by scanning every table and the captured logs after coach calls).
@@ -751,24 +856,62 @@ to `/cuenta?volver=/cuenta/panel#datos`; «Aprobar» / «Rechazar» take an opti
 ## 12. Rate and size limits
 
 `@fastify/rate-limit`, in memory (one instance; a restart after sleeping resets counters, so
-anything that must hold across restarts, AI quotas and partner emails, lives in Postgres).
-Key: `u:<userId>` when a session resolved, else `ip:<client ip>` (`TRUST_PROXY_HOPS=1` on
-Render). 429 carries `retryAfterSeconds` and `Retry-After`.
+anything that must hold across restarts, AI quotas, partner emails and sign-in emails, lives in
+Postgres). Key: `u:<userId>` when a session resolved, else `ip:<client>`, where an IPv6 client
+counts as its /64 (one connection or server usually holds a whole /64) and an IPv4-mapped
+address as the IPv4 one (`src/lib/ip-limit.ts`). 429 carries `retryAfterSeconds` and
+`Retry-After`.
 
-| Scope                                                           | Limit                                      |
-| --------------------------------------------------------------- | ------------------------------------------ |
-| Everything (default)                                            | 120 per minute                             |
-| `/health`                                                       | not limited                                |
-| Email code send (Fastify route + in-memory per-address counter) | 5 per 15 min per IP, 3 per hour per email  |
-| Email code sign-in (`/api/auth/sign-in/email-otp`)              | 20 per 15 min per IP (5 attempts per code) |
-| `POST /v1/app-auth/authorize`, `/token`                         | 20 per hour                                |
-| `PUT /v1/sync/days`                                             | 60 per hour                                |
-| `PUT /v1/presence`                                              | 4 per minute                               |
-| `POST /v1/friends/invites`                                      | 10 per day                                 |
-| Invite preview and accept                                       | 20 per hour                                |
-| Accountability events and decisions                             | 30 per hour                                |
-| `/v1/coach/*` (plus the daily quotas)                           | 10 per minute                              |
-| `GET /v1/me/export`, `DELETE /v1/me`                            | 3 per hour                                 |
+**Floods never reach Postgres unthrottled** (the pool has 5 connections):
+
+- The session lookup (one query) runs in `onRequest`, before the route limiter can know the
+  user, so it sits behind its own per-IP gate: 300 lookups per minute per client, then 429
+  without touching the database. Unknown routes and `/health` never look a session up.
+- The 404 handler is rate limited like any route (`@fastify/rate-limit` does not hook it by
+  itself).
+- `/health` caches what it reads from Postgres (ping, epoch, kill switch, budgets) for 10 s
+  behind one in-flight probe, so any number of checks costs at most one probe per 10 s.
+- Every pooled statement has `statement_timeout` 10 s (and a 15 s client-side
+  `query_timeout`); idle transactions end after 30 s. Timeouts, a pool with no free
+  connection and connects that hang map to 503 `database_unavailable` (`isDatabaseUnavailable`
+  also recognises node-postgres' code-less connection errors).
+
+**The client IP depends on `TRUST_PROXY_HOPS`.** Every IP-keyed limit (all unauthenticated
+routes, the session gate) is only as good as this value: too low and every client shares the
+proxy's bucket; too high and clients can spoof `X-Forwarded-For`. Render's documented chain is
+one proxy (`1`). To check it on a deploy: set `LOG_LEVEL=debug` for a few minutes, request
+`/health` from your own machine without an `X-Forwarded-For` header, and read `xffEntries` in
+that request's log line (the number of addresses in the header, never the addresses). That
+number is the right `TRUST_PROXY_HOPS`; then set `LOG_LEVEL` back to `info`. Pending until the
+first deploy (`PENDIENTE_PARA_MI`).
+
+| Scope                                                    | Limit                                      |
+| -------------------------------------------------------- | ------------------------------------------ |
+| Everything (default), unknown routes included            | 120 per minute                             |
+| Session lookups (before the route limit)                 | 300 per minute per IP                      |
+| `/health` (cached 10 s)                                  | 300 per minute per IP                      |
+| Email code send, per IP (Fastify route limit, in memory) | 5 per 15 min                               |
+| Email code send, per mailbox (Postgres)                  | 3 per clock hour, 10 per UTC day           |
+| Email code send, all addresses together (Postgres)       | `SIGNIN_EMAILS_PER_DAY` (50) per UTC day   |
+| Email code sign-in (`/api/auth/sign-in/email-otp`)       | 20 per 15 min per IP (5 attempts per code) |
+| `POST /v1/app-auth/authorize`, `/token`                  | 20 per hour                                |
+| `PUT /v1/sync/days`                                      | 60 per hour                                |
+| `PUT /v1/presence`                                       | 4 per minute                               |
+| `POST /v1/friends/invites`                               | 10 per day                                 |
+| Invite preview and accept                                | 20 per hour                                |
+| Accountability events and decisions                      | 30 per hour                                |
+| `/v1/coach/*` (plus the daily quotas)                    | 10 per minute                              |
+| `GET /v1/me/export`, `DELETE /v1/me`                     | 3 per hour                                 |
+
+**Sign-in emails** (`src/auth/email-limits.ts`) are what an anonymous caller can make us send,
+and the Resend free plan allows about 100 emails a day for everything (codes and partner
+alerts). The mailbox counter keys on the normalised address (lower case, `+tag` removed, and
+for Gmail the dots removed and `googlemail.com` read as `gmail.com`), stored only as an HMAC
+with `BETTER_AUTH_SECRET`, so plus and dot variants cannot bomb one inbox. Past the global cap
+the route answers 503 `feature_disabled` (`emailLogin`, `budget`), `/health` shows it, and the
+page says «Hoy ya no podemos enviar más códigos por email» until 00:00 UTC; Google sign-in keeps
+working. The IP limit runs first, then the Postgres caps, so a request refused by IP counts
+against nothing.
 
 Body limits: 32 KB by default, 256 KB for `PUT /v1/sync/days`, 16 KB for coach routes, 4 KB
 for urlencoded forms.
@@ -776,7 +919,9 @@ for urlencoded forms.
 ## 13. Privacy, logging and GDPR
 
 - **What leaves the machine, per switch** (all off by default): `syncStats` → the numeric
-  `CloudDayStats`; `ranking` → friends see weekly focus/study minutes, active days, goal days;
+  `CloudDayStats`; `ranking` → friends see weekly focus/study minutes, active days, goal days,
+  only for days since the friendship and since the ranking was last turned on (never earlier
+  weeks);
   `presence` → friends see focus/study, since, ends; accountability → partners see event kind,
   time and the approval outcome; `coach` → the text the user typed for that request goes to
   Anthropic (processed in the United States under Anthropic's API terms), is never stored by
@@ -791,13 +936,20 @@ for urlencoded forms.
   wrapped by Drizzle are still recognised as `database_unavailable` through their `cause`.
 - **Security headers:** helmet (strict CSP above, `Referrer-Policy: no-referrer`, HSTS in
   production); `Cache-Control: no-store` on every response.
-- **GDPR:** `GET /v1/me/export` (every row about the user; other people only as id and display
-  name; no tokens or hashes) and `DELETE /v1/me` (hard delete by cascade, plus the user's
-  `verification` rows by identifier; the answer expires the session cookie). The export also
-  carries `usageCounters`. `src/lib/gdpr.ts` keeps `USER_DATA_COVERAGE`, which names where each
-  table with user data goes; the social part comes from SOCIAL's `exportSocialData`.
-  test/gdpr.test.ts enumerates every table with a user column from the schema, so a new table
-  fails until it is listed there, exported and deleted.
+- **GDPR:** `GET /v1/me/export` (every stored value about the user; other people only as id
+  and display name; no tokens or hashes) and `DELETE /v1/me` (hard delete by cascade, plus the
+  user's `verification` rows by identifier; the answer expires the session cookie). The export
+  also carries `usageCounters`, the Google subject id (`loginMethods[].accountId`) and each
+  device's `installId` (the export only; `/v1/devices` never shows it). `user.name` is not
+  a second copy of the name: it is emptied once the display name is seeded (§4.1).
+  `src/lib/gdpr.ts` keeps `USER_DATA_COVERAGE`, which classifies **every column** of every table
+  with user data as exported (where) or `not exported: <why>`; the social part comes from
+  SOCIAL's `exportSocialData`. test/gdpr.test.ts enumerates the tables with a user column and
+  their columns from the schema, so a new table or column fails until it is classified, and
+  checks that every value marked exported appears in a real export.
+- **Anti-abuse counters** (`rate_counters`) hold an HMAC of a normalised address, never the
+  address, and last at most a day; they are not linked to an account, so they are neither
+  exported nor deleted with it.
 - **Retention:** §6. **Region:** Frankfurt (EU).
 - **Age:** Spain requires 14 to consent (LOPDGDD art. 7); the sign-in page says so.
 - `PRIVACY.md` (another team) must gain: what each switch shares, the Anthropic processing
@@ -810,18 +962,36 @@ For the desktop team (and the CLIENT builder's `cloud-api.ts` client):
 - **Only the Electron main process calls the API.** The token lives in `safeStorage`; the
   renderer never sees it and CORS never applies.
 - **The UI never waits on the API.** Timeouts (`CLOUD_TIMEOUTS`): background 10 s, user-started
-  60 s with «Despertando el servidor…» (a cold start takes about a minute), coach 90 s. At app
+  60 s with «Despertando el servidor…» (a cold start takes about a minute), coach 100 s. At app
   start, when signed in, fire a `GET /health` to wake the service.
+- **Coach calls never pay for a cold start inside their timeout.** The free service sleeps
+  after 15 minutes idle, and a cold start (about 60 s) plus the longest model deadline
+  (study-plan, 80 s) would outlast any sensible single timeout, so the client does it in two
+  steps: when the server has not answered this client for `awakeMs` (10 min), `interpret`,
+  `splitTask`, `studyPlan` and `weeklySummary` first send `GET /health` with the interactive
+  timeout (60 s) and call `onWaking` (`CoachCallOptions`) so the app shows «Despertando el
+  servidor…»; then the coach request gets `coachMs` (100 s = the longest server deadline plus
+  20 s for the quota bookkeeping and the network; a test in `apps/api` keeps it above every
+  `ENDPOINTS` deadline). Any JSON answer of ours (success or error envelope) counts as awake;
+  a proxy page does not. A failed wake-up rejects with `operation: 'health'`: nothing reached
+  the model, so it is retryable as usual.
 - **Errors** (`CloudError { kind: 'offline' | 'timeout' | 'aborted' | 'http' |
 'invalid_response', operation, status, code, details, retryable, retryAfterMs }`): retry
   network errors, timeouts, non-JSON answers (captive portals), 429 `rate_limited` (honouring
   `Retry-After`) and 5xx except `feature_disabled` (unless `reason: 'database_down'`),
   `not_implemented` and `coach_incomplete`; never retry other 4xx or `quota_exceeded` (its
-  `retryAfterMs` runs to `resetsAt`). **401** → mark the app as signed out, drop the outbox,
-  keep all local data (`onUnauthorized` hook, `error.isUnauthorized`). Messages carry the
-  method name, never a URL, code or token.
+  `retryAfterMs` runs to `resetsAt`). **Coach model calls** (`interpret`, `splitTask`,
+  `studyPlan`, `weeklySummary`) are the exception: the coach endpoints take no idempotency key
+  and a request that reached the model is counted and billed even when its answer is lost, so
+  `retryable` is true only for answers given before the model runs (429 `rate_limited`, 503
+  `feature_disabled` with `database_down`). A timeout, a lost connection, a non-JSON answer,
+  `coach_unavailable` or any other 5xx is never resent automatically: the app shows the error
+  and the user may try again (a new request against the daily quota). **401** → mark the app
+  as signed out, drop the outbox, keep all local data (`onUnauthorized` hook,
+  `error.isUnauthorized`). Messages carry the method name, never a URL, code or token.
 - **Offline outbox** (persisted by the app in its SQLite; the shared helpers are pure):
-  - `putDays` items collapse by `(deviceId, day)` keeping the highest `rev`, sent in batches of 100.
+  - `putDays` items collapse by `(deviceId, day)` keeping the highest `rev` (the later one on
+    a tie), sent in batches of 100.
   - Accountability events keep their `clientRef` and are never merged away.
   - Presence heartbeats and approval polls are never queued.
   - Backoff with jitter from 30 s to 30 min.
@@ -829,24 +999,31 @@ For the desktop team (and the CLIENT builder's `cloud-api.ts` client):
   one method per endpoint (`health`, `exchangeLoginCode`, `getMe`, `putDays`, `getRanking`,
   `postAccountabilityEvent`, `decideApproval`, `splitTask`…), each with the timeout of its
   class (background, interactive, coach) unless the call passes `timeoutMs`, and an optional
-  `signal`. Fetch runs with `credentials: 'omit'`, `cache: 'no-store'`, `redirect: 'error'`.
+  `signal` (coach model calls also take `onWaking` and wake the server first, as above). Fetch runs with `credentials: 'omit'`, `cache: 'no-store'`, `redirect: 'error'`.
   It never retries by itself. `removePartner` returns null (removed now) or the link (ends in
   24 h).
 - **Outbox** (`createOutbox({ storage, client })` with `addDays`, `addEvent`, `flush({ force })`,
   `pending`, `nextFlushAt`, `clear`): the app persists `OutboxState` through `storage` (its
   SQLite); `memoryOutboxStorage` is for tests. A flush sends events first, then days per
-  device in batches of 100, runs one at a time, and never holds its lock during a request (a
-  newer `rev` queued meanwhile stays). Outcomes: `done`, `retry_later` (backoff saved in
-  `notBefore`), `waiting`, `signed_out` (401: queue emptied) or `empty`. Items the server will
-  never take are dropped: other 4xx, only the rejected days of a `validation_failed` batch, and
-  events older than 7 days; `feature_disabled` keeps them and backs off. Call `flush` after
-  queuing, at `nextFlushAt`, and with `force` when the network comes back.
+  device in batches of 100, runs one at a time, and never holds its lock during a request.
+  After an answer only the snapshots that were sent leave the queue (every field compared),
+  plus lower revs and, for days the server answered `stale`, the same rev: a snapshot queued
+  meanwhile stays even with the same `rev`, because a running block grows the minutes without
+  a new guardian event and the server lets an equal `rev` overwrite. Outcomes: `done`,
+  `retry_later` (backoff saved in `notBefore`), `waiting`, `signed_out` (401: queue emptied) or
+  `empty`. Items the server will never take are dropped (the exact snapshot or event sent):
+  other 4xx, only the rejected days of a `validation_failed` batch, and events older than
+  7 days; `feature_disabled` keeps them and backs off. Call `flush` after queuing, at
+  `nextFlushAt`, and with `force` when the network comes back.
 - **Helpers:** `approvalOutcome(approval, now)` → `wait | approved | denied` (fails open),
   `daysToReupload(localDays, syncState)` after a `serverEpoch` change, `newClientRef()`.
 - **Polling:** approval every 15 s while a request is pending; inbox and friends' presence
   every 60 s while the Amigos window is open; ranking on open.
-- **`serverEpoch` changed** → `GET /v1/sync/state`, re-upload what is missing, show «La nube se
-  ha reiniciado».
+- **`serverEpoch` changed** (read from the public `/health` at start and before acting on a 401)
+  → the cloud was reset and the account is gone: drop the token, device id and outbox, keep
+  local data, show «La nube se ha reiniciado: vuelve a conectar»; after the new login re-apply
+  the remembered choices the user confirms (`PATCH /v1/me`), then `GET /v1/sync/state` and
+  `daysToReupload`. The full sequence is in §7.
 - **Feature discovery:** read `capabilities` from `/health` and hide what is off.
 
 ## 15. Deploying on Render
@@ -859,8 +1036,8 @@ For the desktop team (and the CLIENT builder's `cloud-api.ts` client):
   `startCommand: node apps/api/dist/server.mjs`, `healthCheckPath: /health`,
   `buildFilter.paths: [apps/api/**, packages/shared/**, package-lock.json]`.
   Env: `NODE_VERSION=22`, `NODE_ENV=production`, `ELECTRON_SKIP_BINARY_DOWNLOAD=1`,
-  `TRUST_PROXY_HOPS=1`, `AI_ENABLED=true`, `AI_GLOBAL_DAILY_BUDGET_USD=2`; `DATABASE_URL` from the database's
-  `connectionString`; `BETTER_AUTH_SECRET` with `generateValue: true`; `BETTER_AUTH_URL`,
+  `TRUST_PROXY_HOPS=1`, `AI_ENABLED=true`, `AI_GLOBAL_DAILY_BUDGET_USD=2`,
+  `SIGNIN_EMAILS_PER_DAY=50`; `DATABASE_URL` from the database's `connectionString`; `BETTER_AUTH_SECRET` with `generateValue: true`; `BETTER_AUTH_URL`,
   `APP_ORIGINS`, Google, Resend and Anthropic keys with `sync: false` (filled in the dashboard;
   left empty means off). `PENDIENTE_PARA_MI.md` §5 lists where each key comes from.
 - **Database** `centrate-db`: `plan: free`, `region: frankfurt`, `ipAllowList: []` (reachable
@@ -874,12 +1051,20 @@ For the desktop team (and the CLIENT builder's `cloud-api.ts` client):
   focusing.
 - The free Postgres **expires** (30 days after creation at the time of writing, then a short
   grace period before deletion) and has 1 GB. When it is recreated, `serverEpoch` changes and
-  the app re-uploads stats (§7); social data is lost. For a durable service, upgrade the
-  database (a `PENDIENTE_PARA_MI` item).
-- Migrations run at boot (no pre-deploy command on the free plan). When Postgres does not
-  answer at boot (an expired free database, a network blip) the server starts anyway: `/health`
+  **everything in it is lost**: accounts, sessions, devices, sharing choices, stats and social
+  data. Every user must connect again; the app then re-applies the choices the user confirms
+  and re-uploads stats from its own history (§7). Friends and partners must be added again.
+  For a durable service, upgrade the database (a `PENDIENTE_PARA_MI` item).
+- Migrations run at boot (no pre-deploy command on the free plan), on their own connection
+  without the pool's statement timeouts (`src/boot.ts`, `src/db/migrate.ts`). When Postgres
+  cannot be reached at boot (an expired free database, a host that never answers so the
+  connect times out, a refused connection, a network blip) the server starts anyway: `/health`
   says `db: down`, `/v1` answers 503 `database_unavailable`, and migrations, the server epoch
-  and the janitor are retried every 60 s. Other migration errors stop the process.
+  and the janitor are retried every 60 s. Anything that fails before the first migration
+  statement (connecting, taking the advisory lock, waited for at most 60 s) is retried; only a
+  failing migration itself stops the process.
+- `TRUST_PROXY_HOPS=1` must match Render's proxy chain; check it once after the first deploy
+  (§12).
 - `SIGTERM`/`SIGINT` close the server gracefully: in-flight requests finish, new ones get 503,
   the pool closes; a forced exit follows after 10 s.
 - The Render account is at its 25-service limit (DECISIONS.md), so deploying needs a free slot:
@@ -892,6 +1077,8 @@ For the desktop team (and the CLIENT builder's `cloud-api.ts` client):
 Vitest with PGlite (in-process Postgres) and the real migrations.
 
 - `test/helpers/db.ts`: `createTestDb()` (one per test file), `resetDb()`.
+- `test/helpers/blackhole.ts`: a TCP server that accepts and never answers (a hung Postgres
+  host) and a closed port, for boot and connection-error tests.
 - `test/helpers/app.ts`: `testConfig()` (accounts, Google and email on; no Anthropic key),
   `fakeClock()`, `fakeMailer()`, `createTestUser(db, { displayName, sharing, timeZone,
 sessionCreatedAt… })` (user + profile + bearer session), `tokenSessionResolver()` and
@@ -899,10 +1086,15 @@ sessionCreatedAt… })` (user + profile + bearer session), `tokenSessionResolver
   better-auth; CORE tests the real better-auth flows.
 - Existing tests: config and capabilities, ISO weeks and local days, health with and without a
   database, the error envelope, log hygiene.
-- CORE's tests: `auth` (email code end to end, cookies and bearer on the real resolver, CSRF,
-  sign-in methods per configuration, unreachable better-auth endpoints), `app-auth` (connect
+- CORE's tests: `auth` (email code end to end, sign-in email caps per mailbox, per /64 and
+  global, Google sign-in and linking with Google's token endpoint stubbed (an unverified
+  address never joins an existing account), cookies and bearer on the real resolver, CSRF,
+  sign-in methods per configuration, unreachable better-auth endpoints), `flood` (session gate,
+  404 limit, cached health), `boot` (a database that never answers or refuses: the server
+  listens, reports `db: down`, retries), `app-auth` (connect
   page, authorize, PKCE token, reuse, limits, logout), `me`, `sync`, `gdpr` (schema-driven),
-  `janitor`, `mailer`, `account-pages`, `errors`. `test/helpers/core.ts` signs cookies like
+  `janitor`, `mailer`, `account-pages`, `errors` (real node-postgres connection errors).
+  `test/helpers/core.ts` signs cookies like
   better-auth and builds the app on the real resolver.
 - `vitest.config.ts` gives hooks 60 s: every file starts its own PGlite, which takes seconds
   on a busy machine.
@@ -947,7 +1139,8 @@ are needed. Follow CLAUDE.md (English code and comments, Spanish user copy, sent
   404, max uses, race on the last use); friends limit; remove and block symmetric, with the
   cooling-off rule for owners; no `@` in any social payload; ranking with ISO boundaries
   (2026-W53, Sunday 23:59 in different zones), default week per zone, reciprocity, the 1440 cap,
-  tie ranks; presence TTL with the fake clock, since kept, consent both ways, blocks;
+  tie ranks, never retroactive (weeks before the friendship, before the friend or the caller
+  turned the ranking on, off and on again); presence TTL with the fake clock, since kept, consent both ways, blocks;
   partner lifecycle incl. 24 h delays; events idempotent on `clientRef`; approval approve/deny,
   first wins, late → 409, expired on read, not-a-partner → 404; email content (snapshot of the
   fake mailer: no reason, domain or task) and the 10-per-day cap.
@@ -960,12 +1153,13 @@ are needed. Follow CLAUDE.md (English code and comments, Spanish user copy, sent
 - Tests with a fake `CoachModel`: capability and consent gates; schemas and server-side
   clamping; interpret accepts only phrases `parseIntent` reads fully (an invented service is
   dropped), shifted clock correct across zones; `suggestedPhrase` filtering; refusal → 422,
-  `max_tokens` → 502, SDK errors → 503; quota N+1 → 429 with `resetsAt`, 20 parallel with limit
-  10 → exactly 10 calls, global budget → 503 `budget` and health shows it, kill switch; no text
-  in any table afterwards. One test drives the real SDK against a local fake HTTP server to
-  assert model ids, `cache_control` on the system prompt, `max_tokens`, the fallback beta
-  header and `metadata.user_id` being the HMAC, and that the key never appears in responses or
-  logs.
+  `max_tokens` → 502, SDK errors → 503; quota N+1 → 429 with `resetsAt`, one call in flight
+  per user and bucket (429 `rate_limited`), the per-user spend cap, global budget → 503
+  `budget` and health shows it (settled spend only), kill switch; no text in any table
+  afterwards. Tests drive the real SDK against a local fake SSE server to assert model ids,
+  `cache_control` on the system prompt, `max_tokens`, the fallback beta header and
+  `metadata.user_id` being the HMAC, the one retry, what failed calls book (§10.2), and that
+  the key never appears in responses or logs.
 
 ### CLIENT: shared client, pages, Render, README
 
@@ -1008,6 +1202,14 @@ fetch?, timeouts? })` with one typed method per endpoint, `CloudError`, the outb
 - **Cooling-off cannot be bypassed by unfriending or blocking.**
 - **Weekly summaries are not stored** — the app caches them; less personal data in the cloud.
 - **Dollar budget, not a token budget, for the global cap** — it is what the owner pays; the
-  price table is conservative for unknown models.
+  price table is conservative for unknown models. The same holds per user
+  (`AI_USER_DAILY_BUDGET_USD`): request and token limits alone let one free account spend most
+  of the day's budget on Opus.
+- **Failed calls are booked at an upper bound, not released** — a deadline, timeout, reset or
+  5xx after the request left may have been billed; releasing them would let the global cap
+  miss real spend. Only failures that certainly ran nothing are released.
+- **No minimum account age for the coach** — new accounts sign in precisely to try it; the
+  per-user spend cap, one call in flight and the global cap already bound what throwaway
+  accounts can take (each needs its own email or Google account).
 - **Rejected for now:** cheers, study rooms, category breakdowns, points snapshots in the cloud,
   public profiles or search, WebSockets (the free service sleeps).

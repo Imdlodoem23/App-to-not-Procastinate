@@ -334,7 +334,9 @@ describe('createCloudClient errors', () => {
 
   it('uses the timeout of each call class', async () => {
     vi.useFakeTimers();
-    const fetch: CloudFetch = () => new Promise(() => undefined);
+    // The server is awake (health answers); every other request hangs.
+    const fetch: CloudFetch = (url) =>
+      url.endsWith('/health') ? Promise.resolve(reply(200, HEALTH)) : new Promise(() => undefined);
     const c = client(fetch);
     const settled: string[] = [];
     const track = (name: string, p: Promise<unknown>) =>
@@ -348,9 +350,11 @@ describe('createCloudClient errors', () => {
     expect(settled).toEqual(['background:timeout']);
     await vi.advanceTimersByTimeAsync(CLOUD_TIMEOUTS.interactiveMs - CLOUD_TIMEOUTS.backgroundMs);
     expect(settled).toEqual(['background:timeout', 'interactive:timeout']);
-    await vi.advanceTimersByTimeAsync(CLOUD_TIMEOUTS.coachMs);
+    await vi.advanceTimersByTimeAsync(CLOUD_TIMEOUTS.coachMs - CLOUD_TIMEOUTS.interactiveMs - 1);
+    expect(settled).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
     await all;
-    expect(settled).toHaveLength(3);
+    expect(settled).toEqual(['background:timeout', 'interactive:timeout', 'coach:timeout']);
   });
 
   it('reports a cancelled call as aborted', async () => {
@@ -367,6 +371,210 @@ describe('createCloudClient errors', () => {
     expect(seen).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------------------
+// Client: coach calls (wake-up and retry rules)
+// ---------------------------------------------------------------------------------------
+
+const HEALTH = { ok: true, db: 'up', serverEpoch: 'epoch-1' };
+const SPLIT_BODY = { task: 'Trabajo de historia', context: null, minutesAvailable: 45 };
+const SPLIT_ANSWER = { steps: [], firstStepTip: 'Empieza.' };
+
+/** A server whose /health answers and whose other routes answer with `answer`. */
+function coachServer(answer: (seen: Seen) => ReturnType<typeof reply> | Promise<never>) {
+  return stubFetch((seen) => (seen.url.endsWith('/health') ? reply(200, HEALTH) : answer(seen)));
+}
+
+function fakeClock(start = '2026-09-28T10:00:00.000Z') {
+  let t = Date.parse(start);
+  return {
+    now: () => new Date(t),
+    advance: (ms: number) => {
+      t += ms;
+    },
+  };
+}
+
+describe('createCloudClient coach calls', () => {
+  const paths = (seen: Seen[]) => seen.map((s) => new URL(s.url).pathname);
+
+  it('wakes a server that has not answered lately before a coach call', async () => {
+    const clock = fakeClock();
+    const { fetch, seen } = coachServer(() => reply(200, SPLIT_ANSWER));
+    const c = client(fetch, { now: clock.now });
+    const onWaking = vi.fn();
+
+    await expect(c.splitTask(SPLIT_BODY, { onWaking })).resolves.toEqual(SPLIT_ANSWER);
+    expect(paths(seen)).toEqual(['/health', '/v1/coach/split-task']);
+    expect(seen[0]?.headers.authorization).toBeUndefined();
+    expect(onWaking).toHaveBeenCalledTimes(1);
+
+    // Awake: straight to the model.
+    clock.advance(CLOUD_TIMEOUTS.awakeMs - 1);
+    await c.studyPlan(
+      {
+        subject: 'Mates',
+        examDate: '2026-10-05',
+        today: '2026-09-28',
+        dailyMinutes: 60,
+        topics: [],
+        level: null,
+        daysOff: [],
+      },
+      { onWaking },
+    );
+    expect(paths(seen).slice(2)).toEqual(['/v1/coach/study-plan']);
+    expect(onWaking).toHaveBeenCalledTimes(1);
+
+    // Quiet for too long (the free service sleeps after 15 min): wake it again.
+    clock.advance(CLOUD_TIMEOUTS.awakeMs);
+    await c.interpret({ text: 'x', timeZone: 'Europe/Madrid', now: clock.now().toISOString() });
+    await c.weeklySummary({ week: '2026-W39', stats: null });
+    expect(paths(seen).slice(3)).toEqual([
+      '/health',
+      '/v1/coach/interpret',
+      '/v1/coach/weekly-summary',
+    ]);
+  });
+
+  it('counts any answer of ours as awake, not a proxy page', async () => {
+    const clock = fakeClock();
+    let proxy = true;
+    const { fetch, seen } = coachServer((s) => {
+      if (s.url.endsWith('/v1/me')) return reply(503, errorBody('database_unavailable'));
+      if (proxy && s.url.endsWith('/v1/friends')) return reply(502, '<html>Bad gateway</html>');
+      return reply(200, SPLIT_ANSWER);
+    });
+    const c = client(fetch, { now: clock.now });
+    await failure(c.listFriends());
+    proxy = false;
+    await c.splitTask(SPLIT_BODY);
+    expect(paths(seen)).toEqual(['/v1/friends', '/health', '/v1/coach/split-task']);
+
+    clock.advance(CLOUD_TIMEOUTS.awakeMs + 1);
+    await failure(c.getMe()); // An error envelope: the service itself answered.
+    await c.splitTask(SPLIT_BODY);
+    expect(paths(seen).slice(3)).toEqual(['/v1/me', '/v1/coach/split-task']);
+
+    // A clock set back does not keep it awake.
+    clock.advance(-60_000);
+    await c.splitTask(SPLIT_BODY);
+    expect(paths(seen).slice(5)).toEqual(['/health', '/v1/coach/split-task']);
+  });
+
+  it('reports a failed wake-up as a retryable health error and sends nothing', async () => {
+    const seen: string[] = [];
+    const fetch: CloudFetch = async (url) => {
+      seen.push(url);
+      throw new TypeError('fetch failed');
+    };
+    const error = await failure(client(fetch).splitTask(SPLIT_BODY));
+    expect(error).toMatchObject({ kind: 'offline', operation: 'health', retryable: true });
+    expect(seen).toEqual([`${BASE}/health`]);
+  });
+
+  it('gives the wake-up the interactive timeout and the model call the coach one', async () => {
+    vi.useFakeTimers();
+    let healthAnswers = false;
+    const seen: string[] = [];
+    const fetch: CloudFetch = (url) => {
+      seen.push(new URL(url).pathname);
+      return healthAnswers && url.endsWith('/health')
+        ? Promise.resolve(reply(200, HEALTH))
+        : new Promise(() => undefined);
+    };
+    const c = client(fetch);
+
+    const waking = failure(c.splitTask(SPLIT_BODY, { timeoutMs: 5 }));
+    await vi.advanceTimersByTimeAsync(CLOUD_TIMEOUTS.interactiveMs);
+    expect(await waking).toMatchObject({ kind: 'timeout', operation: 'health', retryable: true });
+    expect(seen).toEqual(['/health']);
+
+    healthAnswers = true;
+    const thinking = failure(c.splitTask(SPLIT_BODY));
+    await vi.advanceTimersByTimeAsync(CLOUD_TIMEOUTS.coachMs);
+    // The server may still finish and bill it: never resent automatically.
+    expect(await thinking).toMatchObject({
+      kind: 'timeout',
+      operation: 'splitTask',
+      retryable: false,
+    });
+    expect(seen).toEqual(['/health', '/health', '/v1/coach/split-task']);
+  });
+
+  it('passes the caller signal to the wake-up', async () => {
+    const controller = new AbortController();
+    const fetch: CloudFetch = (_url, init) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(new Error('AbortError')));
+      });
+    const onWaking = vi.fn();
+    const pending = client(fetch).splitTask(SPLIT_BODY, { signal: controller.signal, onWaking });
+    controller.abort();
+    expect(await failure(pending)).toMatchObject({ kind: 'aborted', operation: 'health' });
+    expect(onWaking).toHaveBeenCalledTimes(1);
+  });
+
+  it('never fails a call because of the onWaking callback', async () => {
+    const { fetch } = coachServer(() => reply(200, SPLIT_ANSWER));
+    const onWaking = () => {
+      throw new Error('ui bug');
+    };
+    await expect(client(fetch).splitTask(SPLIT_BODY, { onWaking })).resolves.toEqual(SPLIT_ANSWER);
+  });
+
+  it.each([
+    ['coach_unavailable', 503, errorBody('coach_unavailable'), false],
+    ['coach_incomplete', 502, errorBody('coach_incomplete'), false],
+    ['proxy page', 502, '<html>Bad gateway</html>', false],
+    ['internal_error', 500, errorBody('internal_error'), false],
+    ['database_unavailable', 503, errorBody('database_unavailable'), false],
+    ['quota_exceeded', 429, errorBody('quota_exceeded'), false],
+    ['rate_limited', 429, errorBody('rate_limited', { retryAfterSeconds: 90 }), true],
+    [
+      'feature_disabled database_down',
+      503,
+      errorBody('feature_disabled', { feature: 'coach', reason: 'database_down' }),
+      true,
+    ],
+    [
+      'feature_disabled kill_switch',
+      503,
+      errorBody('feature_disabled', { feature: 'coach', reason: 'kill_switch' }),
+      false,
+    ],
+  ] as const)('coach %s is retryable: %s', async (_name, status, body, retryable) => {
+    const { fetch } = coachServer(() => reply(status, body));
+    const error = await failure(client(fetch).splitTask(SPLIT_BODY));
+    expect(error).toMatchObject({ kind: 'http', status, operation: 'splitTask', retryable });
+  });
+
+  it('never marks a lost or garbled coach answer retryable', async () => {
+    let calls = 0;
+    const offline: CloudFetch = async (url) => {
+      calls += 1;
+      if (url.endsWith('/health')) return reply(200, HEALTH);
+      throw new TypeError('socket hang up');
+    };
+    expect(await failure(client(offline).interpret(INTERPRET_BODY))).toMatchObject({
+      kind: 'offline',
+      operation: 'interpret',
+      retryable: false,
+    });
+    expect(calls).toBe(2);
+    const portal = coachServer(() => reply(200, '<html>Wi-Fi login</html>'));
+    expect(await failure(client(portal.fetch).weeklySummary(WEEKLY_BODY))).toMatchObject({
+      kind: 'invalid_response',
+      retryable: false,
+    });
+    // The rest of the client keeps the general rule.
+    const quota = coachServer(() => reply(503, errorBody('coach_unavailable')));
+    expect((await failure(client(quota.fetch).getCoachQuota())).retryable).toBe(true);
+  });
+});
+
+const INTERPRET_BODY = { text: 'x', timeZone: 'Europe/Madrid', now: '2026-09-28T10:00:00.000Z' };
+const WEEKLY_BODY = { week: '2026-W39', stats: null };
 
 // ---------------------------------------------------------------------------------------
 // Pure helpers
@@ -542,6 +750,7 @@ type Answer = 'ok' | CloudError;
 /** A fake server behind the outbox: stores days by rev and events by clientRef. */
 function fakeServer() {
   const days = new Map<string, number>();
+  const snapshots = new Map<string, CloudDayStats>();
   const events = new Map<string, number>();
   const calls: string[] = [];
   const answers: Answer[] = [];
@@ -558,7 +767,10 @@ function fakeServer() {
         const key = `${body.deviceId}:${d.day}`;
         const stored = days.get(key);
         if (stored !== undefined && stored > d.rev) stale.push(d.day);
-        else days.set(key, d.rev);
+        else {
+          days.set(key, d.rev);
+          snapshots.set(key, { ...d });
+        }
       }
       return { accepted: body.days.length - stale.length, stale };
     }),
@@ -574,6 +786,7 @@ function fakeServer() {
   return {
     api,
     days,
+    snapshots,
     events,
     calls,
     answers,
@@ -658,6 +871,85 @@ describe('createOutbox', () => {
     // The loop picks up the newer rev in the same flush.
     expect(result).toMatchObject({ status: 'done', sent: 2, remaining: 0 });
     expect(server.days.get('dev:2026-09-27')).toBe(2);
+  });
+
+  /** Makes the next putDays wait until `release` (resolves `entered` once it is in flight). */
+  function holdNextPut(server: ReturnType<typeof fakeServer>) {
+    let release = (): void => undefined;
+    let entered = (): void => undefined;
+    const inFlight = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    server.setOnPut(async () => {
+      server.setOnPut(null);
+      entered();
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    });
+    return { inFlight, release: () => release() };
+  }
+
+  it('sends a same-rev snapshot queued while the older one is in flight', async () => {
+    // A running block grows the minutes with no new guardian event: same rev, newer numbers.
+    const { outbox, server, storage } = setup();
+    await outbox.addDays('dev', [day('2026-09-27', 42, 30)]);
+    const put = holdNextPut(server);
+    const flushing = outbox.flush();
+    await put.inFlight;
+    await outbox.addDays('dev', [day('2026-09-27', 42, 35)]);
+    expect(await outbox.pending()).toBe(1);
+    put.release();
+
+    expect(await flushing).toMatchObject({ status: 'done', sent: 2, remaining: 0 });
+    expect(server.calls).toEqual(['put:dev:1', 'put:dev:1']);
+    expect(server.snapshots.get('dev:2026-09-27')).toMatchObject({ rev: 42, focusMinutes: 35 });
+    expect(storage.state?.items).toEqual([]);
+  });
+
+  it('does not resend the snapshot in flight when it is queued again unchanged', async () => {
+    const { outbox, server } = setup();
+    await outbox.addDays('dev', [day('2026-09-27', 42, 30)]);
+    const put = holdNextPut(server);
+    const flushing = outbox.flush();
+    await put.inFlight;
+    await outbox.addDays('dev', [day('2026-09-27', 42, 30), day('2026-09-26', 7)]);
+    put.release();
+    expect(await flushing).toMatchObject({ status: 'done', sent: 2, remaining: 0 });
+    expect(server.api.putDays.mock.calls.map(([b]) => b.days.map((d) => d.day))).toEqual([
+      ['2026-09-27'],
+      ['2026-09-26'],
+    ]);
+  });
+
+  it('drops a same-rev snapshot the server already holds at a higher rev', async () => {
+    const { outbox, server } = setup();
+    server.days.set('dev:2026-09-27', 50);
+    await outbox.addDays('dev', [day('2026-09-27', 42, 30)]);
+    const put = holdNextPut(server);
+    const flushing = outbox.flush();
+    await put.inFlight;
+    await outbox.addDays('dev', [day('2026-09-27', 42, 35)]);
+    put.release();
+    expect(await flushing).toMatchObject({ status: 'done', sent: 1, remaining: 0 });
+    expect(server.calls).toEqual(['put:dev:1']);
+  });
+
+  it('keeps a same-rev snapshot queued while its rejected twin was in flight', async () => {
+    const { outbox, server } = setup();
+    await outbox.addDays('dev', [day('2026-09-27', 42, 1500)]);
+    server.answers.push(
+      httpError(400, 'validation_failed', {
+        issues: [{ path: 'body.days.0.focusMinutes', message: 'too big' }],
+      }),
+    );
+    const put = holdNextPut(server);
+    const flushing = outbox.flush();
+    await put.inFlight;
+    await outbox.addDays('dev', [day('2026-09-27', 42, 35)]);
+    put.release();
+    expect(await flushing).toMatchObject({ status: 'done', sent: 1, dropped: 1, remaining: 0 });
+    expect(server.snapshots.get('dev:2026-09-27')).toMatchObject({ rev: 42, focusMinutes: 35 });
   });
 
   it('replays an event whose answer was lost without duplicating it', async () => {

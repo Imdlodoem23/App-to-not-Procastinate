@@ -8,16 +8,17 @@
  * are `<main>` (the sections, with a hidden `<h1>`) and `<footer>`.
  */
 import { Lock } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { Suspense, useEffect, useLayoutEffect, useRef } from 'react';
 import { HelpLine, Section } from '../components';
 import { useAutoLayout } from '../hooks/useAutoLayout';
 import { RENDERER } from '../i18n/messages';
 import { Footer } from '../sections/footer/Footer';
 import { ProgresoSection } from '../sections/progreso/ProgresoSection';
 import { ProtectionWarning } from '../sections/protection/ProtectionWarning';
+import { onboardingActive } from '../../../shared/ui-state';
 import { useAppStore, useAppStoreApi } from '../store/context';
 import { useServices } from './services';
-import { BloqueoSection } from './slots';
+import { BloqueoSection, mainWindowFeatures, onboardingView } from './slots';
 import { useReadySignal } from './useReadySignal';
 
 /** Development stand-in while BLOQUEO's module is not in the bundle. */
@@ -35,7 +36,9 @@ export function MainWindow(): React.JSX.Element {
   const local = useAppStore((s) => s.main);
   const budget = useAppStore((s) => s.env.layout);
   const seq = useAppStore((s) => s.harnessSeq);
-  useAutoLayout(rootRef, [rev, local, budget, seq]);
+  // Phase 5: the first run shows SETUP's onboarding in place of the sections (once it exists).
+  const Onboarding = useAppStore((s) => (onboardingActive(s.snapshot) ? onboardingView() : null));
+  useAutoLayout(rootRef, [rev, local, budget, seq, Onboarding]);
   useReadySignal();
 
   // A show that happened before the first render (launch) could not focus the field yet.
@@ -90,12 +93,23 @@ export function MainWindow(): React.JSX.Element {
           {RENDERER.shell.appName}
         </h1>
         <div className="main-sections" data-measure="">
-          <ProtectionWarning />
-          {BloqueoSection ? <BloqueoSection /> : <BloqueoStandIn />}
-          <ProgresoSection />
+          {Onboarding ? (
+            <Suspense fallback={null}>
+              <Onboarding />
+            </Suspense>
+          ) : (
+            <>
+              <ProtectionWarning />
+              {BloqueoSection ? <BloqueoSection /> : <BloqueoStandIn />}
+              <ProgresoSection />
+            </>
+          )}
         </div>
       </main>
       <Footer />
+      {mainWindowFeatures.map((Feature, index) => (
+        <Feature key={index} />
+      ))}
     </div>
   );
 }

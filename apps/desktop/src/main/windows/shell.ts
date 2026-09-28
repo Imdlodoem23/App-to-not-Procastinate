@@ -68,6 +68,8 @@ export interface WindowShellOptions {
   log: AppLog;
   /** Harness state id for `?state=` (`null` outside the harness). */
   harnessStateId: string | null;
+  /** Harness only: `?neutral-service-icons=1` (services draw monograms, never favicons). */
+  neutralServiceIcons: boolean;
   isQuitting(): boolean;
   /** Windows log-off or shutdown: windows must close instead of hiding. */
   onSessionEnd(): void;
@@ -182,6 +184,7 @@ export class WindowShell implements WindowHost, CoreHost {
       renderer: this.options.renderer,
       backgroundColor: this.requireAttached().theme.backgroundColor(),
       harnessStateId: this.options.harnessStateId,
+      neutralServiceIcons: this.options.neutralServiceIcons,
     };
   }
 

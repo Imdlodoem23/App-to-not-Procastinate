@@ -26,6 +26,7 @@ import type { CoachModel } from './coach/model';
 import { createAnthropicCoachModel } from './coach/anthropic';
 import { pingDb, type Db } from './db/client';
 import { ApiError, featureDisabled, isDatabaseUnavailable } from './lib/errors';
+import { clientKey, FixedWindowLimiter } from './lib/ip-limit';
 import { createResendMailer } from './lib/mailer';
 import { accountPages } from './pages/account';
 import { panelPages } from './pages/panel';
@@ -61,10 +62,26 @@ export interface BuildAppOptions {
   logger?: boolean | FastifyServerOptions['logger'];
 }
 
-/** Logs one line per request: id, method, route pattern, status, time. Nothing else. */
+/**
+ * Session lookups (one Postgres query each) per client IP (/64 for IPv6) per minute, checked
+ * before the lookup. Far above what the desktop app and the pages need (the per-user limit is
+ * 120 a minute); it stops floods of made-up tokens from saturating the small pool.
+ */
+export const SESSION_LOOKUPS_PER_IP_PER_MINUTE = 300;
+
+/** Routes that never read the session: requests to them cost no session lookup. */
+const SESSIONLESS_ROUTES: ReadonlySet<string> = new Set(['/health']);
+
+/**
+ * Logs one line per request: id, method, route pattern, status, time. Nothing else. At debug
+ * level it adds how many entries the X-Forwarded-For header had (a count, never the addresses),
+ * which is how TRUST_PROXY_HOPS is checked on Render (docs/API.md §12).
+ */
 class MinimalLogController extends LogController {
-  constructor() {
+  private readonly countProxyHops: boolean;
+  constructor(countProxyHops: boolean) {
     super({ requestIdLogLabel: 'reqId' });
+    this.countProxyHops = countProxyHops;
   }
   override incomingRequest(): void {}
   override requestCompleted(
@@ -72,15 +89,21 @@ class MinimalLogController extends LogController {
     request: FastifyRequest,
     reply: FastifyReply,
   ): void {
-    reply.log.info(
-      {
-        method: request.method,
-        route: request.routeOptions.url ?? 'unmatched',
-        status: reply.statusCode,
-        ms: Math.round(reply.elapsedTime),
-      },
-      'request',
-    );
+    const line: Record<string, unknown> = {
+      method: request.method,
+      route: request.routeOptions.url ?? 'unmatched',
+      status: reply.statusCode,
+      ms: Math.round(reply.elapsedTime),
+    };
+    if (this.countProxyHops) {
+      const xff = request.headers['x-forwarded-for'];
+      line.xffEntries = [xff ?? []]
+        .flat()
+        .join(',')
+        .split(',')
+        .filter((part) => part.trim() !== '').length;
+    }
+    reply.log.info(line, 'request');
   }
   override routeNotFound(): void {}
   override defaultErrorLog(): void {}
@@ -137,7 +160,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   const app = Fastify({
     logger: loggerOptions(config, options.logger),
-    logController: new MinimalLogController(),
+    logController: new MinimalLogController(
+      config.logLevel === 'debug' || config.logLevel === 'trace',
+    ),
     // Trust exactly N proxy hops (Render: 1) so request.ip is the client, not the proxy.
     trustProxy: config.trustProxyHops > 0 ? (_addr, hop) => hop < config.trustProxyHops : false,
     bodyLimit: CLOUD_LIMITS.bodyBytes,
@@ -199,10 +224,20 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
 
   // --- Sessions: resolved once per request when credentials are present, so the rate limiter
-  // can key by user and handlers can read `request.user`.
+  // can key by user and handlers can read `request.user`. The lookup is a Postgres query, so
+  // it runs only for routes that exist and use sessions, and only after a per-IP gate: the
+  // route limiter below runs later (it needs the user to pick its key).
+  const sessionGate = new FixedWindowLimiter(SESSION_LOOKUPS_PER_IP_PER_MINUTE, 60_000);
   app.addHook('onRequest', async (request) => {
     const h = request.headers;
     if (!h.authorization && !h.cookie) return;
+    if (request.is404 || SESSIONLESS_ROUTES.has(request.routeOptions.url ?? '')) return;
+    const waitMs = sessionGate.hit(clientKey(request.ip), now().getTime());
+    if (waitMs > 0) {
+      throw new ApiError(429, 'rate_limited', 'Too many requests', {
+        retryAfterSeconds: Math.max(1, Math.ceil(waitMs / 1000)),
+      });
+    }
     request.user = await ctx.resolveSession(h);
     // Cookie sessions: state-changing requests must come from our own pages (CSRF).
     assertCookieOrigin(request, config);
@@ -215,7 +250,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     max: 120,
     timeWindow: '1 minute',
     hook: 'preHandler',
-    keyGenerator: (request) => (request.user ? `u:${request.user.userId}` : `ip:${request.ip}`),
+    keyGenerator: (request) =>
+      request.user ? `u:${request.user.userId}` : `ip:${clientKey(request.ip)}`,
     errorResponseBuilder: (_request, context) =>
       new ApiError(429, 'rate_limited', 'Too many requests', {
         retryAfterSeconds: Math.max(1, Math.ceil(context.ttl / 1000)),
@@ -245,7 +281,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     }
     return reply.status(apiError.statusCode).send(apiError.toBody());
   });
-  app.setNotFoundHandler((_request, reply) =>
+  // @fastify/rate-limit only hooks real routes: unknown ones get the default limit here.
+  app.setNotFoundHandler({ preHandler: app.rateLimit() }, (_request, reply) =>
     reply.status(404).send(new ApiError(404, 'not_found', 'No such route').toBody()),
   );
 

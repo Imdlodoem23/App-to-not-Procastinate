@@ -90,14 +90,25 @@ export const CLOUD_LIMITS = Object.freeze({
   studyDailyMaxMinutes: 600,
 });
 
-/** Client-side timeouts. The free Render service sleeps: a cold start takes about a minute. */
+/**
+ * Client-side timeouts. The free Render service sleeps after 15 minutes without requests and a
+ * cold start takes about a minute, so a coach call never pays for both inside one timeout: the
+ * client first wakes a server that has not answered for `awakeMs` (`GET /health`, interactive
+ * timeout), then gives the coach request its own `coachMs`.
+ */
 export const CLOUD_TIMEOUTS = Object.freeze({
   /** Background calls (sync, heartbeat, polling). The UI never waits on them. */
   backgroundMs: 10_000,
   /** Calls the user started (login, invites, ranking); show «Despertando el servidor…». */
   interactiveMs: 60_000,
-  /** Coach calls: a cold start plus a model call. */
-  coachMs: 90_000,
+  /**
+   * A coach request to an awake server: the longest server deadline (study-plan, 80 s) plus
+   * room for the quota bookkeeping and the network. Waiting less would give up on answers the
+   * server still finishes and bills.
+   */
+  coachMs: 100_000,
+  /** How long after its last answer the server counts as awake (it sleeps after 15 min). */
+  awakeMs: 10 * 60_000,
 });
 
 // ---------------------------------------------------------------------------------------
@@ -155,7 +166,8 @@ export type CloudFeature = (typeof CLOUD_FEATURES)[number];
 /**
  * - `missing_key`: an environment variable the feature needs is not set.
  * - `kill_switch`: `AI_ENABLED=false`.
- * - `budget`: the global daily AI budget is spent (resets at 00:00 UTC).
+ * - `budget`: a global daily allowance is spent until 00:00 UTC: the AI budget (`coach`) or
+ *   the sign-in emails (`emailLogin`, `SIGNIN_EMAILS_PER_DAY`).
  * - `database_down`: Postgres does not answer (free databases expire, see docs/API.md).
  */
 export type CloudDisabledReason = 'missing_key' | 'kill_switch' | 'budget' | 'database_down';
@@ -203,8 +215,11 @@ export interface HealthResponse {
   now: IsoUtc;
   db: 'up' | 'down' | 'unconfigured';
   /**
-   * Random id created with the database. When it changes the cloud copy was reset (the free
-   * Postgres expired): the app re-uploads its history and tells the user.
+   * Random id created with the database. When it changes, the database was replaced (the free
+   * Postgres expired) and everything in it is gone: accounts, sessions, devices, sharing
+   * choices, stats and social data. The app's token no longer works; it keeps its local data,
+   * shows «La nube se ha reiniciado: vuelve a conectar» and, after a new login, re-applies the
+   * sharing choices the user confirms and re-uploads (`daysToReupload`). docs/API.md §7.
    */
   serverEpoch: string | null;
   capabilities: CloudCapabilities;
@@ -248,11 +263,26 @@ export interface MeResponse {
   sharing: CloudSharing;
   /** Last change of any sharing switch. */
   consentUpdatedAt: IsoUtc | null;
+  /**
+   * When `sharing.ranking` was last turned on (null while off). Friends' rankings count the
+   * user's days only from that day, never earlier weeks; turning it off and on restarts it.
+   */
+  rankingSince: IsoUtc | null;
 }
 
 /** PATCH /v1/me. Omitted fields keep their value. */
 export interface PatchMeRequest {
-  profile?: Partial<CloudProfile>;
+  profile?: {
+    /**
+     * 1–`displayNameMax` characters after trimming, no control characters. Once set it can be
+     * changed but not cleared (friends and partners always see some name).
+     */
+    displayName?: string;
+    /** IANA zone. */
+    timeZone?: string;
+    /** `dailyGoalMinMinutes`–`dailyGoalMaxMinutes`; null removes the goal. */
+    dailyGoalMinutes?: number | null;
+  };
   sharing?: Partial<CloudSharing>;
 }
 
@@ -682,14 +712,22 @@ export interface CoachQuotaResponse {
 // GDPR export (GET /v1/me/export)
 // ---------------------------------------------------------------------------------------
 
-/** Every row about the user. Other people appear only as id and display name. */
+/**
+ * Every row about the user. Other people appear only as id and display name. Secrets (tokens,
+ * code hashes) are the only stored values left out.
+ */
 export interface CloudExport {
   schemaVersion: 1;
   exportedAt: IsoUtc;
   me: MeResponse;
-  loginMethods: Array<{ provider: string; createdAt: IsoUtc }>;
+  /**
+   * Linked sign-in providers (Google), with the user's id there (Google's subject id). Email
+   * codes are not a stored login method: they work for whoever reads the mailbox.
+   */
+  loginMethods: Array<{ provider: string; accountId: string; createdAt: IsoUtc }>;
   sessions: Array<{ createdAt: IsoUtc; expiresAt: IsoUtc; current: boolean }>;
-  devices: CloudDevice[];
+  /** `installId`: the random id the app keeps for that installation. */
+  devices: Array<CloudDevice & { installId: string }>;
   dailyStats: Array<CloudDayStats & { deviceId: string }>;
   friends: CloudFriend[];
   invites: CloudInvite[];
@@ -845,11 +883,16 @@ export interface CloudErrorInit {
 }
 
 /**
- * The only error the client throws for a call. `retryable` says whether sending the same
- * request later can succeed: network errors, timeouts, bad gateways, 429 `rate_limited` and
+ * The only error the client throws for a call. `retryable` says whether the app may send the
+ * same request again by itself: network errors, timeouts, bad gateways, 429 `rate_limited` and
  * 5xx answers, except `feature_disabled` (a configuration, unless the database is down),
- * `not_implemented` and `coach_incomplete`. Never other 4xx. On 401 the app signs out and
- * keeps every local data (`isUnauthorized`).
+ * `not_implemented` and `coach_incomplete`. Never other 4xx. Coach calls that run the model
+ * (`interpret`, `splitTask`, `studyPlan`, `weeklySummary`) are stricter, because a lost answer
+ * may still have been billed and counted: only 429 `rate_limited` and `feature_disabled` with
+ * `database_down` (both answered before the model) are retryable; after anything else only the
+ * user may try again. A failed wake-up before a coach call reports `operation: 'health'` and
+ * follows the general rule (nothing reached the model). On 401 the app signs out and keeps
+ * every local data (`isUnauthorized`).
  */
 export class CloudError extends Error {
   readonly kind: CloudErrorKind;
@@ -874,7 +917,9 @@ export class CloudError extends Error {
     this.code = details?.code ?? null;
     this.details = details;
     this.retryAfterMs = init.retryAfterMs ?? null;
-    this.retryable = isRetryable(init.kind, status, details);
+    this.retryable = COACH_MODEL_OPERATIONS.has(init.operation)
+      ? isCoachRetryable(init.kind, status, details)
+      : isRetryable(init.kind, status, details);
   }
 
   /** The session is gone (expired, revoked, account deleted): sign out, keep local data. */
@@ -904,6 +949,33 @@ function isRetryable(
   return false;
 }
 
+/** Client methods whose request runs the model (and may be billed once it was sent). */
+const COACH_MODEL_OPERATIONS: ReadonlySet<string> = new Set([
+  'interpret',
+  'splitTask',
+  'studyPlan',
+  'weeklySummary',
+]);
+
+/**
+ * A coach request is safe to resend only when the server answered before reserving quota and
+ * calling the model: 429 `rate_limited` (another coach call in flight, or the request rate) and
+ * the database down at the gate. A timeout, a lost connection, a non-JSON answer or another 5xx
+ * (`coach_unavailable`, a proxy page) may come after the model ran: resending would count and
+ * bill it again.
+ */
+function isCoachRetryable(
+  kind: CloudErrorKind,
+  status: number | null,
+  details: CloudErrorBody['error'] | null,
+): boolean {
+  if (kind !== 'http') return false;
+  const code = details?.code ?? null;
+  if (status === 429) return code === 'rate_limited';
+  if (status === 503 && code === 'feature_disabled') return details?.reason === 'database_down';
+  return false;
+}
+
 /** Which timeout a call uses by default (see `CLOUD_TIMEOUTS`). */
 export type CloudCallClass = 'background' | 'interactive' | 'coach';
 
@@ -912,6 +984,17 @@ export interface CloudCallOptions {
   timeoutMs?: number;
   /** Cancels the call (`CloudError` with kind `aborted`). */
   signal?: AbortSignal;
+}
+
+/**
+ * Options of the coach calls that run the model. When the server has not answered this client
+ * for `CLOUD_TIMEOUTS.awakeMs`, the call first wakes it with `GET /health` (interactive
+ * timeout, same `signal`) and only then sends the coach request, with `timeoutMs` (default
+ * `coachMs`). A failed wake-up rejects with `operation: 'health'`: nothing was billed.
+ */
+export interface CoachCallOptions extends CloudCallOptions {
+  /** Called just before a wake-up: show «Despertando el servidor…». */
+  onWaking?: () => void;
 }
 
 /** What the client needs from `fetch`. The global `fetch` and Electron's `net.fetch` fit. */
@@ -939,10 +1022,10 @@ export interface CloudClientOptions {
   getToken: () => string | null | Promise<string | null>;
   /** Defaults to the global `fetch`. */
   fetch?: CloudFetch;
-  timeouts?: Partial<Record<'backgroundMs' | 'interactiveMs' | 'coachMs', number>>;
+  timeouts?: Partial<Record<keyof typeof CLOUD_TIMEOUTS, number>>;
   /** Called when the server answers 401 to a signed-in call: sign out, keep local data. */
   onUnauthorized?: () => void;
-  /** Clock for `Retry-After` dates and `resetsAt` (tests pass a fake one). */
+  /** Clock for `Retry-After` dates, `resetsAt` and the wake-up rule (tests pass a fake one). */
   now?: () => Date;
 }
 
@@ -950,7 +1033,10 @@ export interface CloudClientOptions {
 export interface CloudClient {
   readonly baseUrl: string;
 
-  /** GET /health (public). Also wakes a sleeping server: call it at app start. */
+  /**
+   * GET /health (public). Also wakes a sleeping server: call it at app start. Coach calls do it
+   * themselves when the server has not answered for `awakeMs`.
+   */
   health(options?: CloudCallOptions): Promise<HealthResponse>;
   /** POST /v1/app-auth/token (public): trades the loopback code for a bearer token. */
   exchangeLoginCode(body: AppTokenRequest, options?: CloudCallOptions): Promise<AppTokenResponse>;
@@ -1023,12 +1109,16 @@ export interface CloudClient {
   ): Promise<ApprovalState>;
 
   getCoachQuota(options?: CloudCallOptions): Promise<CoachQuotaResponse>;
-  interpret(body: InterpretRequest, options?: CloudCallOptions): Promise<InterpretResponse>;
-  splitTask(body: SplitTaskRequest, options?: CloudCallOptions): Promise<SplitTaskResponse>;
-  studyPlan(body: StudyPlanRequest, options?: CloudCallOptions): Promise<StudyPlanResponse>;
+  /**
+   * The four model calls wake a sleeping server first (`CoachCallOptions`) and are never
+   * resent automatically after a timeout or a 5xx (see `CloudError.retryable`).
+   */
+  interpret(body: InterpretRequest, options?: CoachCallOptions): Promise<InterpretResponse>;
+  splitTask(body: SplitTaskRequest, options?: CoachCallOptions): Promise<SplitTaskResponse>;
+  studyPlan(body: StudyPlanRequest, options?: CoachCallOptions): Promise<StudyPlanResponse>;
   weeklySummary(
     body: WeeklySummaryRequest,
-    options?: CloudCallOptions,
+    options?: CoachCallOptions,
   ): Promise<WeeklySummaryResponse>;
 }
 
@@ -1123,8 +1213,9 @@ function retryAfterOf(
 
 /**
  * The typed client of the Céntrate API (docs/API.md §5 and §14). One method per endpoint; each
- * uses the timeout of its class (background 10 s, interactive 60 s, coach 90 s) unless the call
- * passes `timeoutMs`. It never retries by itself: background work goes through the outbox.
+ * uses the timeout of its class (background 10 s, interactive 60 s, coach 100 s) unless the
+ * call passes `timeoutMs`. Coach model calls first wake a server that has not answered for
+ * 10 minutes. It never retries by itself: background work goes through the outbox.
  */
 export function createCloudClient(options: CloudClientOptions): CloudClient {
   const baseUrl = normalizeBaseUrl(options.baseUrl);
@@ -1134,7 +1225,19 @@ export function createCloudClient(options: CloudClientOptions): CloudClient {
     interactive: options.timeouts?.interactiveMs ?? CLOUD_TIMEOUTS.interactiveMs,
     coach: options.timeouts?.coachMs ?? CLOUD_TIMEOUTS.coachMs,
   };
+  const awakeMs = options.timeouts?.awakeMs ?? CLOUD_TIMEOUTS.awakeMs;
   const now = options.now ?? (() => new Date());
+  /** When our server last answered (a JSON answer of ours, success or error envelope). */
+  let lastAnswerAt: number | null = null;
+  const markAwake = (): void => {
+    lastAnswerAt = now().getTime();
+  };
+  const isAwake = (): boolean => {
+    if (lastAnswerAt === null) return false;
+    const elapsed = now().getTime() - lastAnswerAt;
+    // A clock set back counts as asleep: waking costs one small request.
+    return elapsed >= 0 && elapsed < awakeMs;
+  };
 
   async function call(spec: CallSpec, callOptions: CloudCallOptions = {}): Promise<CallResult> {
     const { operation } = spec;
@@ -1224,9 +1327,12 @@ export function createCloudClient(options: CloudClientOptions): CloudClient {
       if (!parsed || (!empty && (typeof data !== 'object' || data === null))) {
         throw new CloudError({ kind: 'invalid_response', operation, status });
       }
+      markAwake();
       return { status, data: empty ? null : data };
     }
     const details = parsed ? errorEnvelope(data) : null;
+    // Our error envelope means the service itself answered; a proxy page does not.
+    if (details) markAwake();
     const error = new CloudError({
       kind: 'http',
       operation,
@@ -1258,6 +1364,33 @@ export function createCloudClient(options: CloudClientOptions): CloudClient {
     await call(spec, callOptions);
   }
 
+  const healthSpec: CallSpec = {
+    operation: 'health',
+    method: 'GET',
+    path: '/health',
+    auth: false,
+    timeout: 'background',
+  };
+
+  /**
+   * A coach model call: wakes a server that has not answered lately (so the cold start never
+   * eats into the coach timeout), then sends the request with the coach timeout.
+   */
+  async function coach<T>(spec: CallSpec, callOptions: CoachCallOptions = {}): Promise<T> {
+    const { onWaking, timeoutMs, signal } = callOptions;
+    if (!isAwake()) {
+      if (onWaking && !signal?.aborted) {
+        try {
+          onWaking();
+        } catch {
+          // A UI callback must not fail the call.
+        }
+      }
+      await json<HealthResponse>(healthSpec, { timeoutMs: timeouts.interactive, signal });
+    }
+    return json<T>(spec, { timeoutMs, signal });
+  }
+
   const get = (operation: string, path: string, timeout: CloudCallClass): CallSpec => ({
     operation,
     method: 'GET',
@@ -1276,11 +1409,7 @@ export function createCloudClient(options: CloudClientOptions): CloudClient {
   return {
     baseUrl,
 
-    health: (o) =>
-      json(
-        { operation: 'health', method: 'GET', path: '/health', auth: false, timeout: 'background' },
-        o,
-      ),
+    health: (o) => json(healthSpec, o),
     exchangeLoginCode: (body, o) =>
       json(
         {
@@ -1418,13 +1547,13 @@ export function createCloudClient(options: CloudClientOptions): CloudClient {
 
     getCoachQuota: (o) => json(get('getCoachQuota', '/v1/coach/quota', 'interactive'), o),
     interpret: (body, o) =>
-      json(send('interpret', 'POST', '/v1/coach/interpret', body, 'coach'), o),
+      coach(send('interpret', 'POST', '/v1/coach/interpret', body, 'coach'), o),
     splitTask: (body, o) =>
-      json(send('splitTask', 'POST', '/v1/coach/split-task', body, 'coach'), o),
+      coach(send('splitTask', 'POST', '/v1/coach/split-task', body, 'coach'), o),
     studyPlan: (body, o) =>
-      json(send('studyPlan', 'POST', '/v1/coach/study-plan', body, 'coach'), o),
+      coach(send('studyPlan', 'POST', '/v1/coach/study-plan', body, 'coach'), o),
     weeklySummary: (body, o) =>
-      json(send('weeklySummary', 'POST', '/v1/coach/weekly-summary', body, 'coach'), o),
+      coach(send('weeklySummary', 'POST', '/v1/coach/weekly-summary', body, 'coach'), o),
   };
 }
 
@@ -1453,8 +1582,11 @@ export function approvalOutcome(
 }
 
 /**
- * The local days the server is missing or holds at a lower `rev`: what to re-upload after the
- * cloud was reset (`serverEpoch` changed) or on first sign-in. Pass `GET /v1/sync/state`.
+ * The local days the server is missing or holds at a lower `rev`: what to re-upload on first
+ * sign-in, or after the database was replaced (`serverEpoch` changed). A replaced database has
+ * no accounts either: the old token gets 401, so the app first logs in again (a new account and
+ * device, every sharing switch off), re-applies the sharing choices the user confirms (at least
+ * `syncStats`), then passes `GET /v1/sync/state` for the new device. docs/API.md §7.
  */
 export function daysToReupload(
   local: readonly CloudDayStats[],
@@ -1809,11 +1941,17 @@ export function createOutbox(options: OutboxOptions): CloudOutbox {
             return s;
           });
         } else {
-          await client.putDays({ deviceId: deviceId ?? '', days: batch.map((i) => i.stats) });
-          // Accepted and stale days both leave the queue (the server holds that rev or a
-          // higher one); a newer rev queued meanwhile stays.
+          const answer = await client.putDays({
+            deviceId: deviceId ?? '',
+            days: batch.map((i) => i.stats),
+          });
+          const stale = new Set(Array.isArray(answer.stale) ? answer.stale : []);
+          // The sent snapshots leave the queue; so does anything the server now holds a higher
+          // rev of. A snapshot queued meanwhile stays, even with the same rev: a running block
+          // grows the minutes without a new guardian event, and the server lets an equal rev
+          // overwrite for exactly that.
           state = await mutate((s) => {
-            s.items = s.items.filter((i) => !batch.some((b) => sameDayAtMostRev(i, b)));
+            s.items = s.items.filter((i) => !batch.some((b) => supersededBy(i, b, stale)));
             sent += batch.length;
             return s;
           });
@@ -1901,15 +2039,30 @@ export function createOutbox(options: OutboxOptions): CloudOutbox {
   };
 }
 
-function sameDayAtMostRev(item: OutboxItem, sent: OutboxDayItem): boolean {
+function sameDeviceDay(item: OutboxItem, other: OutboxDayItem): item is OutboxDayItem {
   return (
-    item.type === 'day' &&
-    item.deviceId === sent.deviceId &&
-    item.stats.day === sent.stats.day &&
-    item.stats.rev <= sent.stats.rev
+    item.type === 'day' && item.deviceId === other.deviceId && item.stats.day === other.stats.day
   );
 }
 
+/** Every field equal: the very snapshot that was sent (a same-rev update differs somewhere). */
+function sameSnapshot(a: CloudDayStats, b: CloudDayStats): boolean {
+  return a.day === b.day && DAY_NUMBER_KEYS.every((k) => a[k] === b[k]);
+}
+
+/**
+ * After the server took `sent` (or answered it `stale`), whether `item` has nothing left to
+ * tell it: the same snapshot, a lower rev, or up to the same rev of a day the server holds at
+ * a higher one. A same-rev snapshot with other numbers still has to go.
+ */
+function supersededBy(item: OutboxItem, sent: OutboxDayItem, stale: ReadonlySet<string>): boolean {
+  if (!sameDeviceDay(item, sent)) return false;
+  if (item.stats.rev < sent.stats.rev) return true;
+  if (item.stats.rev > sent.stats.rev) return false;
+  return stale.has(sent.stats.day) || sameSnapshot(item.stats, sent.stats);
+}
+
+/** The exact item that was sent (for drops): an event by `clientRef`, a day by snapshot. */
 function sameItem(item: OutboxItem, other: OutboxItem): boolean {
   if (item.type === 'event' || other.type === 'event') {
     return (
@@ -1918,5 +2071,5 @@ function sameItem(item: OutboxItem, other: OutboxItem): boolean {
       item.event.clientRef === other.event.clientRef
     );
   }
-  return sameDayAtMostRev(item, other);
+  return sameDeviceDay(item, other) && sameSnapshot(item.stats, other.stats);
 }

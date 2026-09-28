@@ -71,6 +71,7 @@ describe('GET /v1/me', () => {
         coach: false,
       },
       consentUpdatedAt: null,
+      rankingSince: null,
     });
   });
 });

@@ -1,16 +1,18 @@
 /**
- * A row of chips (PROMPT §10): services with their catalog monogram, categories and the rest
- * with a lucide glyph; a click corrects the chip (typing: selects that part of the phrase;
- * card: edits it in place).
+ * A row of chips (PROMPT §10): services with their catalog icon (`ServiceIcon`: the monogram,
+ * or a favicon once the catalog has them), categories and the rest with a lucide glyph; a click
+ * corrects the chip (typing: selects that part of the phrase; card: edits it in place).
  */
-import { Chip, Icon } from '../../components';
+import { Chip, Icon, ServiceIcon } from '../../components';
 import type { ChipView } from './chips';
 import { chipIcon } from './icons';
 
 function ChipLeading(props: { chip: ChipView }): React.JSX.Element | null {
   const { chip } = props;
   if (chip.kind === 'service') {
-    return <span className="bq-monogram">{chip.monogram ?? chip.label.slice(0, 1)}</span>;
+    return (
+      <ServiceIcon className="bq-monogram" monogram={chip.monogram ?? chip.label.slice(0, 1)} />
+    );
   }
   const glyph = chipIcon(chip.kind, chip.categoryId);
   return glyph ? <Icon icon={glyph} size="header" /> : null;

@@ -17,7 +17,9 @@ async function checkA11y(
 ): Promise<void> {
   await app.harness.load(fixture.id, { display: fixture.display, theme });
   await settleMain(app);
-  const windows = fixture.window === 'main' ? (['main'] as const) : (['main', 'detail'] as const);
+  // Surface fixtures (mini timer, OSD, Nuclear) open no detail window.
+  const windows =
+    fixture.detailRequest === null ? (['main'] as const) : (['main', 'detail'] as const);
   for (const kind of windows) {
     const page = await app.page(kind);
     // The theme is on <html data-theme> (prefs) or the native theme (forced): both resolve

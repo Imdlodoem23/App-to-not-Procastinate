@@ -89,15 +89,6 @@ export async function areFriends(db: DbOrTx, a: string, b: string): Promise<bool
   return rows.length > 0;
 }
 
-/** The caller's friends' ids, blocks excluded. */
-export async function friendIds(db: DbOrTx, userId: string): Promise<string[]> {
-  const rows = await db
-    .select({ friendId: friendships.friendId })
-    .from(friendships)
-    .where(and(eq(friendships.userId, userId), notBlockedWith(userId, friendships.friendId)));
-  return rows.map((r) => r.friendId);
-}
-
 export const coolingOffMs = CLOUD_LIMITS.partnerCoolingOffHours * 3_600_000;
 
 /**

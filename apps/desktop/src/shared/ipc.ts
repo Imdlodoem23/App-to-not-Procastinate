@@ -20,6 +20,8 @@ import type {
   BlockId,
   EmergencyId,
   EmergencyUnlock,
+  GuardianSettings,
+  PointsSummary,
   Schedule,
   ScheduleId,
 } from '@centrate/shared/domain';
@@ -29,7 +31,32 @@ import type {
   DeleteDataResponse,
   EmergencyPreviewResponse,
   PairingCodeResponse,
+  RedeemRewardResponse,
+  RewardsResponse,
+  ScheduleInput,
+  SettingsResponse,
 } from '@centrate/shared/guardian-api';
+import type {
+  AchievementStatus,
+  CameraTestOutcome,
+  InstallOutcome,
+  OsdRequest,
+  PermissionOutcome,
+  RunningProcess,
+  SoundData,
+  UpdaterState,
+} from './platform';
+import type { SoundId } from './prefs';
+import type {
+  CsvExportKind,
+  CsvExportResult,
+  EventLogPage,
+  EventLogQuery,
+  HeatmapQuery,
+  StatsHeatmap,
+  StatsOverview,
+  StatsQuery,
+} from './stats';
 import type {
   BlockDraft,
   BlockTemplate,
@@ -44,7 +71,7 @@ import type {
   UiPrefs,
   UiPrefsPatch,
   UiSnapshot,
-  WindowKind,
+  UiWindow,
   WindowLayout,
 } from './ui-state';
 
@@ -72,7 +99,7 @@ export interface HarnessLoad {
 
 /** `app:init`: everything a renderer needs for its first render. */
 export interface InitPayload {
-  window: WindowKind;
+  window: UiWindow;
   platform: Platform;
   snapshot: UiSnapshot;
   layout: WindowLayout;
@@ -163,6 +190,79 @@ export interface InvokeContract {
   };
   /** Running process names for the apps autocomplete in Bloqueos. */
   'system:process-names': { req: null; res: CommandResult<string[]> };
+
+  // -------------------------------------------------------------------------------------
+  // Phase 5 (docs/DESKTOP.md §15). Owners: PLATFORM implements every handler; the callers
+  // are named per channel. `not_implemented` (501) answers until PLATFORM lands.
+  // -------------------------------------------------------------------------------------
+
+  /** Bloqueos «Nuevo horario» (POST /v1/schedules, `Idempotency-Key: intentId`). PLANNER. */
+  'schedules:create': {
+    req: { intentId: IntentId; input: ScheduleInput };
+    res: CommandResult<Schedule>;
+  };
+  /** Full replace (PUT); 409 `schedule_in_progress` / `schedule_starting_soon`. PLANNER. */
+  'schedules:update': {
+    req: { id: ScheduleId; input: ScheduleInput };
+    res: CommandResult<Schedule>;
+  };
+  /** DELETE; same guards as update. PLANNER. */
+  'schedules:delete': { req: { id: ScheduleId }; res: CommandResult<null> };
+
+  /** GET /v1/settings: effective settings plus the pending (24 h) weakening changes. SETUP, PLANNER. */
+  'settings:get': { req: null; res: CommandResult<SettingsResponse> };
+  /**
+   * PUT /v1/settings with the **full** settings: strengthening changes apply at once, weakening
+   * ones come back in `pending` with their `effectiveAt` («Se aplicará mañana a las 17:00»).
+   * SETUP (goal, penalties, browsers), PLANNER (exam whitelist extras).
+   */
+  'settings:put': { req: { settings: GuardianSettings }; res: CommandResult<SettingsResponse> };
+
+  /** GET /v1/rewards (the shop, `shortBy` → «Te faltan 40 puntos»). REWARDS. */
+  'rewards:list': { req: null; res: CommandResult<RewardsResponse> };
+  /** POST /v1/rewards/redeem after the in-place «¿Seguro?». REWARDS. */
+  'rewards:redeem': {
+    req: { intentId: IntentId; offerId: string };
+    res: CommandResult<RedeemRewardResponse>;
+  };
+
+  /** GET /v1/points (fresh; `state.points` is the same summary from the last poll). REWARDS. */
+  'points:summary': { req: null; res: CommandResult<PointsSummary> };
+  /** The Logros grid from the local event log (opening it clears `progress.fresh`). REWARDS. */
+  'achievements:list': { req: null; res: CommandResult<AchievementStatus[]> };
+
+  /** Bars, totals, top targets and hours of one period. STATS. */
+  'stats:overview': { req: StatsQuery; res: CommandResult<StatsOverview> };
+  /** GitHub-style heatmap cells. STATS. */
+  'stats:heatmap': { req: HeatmapQuery; res: CommandResult<StatsHeatmap> };
+  /** One page of the event log, newest first. STATS. */
+  'stats:events': { req: EventLogQuery; res: CommandResult<EventLogPage> };
+  /** «Exportar CSV»: main shows the save dialog and writes the file. STATS, SETUP (Datos). */
+  'stats:export-csv': { req: { kind: CsvExportKind }; res: CommandResult<CsvExportResult> };
+
+  /** Running processes with their catalog app (apps autocomplete). PLANNER. */
+  'system:processes': { req: null; res: CommandResult<RunningProcess[]> };
+
+  /** macOS Screen Recording for the active-window layer. SETUP (Sistema), onboarding. */
+  'activewin:request-permission': { req: null; res: CommandResult<{ outcome: PermissionOutcome }> };
+
+  /** Check now. SETUP (Sistema). */
+  'updater:check': { req: null; res: CommandResult<UpdaterState> };
+  /** Download the available version. SETUP, SURFACES (footer). */
+  'updater:download': { req: null; res: CommandResult<UpdaterState> };
+  /** Quit and install a `ready` update (blocks stay: the guardian runs apart). SETUP, SURFACES. */
+  'updater:install': { req: null; res: CommandResult<UpdaterState> };
+
+  /** The WAV bytes of a concentration loop (read by main from resources/sounds/). PLANNER. */
+  'sounds:load': { req: { sound: SoundId }; res: CommandResult<SoundData> };
+
+  /**
+   * Onboarding step 2 «Instalar»: install and start the guardian with elevation (the same
+   * path as «Reparar»). Navigation and «Omitir» are `prefs:set { onboarding }`. SETUP.
+   */
+  'onboarding:install-guardian': { req: null; res: CommandResult<{ outcome: InstallOutcome }> };
+  /** Onboarding step 4 placeholder: `unavailable` until Study Mode ships. SETUP. */
+  'onboarding:test-camera': { req: null; res: CommandResult<{ outcome: CameraTestOutcome }> };
 }
 
 /** renderer → main, fire-and-forget. `null` means no payload. */
@@ -186,6 +286,16 @@ export interface SendContract {
   /** «Salir» (flushes the extend queue first; blocks stay active). */
   'app:quit': null;
   'app:renderer-error': { message: string; stack: string | null };
+
+  // Phase 5 (docs/DESKTOP.md §15); PLATFORM handles them.
+  /** Footer «Mini temporizador», tray checkbox, shortcut. `visible: null` toggles. */
+  'mini-timer:toggle': { visible: boolean | null };
+  /** Keyboard nudge or «Recolocar» (`null`: back to the default corner); drags persist in main. */
+  'mini-timer:position': { position: { x: number; y: number } | null };
+  /** A renderer asks for the OSD (shown only when «Avisos grandes» is on). */
+  'osd:show': OsdRequest;
+  /** The Nuclear overlay's only button: open Emergencia above the overlay. */
+  'nuclear:emergency-exit': null;
 }
 
 /** main → renderer. */
@@ -225,7 +335,7 @@ export type PushPayload<C extends PushChannel> = PushContract[C];
 
 /** Who sent a message (resolved by main from the sender's webContents, never from the payload). */
 export interface IpcContext {
-  window: WindowKind;
+  window: UiWindow;
 }
 
 /** Main-side handler table for invoke channels (a missing channel fails the typecheck). */
@@ -279,6 +389,27 @@ const INVOKE_RECORD = {
   'data:delete': true,
   'guardian:repair': true,
   'system:process-names': true,
+  'schedules:create': true,
+  'schedules:update': true,
+  'schedules:delete': true,
+  'settings:get': true,
+  'settings:put': true,
+  'rewards:list': true,
+  'rewards:redeem': true,
+  'points:summary': true,
+  'achievements:list': true,
+  'stats:overview': true,
+  'stats:heatmap': true,
+  'stats:events': true,
+  'stats:export-csv': true,
+  'system:processes': true,
+  'activewin:request-permission': true,
+  'updater:check': true,
+  'updater:download': true,
+  'updater:install': true,
+  'sounds:load': true,
+  'onboarding:install-guardian': true,
+  'onboarding:test-camera': true,
 } as const satisfies Record<InvokeChannel, true>;
 
 const SEND_RECORD = {
@@ -293,6 +424,10 @@ const SEND_RECORD = {
   'app:open-guide': true,
   'app:quit': true,
   'app:renderer-error': true,
+  'mini-timer:toggle': true,
+  'mini-timer:position': true,
+  'osd:show': true,
+  'nuclear:emergency-exit': true,
 } as const satisfies Record<SendChannel, true>;
 
 const PUSH_RECORD = {
@@ -314,6 +449,41 @@ export const SEND_CHANNELS: readonly SendChannel[] = Object.freeze(
 export const PUSH_CHANNELS: readonly PushChannel[] = Object.freeze(
   Object.keys(PUSH_RECORD) as PushChannel[],
 );
+
+/** The Phase 5 invoke channels (stubbed with `not_implemented` until PLATFORM lands). */
+export const PHASE5_INVOKE_CHANNELS = [
+  'schedules:create',
+  'schedules:update',
+  'schedules:delete',
+  'settings:get',
+  'settings:put',
+  'rewards:list',
+  'rewards:redeem',
+  'points:summary',
+  'achievements:list',
+  'stats:overview',
+  'stats:heatmap',
+  'stats:events',
+  'stats:export-csv',
+  'system:processes',
+  'activewin:request-permission',
+  'updater:check',
+  'updater:download',
+  'updater:install',
+  'sounds:load',
+  'onboarding:install-guardian',
+  'onboarding:test-camera',
+] as const satisfies readonly InvokeChannel[];
+export type Phase5InvokeChannel = (typeof PHASE5_INVOKE_CHANNELS)[number];
+
+/** The Phase 5 send channels (PLATFORM's handlers in `src/main/windows/ipc-window.ts`). */
+export const PHASE5_SEND_CHANNELS = [
+  'mini-timer:toggle',
+  'mini-timer:position',
+  'osd:show',
+  'nuclear:emergency-exit',
+] as const satisfies readonly SendChannel[];
+export type Phase5SendChannel = (typeof PHASE5_SEND_CHANNELS)[number];
 
 export function isInvokeChannel(value: unknown): value is InvokeChannel {
   return typeof value === 'string' && Object.hasOwn(INVOKE_RECORD, value);

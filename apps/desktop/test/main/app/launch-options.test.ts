@@ -46,6 +46,7 @@ describe('launch options', () => {
       theme: 'dark',
       lang: null,
       show: true,
+      neutralServiceIcons: false,
     });
     expect(options.userDataDir).toBe('/tmp/e2e-1');
     expect(options.problems).toEqual([]);
@@ -96,6 +97,30 @@ describe('launch options', () => {
     });
     expect(bad.harness?.lang).toBeNull();
     expect(bad.problems).toHaveLength(1);
+  });
+
+  it('turns service favicons into monograms for marketing captures', () => {
+    const arg = parseLaunchOptions({
+      argv: [...EXE, '--harness-state=idle', '--harness-neutral-service-icons'],
+      env: {},
+      packaged: false,
+    });
+    expect(arg.harness?.neutralServiceIcons).toBe(true);
+    const env = parseLaunchOptions({
+      argv: [...EXE, '--harness'],
+      env: { CENTRATE_HARNESS_NEUTRAL_ICONS: '1' },
+      packaged: false,
+    });
+    expect(env.harness?.neutralServiceIcons).toBe(true);
+    const off = parseLaunchOptions({ argv: [...EXE, '--harness'], env: {}, packaged: false });
+    expect(off.harness?.neutralServiceIcons).toBe(false);
+    // A release build ignores it, like every harness switch.
+    const packaged = parseLaunchOptions({
+      argv: [...EXE, '--harness-state=idle', '--harness-neutral-service-icons'],
+      env: {},
+      packaged: true,
+    });
+    expect(packaged.harness).toBeNull();
   });
 
   it('reports what it could not understand', () => {

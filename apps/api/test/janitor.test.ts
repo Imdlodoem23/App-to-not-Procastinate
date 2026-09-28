@@ -14,8 +14,10 @@ import {
   friendInvites,
   partnerLinks,
   presence,
+  rateCounters,
   session,
   usageCounters,
+  user,
   verification,
 } from '../src/db/schema';
 import { runJanitor, startJanitor } from '../src/jobs/janitor';
@@ -127,6 +129,10 @@ describe('runJanitor', () => {
       { userId: a.userId, day: '2026-09-20', key: 'partner_email', count: 1 },
       { userId: a.userId, day: '2026-09-21', key: 'partner_email', count: 1 },
     ]);
+    await db.insert(rateCounters).values([
+      { key: 'signin_email:global', windowStart: at(-1), count: 3, expiresAt: at(0) },
+      { key: 'signin_email:global', windowStart: at(0), count: 1, expiresAt: at(1) },
+    ]);
     await db.insert(aiUsage).values([
       { userId: a.userId, day: '2026-06-29', feature: 'coach' },
       { userId: a.userId, day: '2026-06-30', feature: 'coach' },
@@ -149,6 +155,11 @@ describe('runJanitor', () => {
         stats(device?.id ?? '', a.userId, '2024-09-27'),
       ]);
 
+    // A sign-up whose hook stopped after the profile: the name is cleared. Without a profile
+    // the name still has to seed the display name, so it stays.
+    await db.update(user).set({ name: 'Ana' }).where(eq(user.id, a.userId));
+    await db.insert(user).values({ id: 'no-profile-user', name: 'Luis', email: 'l@example.com' });
+
     const report = await runJanitor(db, NOW);
     expect(report).toEqual({
       presence: 1,
@@ -160,9 +171,11 @@ describe('runJanitor', () => {
       partnerApprovalOff: 1,
       accountabilityEvents: 1,
       usageCounters: 1,
+      rateCounters: 1,
       aiUsage: 1,
       aiGlobalDaily: 1,
       dailyStats: 1,
+      userNames: 1,
     });
 
     expect((await db.select().from(presence)).map((r) => r.userId)).toEqual([b.userId]);
@@ -184,10 +197,14 @@ describe('runJanitor', () => {
       'new-event-0000000001',
     ]);
     expect((await db.select().from(usageCounters)).map((r) => r.day)).toEqual(['2026-09-21']);
+    expect((await db.select().from(rateCounters)).map((r) => r.expiresAt)).toEqual([at(1)]);
     expect((await db.select().from(aiUsage)).map((r) => r.day)).toEqual(['2026-06-30']);
     expect((await db.select().from(aiGlobalDaily)).map((r) => r.day)).toEqual(['2026-06-30']);
     expect((await db.select().from(dailyStats)).map((r) => r.day)).toEqual(['2024-09-27']);
     expect(await readMeta(db, 'janitor_last_run')).toBe(NOW.toISOString());
+    const names = await db.select({ id: user.id, name: user.name }).from(user);
+    expect(names.find((u) => u.id === a.userId)?.name).toBe('');
+    expect(names.find((u) => u.id === 'no-profile-user')?.name).toBe('Luis');
     // Live sessions stay.
     expect(await db.select().from(session).where(eq(session.id, a.sessionId))).toHaveLength(1);
   });

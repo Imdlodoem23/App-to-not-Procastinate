@@ -5,7 +5,7 @@
  * database small and personal data short-lived.
  */
 import { addDays } from '@centrate/shared/cloud-api';
-import { and, isNotNull, lt, lte, or, sql } from 'drizzle-orm';
+import { and, isNotNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { META_KEYS } from '../db/meta';
 import {
@@ -18,8 +18,11 @@ import {
   meta,
   partnerLinks,
   presence,
+  profiles,
+  rateCounters,
   session,
   usageCounters,
+  user,
   verification,
 } from '../db/schema';
 
@@ -46,9 +49,11 @@ export type JanitorReport = Record<
   | 'partnerApprovalOff'
   | 'accountabilityEvents'
   | 'usageCounters'
+  | 'rateCounters'
   | 'aiUsage'
   | 'aiGlobalDaily'
-  | 'dailyStats',
+  | 'dailyStats'
+  | 'userNames',
   number
 >;
 
@@ -129,6 +134,12 @@ export async function runJanitor(db: Db, now: Date): Promise<JanitorReport | nul
           .where(lt(usageCounters.day, addDays(today, -RETENTION.usageCountersDays)))
           .returning({ k: usageCounters.key }),
       ),
+      rateCounters: await n(
+        tx
+          .delete(rateCounters)
+          .where(lte(rateCounters.expiresAt, now))
+          .returning({ k: rateCounters.key }),
+      ),
       aiUsage: await n(
         tx
           .delete(aiUsage)
@@ -146,6 +157,20 @@ export async function runJanitor(db: Db, now: Date): Promise<JanitorReport | nul
           .delete(dailyStats)
           .where(lt(dailyStats.day, addDays(today, -RETENTION.dailyStatsDays)))
           .returning({ k: dailyStats.day }),
+      ),
+      // `ensureProfile` clears `user.name` once the display name is seeded; this catches an
+      // account whose sign-up hook stopped in between.
+      userNames: await n(
+        tx
+          .update(user)
+          .set({ name: '' })
+          .where(
+            and(
+              ne(user.name, ''),
+              sql`EXISTS (SELECT 1 FROM ${profiles} WHERE ${profiles.userId} = ${user.id})`,
+            ),
+          )
+          .returning({ k: user.id }),
       ),
     };
     await tx

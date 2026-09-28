@@ -4,7 +4,14 @@ import { fakeDisplay, fakeDisplaySource } from '../../../src/main/windows/fake-d
 import { windowLayout } from '../../../src/main/windows/geometry';
 import { DISPLAY_PRESETS, layoutForDisplay } from '../../../src/shared/fixtures';
 
-const LAUNCH = { display: null, fakeWorkArea: null, theme: null, lang: null, show: false };
+const LAUNCH = {
+  display: null,
+  fakeWorkArea: null,
+  theme: null,
+  lang: null,
+  show: false,
+  neutralServiceIcons: false,
+};
 
 describe('harness resolution', () => {
   it('uses the fixture and its display by default', () => {

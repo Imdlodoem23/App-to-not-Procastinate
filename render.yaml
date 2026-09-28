@@ -86,6 +86,7 @@ services:
   # (GET /health lists what is on). PENDIENTE_PARA_MI.md says where each key comes from.
   # Free plan: the service sleeps after 15 min idle (a cold start takes about a minute) and the
   # free database expires; the app treats this API as optional (timeouts, offline outbox).
+  # A replaced database loses every account: users connect again and the app re-uploads.
   - type: web
     runtime: node
     name: centrate-api
@@ -114,7 +115,8 @@ services:
         value: production
       - key: ELECTRON_SKIP_BINARY_DOWNLOAD
         value: '1'
-      # Render's proxy is one hop: the rate limits see the client, not the proxy.
+      # Render's proxy is one hop: the rate limits see the client, not the proxy. Check it once
+      # after the first deploy (docs/API.md §12: LOG_LEVEL=debug shows xffEntries).
       - key: TRUST_PROXY_HOPS
         value: '1'
       - key: DATABASE_URL
@@ -142,6 +144,9 @@ services:
         sync: false
       - key: EMAIL_FROM
         sync: false
+      # Global cap on sign-in code emails per UTC day, below the Resend plan's daily quota.
+      - key: SIGNIN_EMAILS_PER_DAY
+        value: '50'
       # Coach (Claude API). The key lives only here, never in the app.
       - key: ANTHROPIC_API_KEY
         sync: false
@@ -153,7 +158,9 @@ services:
 
 databases:
   # Free Postgres: 1 GB, one per workspace, expires 30 days after creation (then a grace
-  # period). When it is recreated the app re-uploads its stats; friends and partners are lost.
+  # period). When it is recreated everything in it is lost (accounts, devices, sharing choices,
+  # stats, friends, partners): users connect again, re-confirm their sharing choices and the
+  # app re-uploads its stats from its own history (docs/API.md §7).
   - name: centrate-db
     plan: free
     region: frankfurt

@@ -162,10 +162,14 @@ export class CameraObserver implements Observer {
     const inputActive =
       typeof idle === 'number' && Number.isFinite(idle) && idle >= 0 && idle < c.inputActiveMs;
 
-    // Detector evidence
+    // Detector evidence. The pose comes first: a phone only counts as in use when it moves,
+    // the user looks down at it or holds it at the face, or the face is out of view.
     const cameraOk = input.camera === 'ok';
     const frame = cameraOk ? input.frame : null;
-    this.evidence.record(frame, thresholds);
+    const seenFace = frame && !frame.luma?.covered ? frame.face : null;
+    const rel = seenFace ? classifier.relativePose(seenFace) : null;
+    const lookingDown = seenFace ? isLookingDown(seenFace, rel) : false;
+    this.evidence.record(frame, thresholds, lookingDown);
     this.evidence.update(now);
 
     // Presence
@@ -178,9 +182,8 @@ export class CameraObserver implements Observer {
     else presence = 'absent';
     this.presence = presence;
 
-    const face = presence === 'visible' ? (frame?.face ?? null) : null;
-    const rel = face ? classifier.relativePose(face) : null;
-    const lookingDown = face ? isLookingDown(face, rel) : false;
+    // `visible` means a frame with a face that is not covered: exactly `seenFace`.
+    const face = presence === 'visible' ? seenFace : null;
     const phone = this.evidence.phone;
     const evidence: ObservationEvidence = {
       phone,
@@ -210,7 +213,7 @@ export class CameraObserver implements Observer {
 
     // Classifier learning (baseline, drift) only while working.
     if (work) {
-      const hint = { inputActive, distraction: distractionApp, phone };
+      const hint = { inputActive, distraction: distractionApp, phone, idleMs: idle ?? null };
       classifier.observe(frame, hint);
       if (this.fallback && this.fallback !== classifier) this.fallback.observe(frame, hint);
     }

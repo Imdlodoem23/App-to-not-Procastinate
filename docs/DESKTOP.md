@@ -1,4 +1,9 @@
-# Céntrate desktop: architecture (Phase 1)
+# Céntrate desktop: architecture (Phase 1 + Phase 5 contract)
+
+Sections 1–14 describe Phase 1 (the blocking core). **Section 15 is the Phase 5 contract**
+(statistics, rewards, achievements, schedules, exam whitelist, Pomodoro, sounds, reminders,
+mini timer, OSD, Nuclear overlay, updater, onboarding, active window): its channels, state,
+fixtures and owners. Where they disagree, §15 wins.
 
 The engineering contract of `apps/desktop`. The product brief is `PROMPT.md` (§4, §5 «App de
 escritorio», §7, §9 and, above all, §10, which is the design brief and wins over anything
@@ -13,15 +18,18 @@ and they change only through the lead:
 | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
 | `apps/desktop/src/shared/ipc.ts`                                                     | IPC channels, payloads, `CentrateBridge`, handler table types          |
 | `apps/desktop/src/shared/ui-state.ts`                                                | `UiState` model, defaults, timings, canonical selectors, draft helpers |
-| `apps/desktop/src/shared/features.ts`                                                | Feature flags (all off in Phase 1)                                     |
+| `apps/desktop/src/shared/features.ts`                                                | Feature flags (Phase 5: all on except `study`)                         |
 | `apps/desktop/src/shared/fixtures.ts`                                                | Every harness state, display presets, guardian payload builders        |
 | `apps/desktop/src/shared/format.ts`                                                  | Numbers, clock, countdown, remaining time, target labels               |
-| `apps/desktop/src/shared/i18n/es.ts`                                                 | Strings shared by main and renderers                                   |
+| `apps/desktop/src/shared/i18n/{es,en}.ts`                                            | Strings shared by main and renderers                                   |
+| `apps/desktop/src/shared/{prefs,stats,platform}.ts`                                  | Phase 5 prefs (validators), statistics shapes, platform state (§15)    |
+| `apps/desktop/src/shared/ipc-payloads.ts`, `phase5-stubs.ts`                         | Phase 5 payload validators; stub handlers until PLATFORM lands (§15.6) |
 | `apps/desktop/src/main/contracts.ts`                                                 | `Core`, `CoreHost`, `WindowHost`, `HarnessApi`, harness args           |
 | `apps/desktop/src/preload/index.ts`, `index.d.ts`                                    | The generic bridge (`window.centrate`)                                 |
 | `apps/desktop/vitest.config.ts`, `tsconfig.*.json`, `types/`, `package.json` scripts | Test and typecheck plumbing                                            |
 
-The contract's own tests are `apps/desktop/test/shared/*.test.ts`.
+The contract's own tests are `apps/desktop/test/shared/*.test.ts` (plus the shared payload
+examples `test/shared/phase5-payloads.ts`).
 
 ---
 
@@ -969,9 +977,11 @@ on every show.
 - The idle icon is monochrome: light and dark variants on Windows, chosen by
   `nativeTheme.shouldUseDarkColorsForSystemIntegratedUI`; a template image on macOS.
 - Colored icons also come in light and dark variants, using the theme's accent.
-- `scripts/gen-tray-icons.mjs` draws them from our own SVG glyph (never G-Helper's) with
-  colors from `tokens.ts`, into `resources/assets/tray/`. That folder is already packaged as
-  `<resources>/assets`. Unpackaged, it resolves from `app.getAppPath()`.
+- `scripts/gen-tray-icons.mjs` draws them from the brand masters (never G-Helper's glyph,
+  docs/brand.md): idle is `assets/brand/icon-mono.svg`, the other keys are a disc in the
+  accent with the mark of `assets/brand/icon.svg` cut out. Colors come from `tokens.ts`; the
+  files go to `resources/assets/tray/`, which is already packaged as `<resources>/assets`.
+  Unpackaged, it resolves from `app.getAppPath()`. CI runs it with `--check`.
 
 **Tooltip.** Refreshed once per minute and on every publish, only when the text changed:
 
@@ -1007,8 +1017,10 @@ single timer, set to the next ceiling-minute flip.
 
 ## 9. Feature flags (`src/shared/features.ts`)
 
-`study`, `stats`, `rewards`, `achievements`, `miniTimer`, `osd` and `onboarding` are all
-`false` in Phase 1.
+`study`, `stats`, `rewards`, `achievements`, `miniTimer`, `osd`, `onboarding`, `pomodoro`,
+`sounds`, `reminders` and `updater`. Phase 1 shipped them all `false` (`PHASE1_FEATURES`);
+**Phase 5 ships every one `true` except `study`** (another wave integrates
+`packages/study-ai`). The list below is what «every flag off» still means.
 
 - Flags travel in `snapshot.features`. Code reads `featureEnabled(snapshot.features, name,
 snapshot.health?.capabilities ?? null)`. `study` and `rewards` also need their guardian
@@ -1062,8 +1074,8 @@ render the main window too.
 | `ajustes-pairing`    | ajustes    | Code «482913» at 32 px                                                     | `idle`       |
 | `ajustes-delete`     | ajustes    | «BORRAR» typed                                                             | `idle`       |
 
-Study, onboarding, mini timer, OSD and Nuclear states join with their flags. `blocked.html`
-belongs to the extension owner.
+Phase 5 states (onboarding, mini timer, OSD, Nuclear, the new windows…) are listed in §15.5;
+Study Mode states join with the study flag. `blocked.html` belongs to the extension owner.
 
 **Electron harness.** Honoured only when `!app.isPackaged`:
 
@@ -1216,3 +1228,198 @@ from memory. Invokes answer from `fixture.fake`; writes just log.
   brief mentions. Phase 1 chips use the monogram.
 - **Extension owner.** The guide URLs for `extension-chromium`, `extension-firefox` and
   `extension-incognito` (the web or GitHub pages `app:open-guide` opens).
+
+---
+
+## 15. Phase 5 contract
+
+Everything the Phase 5 builders compile against. The lead owns every file named in the table
+at the top of this document; builders never edit them (a change they need goes in their
+report). Brief: PROMPT §5 («Mini temporizador», «Ventana activa»), §7 (rewards, achievements,
+mascot), §9 and §10 (Estadísticas, Recompensas, Logros, Ajustes, OSD, mini timer, Nuclear,
+onboarding). Guardian endpoints: ARCHITECTURE §8.7–8.8.
+
+Principles that do not change: main owns every timer that matters and every piece of state;
+renderers draw one `UiState`; fallible invokes answer `CommandResult` and never throw; flags
+hide, never grey out; colors only from tokens; every string in both `i18n/es.ts` and
+`i18n/en.ts` of its area.
+
+### 15.1 Ownership
+
+| Owner        | Paths (only these)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **PLATFORM** | `src/main/{activewin,updater,reminders,shortcuts}/**`, `src/main/windows/{mini-timer,osd,nuclear}*.ts` and their registration (`app/bootstrap.ts`, `windows/shell.ts` registry + `windowOf`/`initPayload`, `app/harness.ts` `openSurface` and surface `load`, the Phase 5 entries of `windows/ipc-window.ts`), new handlers in `ipc-handlers.ts` and `guardian/core.ts` (override the stubs), `src/main/guardian/**` (MockGuardian rewards and Nuclear heartbeat, fake guardian seed), `src/main/db/stats*.ts`; **lead additions**: `src/main/tray/**` for the «Mini temporizador» checkbox and the OSD after tray actions, onboarding centring in `windows/geometry.ts` + `shell.ts`, `src/main/app/shortcuts.ts` | `PlatformServices` (`contracts.ts`), every Phase 5 invoke handler, the send channels, `Core.patchSnapshot` publishers (`progress`, `updater` + `app.updateVersion`, `activeWindow`, `shortcuts`, `osd`, `nuclear`), stats from the events DB (schema v2 tables), CSV save dialog, `sounds:load` from `resources/sounds/`, koffi FFI for the active window, electron-updater, Nuclear heartbeat every 3 s. Tests: `test/main/{activewin,updater,reminders,shortcuts,platform,db}/**` |
+| **STATS**    | `src/renderer/src/windows/estadisticas/**`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | «Día \| Semana \| Mes», bars (Recharts, lazy, one color, baseline only), GitHub heatmap in green, top targets, best hours, event log with filters, «Exportar CSV», text summary beside each chart, empty state. Tests: `test/renderer/estadisticas/**`                                                                                                                                                                                                                              |
+| **REWARDS**  | `src/renderer/src/windows/{recompensas,logros}/**`, `src/renderer/src/sections/progreso/**`, `src/renderer/src/components/mascot/**`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Shop rows with in-place «¿Seguro?» (armed id `redeem:<offerId>`), «Te faltan 40 puntos», the mascot in large; Logros 4-column grid (help line = how to get it); Progreso header mascot from `snapshot.progress` and its three 40 px doors (fit + mnemonics). Tests: `test/renderer/{recompensas,logros,progreso}/**` and the Progreso cases of `test/renderer/core/views.test.ts`                                                                                                   |
+| **PLANNER**  | `src/renderer/src/windows/bloqueos/**`, `src/renderer/src/features/{pomodoro,sounds}/**`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Schedules create / edit / delete / toggle (guards `schedule_in_progress`, `schedule_starting_soon`), exam mode and its whitelist (`settings:put` of `studyWhitelist`, pending additions shown with `effectiveAt`), Pomodoro presets and the custom one, the sound player (`MainWindowFeature`). Tests: `test/renderer/{windows,features}/**` for its files                                                                                                                          |
+| **SETUP**    | `src/renderer/src/windows/{ajustes,onboarding}/**`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Ajustes complete (General: idioma, tema, arranque, objetivo diario, sonidos, avisos grandes, atajo global; Bloqueo: modo, penalizaciones, cerrar navegadores; Sistema: guardián, extensión, ventana activa, actualizaciones, diagnóstico; Datos: exportar, borrar) with pending weakening changes; onboarding's 5 steps. Tests: `test/renderer/{ajustes,onboarding}/**`                                                                                                             |
+| **SURFACES** | `src/renderer/src/windows/{mini-timer,osd,nuclear}/**`; **lead addition**: `src/renderer/src/sections/footer/**`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Mini timer 180×44 (service icon, time at 20 px, drag region), OSD pill (black 60 %, 28 px/600, radius 8), Nuclear (theme bg, 72 px countdown, «Castigo · vuelves a las 18:40», one «Salida de emergencia»); footer «Mini temporizador» → `mini-timer:toggle`, «Actualizar a vX» → updater. Tests: `test/renderer/surfaces/**`, footer cases of `views.test.ts`                                                                                                                      |
+
+- e2e: each owner adds its own `e2e/<area>.spec.ts`; `e2e/support/**` and the matrix specs
+  stay HARNESS's (report what you need). Surface fixtures open no detail window
+  (`fixture.detailRequest === null`); their own window joins the matrix once PLATFORM
+  implements `harness.openSurface`.
+- Strings: a new area gets `i18n/es.ts` + `i18n/en.ts` exporting `X_ES` / `X_EN` (English
+  typed `Widen<typeof X_ES>`); `test/shared/i18n-parity.test.ts` finds every `i18n/` folder by
+  itself and checks key parity. Detail-window titles for the three new views are already in
+  `src/main/windows/i18n` and `src/renderer/src/i18n`.
+- Lead glue already done in other owners' files (so builders never touch shared shells):
+  `renderer/src/app/{slots,route,Root,MainWindow,SurfaceWindow,memory-bridge}`, `store/{context,reducers}.ts`,
+  `windows/bloqueos/index.tsx` (focus `exam`), `main/{ipc-guards,db/prefs-store,guardian/core,app/harness}.ts`,
+  `main/windows/{ipc-window,send-guards,i18n/*}.ts`, the e2e window selection and the tests
+  whose exhaustive tables list channels or states.
+
+### 15.2 Renderer entry points (`src/renderer/src/app/slots.ts`)
+
+| Module                                                | Export                                        | Mounted by                                                                                         |
+| ----------------------------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `windows/{estadisticas,recompensas,logros}/index.tsx` | default component, no props                   | the detail window (lazy, prefetched), like Phase 1 views                                           |
+| `windows/{mini-timer,osd,nuclear}/index.tsx`          | default component, no props                   | `SurfaceWindow` for `?window=mini-timer\|osd\|nuclear` (the whole window, lazy)                    |
+| `windows/onboarding/index.tsx`                        | default component, no props                   | the main window, **in place of its sections** while `onboardingActive(snapshot)`; the footer stays |
+| `features/<name>/index.ts(x)`                         | `MainWindowFeature` (renders nothing visible) | the main window, once (sound player, Pomodoro clock); every window loads the module                |
+
+A missing module renders a stand-in (or nothing), so parallel work never breaks the build.
+The detail view's own readiness probe runs after it (`ReadyProbe`); surfaces report
+`window:ready` the same way (PLATFORM routes it to its windows).
+
+### 15.3 IPC (Phase 5 channels in `src/shared/ipc.ts`)
+
+Invoke (all `CommandResult`; validators in `src/shared/ipc-payloads.ts`, spread into
+`src/main/ipc-guards.ts`):
+
+| Channel                                  | Request → result                                                   | Guardian / source                              | Callers                  |
+| ---------------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------- | ------------------------ |
+| `schedules:create`                       | `{intentId, input: ScheduleInput}` → `Schedule`                    | POST /v1/schedules (I)                         | PLANNER                  |
+| `schedules:update`                       | `{id, input}` → `Schedule`                                         | PUT /v1/schedules/{id}                         | PLANNER                  |
+| `schedules:delete`                       | `{id}` → `null`                                                    | DELETE /v1/schedules/{id}                      | PLANNER                  |
+| (`schedules:set-enabled`)                | Phase 1 toggle, unchanged                                          | PUT                                            | PLANNER                  |
+| `settings:get`                           | `null` → `SettingsResponse` (`settings` + `pending`)               | GET /v1/settings                               | SETUP, PLANNER           |
+| `settings:put`                           | `{settings: GuardianSettings}` (full) → `SettingsResponse`         | PUT /v1/settings (weakening → `pending`, 24 h) | SETUP, PLANNER           |
+| `rewards:list`                           | `null` → `RewardsResponse`                                         | GET /v1/rewards                                | REWARDS                  |
+| `rewards:redeem`                         | `{intentId, offerId}` → `RedeemRewardResponse`                     | POST /v1/rewards/redeem (I)                    | REWARDS                  |
+| `points:summary`                         | `null` → `PointsSummary`                                           | GET /v1/points                                 | REWARDS                  |
+| `achievements:list`                      | `null` → `AchievementStatus[]`                                     | local event log                                | REWARDS                  |
+| `stats:overview`                         | `StatsQuery {range, anchor}` → `StatsOverview`                     | local event log                                | STATS                    |
+| `stats:heatmap`                          | `{end, weeks ≤ 53}` → `StatsHeatmap`                               | local event log                                | STATS                    |
+| `stats:events`                           | `{filter, before, limit ≤ 200}` → `EventLogPage`                   | local event log                                | STATS                    |
+| `stats:export-csv`                       | `{kind: 'events' \| 'days'}` → `CsvExportResult` (file name only)  | save dialog in main                            | STATS, SETUP             |
+| `system:processes`                       | `null` → `RunningProcess[]` (`{name, appId}`)                      | OS                                             | PLANNER                  |
+| `activewin:request-permission`           | `null` → `{outcome}`                                               | macOS Screen Recording                         | SETUP                    |
+| `updater:check` / `download` / `install` | `null` → `UpdaterState`                                            | electron-updater                               | SETUP, SURFACES (footer) |
+| `sounds:load`                            | `{sound: SoundId}` → `{bytes: Uint8Array, mime}`                   | `resources/sounds/` (`SOUND_FILES`)            | PLANNER                  |
+| `onboarding:install-guardian`            | `null` → `{outcome: InstallOutcome}`                               | same path as «Reparar»                         | SETUP                    |
+| `onboarding:test-camera`                 | `null` → `{outcome: 'unavailable'}` (placeholder until Study Mode) | —                                              | SETUP                    |
+
+Send (validators `PHASE5_SEND_GUARDS`, spread into `windows/send-guards.ts`; PLATFORM handles):
+`mini-timer:toggle {visible: boolean | null}` (null toggles), `mini-timer:position {position:
+{x,y} | null}` (null = default corner; drags persist in main from `moved`), `osd:show
+OsdRequest {text ≤ 80, icon, tone}` (shown only when «Avisos grandes» is on), and
+`nuclear:emergency-exit null` (open Emergencia above the overlay).
+
+Push: **no new channel.** Everything new travels in the snapshot, so fixtures can set it.
+`DetailRequest` gains `{name: 'estadisticas', range}`, `{name: 'recompensas'}`, `{name:
+'logros', focus}` and Bloqueos `focus: 'exam'` (`defaultDetailRequest(name)` builds a door's
+request).
+
+Windows: `WindowKind` stays `main | detail` (the shell's); `SurfaceKind = mini-timer | osd |
+nuclear`; `UiWindow` (their union) is what `app:init`, `RenderEnv.window`, `IpcContext` and
+`WindowHost` use.
+
+### 15.4 State
+
+**`UiSnapshot` additions** (`platform.ts`, initial values from `initialPlatformState()`; main
+publishes them with `Core.patchSnapshot(patch)`, which bumps `rev` only on a real change):
+
+| Field          | Type                                                    | Shown by                                                                     |
+| -------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `progress`     | `{mascot, achieved, total, fresh} \| null`              | Progreso icon, Logros door datum                                             |
+| `updater`      | `UpdaterState` (+ `app.updateVersion`)                  | footer, Ajustes › Sistema                                                    |
+| `activeWindow` | `{status, lastMatch}`                                   | Ajustes › Sistema (permission row)                                           |
+| `shortcuts`    | `{failed: ShortcutAction[]}`                            | Ajustes › General                                                            |
+| `osd`          | `OsdMessage \| null` (cleared after `UI_TIMINGS.osdMs`) | the OSD window                                                               |
+| `nuclear`      | `{overlay, displays, lastHeartbeatAt}`                  | the Nuclear window (with `nuclearPunishment` / `nuclearEndsAt` from `state`) |
+
+**`UiPrefs` additions** (`prefs.ts`, `FeaturePrefs`; `prefs:set` patches merge nested objects;
+`prefs-store` sanitizes field by field): `osd`, `sounds {ambient, volume, autoplay}`,
+`reminders {schedules, leadMinutes, eyeBreaks}`, `shortcuts {toggle-main, extend-15,
+toggle-mini-timer}` (Electron accelerators, `isAccelerator`), `miniTimer {visible, position}`,
+`pomodoro {workMinutes, breakMinutes, cycles}`, `onboarding {done, step}`. Onboarding
+navigation, «Omitir» and «Terminar» are `prefs:set { onboarding }`; step 5 writes «no veo
+YouTube en 25 minutos» into `main.composer` itself (same renderer).
+
+**Local state additions** (fixture-settable): `main.onboarding {pairing, installing}`;
+`detail.estadisticas {range, anchor, eventFilter, exported}`; `detail.recompensas
+{redeemed}`; `detail.bloqueos.schedule {id, input, error} | null` and `detail.bloqueos.exam
+{domainInput, processInput}`; `detail.ajustes.capturing` (shortcut being recorded).
+
+**Selectors**: `snapshotFeature`, `onboardingActive`, `onboardingStepNumber`,
+`onboardingStepStatus`, `nuclearPunishment`, `nuclearEndsAt`; helpers `applyUiPrefsPatch`,
+`clonePrefs`, stats `statsPeriod`, `shiftAnchor`, `heatmapLevel`, `bestHours`, `csvLine`.
+
+### 15.5 Harness states (Phase 5)
+
+`fixture.fake` gains `rewards`; the new `fixture.local` (`FakeLocalData`) holds what the app
+answers from its own data: `stats {overview per range, heatmap (53 weeks), events}`,
+`achievements`, `processes`, `updateCheck`, `installGuardian`.
+
+| Id                     | Window       | What it shows                                                                                                    |
+| ---------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `stats-empty`          | estadisticas | First run: every period empty, heatmap all 0                                                                     |
+| `stats-week`           | estadisticas | Week of 21–27 Sep (`anchor`), bars, top targets, best hours, 12-row log                                          |
+| `rewards`              | recompensas  | 1.240 points, YouTube/Instagram offers available, the rest «not blocked»                                         |
+| `rewards-short-points` | recompensas  | 110 points: «Te faltan 40 puntos» (help on `youtube-15`)                                                         |
+| `logros`               | logros       | 3 of 8 reached; help line on `streak-30` («12 de 30»)                                                            |
+| `onboarding-1` … `-5`  | main         | Welcome; guardian «No instalado»; extension with code 482913; camera placeholder; «no veo YouTube en 25 minutos» |
+| `mini-timer`           | mini-timer   | One block (42:10), prefs visible at (1720, 24)                                                                   |
+| `osd`                  | osd          | «+15 min · hasta las 17:57» (waiting +15 in the queue)                                                           |
+| `nuclear`              | nuclear      | Nuclear punishment until 18:40, overlay shown                                                                    |
+| `ajustes-full`         | ajustes      | Pending «objetivo 45 min» and «penalizaciones off»; update 0.2.0 available; `extend-15` refused                  |
+| `schedules`            | bloqueos     | `focus: 'schedules'`, new schedule «L–V 16:00–19:00 · Redes sociales» open                                       |
+| `exam-whitelist`       | bloqueos     | `focus: 'exam'`, extras + pending addition `geogebra.org`                                                        |
+| `update-available`     | main         | Footer «Actualizar a v0.2.0» (updater `ready`)                                                                   |
+
+Every other fixture has `prefs.onboarding.done = true`. `expect.warning` stays what section 1
+would say (the onboarding hides the sections: `onboarding-2` is `'guardian'`).
+
+### 15.6 Stubs until PLATFORM lands
+
+`phase5InvokeStubs(currentFixture, now)` (`src/shared/phase5-stubs.ts`) is spread first in the
+core's handler table and in the browser harness: with a harness fixture it answers reads
+from `fixture.fake` / `fixture.local` and simulates writes (nothing persists); in a real run
+every channel answers `internal / not_implemented / 501` (the renderer shows `errorCopy`'s
+«Algo ha fallado en el guardián» with «Detalles»), except the camera test (`unavailable`).
+`sounds:load` is `not_implemented` everywhere until PLATFORM reads the files. The send
+channels are ignored (`phase5SendStubs`). `harness.openSurface` rejects until PLATFORM
+registers the surface windows. PLATFORM overrides channel by channel by adding real entries
+after the spread in `guardian/core.ts`; harness mode keeps answering stats, achievements,
+processes and updater from `fixture.local` (guardian-backed channels should go through the
+`FakeGuardianClient`, seeded from `fixture.fake`).
+
+### 15.7 Rules and gotchas
+
+- Real runs start with `prefs.onboarding.done = false`: the onboarding shows until finished or
+  skipped (also for users upgrading from Phase 1). e2e runs without a harness state (the wire
+  spec) must write a `prefs.json` with `onboarding.done: true` or go through «Omitir» once
+  SETUP's module exists.
+- `settings:put` always sends the **full** settings (read with `settings:get` first); weakening
+  changes come back in `pending` with an `effectiveAt` estimate; setting the effective value
+  again cancels one. Punishment changes apply at once.
+- Rewards: never redeemable during Hardcore, Examen, punishments, Study Mode or a pending
+  emergency (`lockReason`); custom domains never. The guardian re-checks everything.
+- Stats never expose raw event data (reasons, tasks stay in main); the CSV path never crosses
+  IPC.
+- The OSD and the Nuclear overlay never take focus; the mini timer uses
+  `-webkit-app-region: drag` and main persists `moved`.
+- Brand assets: mascot (`assets/mascot/index.ts`: `mascotStyle(stage, size)`), achievement
+  badges (`assets/achievements/index.ts`: `achievementBadgeStyle(id, achieved)`), sounds
+  (`resources/sounds/*.wav`, `SOUND_FILES`), app icons (`build/`) are in place; paint the SVGs
+  through the CSS mask helpers, never `<img>`.
+
+### 15.8 State at hand-off
+
+- Green: typecheck (node, web, e2e), ESLint, `lint:tokens`, 1 046 vitest tests, build.
+- e2e: with the flags on, every main-window fixture reports two clipped labels
+  («Recompensas…» by 3 px in the Progreso doors, «Mini temporizador» by 12 px in the footer)
+  and the three doors without `aria-keyshortcuts` (keyboard audit, selfcheck). REWARDS
+  (doors) and SURFACES (footer) fix them. The right/bottom inset checks at 125 % and 150 %
+  fail by 1 DIP in this container at `HEAD` too (not a Phase 5 change).

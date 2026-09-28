@@ -22,6 +22,8 @@ export interface WindowFactoryOptions {
   backgroundColor: string;
   /** Harness state for `?state=` (the browser harness reads it; Electron uses `app:init`). */
   harnessStateId: string | null;
+  /** Harness only: `?neutral-service-icons=1` (services draw monograms, never favicons). */
+  neutralServiceIcons: boolean;
 }
 
 function baseOptions(options: WindowFactoryOptions): BrowserWindowConstructorOptions {
@@ -72,9 +74,9 @@ export function createShellWindow(kind: WindowKind, options: WindowFactoryOption
 export function loadRenderer(
   win: BrowserWindow,
   kind: WindowKind,
-  options: Pick<WindowFactoryOptions, 'renderer' | 'harnessStateId'>,
+  options: Pick<WindowFactoryOptions, 'renderer' | 'harnessStateId' | 'neutralServiceIcons'>,
 ): Promise<void> {
-  const query = rendererQuery(kind, options.harnessStateId);
+  const query = rendererQuery(kind, options.harnessStateId, options.neutralServiceIcons);
   return options.renderer.kind === 'dev'
     ? win.loadURL(rendererUrl(options.renderer, query))
     : win.loadFile(options.renderer.path, { query });

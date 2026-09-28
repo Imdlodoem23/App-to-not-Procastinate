@@ -1,13 +1,18 @@
 /**
  * Database failures surface as 503 database_unavailable (also when Drizzle wraps the driver
- * error), and error logs never carry a failed query's parameters.
+ * error, and for node-postgres connection errors that carry no code), and error logs never
+ * carry a failed query's parameters.
  */
 import { Writable } from 'node:stream';
-import { describe, expect, it } from 'vitest';
+import pg from 'pg';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app';
+import { connectPostgres } from '../src/db/client';
 import type { Db } from '../src/db/client';
 import { isDatabaseUnavailable } from '../src/lib/errors';
-import { testConfig } from './helpers/app';
+import { buildTestApp, testConfig } from './helpers/app';
+import { closedPortUrl, startBlackhole } from './helpers/blackhole';
+import type { Blackhole } from './helpers/blackhole';
 
 function queryError(code: string | undefined): Error {
   const driver = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), { code });
@@ -28,6 +33,82 @@ describe('isDatabaseUnavailable', () => {
     expect(isDatabaseUnavailable(queryError('23505'))).toBe(false);
     expect(isDatabaseUnavailable(new Error('x'))).toBe(false);
     expect(isDatabaseUnavailable(null)).toBe(false);
+  });
+});
+
+describe('real node-postgres connection errors', () => {
+  let hole: Blackhole;
+  beforeAll(async () => {
+    hole = await startBlackhole();
+  });
+  afterAll(async () => {
+    await hole.close();
+  });
+
+  const settle = async (work: Promise<unknown>): Promise<unknown> =>
+    work.then(
+      () => {
+        throw new Error('expected a failure');
+      },
+      (err: unknown) => err,
+    );
+
+  it('recognises a connect that hangs and a pool with no free connection', async () => {
+    const pool = new pg.Pool({ connectionString: hole.url, connectionTimeoutMillis: 200, max: 1 });
+    pool.on('error', () => {});
+    const [hung, queued] = await Promise.all([
+      settle(pool.query('select 1')),
+      settle(pool.query('select 1')),
+    ]);
+    await pool.end();
+    expect((hung as Error).message).toBe('Connection terminated due to connection timeout');
+    expect((queued as Error).message).toBe('timeout exceeded when trying to connect');
+    for (const err of [hung, queued]) {
+      expect((err as { code?: unknown }).code).toBeUndefined();
+      expect(isDatabaseUnavailable(err)).toBe(true);
+      // Wrapped the way Drizzle wraps driver errors.
+      expect(isDatabaseUnavailable(new Error('Failed query: select 1', { cause: err }))).toBe(true);
+    }
+
+    const client = new pg.Client({ connectionString: hole.url, connectionTimeoutMillis: 200 });
+    client.on('error', () => {});
+    const direct = await settle(client.connect());
+    expect((direct as Error).message).toBe('timeout expired');
+    expect(isDatabaseUnavailable(direct)).toBe(true);
+  });
+
+  it('recognises a refused connection and the unreachable-network codes', async () => {
+    const pool = new pg.Pool({ connectionString: await closedPortUrl(), max: 1 });
+    pool.on('error', () => {});
+    const refused = await settle(pool.query('select 1'));
+    await pool.end();
+    expect((refused as { code?: unknown }).code).toBe('ECONNREFUSED');
+    expect(isDatabaseUnavailable(refused)).toBe(true);
+    for (const code of ['ENETUNREACH', 'EHOSTUNREACH', 'EPIPE', '53300', '57014', '57P02']) {
+      expect(isDatabaseUnavailable({ code }), code).toBe(true);
+    }
+    for (const message of ['Query read timeout', 'Connection terminated unexpectedly']) {
+      expect(isDatabaseUnavailable(new Error(message)), message).toBe(true);
+    }
+    // Messages only count on errors without a code, and only node-postgres' own.
+    expect(
+      isDatabaseUnavailable(Object.assign(new Error('timeout expired'), { code: '42P01' })),
+    ).toBe(false);
+    expect(isDatabaseUnavailable(new Error('Connection refused by the mail provider'))).toBe(false);
+  });
+
+  it('answers 503 database_unavailable when the pool cannot connect at runtime', async () => {
+    const handle = connectPostgres(hole.url, { connectionTimeoutMillis: 200 });
+    const app = await buildTestApp({ db: handle.db, resolveSession: undefined });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/me',
+      headers: { authorization: 'Bearer made-up-token-made-up-token-0000' },
+    });
+    await app.close();
+    await handle.close();
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error.code).toBe('database_unavailable');
   });
 });
 

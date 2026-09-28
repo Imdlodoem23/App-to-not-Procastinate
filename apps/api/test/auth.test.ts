@@ -1,11 +1,13 @@
 /**
- * better-auth end to end through app.inject: email-code sign-in, cookies and bearer tokens on
- * the real session resolver, the CSRF rule for cookie writes, sign-out and revocation.
+ * better-auth end to end through app.inject: email-code sign-in and its limits, Google sign-in
+ * and account linking (Google's token endpoint stubbed), cookies and bearer tokens on the real
+ * session resolver, the CSRF rule for cookie writes, sign-out and revocation.
  */
-import type { MeResponse } from '@centrate/shared/cloud-api';
+import type { HealthResponse, MeResponse } from '@centrate/shared/cloud-api';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { session, user } from '../src/db/schema';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { normalizeMailbox } from '../src/auth/email-limits';
+import { account, profiles, rateCounters, session, user } from '../src/db/schema';
 import { fakeClock, testConfig } from './helpers/app';
 import type { FakeClock } from './helpers/app';
 import { buildCoreApp, sessionCookie, TEST_ORIGIN } from './helpers/core';
@@ -34,12 +36,17 @@ beforeEach(async () => {
 
 const json = { 'content-type': 'application/json', origin: TEST_ORIGIN };
 
-async function requestCode(email: string, headers: Record<string, string> = json) {
+async function requestCode(
+  email: string,
+  headers: Record<string, string> = json,
+  remoteAddress?: string,
+) {
   return core.app.inject({
     method: 'POST',
     url: '/api/auth/email-otp/send-verification-otp',
     headers,
     payload: { email, type: 'sign-in' },
+    ...(remoteAddress ? { remoteAddress } : {}),
   });
 }
 
@@ -113,7 +120,8 @@ describe('email code sign-in', () => {
     expect(res.statusCode).toBe(200);
     const [u] = await t.db.select().from(user).where(eq(user.email, 'eva@example.com'));
     expect(u?.image).toBeNull();
-    expect(u?.name).toBe('Eva');
+    // The first name moved to the display name; `user.name` keeps no copy of it.
+    expect(u?.name).toBe('');
     const rows = await t.db
       .select()
       .from(session)
@@ -161,6 +169,254 @@ describe('email code sign-in', () => {
     expect(res.json().error.code).toBe('rate_limited');
     expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
     expect(core.mailer.sent).toHaveLength(3);
+  });
+});
+
+describe('sign-in email limits', () => {
+  // The counters use the app clock; better-auth only stamps the code with the real one.
+  beforeEach(() => {
+    clock.set('2026-09-28T01:00:00.000Z');
+  });
+
+  it('normalises mailboxes: case, +tags and Gmail dots', () => {
+    expect(normalizeMailbox(' Ana.Lopez+centrate@GMail.com ')).toBe('analopez@gmail.com');
+    expect(normalizeMailbox('ana.lopez@googlemail.com')).toBe('analopez@gmail.com');
+    expect(normalizeMailbox('ana.lopez+x@example.com')).toBe('ana.lopez@example.com');
+    expect(normalizeMailbox('+tag@example.com')).toBe('+tag@example.com');
+  });
+
+  it('counts +tag and dot variants of one mailbox together, and stores no address', async () => {
+    const variants = [
+      'ana.lopez+1@gmail.com',
+      'analopez+2@googlemail.com',
+      'AnaLopez@gmail.com',
+      'a.n.a.lopez+x@gmail.com',
+    ];
+    const statuses = [];
+    for (const [i, email] of variants.entries()) {
+      statuses.push((await requestCode(email, json, `198.51.100.${i + 1}`)).statusCode);
+    }
+    expect(statuses).toEqual([200, 200, 200, 429]);
+    expect(core.mailer.sent).toHaveLength(3);
+    const rows = await t.db.select().from(rateCounters);
+    expect(JSON.stringify(rows)).not.toMatch(/lopez|gmail/i);
+  });
+
+  it('keeps the counts in Postgres across a restart', async () => {
+    for (let i = 0; i < 3; i += 1) {
+      expect((await requestCode('ana@example.com', json, `198.51.100.${i + 1}`)).statusCode).toBe(
+        200,
+      );
+    }
+    await core.app.close();
+    core = await buildCoreApp(t.db, clock);
+    expect((await requestCode('ana@example.com', json, '198.51.100.9')).statusCode).toBe(429);
+  });
+
+  it('allows at most 10 codes per mailbox per UTC day', async () => {
+    let sent = 0;
+    for (let hour = 0; hour < 4; hour += 1) {
+      for (let i = 0; i < 3; i += 1) {
+        const res = await requestCode('ana@example.com', json, `198.51.${hour}.${i + 1}`);
+        if (res.statusCode === 200) sent += 1;
+      }
+      clock.advance(3_600_000);
+    }
+    expect(sent).toBe(10);
+    clock.set('2026-09-29T01:00:00.000Z');
+    expect((await requestCode('ana@example.com', json, '198.51.9.9')).statusCode).toBe(200);
+  });
+
+  it('stops every sign-in email past SIGNIN_EMAILS_PER_DAY, and health says so', async () => {
+    await core.app.close();
+    core = await buildCoreApp(t.db, clock, testConfig({ SIGNIN_EMAILS_PER_DAY: '2' }));
+    expect((await requestCode('a@example.com', json, '198.51.100.1')).statusCode).toBe(200);
+    expect((await requestCode('b@example.com', json, '198.51.100.2')).statusCode).toBe(200);
+    const res = await requestCode('c@example.com', json, '198.51.100.3');
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error).toMatchObject({
+      code: 'feature_disabled',
+      feature: 'emailLogin',
+      reason: 'budget',
+    });
+    expect(core.mailer.sent.map((m) => m.to)).toEqual(['a@example.com', 'b@example.com']);
+    const health = (
+      await core.app.inject({ method: 'GET', url: '/health' })
+    ).json<HealthResponse>();
+    expect(health.capabilities.emailLogin).toEqual({ enabled: false, reason: 'budget' });
+    expect(health.capabilities.googleLogin.enabled).toBe(true);
+
+    // A new UTC day starts over.
+    clock.set('2026-09-29T00:00:01.000Z');
+    expect((await requestCode('c@example.com', json, '198.51.100.4')).statusCode).toBe(200);
+  });
+
+  it('limits codes per IPv6 /64, not per address inside it', async () => {
+    const statuses = [];
+    for (let i = 1; i <= 6; i += 1) {
+      statuses.push(
+        (await requestCode(`user${i}@example.com`, json, `2001:db8:1:2::${i.toString(16)}`))
+          .statusCode,
+      );
+    }
+    expect(statuses).toEqual([200, 200, 200, 200, 200, 429]);
+    const other = await requestCode('user7@example.com', json, '2001:db8:1:3::1');
+    expect(other.statusCode).toBe(200);
+  });
+
+  it('refuses malformed addresses before counting them', async () => {
+    const res = await requestCode('not-an-address');
+    expect(res.statusCode).toBe(400);
+    expect(await t.db.select().from(rateCounters)).toHaveLength(0);
+  });
+});
+
+/** A JWT with Google's claims; the callback only decodes it (it came straight from Google). */
+function unsignedIdToken(claims: Record<string, unknown>): string {
+  const part = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  const iat = Math.floor(Date.now() / 1000);
+  return [
+    part({ alg: 'RS256', typ: 'JWT', kid: 'test-key' }),
+    part({
+      iss: 'https://accounts.google.com',
+      aud: 'test-google-id',
+      iat,
+      exp: iat + 3600,
+      ...claims,
+    }),
+    'c2lnbmF0dXJl',
+  ].join('.');
+}
+
+interface GoogleClaims {
+  sub: string;
+  email: string;
+  email_verified: boolean;
+  name?: string;
+}
+
+/** Runs the Google sign-in: start, then the callback with Google's token endpoint stubbed. */
+async function googleSignIn(claims: GoogleClaims) {
+  const start = await core.app.inject({
+    method: 'POST',
+    url: '/api/auth/sign-in/social',
+    headers: json,
+    payload: {
+      provider: 'google',
+      callbackURL: '/cuenta',
+      errorCallbackURL: '/cuenta?error=google',
+    },
+  });
+  expect(start.statusCode).toBe(200);
+  const state = new URL(start.json<{ url: string }>().url).searchParams.get('state') ?? '';
+  const cookie = [start.headers['set-cookie'] ?? []]
+    .flat()
+    .map((c) => String(c).split(';')[0])
+    .join('; ');
+  const realFetch = globalThis.fetch;
+  const tokenRequests: string[] = [];
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const target = input instanceof Request ? input.url : String(input);
+    if (target.startsWith('https://oauth2.googleapis.com/token')) {
+      tokenRequests.push(target);
+      return new Response(
+        JSON.stringify({
+          access_token: 'google-access-token',
+          token_type: 'Bearer',
+          expires_in: 3600,
+          scope: 'openid email profile',
+          id_token: unsignedIdToken({ ...claims }),
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return realFetch(input, init);
+  });
+  try {
+    const res = await core.app.inject({
+      method: 'GET',
+      url: `/api/auth/callback/google?code=test-code&state=${encodeURIComponent(state)}`,
+      headers: { cookie },
+    });
+    expect(tokenRequests).toHaveLength(1);
+    const setCookie = [res.headers['set-cookie'] ?? []].flat().join('\n');
+    return { res, location: String(res.headers.location ?? ''), setCookie };
+  } finally {
+    vi.unstubAllGlobals();
+  }
+}
+
+describe('Google sign-in and account linking', () => {
+  it('creates an account from a verified Google identity, keeping only the first name', async () => {
+    const { location, setCookie } = await googleSignIn({
+      sub: 'google-sub-new-0001',
+      email: 'Nora@Example.com',
+      email_verified: true,
+      name: 'Nora García Pérez',
+    });
+    expect(location).toBe('/cuenta');
+    expect(setCookie).toMatch(/centrate\.session_token=/);
+    const [u] = await t.db.select().from(user).where(eq(user.email, 'nora@example.com'));
+    expect(u?.name).toBe('');
+    expect(u?.image).toBeNull();
+    const [p] = await t.db
+      .select()
+      .from(profiles)
+      .where(eq(profiles.userId, u?.id ?? ''));
+    expect(p?.displayName).toBe('Nora');
+    const [a] = await t.db
+      .select()
+      .from(account)
+      .where(eq(account.userId, u?.id ?? ''));
+    expect(a).toMatchObject({ providerId: 'google', accessToken: null, idToken: null });
+  });
+
+  it('never links an unverified Google address to an existing account', async () => {
+    const { token } = await signIn('ana@example.com');
+    const [ana] = await t.db.select().from(user).where(eq(user.email, 'ana@example.com'));
+    expect(ana?.emailVerified).toBe(true);
+
+    const { location, setCookie } = await googleSignIn({
+      sub: 'google-sub-attacker-01',
+      email: 'ana@example.com',
+      email_verified: false,
+      name: 'Mallory',
+    });
+    expect(location).toMatch(/^\/cuenta\?error=google&error=account_not_linked$/);
+    expect(setCookie).not.toMatch(/centrate\.session_token=[^;]/);
+    expect(await t.db.select().from(account)).toHaveLength(0);
+    const sessions = await t.db
+      .select()
+      .from(session)
+      .where(eq(session.userId, ana?.id ?? ''));
+    expect(sessions.map((s) => s.token)).toEqual([token]);
+  });
+
+  it('links a verified Google address to the existing account with that email', async () => {
+    await signIn('ana@example.com');
+    const [ana] = await t.db.select().from(user).where(eq(user.email, 'ana@example.com'));
+    const { location, setCookie } = await googleSignIn({
+      sub: 'google-sub-ana-000001',
+      email: 'ana@example.com',
+      email_verified: true,
+    });
+    expect(location).toBe('/cuenta');
+    const match = setCookie.match(/centrate\.session_token=([^;]+)/);
+    expect(match?.[1]).toBeTruthy();
+    const me = await core.app.inject({
+      method: 'GET',
+      url: '/v1/me',
+      headers: { cookie: `centrate.session_token=${match?.[1] ?? ''}` },
+    });
+    expect(me.json<MeResponse>().user.id).toBe(ana?.id);
+    const links = await t.db.select().from(account);
+    expect(links).toEqual([
+      expect.objectContaining({
+        userId: ana?.id,
+        providerId: 'google',
+        accountId: 'google-sub-ana-000001',
+      }),
+    ]);
   });
 });
 

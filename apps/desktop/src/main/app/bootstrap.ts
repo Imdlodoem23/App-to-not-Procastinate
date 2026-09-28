@@ -140,6 +140,7 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
     renderer,
     log: appLog('windows'),
     harnessStateId: resolved?.fixture.id ?? null,
+    neutralServiceIcons: launch.harness?.neutralServiceIcons ?? false,
     isQuitting: () => quitting,
     onSessionEnd: () => {
       quitting = true;

@@ -102,6 +102,8 @@ export interface CreateUserOptions {
   timeZone?: string;
   dailyGoalMinutes?: number | null;
   sharing?: Partial<CloudSharing>;
+  /** When the ranking was turned on (only with `sharing.ranking`). Defaults to `now`. */
+  rankingSince?: Date;
   /** Session creation time (fresh-session checks). Defaults to `now`. */
   sessionCreatedAt?: Date;
   now?: Date;
@@ -125,6 +127,7 @@ export async function createTestUser(db: Db, options: CreateUserOptions = {}): P
     sharePresence: s.presence ?? false,
     partnerEmails: s.partnerEmails ?? false,
     coachEnabled: s.coach ?? false,
+    rankingSince: s.ranking ? (options.rankingSince ?? now) : null,
   });
   const sessionId = randomUUID();
   const token = randomBytes(24).toString('base64url');

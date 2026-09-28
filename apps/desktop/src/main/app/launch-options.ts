@@ -12,6 +12,9 @@
  *   area in DIP instead of a preset's (capture scripts).
  * - `--harness-theme=light|dark`, `--harness-show` (or `CENTRATE_HARNESS_SHOW=1`).
  * - `--harness-lang=es|en` (or `CENTRATE_HARNESS_LANG`): the fake OS language.
+ * - `--harness-neutral-service-icons` (or `CENTRATE_HARNESS_NEUTRAL_ICONS=1`): every service
+ *   draws its catalog monogram, never a favicon (marketing captures, PROMPT §11 «Legal»);
+ *   renderers load with `?neutral-service-icons=1` (@centrate/shared/service-icon).
  * - `CENTRATE_USER_DATA`, `CENTRATE_DATA_DIR`: isolated userData and guardian sys dir.
  */
 import type { ThemeName } from '@centrate/shared/design/tokens';
@@ -22,6 +25,7 @@ import { isLocale, type Locale } from '../../shared/i18n/locale';
 export const HIDDEN_ARG = '--hidden';
 export const HARNESS_FLAG = '--harness';
 export const HARNESS_WORKAREA_ARG = '--harness-workarea';
+export const HARNESS_NEUTRAL_ICONS_ARG = '--harness-neutral-service-icons';
 
 export const LAUNCH_ENV = Object.freeze({
   harness: 'CENTRATE_HARNESS',
@@ -29,6 +33,7 @@ export const LAUNCH_ENV = Object.freeze({
   harnessDisplay: 'CENTRATE_HARNESS_DISPLAY',
   harnessShow: 'CENTRATE_HARNESS_SHOW',
   harnessLang: 'CENTRATE_HARNESS_LANG',
+  harnessNeutralIcons: 'CENTRATE_HARNESS_NEUTRAL_ICONS',
   fakeWorkArea: 'CENTRATE_FAKE_WORKAREA',
 });
 
@@ -48,6 +53,8 @@ export interface HarnessLaunch {
   lang: Locale | null;
   /** Start with the main window shown (screenshots). */
   show: boolean;
+  /** Services draw their monogram, never a favicon (marketing captures). */
+  neutralServiceIcons: boolean;
 }
 
 export interface LaunchOptions {
@@ -158,10 +165,12 @@ export function parseLaunchOptions(input: {
   }
 
   const show = hasFlag(argv, HARNESS_ARGS.show) || truthy(env[LAUNCH_ENV.harnessShow]);
+  const neutralServiceIcons =
+    hasFlag(argv, HARNESS_NEUTRAL_ICONS_ARG) || truthy(env[LAUNCH_ENV.harnessNeutralIcons]);
 
   return {
     hidden,
-    harness: { stateId, display, fakeWorkArea, theme, lang, show },
+    harness: { stateId, display, fakeWorkArea, theme, lang, show, neutralServiceIcons },
     userDataDir,
     sysDir,
     problems,

@@ -1,7 +1,7 @@
 /** Detector evidence persistence (DESIGN.md §7.2). */
 import { describe, expect, it } from 'vitest';
-import { DetectorEvidence, phoneInHandOn } from '../../src/score/evidence';
-import type { FrameFeatures } from '../../src/types';
+import { DetectorEvidence, phoneInHandOn, phoneInUseOn } from '../../src/score/evidence';
+import type { FaceFeatures, FrameFeatures } from '../../src/types';
 
 interface RunSpec {
   phone?: { score: number; nearFace?: boolean; moving?: boolean; stillMs?: number } | null;
@@ -57,6 +57,67 @@ describe('phone in hand on one run', () => {
       phoneInHandOn(run(0, { phone: { score: 0.8, nearFace: false, moving: true } }), 0.5),
     ).toBe(true);
     expect(phoneInHandOn(run(0, { phone: { score: 0.8, stillMs: 20_000 } }), 0.5)).toBe(false);
+  });
+});
+
+describe('phone in use on one run', () => {
+  const FACE: FaceFeatures = {
+    pose: { yaw: 0, pitch: -5, roll: 0 },
+    box: { cx: 0.5, cy: 0.4, w: 0.22, h: 0.3 },
+    truncated: 0,
+    blink: 0.1,
+    lookDown: 0.1,
+    lookUp: 0.05,
+    gazeX: 0,
+    jawOpen: 0.02,
+    jitter: 0.005,
+    faces: 1,
+  };
+  const withFace = (frame: FrameFeatures, box = { cx: 0.62, cy: 0.8, w: 0.07, h: 0.13 }) => {
+    const phone = frame.objects?.phone;
+    return {
+      ...frame,
+      face: FACE,
+      objects: frame.objects && phone ? { ...frame.objects, phone: { ...phone, box } } : null,
+    };
+  };
+
+  it('a still phone near a user looking at the screen is not in use (a timer on a stand)', () => {
+    const still = withFace(run(0, PHONE));
+    expect(phoneInHandOn(still, 0.5)).toBe(true);
+    expect(phoneInUseOn(still, 0.5, false)).toBe(false);
+  });
+
+  it('in use when it moves, the user looks down, it is at the face, or the face is hidden', () => {
+    expect(phoneInUseOn(withFace(run(0, PHONE)), 0.5, true)).toBe(true);
+    expect(
+      phoneInUseOn(withFace(run(0, { phone: { score: 0.8, moving: true } })), 0.5, false),
+    ).toBe(true);
+    const atEar = withFace(run(0, PHONE), { cx: 0.62, cy: 0.4, w: 0.06, h: 0.12 });
+    expect(phoneInUseOn(atEar, 0.5, false)).toBe(true);
+    expect(phoneInUseOn(run(0, PHONE), 0.5, false)).toBe(true); // face out of view
+    const covered = { ...withFace(run(0, PHONE)), luma: { covered: true } } as FrameFeatures;
+    expect(phoneInUseOn(covered, 0.5, false)).toBe(true);
+  });
+
+  it('never without the phone in hand', () => {
+    const resting = withFace(run(0, { phone: { score: 0.8, stillMs: 20_000 } }));
+    expect(phoneInUseOn(resting, 0.5, true)).toBe(false);
+    expect(phoneInUseOn(withFace(run(0, { phone: { score: 0.4 } })), 0.5, true)).toBe(false);
+  });
+
+  it('E_phone stays off for a still phone while the user looks at the screen', () => {
+    const ev = new DetectorEvidence();
+    for (let t = 0; t < 10_000; t += 1_000) {
+      ev.record(withFace(run(t, PHONE)), TH, false);
+      ev.update(t);
+    }
+    expect(ev.phone).toBe(false);
+    for (let t = 10_000; t < 13_000; t += 1_000) {
+      ev.record(withFace(run(t, PHONE)), TH, true);
+      ev.update(t);
+    }
+    expect(ev.phone).toBe(true);
   });
 });
 

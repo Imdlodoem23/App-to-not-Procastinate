@@ -14,9 +14,11 @@
  * `window.onerror` and `unhandledrejection` go to main's log (`app:renderer-error`).
  */
 import { createRoot } from 'react-dom/client';
+import { NEUTRAL_SERVICE_ICONS_ATTR } from '@centrate/shared/service-icon';
 import './index.css';
 import type { CentrateBridge } from '../../shared/ipc';
 import { FatalMessage } from './app/ErrorBoundary';
+import { NEUTRAL_SERVICE_ICONS } from './components/ServiceIcon';
 import { installErrorReporting, reportError } from './app/errors';
 import { bufferPushes, createPushHandlers } from './app/push';
 import { Root } from './app/Root';
@@ -57,6 +59,8 @@ async function boot(container: HTMLElement): Promise<void> {
   const route = parseRoute(window.location.search);
   const html = document.documentElement;
   html.dataset['window'] = route.window;
+  // Marketing captures: every service draws its monogram (ServiceIcon); the guard checks this.
+  if (NEUTRAL_SERVICE_ICONS) html.setAttribute(NEUTRAL_SERVICE_ICONS_ATTR, '');
 
   const bridge = await resolveBridge(route);
   if (!bridge) {

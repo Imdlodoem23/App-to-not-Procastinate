@@ -15,6 +15,7 @@ import {
   type SendHandlers,
   type SendPayload,
 } from '../../shared/ipc';
+import { phase5SendStubs } from '../../shared/phase5-stubs';
 import type { AppLog } from '../app/log';
 import { logRendererError } from '../logs/logger';
 import { SEND_GUARDS } from './send-guards';
@@ -36,9 +37,16 @@ export function createSendHandlers(options: WindowIpcOptions): SendHandlers {
       if (ctx.window === 'main') shell.applyLayout(report);
     },
     'window:show-ack': (payload, ctx) => {
-      shell.handleShowAck(payload.seq, payload.layout, ctx.window);
+      if (ctx.window === 'main' || ctx.window === 'detail') {
+        shell.handleShowAck(payload.seq, payload.layout, ctx.window);
+      }
     },
-    'window:ready': (payload, ctx) => shell.markReady(ctx.window, payload.stateId),
+    // Phase 5 surfaces report readiness to PLATFORM's windows (not registered yet).
+    'window:ready': (payload, ctx) => {
+      if (ctx.window === 'main' || ctx.window === 'detail') {
+        shell.markReady(ctx.window, payload.stateId);
+      }
+    },
     'window:hide': (_payload, ctx) => {
       if (ctx.window === 'main') shell.hideAll();
       else shell.closeDetail();
@@ -56,6 +64,8 @@ export function createSendHandlers(options: WindowIpcOptions): SendHandlers {
     'app:quit': () => options.quit(),
     // MAIN-GUARDIAN's app log keeps only the first line and frames, scrubbed.
     'app:renderer-error': ({ message, stack }) => logRendererError(message, stack),
+    // Phase 5 (docs/DESKTOP.md §15): PLATFORM routes these to `PlatformServices.sendHandlers`.
+    ...phase5SendStubs(),
   };
 }
 

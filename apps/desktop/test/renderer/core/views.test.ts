@@ -144,7 +144,8 @@ describe('section 4 «Progreso»', () => {
         met: false,
         aria: 'Objetivo de hoy: 42 de 60 minutos concentrado',
       },
-      doors: [],
+      // Phase 5 turned the stats, rewards and achievements flags on.
+      doors: ['stats', 'rewards', 'achievements'],
     });
   });
 
@@ -209,7 +210,8 @@ describe('section 5 «Pie»', () => {
       guardian: { tone: 'green', label: 'Guardián activo', action: null },
       extension: { tone: 'green', label: 'Extensión conectada' },
       version: { label: 'v0.1.0', update: false },
-      buttons: ['settings', 'quit'],
+      // Phase 5 turned the miniTimer flag on.
+      buttons: ['miniTimer', 'settings', 'quit'],
     });
   });
 

@@ -104,6 +104,10 @@ jobs:
         shell: bash
         working-directory: apps/desktop
         run: npx electron-builder ${{ matrix.builder }} --publish never
+      - name: Verify bundled sounds and models
+        shell: bash
+        working-directory: apps/desktop
+        run: node scripts/check-packaged-resources.mjs release
       - name: Verify macOS signature
         if: runner.os == 'macOS'
         shell: bash

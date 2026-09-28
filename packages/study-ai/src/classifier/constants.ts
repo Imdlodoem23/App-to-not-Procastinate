@@ -159,11 +159,22 @@ export const THEIL_SEN_MAX_POINTS = 200;
 export const THEIL_SEN_MIN_DX = 0.5;
 export const BLINK_SLOPE_LIMIT = 0.02;
 
+/**
+ * Generic eye model (DESIGN.md §6.9). The generic classifier judges the eyes online from
+ * the session's calm frames with the profile's glare rule; its intercept follows their
+ * median. Until it has 20 values the eyes are unknown and drowsiness is off.
+ */
 export const GENERIC_EYES: Readonly<EyeModel> = Object.freeze({
   reliable: true,
   blinkFit: Object.freeze([0.15, -0.004] as const),
   closedDelta: 0.45,
 });
+export const GENERIC_EYES_UNKNOWN: Readonly<EyeModel> = Object.freeze({
+  ...GENERIC_EYES,
+  reliable: false,
+});
+/** A normal distribution's IQR is 1.349 sd (robust sd = IQR / 1.349). */
+export const IQR_PER_SD = 1.349;
 
 // ---------------------------------------------------------------------------------------
 // Personal classifier runtime (§6.5)
@@ -183,11 +194,42 @@ export const OBSERVE_MAX_DT_MS = 1_000;
 // Generic classifier (§6.9)
 // ---------------------------------------------------------------------------------------
 
+/** The opening baseline is the median of the first 20 s of face frames (per level). */
 export const GENERIC_BASELINE_MS = 20_000;
 export const GENERIC_READY_MS = 3_000;
-/** Samples kept per baseline buffer (20 s at 4 fps is 80). */
+/** Samples kept per opening-baseline buffer (20 s at 4 fps is 80). */
 export const GENERIC_MAX_SAMPLES = 400;
 export const GENERIC_NEUTRAL_SCREEN = 0.8;
+/**
+ * A calm frame faces a screen: the eyes are not looking down and the head is not pitched
+ * down (absolute pitch, as DECISION's looking-down rule without a baseline). Writing or
+ * reading right after the click on «Empezar» therefore never becomes the screen pose.
+ */
+export const GENERIC_CALM_MAX_LOOK_DOWN = 0.45;
+export const GENERIC_CALM_MIN_PITCH = -20;
+/**
+ * Study directions (one per screen): at most this many at once, the opening baseline
+ * included. The least recently looked-at one makes room for a new one.
+ */
+export const GENERIC_MAX_DIRECTIONS = 3;
+/** Input is fresh under this idle time: the user is at the keyboard or mouse right now. */
+export const GENERIC_FRESH_INPUT_MS = 2_000;
+/** A new direction counts after this much calm face time with fresh input… */
+export const GENERIC_DIRECTION_CONFIRM_MS = 3_000;
+/** …without a gap longer than this between its samples (otherwise it starts over). */
+export const GENERIC_CANDIDATE_GAP_MS = 5_000;
+/** Unconfirmed candidate directions kept at once. */
+export const GENERIC_MAX_CANDIDATES = 2;
+/**
+ * Angular radius (degrees, yaw/pitch) of a direction: samples this close feed it, and two
+ * directions whose centres get this close merge. Two screens 30° apart stay apart.
+ */
+export const GENERIC_DIRECTION_RADIUS = 12;
+/** Samples per direction: its centre is a rolling median of the last 20 s at 4 fps. */
+export const GENERIC_DIRECTION_SAMPLES = 80;
+/** Blink values kept for the online eye model, and how many it needs to judge the eyes. */
+export const GENERIC_EYE_SAMPLES = 240;
+export const GENERIC_EYE_MIN_SAMPLES = 20;
 /** pStudy = exp(−(max(0,|dyaw|−10)/30)⁴ − (max(0,dpitch−15)/15)⁴). */
 export const GENERIC_YAW_FREE = 10;
 export const GENERIC_YAW_SCALE = 30;

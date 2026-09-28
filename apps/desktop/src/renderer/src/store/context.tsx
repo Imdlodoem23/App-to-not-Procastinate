@@ -5,7 +5,7 @@ import { createContext, useContext, type ReactNode } from 'react';
 import { useStore } from 'zustand';
 import type { StoreApi } from 'zustand/vanilla';
 import type { CentrateBridge } from '../../../shared/ipc';
-import type { ArmedState, HelpFocus, UiSnapshot, WindowKind } from '../../../shared/ui-state';
+import type { ArmedState, HelpFocus, UiSnapshot, UiWindow } from '../../../shared/ui-state';
 import type { AppStore } from './store';
 
 const StoreContext = createContext<StoreApi<AppStore> | null>(null);
@@ -36,7 +36,7 @@ export function useSnapshot(): UiSnapshot {
   return useAppStore((s) => s.snapshot);
 }
 
-export function useWindowKind(): WindowKind {
+export function useWindowKind(): UiWindow {
   return useAppStore((s) => s.env.window);
 }
 

@@ -104,6 +104,32 @@ describe('with a database', () => {
     expect(log).not.toContain('secret-person');
     expect(log).not.toContain('ABCDE');
     expect(log).not.toContain('203.0.113.9');
+    expect(log).not.toContain('xffEntries');
+    await app.close();
+  });
+
+  it('at debug level counts X-Forwarded-For entries (to check TRUST_PROXY_HOPS), never the IPs', async () => {
+    const lines: string[] = [];
+    const stream = new Writable({
+      write(chunk, _enc, done) {
+        lines.push(String(chunk));
+        done();
+      },
+    });
+    const app = await buildTestApp({
+      db: t.db,
+      config: testConfig({ LOG_LEVEL: 'debug' }),
+      logger: { stream },
+    });
+    await app.inject({
+      method: 'GET',
+      url: '/health',
+      headers: { 'x-forwarded-for': '198.51.100.7, 203.0.113.9' },
+    });
+    await app.inject({ method: 'GET', url: '/health' });
+    const requests = lines.filter((l) => l.includes('"msg":"request"'));
+    expect(requests.map((l) => JSON.parse(l).xffEntries)).toEqual([2, 0]);
+    expect(lines.join('\n')).not.toMatch(/198\.51\.100\.7|203\.0\.113\.9/);
     await app.close();
   });
 });

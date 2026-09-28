@@ -155,9 +155,12 @@ async function capture(
   preset: DisplayPresetId,
 ): Promise<CaptureEntry> {
   await app.harness.load(fixture.id, { display: preset, theme, ...(LANG ? { lang: LANG } : {}) });
-  const kinds: WindowKind[] = fixture.window === 'main' ? ['main'] : ['detail', 'main'];
+  // Surface fixtures (mini timer, OSD, Nuclear) open no detail window; their own window joins
+  // the capture once PLATFORM registers it (`harness.openSurface`).
+  const hasDetail = fixture.detailRequest !== null;
+  const kinds: WindowKind[] = hasDetail ? ['detail', 'main'] : ['main'];
   let settled = (await settleWindow(app, 'main')).settled;
-  if (fixture.window !== 'main') {
+  if (hasDetail) {
     await expect.poll(async () => (await app.harness.bounds()).detail?.visible).toBe(true);
     settled = (await settleWindow(app, 'detail')).settled && settled;
   }
@@ -165,7 +168,7 @@ async function capture(
   const shots: CaptureShot[] = [];
   for (const kind of kinds) {
     const page = await app.page(kind);
-    const primary = kind === (fixture.window === 'main' ? 'main' : 'detail');
+    const primary = kind === (hasDetail ? 'detail' : 'main');
     shots.push(await shoot(page, primary ? `${base}.png` : `${base}.main.png`, kind));
   }
   const main = await app.page('main');

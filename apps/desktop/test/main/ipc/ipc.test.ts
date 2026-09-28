@@ -19,6 +19,7 @@ import { dispatchInvoke, registerIpcHandlers } from '../../../src/main/ipc-handl
 import { harnessFixture } from '../../../src/shared/fixtures';
 import { INVOKE_CHANNELS, type InitPayload } from '../../../src/shared/ipc';
 import { fail, ok, uiError } from '../../../src/shared/ui-state';
+import { PHASE5_VALID_INVOKE } from '../../shared/phase5-payloads';
 
 const BLOCK = 'blk_fixture0000000001';
 const EMG = 'emg_fixture0000000001';
@@ -65,6 +66,7 @@ const VALID: Record<string, unknown> = {
   'data:delete': { intentId: 'i-4', confirm: 'BORRAR' },
   'guardian:repair': null,
   'system:process-names': null,
+  ...PHASE5_VALID_INVOKE,
 };
 
 const INVALID: Record<string, unknown[]> = {
@@ -147,6 +149,7 @@ function fakeCore(): Core & { seen: Array<[string, unknown]> } {
     start: () => undefined,
     visibilityChanged: () => undefined,
     refreshNow: () => undefined,
+    patchSnapshot: () => undefined,
     shutdown: async () => undefined,
     harness: null,
   };

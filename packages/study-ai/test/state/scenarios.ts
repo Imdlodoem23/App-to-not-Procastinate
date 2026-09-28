@@ -88,6 +88,8 @@ export const STUDY_SCRIPTS: Readonly<Record<string, Script>> = Object.freeze({
     ['coffeeSip', 10_000],
   ]),
   phoneOnDesk: [['phoneOnDesk', 20 * MIN]],
+  /** Upright on a stand in front of the chest, a Pomodoro timer the detector is sure of. */
+  phoneOnStand: [['phoneOnStand', 20 * MIN]],
   stretch: repeat(6, [
     ['screen', 3 * MIN],
     ['stretch', 20_000],

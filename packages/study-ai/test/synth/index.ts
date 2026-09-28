@@ -23,6 +23,7 @@ import type {
   PhoneDetection,
   StudyPhase,
 } from '../../src/types';
+import { PhoneTracker } from '../../src/perception/objects';
 import { clamp, clamp01 } from '../../src/util/math';
 import { gaussian, mulberry32, uniform, type Rng } from '../../src/util/rng';
 
@@ -94,6 +95,7 @@ export const ACTIVITIES = [
   'readBook',
   'phoneInHand',
   'phoneOnDesk',
+  'phoneOnStand',
   'lookAway',
   'talkToSomeone',
   'stretch',
@@ -120,11 +122,21 @@ interface ObjectSpec {
   detectP: number;
 }
 
+/**
+ * Where the phone is: in the hand (in front of the chest, wobbling), lying on the desk, or
+ * upright on a stand in front of the user (a Pomodoro or Forest timer). `nearFace`, `moving`
+ * and `stillMs` come from PERCEPTION's real `PhoneTracker` on these boxes.
+ */
+type PhonePlace = 'hand' | 'desk' | 'stand';
+
 interface PhoneSpec extends ObjectSpec {
-  nearFace: boolean;
-  /** Probability the box moved since the previous run. */
-  movingP: number;
+  place: PhonePlace;
 }
+
+/** A phone lying on the desk at the side of the frame (32×19 px at 320×240). */
+export const DESK_PHONE_BOX: Box = Object.freeze({ cx: 0.8, cy: 0.9, w: 0.1, h: 0.08 });
+/** A phone upright on a stand, right in front of the user's chest (inside the «near» band). */
+export const STAND_PHONE_BOX: Box = Object.freeze({ cx: 0.66, cy: 0.78, w: 0.07, h: 0.13 });
 
 interface ActivitySpec {
   /** Offsets from the persona's screen pose (side = ±1, chosen per activity instance). */
@@ -206,12 +218,16 @@ const SPECS: Readonly<Record<Activity, ActivitySpec>> = {
     lookDown: 0.6,
     boxDy: 0.04,
     faceDrop: 0.1,
-    phone: { score: [0.5, 0.9], detectP: 0.7, nearFace: true, movingP: 0.4 },
+    phone: { score: [0.5, 0.9], detectP: 0.7, place: 'hand' },
     inputRate: 0,
   },
   phoneOnDesk: {
     ...SCREEN,
-    phone: { score: [0.45, 0.6], detectP: 0.5, nearFace: false, movingP: 0 },
+    phone: { score: [0.45, 0.6], detectP: 0.5, place: 'desk' },
+  },
+  phoneOnStand: {
+    ...SCREEN,
+    phone: { score: [0.7, 0.9], detectP: 0.8, place: 'stand' },
   },
   lookAway: {
     ...SCREEN,
@@ -267,6 +283,8 @@ export interface SynthOptions {
   jitterMs?: number;
   /** Default foreground (`study`). */
   foreground?: ForegroundClass;
+  /** Detector jitter on each edge of a phone box, in pixels (1). */
+  phoneJitterPx?: number;
 }
 
 export interface SynthTick {
@@ -293,22 +311,24 @@ function boxAround(face: Box, dx: number, dy: number, w: number, h: number): Box
   return { cx: clamp01(face.cx + dx), cy: clamp01(face.cy + dy), w, h };
 }
 
-function iou(a: Box, b: Box): number {
-  const ix = Math.max(
-    0,
-    Math.min(a.cx + a.w / 2, b.cx + b.w / 2) - Math.max(a.cx - a.w / 2, b.cx - b.w / 2),
-  );
-  const iy = Math.max(
-    0,
-    Math.min(a.cy + a.h / 2, b.cy + b.h / 2) - Math.max(a.cy - a.h / 2, b.cy - b.h / 2),
-  );
-  const inter = ix * iy;
-  const union = a.w * a.h + b.w * b.h - inter;
-  return union > 0 ? inter / union : 0;
-}
+/** The extractor uses the last face box for `nearFace` while it is ≤ 10 s old. */
+const FACE_MEMORY_MS = 10_000;
 
-/** PERCEPTION's phone tracker: `stillMs` grows while the box stays put (IoU ≥ 0.8). */
-const STILL_IOU = 0.8;
+/** `box` with Gaussian noise of `sd` pixels on each of its four edges, clipped to the frame. */
+function jitterBox(rng: Rng, box: Box, sd: number): Box {
+  const x0 = clamp((box.cx - box.w / 2) * FRAME_WIDTH + gaussian(rng, 0, sd), 0, FRAME_WIDTH);
+  const x1 = clamp((box.cx + box.w / 2) * FRAME_WIDTH + gaussian(rng, 0, sd), 0, FRAME_WIDTH);
+  const y0 = clamp((box.cy - box.h / 2) * FRAME_HEIGHT + gaussian(rng, 0, sd), 0, FRAME_HEIGHT);
+  const y1 = clamp((box.cy + box.h / 2) * FRAME_HEIGHT + gaussian(rng, 0, sd), 0, FRAME_HEIGHT);
+  const w = Math.max(1, x1 - x0);
+  const h = Math.max(1, y1 - y0);
+  return {
+    cx: (x0 + x1) / 2 / FRAME_WIDTH,
+    cy: (y0 + y1) / 2 / FRAME_HEIGHT,
+    w: w / FRAME_WIDTH,
+    h: h / FRAME_HEIGHT,
+  };
+}
 
 export function synthesize(script: Script, options: SynthOptions = {}): SynthTick[] {
   const persona = options.persona ?? PERSONAS.baseline;
@@ -317,6 +337,12 @@ export function synthesize(script: Script, options: SynthOptions = {}): SynthTic
   const objectEveryMs = options.objectEveryMs ?? 1_000;
   const lumaEveryMs = options.lumaEveryMs ?? 1_000;
   const jitterMs = options.jitterMs ?? 20;
+  const phoneJitterPx = options.phoneJitterPx ?? 1;
+  // Box jitter has its own stream, so the rest of a seeded script does not depend on it.
+  const boxRng = mulberry32(((options.seed ?? 1) ^ 0x5eed_b0c5) >>> 0);
+  const phones = new PhoneTracker();
+  let lastFaceBox: Box | null = null;
+  let lastFaceAt = Number.NEGATIVE_INFINITY;
   const interval = 1_000 / fps;
   const ticks: SynthTick[] = [];
 
@@ -326,8 +352,6 @@ export function synthesize(script: Script, options: SynthOptions = {}): SynthTic
   let nextLumaAt = t;
   let heldObjects: ObjectFeatures | null = null;
   let heldLuma: LumaFeatures | null = null;
-  let prevPhoneBox: Box | null = null;
-  let phoneStillMs = 0;
   let prevLumaMean = persona.lumaMean;
 
   for (const raw of script) {
@@ -370,7 +394,10 @@ export function synthesize(script: Script, options: SynthOptions = {}): SynthTic
           jitter: Math.abs(gaussian(rng, 0, persona.id === 'lowLight' ? 0.02 : 0.005)),
           faces: 1,
         };
+        lastFaceBox = box;
+        lastFaceAt = t;
       }
+      if (camera !== 'ok') phones.reset(); // the session resets vision after a camera restart
 
       // Object detector
       let objects: ObjectFeatures | null = null;
@@ -384,30 +411,25 @@ export function synthesize(script: Script, options: SynthOptions = {}): SynthTic
             ? {
                 score: [persona.deskPhoneScore - 0.15, persona.deskPhoneScore + 0.1],
                 detectP: 0.5,
-                nearFace: false,
-                movingP: 0,
+                place: 'desk',
               }
             : null);
+        const seen: ObjectDetection[] = [];
         if (phoneSpec && rng() < phoneSpec.detectP) {
-          const moving = rng() < phoneSpec.movingP;
-          const pbox: Box = phoneSpec.nearFace
-            ? boxAround(box, gaussian(rng, 0, 0.05), box.h * 0.9, 0.12, 0.18)
-            : prevPhoneBox && !moving
-              ? prevPhoneBox
-              : { cx: 0.8, cy: 0.9, w: 0.1, h: 0.08 };
-          phoneStillMs =
-            moving || !prevPhoneBox || iou(pbox, prevPhoneBox) < STILL_IOU
-              ? 0
-              : phoneStillMs + objectEveryMs;
-          prevPhoneBox = pbox;
-          phone = {
+          rng(); // (was the «moving» draw; kept so seeded scripts keep their other values)
+          const where: Box =
+            phoneSpec.place === 'hand'
+              ? boxAround(box, gaussian(rng, 0, 0.05), box.h * 0.9, 0.12, 0.18)
+              : phoneSpec.place === 'stand'
+                ? STAND_PHONE_BOX
+                : DESK_PHONE_BOX;
+          seen.push({
             score: range(rng, phoneSpec.score),
-            box: pbox,
-            nearFace: phoneSpec.nearFace,
-            moving,
-            stillMs: phoneStillMs,
-          };
+            box: jitterBox(boxRng, where, phoneJitterPx),
+          });
         }
+        const faceBox = t - lastFaceAt <= FACE_MEMORY_MS ? lastFaceBox : null;
+        phone = phones.update(seen, t, faceBox, FRAME_WIDTH, FRAME_HEIGHT);
         let book: ObjectDetection | null = null;
         if (spec.book && rng() < spec.book.detectP) {
           book = { score: range(rng, spec.book.score), box: boxAround(box, 0, 0.45, 0.35, 0.2) };

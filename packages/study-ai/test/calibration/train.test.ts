@@ -209,7 +209,8 @@ describe('weights', () => {
   });
 });
 
-describe('trust π and the report', () => {
+// Two full trainings (CV included): well under 5 s alone, slower beside 40 test workers.
+describe('trust π and the report', { timeout: 30_000 }, () => {
   /** A fake assembled set: rows with labels and out-of-fold argmax predictions. */
   function fake(pairs: readonly [truth: number, predicted: number][]): {
     assembled: Assembled;

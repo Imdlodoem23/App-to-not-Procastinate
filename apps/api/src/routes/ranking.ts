@@ -7,17 +7,21 @@
  *   Sunday in their own time zone.
  * - Per person and day, devices are summed and capped (focus ≤ 1440, study ≤ focus). Points
  *   are never shared.
+ * - Never retroactive: a friend's days count only from the day (in their zone) when the two
+ *   were friends and both had the ranking on, so neither a new friend nor someone who just
+ *   turned the ranking on sees earlier weeks. A friend with no such day in the week is left
+ *   out. The caller's own entry keeps its full history.
  */
 import type { IsoWeek, RankingEntry, RankingResponse } from '@centrate/shared/cloud-api';
 import { CLOUD_LIMITS, isoWeekOf, isoWeekRange, localDayIn } from '@centrate/shared/cloud-api';
 import { and, between, eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { dailyStats, profiles } from '../db/schema';
+import { dailyStats, friendships, profiles } from '../db/schema';
 import { validationFailed } from '../lib/errors';
 import { parseQuery, requireDb, requireFeature, requireUser } from '../lib/guards';
 import { getProfile, requireConsent, requireDisplayName } from '../lib/profile';
-import { friendIds } from '../social/people';
+import { notBlockedWith } from '../social/people';
 
 const QuerySchema = z
   .object({
@@ -35,6 +39,26 @@ interface Totals {
   studyMinutes: number;
   activeDays: number;
   goalDays: number;
+}
+
+/**
+ * The first of a friend's days the caller may see: the civil day, in the friend's zone, of
+ * the latest of «became friends», «friend turned the ranking on» and «caller turned it on».
+ * A missing start (never stored while the switch is on) counts as now.
+ */
+export function firstSharedDay(
+  friendTimeZone: string,
+  friendsSince: Date,
+  friendRankingSince: Date | null,
+  myRankingSince: Date | null,
+  now: Date,
+): string {
+  const start = Math.max(
+    friendsSince.getTime(),
+    (friendRankingSince ?? now).getTime(),
+    (myRankingSince ?? now).getTime(),
+  );
+  return localDayIn(friendTimeZone, new Date(start));
 }
 
 /** Orders by minutes, active days, name (Spanish collation), id; ranks 1, 2, 2, 4. */
@@ -70,30 +94,51 @@ export const rankingRoutes: FastifyPluginAsync = async (app) => {
       requireConsent(profile, 'ranking');
       const myName = requireDisplayName(profile);
 
-      const week: IsoWeek = query.week ?? isoWeekOf(localDayIn(profile.timeZone, ctx.now()));
+      const now = ctx.now();
+      const week: IsoWeek = query.week ?? isoWeekOf(localDayIn(profile.timeZone, now));
       const range = isoWeekRange(week);
       if (!range) {
         throw validationFailed([{ path: 'query.week', message: 'This year has no such week' }]);
       }
 
-      // Friends who share their ranking too (reciprocity), blocks excluded.
-      const friends = await friendIds(db, me.userId);
-      const people =
-        friends.length === 0
-          ? []
-          : await db
-              .select({
-                userId: profiles.userId,
-                displayName: profiles.displayName,
-                goal: profiles.dailyGoalMinutes,
-              })
-              .from(profiles)
-              .where(and(inArray(profiles.userId, friends), eq(profiles.shareRanking, true)));
-      const members = new Map<string, { displayName: string; goal: number | null }>([
-        [me.userId, { displayName: myName, goal: profile.dailyGoalMinutes }],
+      // Friends who share their ranking too (reciprocity), blocks excluded, each with the
+      // first day of theirs the caller may see. Friends whose shared time starts after this
+      // week were not in its ranking.
+      const friends = await db
+        .select({
+          userId: profiles.userId,
+          displayName: profiles.displayName,
+          goal: profiles.dailyGoalMinutes,
+          timeZone: profiles.timeZone,
+          rankingSince: profiles.rankingSince,
+          friendsSince: friendships.createdAt,
+        })
+        .from(friendships)
+        .innerJoin(profiles, eq(profiles.userId, friendships.friendId))
+        .where(
+          and(
+            eq(friendships.userId, me.userId),
+            eq(profiles.shareRanking, true),
+            notBlockedWith(me.userId, friendships.friendId),
+          ),
+        );
+      const members = new Map<
+        string,
+        { displayName: string; goal: number | null; firstDay: string }
+      >([
+        [me.userId, { displayName: myName, goal: profile.dailyGoalMinutes, firstDay: range.from }],
       ]);
-      for (const p of people) {
-        if (p.displayName) members.set(p.userId, { displayName: p.displayName, goal: p.goal });
+      for (const f of friends) {
+        if (!f.displayName) continue;
+        const firstDay = firstSharedDay(
+          f.timeZone,
+          f.friendsSince,
+          f.rankingSince,
+          profile.rankingSince,
+          now,
+        );
+        if (firstDay > range.to) continue;
+        members.set(f.userId, { displayName: f.displayName, goal: f.goal, firstDay });
       }
 
       // One row per person and day, devices summed and capped.
@@ -101,6 +146,7 @@ export const rankingRoutes: FastifyPluginAsync = async (app) => {
       const days = await db
         .select({
           userId: dailyStats.userId,
+          day: dailyStats.day,
           focus: sql<number>`least(${focusSum}, ${CLOUD_LIMITS.dayMinutesMax})::int`.mapWith(
             Number,
           ),
@@ -125,7 +171,7 @@ export const rankingRoutes: FastifyPluginAsync = async (app) => {
       for (const d of days) {
         const t = totals.get(d.userId);
         const member = members.get(d.userId);
-        if (!t || !member) continue;
+        if (!t || !member || d.day < member.firstDay) continue;
         t.focusMinutes += d.focus;
         t.studyMinutes += d.study;
         if (d.focus > 0) t.activeDays += 1;

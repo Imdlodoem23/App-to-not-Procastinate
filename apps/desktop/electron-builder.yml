@@ -16,6 +16,21 @@ extraResources:
   - from: resources/assets
     to: assets
     filter: ['**/*']
+  # Offline focus sounds (PROMPT §9): process.resourcesPath/sounds, read by `sounds:load`
+  # through src/main/app/paths.ts. The README next to them stays out.
+  - from: resources/sounds
+    to: sounds
+    filter: ['*.wav']
+  # Study Mode models, their manifest and the MediaPipe runtime copied by
+  # packages/study-ai/scripts/fetch-models.mjs (the .gitignore stays out).
+  - from: resources/models
+    to: models
+    filter: ['*.task', '*.tflite', 'manifest.json', 'mediapipe/**']
+  # Licences of everything bundled (scripts/gen-third-party-notices.mjs, from ASSET-LICENSES.json
+  # and the shipped npm and Go packages). Electron adds LICENSE.electron.txt and
+  # LICENSES.chromium.html itself.
+  - from: resources/third-party-notices.txt
+    to: third-party-notices.txt
 afterPack: build/after-pack.cjs
 publish:
   provider: github

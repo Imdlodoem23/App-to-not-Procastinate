@@ -28,8 +28,8 @@ export function hasControlChars(value: string): boolean {
 }
 
 /**
- * The first word of a name, cleaned, at most `displayNameMax` characters ('' when none). The
- * `user.name` column keeps only this (it seeds the display name), never a full name.
+ * The first word of a name, cleaned, at most `displayNameMax` characters ('' when none). At
+ * sign-up `user.name` holds only this, until `ensureProfile` moves it to the display name.
  */
 export function firstNameOnly(name: unknown): string {
   if (typeof name !== 'string') return '';
@@ -39,13 +39,16 @@ export function firstNameOnly(name: unknown): string {
 
 /**
  * Creates the profile row if it is missing: every switch off, the display name seeded from the
- * first name better-auth stored (Google), or null (email sign-ups). Idempotent.
+ * first name better-auth stored (Google), or null (email sign-ups). Then clears `user.name`
+ * (better-auth only needs it non-null): the name lives in one place, the display name the user
+ * sees and edits, so no stale copy of a Google name stays behind. Idempotent.
  */
 export async function ensureProfile(db: Db, userId: string): Promise<void> {
   const rows = await db.select({ name: user.name }).from(user).where(eq(user.id, userId)).limit(1);
   if (!rows[0]) return;
   const displayName = firstNameOnly(rows[0].name) || null;
   await db.insert(profiles).values({ userId, displayName }).onConflictDoNothing();
+  if (rows[0].name !== '') await db.update(user).set({ name: '' }).where(eq(user.id, userId));
 }
 
 /**
@@ -94,6 +97,7 @@ export async function loadMe(db: Db, userId: string, row?: ProfileRow): Promise<
     profile: toCloudProfile(profile),
     sharing: toCloudSharing(profile),
     consentUpdatedAt: profile.consentUpdatedAt?.toISOString() ?? null,
+    rankingSince: profile.rankingSince?.toISOString() ?? null,
   };
 }
 

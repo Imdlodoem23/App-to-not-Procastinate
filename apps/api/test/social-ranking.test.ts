@@ -1,8 +1,8 @@
-import type { RankingResponse } from '@centrate/shared/cloud-api';
+import type { MeResponse, RankingResponse } from '@centrate/shared/cloud-api';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { userBlocks } from '../src/db/schema';
-import { rankEntries } from '../src/routes/ranking';
+import { firstSharedDay, rankEntries } from '../src/routes/ranking';
 import {
   buildTestApp,
   createTestUser,
@@ -44,6 +44,26 @@ describe('rankEntries', () => {
   });
 });
 
+describe('firstSharedDay', () => {
+  const now = new Date('2026-10-01T12:00:00.000Z');
+  it('takes the latest start, as a civil day in the friend’s zone', () => {
+    const friends = new Date('2026-09-27T23:30:00.000Z'); // Monday in Madrid, Sunday in New York
+    const long = new Date('2026-01-01T00:00:00.000Z');
+    expect(firstSharedDay('Europe/Madrid', friends, long, long, now)).toBe('2026-09-28');
+    expect(firstSharedDay('America/New_York', friends, long, long, now)).toBe('2026-09-27');
+    const friendOn = new Date('2026-09-30T08:00:00.000Z');
+    expect(firstSharedDay('Europe/Madrid', friends, friendOn, long, now)).toBe('2026-09-30');
+    const meOn = new Date('2026-09-29T08:00:00.000Z');
+    expect(firstSharedDay('Europe/Madrid', friends, long, meOn, now)).toBe('2026-09-29');
+  });
+
+  it('treats a missing start as now', () => {
+    const long = new Date('2026-01-01T00:00:00.000Z');
+    expect(firstSharedDay('Europe/Madrid', long, null, long, now)).toBe('2026-10-01');
+    expect(firstSharedDay('Europe/Madrid', long, long, null, now)).toBe('2026-10-01');
+  });
+});
+
 describe('weekly ranking', () => {
   let t: TestDb;
   let clock: FakeClock;
@@ -78,7 +98,9 @@ describe('weekly ranking', () => {
     const hidden = await person({ displayName: 'Carlos', sharing: { syncStats: true } });
     const blocked = await person({ displayName: 'Dani', sharing });
     const stranger = await person({ displayName: 'Eva', sharing });
-    for (const friend of [bea, fede, gael, hidden, blocked]) await befriend(t.db, ana, friend);
+    for (const friend of [bea, fede, gael, hidden, blocked]) {
+      await befriend(t.db, ana, friend, clock.now());
+    }
     await t.db.insert(userBlocks).values({ blockerId: blocked.userId, blockedId: ana.userId });
 
     const anaPc = await addDevice(t.db, ana);
@@ -177,7 +199,7 @@ describe('weekly ranking', () => {
     );
 
     // A day is each person's own civil date: Sunday 23:59 in New York counts on Sunday.
-    await befriend(t.db, madrid, newYork);
+    await befriend(t.db, madrid, newYork, clock.now());
     const pc = await addDevice(t.db, newYork);
     await addDay(t.db, newYork, pc, '2026-10-04', { focusMinutes: 45 });
     const w40 = (await call(madrid, 'GET', '/v1/ranking?week=2026-W40')).json<RankingResponse>();
@@ -204,5 +226,123 @@ describe('weekly ranking', () => {
       expect(bad.status).toBe(400);
       expect(bad.body).toMatchObject({ error: { code: 'validation_failed' } });
     }
+  });
+  describe('never retroactive', () => {
+    const longAgo = new Date('2026-01-05T09:00:00.000Z');
+    const week = (res: { json: <T>() => T }) => res.json<RankingResponse>();
+    const entry = (body: RankingResponse, userId: string) =>
+      body.entries.find((e) => e.userId === userId);
+
+    it('counts a friend’s days only from the day the friendship began', async () => {
+      const ana = await person({ displayName: 'Ana', sharing, rankingSince: longAgo });
+      const bea = await person({ displayName: 'Bea', sharing, rankingSince: longAgo });
+      const anaPc = await addDevice(t.db, ana);
+      const beaPc = await addDevice(t.db, bea);
+      for (const day of ['2026-09-14', '2026-09-20', '2026-09-22', '2026-09-23', '2026-09-24']) {
+        await addDay(t.db, bea, beaPc, day, { focusMinutes: 100, studyMinutes: 10 });
+        await addDay(t.db, ana, anaPc, day, { focusMinutes: 50 });
+      }
+      await addDay(t.db, bea, beaPc, '2026-09-29', { focusMinutes: 40 });
+      // Friends since Wednesday 2026-09-23 of W39 (Madrid time).
+      await befriend(t.db, ana, bea, new Date('2026-09-23T07:00:00.000Z'));
+
+      // A week before the friendship: Bea is not in it at all; Ana keeps her own history.
+      const w38 = week(await call(ana, 'GET', '/v1/ranking?week=2026-W38'));
+      expect(w38.entries.map((e) => e.userId)).toEqual([ana.userId]);
+      expect(w38.entries[0]).toMatchObject({ focusMinutes: 100, activeDays: 2 });
+      const w38Bea = week(await call(bea, 'GET', '/v1/ranking?week=2026-W38'));
+      expect(w38Bea.entries.map((e) => e.userId)).toEqual([bea.userId]);
+
+      // The week they became friends: only from that Wednesday on (both ways).
+      const w39 = week(await call(ana, 'GET', '/v1/ranking?week=2026-W39'));
+      expect(entry(w39, bea.userId)).toMatchObject({
+        focusMinutes: 200,
+        studyMinutes: 20,
+        activeDays: 2,
+      });
+      expect(entry(w39, ana.userId)).toMatchObject({ focusMinutes: 150, activeDays: 3 });
+      const w39Bea = week(await call(bea, 'GET', '/v1/ranking?week=2026-W39'));
+      expect(entry(w39Bea, ana.userId)).toMatchObject({ focusMinutes: 100, activeDays: 2 });
+
+      const w40 = week(await call(ana, 'GET', '/v1/ranking?week=2026-W40'));
+      expect(entry(w40, bea.userId)).toMatchObject({ focusMinutes: 40, activeDays: 1 });
+    });
+
+    it('counts a friend’s days only from when they last turned the ranking on', async () => {
+      const ana = await person({ displayName: 'Ana', sharing, rankingSince: longAgo });
+      const bea = await person({ displayName: 'Bea', sharing: { syncStats: true } });
+      await befriend(t.db, ana, bea, longAgo);
+      const beaPc = await addDevice(t.db, bea);
+      // Synced while Bea's ranking was off.
+      for (const day of ['2026-09-21', '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01']) {
+        await addDay(t.db, bea, beaPc, day, { focusMinutes: 100 });
+      }
+      const patchBea = async (sharingPatch: object): Promise<MeResponse> => {
+        const res = await app.inject({
+          method: 'PATCH',
+          url: '/v1/me',
+          headers: bea.headers,
+          payload: { sharing: sharingPatch },
+        });
+        expect(res.statusCode).toBe(200);
+        return res.json<MeResponse>();
+      };
+
+      // Wednesday 2026-09-30, 10:00 in Madrid: Bea turns the ranking on.
+      clock.set('2026-09-30T08:00:00.000Z');
+      expect((await patchBea({ ranking: true })).rankingSince).toBe('2026-09-30T08:00:00.000Z');
+      clock.advance(3_600_000);
+      // Saying «on» again keeps the start.
+      expect((await patchBea({ ranking: true, presence: true })).rankingSince).toBe(
+        '2026-09-30T08:00:00.000Z',
+      );
+
+      const w39 = week(await call(ana, 'GET', '/v1/ranking?week=2026-W39'));
+      expect(entry(w39, bea.userId)).toBeUndefined();
+      const w40 = week(await call(ana, 'GET', '/v1/ranking?week=2026-W40'));
+      expect(entry(w40, bea.userId)).toMatchObject({ focusMinutes: 200, activeDays: 2 });
+
+      // Off and on again: it starts over (Friday 2026-10-02) and nothing before counts.
+      expect((await patchBea({ ranking: false })).rankingSince).toBeNull();
+      clock.set('2026-10-02T08:00:00.000Z');
+      expect((await patchBea({ ranking: true })).rankingSince).toBe('2026-10-02T08:00:00.000Z');
+      await addDay(t.db, bea, beaPc, '2026-10-02', { focusMinutes: 30 });
+      const again = week(await call(ana, 'GET', '/v1/ranking?week=2026-W40'));
+      expect(entry(again, bea.userId)).toMatchObject({ focusMinutes: 30, activeDays: 1 });
+
+      // Turning sync off turns the ranking off and forgets its start.
+      expect(await patchBea({ syncStats: false })).toMatchObject({
+        sharing: { syncStats: false, ranking: false },
+        rankingSince: null,
+      });
+    });
+
+    it('shows friends only from when the caller turned the ranking on (reciprocity)', async () => {
+      const bea = await person({ displayName: 'Bea', sharing, rankingSince: longAgo });
+      // Ana turned hers on on Thursday 2026-10-01 at 11:00 in Madrid.
+      const ana = await person({
+        displayName: 'Ana',
+        sharing,
+        rankingSince: new Date('2026-10-01T09:00:00.000Z'),
+      });
+      await befriend(t.db, ana, bea, longAgo);
+      const anaPc = await addDevice(t.db, ana);
+      const beaPc = await addDevice(t.db, bea);
+      for (const day of ['2026-09-22', '2026-09-29', '2026-10-01', '2026-10-02']) {
+        await addDay(t.db, ana, anaPc, day, { focusMinutes: 10 });
+        await addDay(t.db, bea, beaPc, day, { focusMinutes: 100 });
+      }
+
+      const w39 = week(await call(ana, 'GET', '/v1/ranking?week=2026-W39'));
+      expect(w39.entries.map((e) => e.userId)).toEqual([ana.userId]);
+      expect(w39.entries[0]).toMatchObject({ focusMinutes: 10 });
+
+      const w40 = week(await call(ana, 'GET', '/v1/ranking?week=2026-W40'));
+      expect(entry(w40, ana.userId)).toMatchObject({ focusMinutes: 30, activeDays: 3 });
+      expect(entry(w40, bea.userId)).toMatchObject({ focusMinutes: 200, activeDays: 2 });
+      // And Bea sees Ana from the same day.
+      const w40Bea = week(await call(bea, 'GET', '/v1/ranking?week=2026-W40'));
+      expect(entry(w40Bea, ana.userId)).toMatchObject({ focusMinutes: 20, activeDays: 2 });
+    });
   });
 });

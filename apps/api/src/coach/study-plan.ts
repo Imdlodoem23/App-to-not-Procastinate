@@ -17,6 +17,12 @@ const ADVICE_MAX = 5;
 const ADVICE_TEXT_MAX = 200;
 /** An exam further away than this is refused (400). */
 export const STUDY_EXAM_MAX_DAYS_AHEAD = 366;
+/**
+ * Calendar days one plan covers (below the wire limit `CLOUD_LIMITS.studyPlanMaxDays`): at
+ * low effort the answer fits in the endpoint's `max_tokens` and deadline. A later exam gets a
+ * plan for the first four weeks; the app can ask again later.
+ */
+export const STUDY_PLAN_DAYS_PER_CALL = 28;
 
 const WEEKDAYS_ES = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
 const LEVELS_ES = {
@@ -33,20 +39,20 @@ export function isoWeekday(day: LocalDay): IsoWeekday {
 
 export const weekdayName = (day: LocalDay): string => WEEKDAYS_ES[isoWeekday(day) - 1] ?? '';
 
-/** Study days: from today to the day before the exam (at most 60), minus days off. */
+/** Study days: from today to the day before the exam (at most 28), minus days off. */
 export function studyDays(body: Pick<StudyPlanRequest, 'today' | 'examDate' | 'daysOff'>): {
   days: LocalDay[];
   truncated: boolean;
 } {
   const span = daysBetween(body.today, body.examDate);
-  const count = Math.min(span, L.studyPlanMaxDays);
+  const count = Math.min(span, STUDY_PLAN_DAYS_PER_CALL);
   const off = new Set<number>(body.daysOff);
   const days: LocalDay[] = [];
   for (let i = 0; i < count; i += 1) {
     const day = addDays(body.today, i);
     if (!off.has(isoWeekday(day))) days.push(day);
   }
-  return { days, truncated: span > L.studyPlanMaxDays };
+  return { days, truncated: span > STUDY_PLAN_DAYS_PER_CALL };
 }
 
 export function studyPlanUserMessage(
@@ -66,7 +72,7 @@ export function studyPlanUserMessage(
   if (body.topics.length === 0) lines.push('No ha indicado temas.');
   if (truncated) {
     lines.push(
-      `El examen es dentro de más de ${L.studyPlanMaxDays} días: planifica solo estos días y deja el repaso final para un plan posterior.`,
+      `El examen es dentro de más de ${STUDY_PLAN_DAYS_PER_CALL} días: planifica solo estos días y deja el repaso final para un plan posterior.`,
     );
   }
   return lines.join('\n');

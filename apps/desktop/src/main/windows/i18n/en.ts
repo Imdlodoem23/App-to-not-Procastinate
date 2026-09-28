@@ -7,6 +7,9 @@ export const WINDOWS_EN: WindowsMessages = {
     bloqueos: 'Blocks',
     emergencia: 'Emergency unlock',
     ajustes: 'Settings',
+    estadisticas: 'Statistics',
+    recompensas: 'Rewards',
+    logros: 'Achievements',
   },
   closeHint: {
     title: 'Céntrate',

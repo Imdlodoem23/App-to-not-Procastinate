@@ -1,7 +1,8 @@
 /**
  * GDPR export and erasure, driven by the schema: every table with a column that references a
- * user must be listed in USER_DATA_COVERAGE, show up in the export, and be empty of that user
- * after `DELETE /v1/me`.
+ * user, and every column of it, must be classified in USER_DATA_COVERAGE; every column marked
+ * exported must show up in the export; and the tables must be empty of that user after
+ * `DELETE /v1/me`.
  */
 import type { CloudExport } from '@centrate/shared/cloud-api';
 import { eq, is } from 'drizzle-orm';
@@ -9,7 +10,7 @@ import { getTableConfig, PgTable } from 'drizzle-orm/pg-core';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import * as schema from '../src/db/schema';
-import { USER_DATA_COVERAGE, otpIdentifiers } from '../src/lib/gdpr';
+import { NOT_EXPORTED, USER_DATA_COVERAGE, otpIdentifiers } from '../src/lib/gdpr';
 import { buildTestApp, createTestUser, fakeClock } from './helpers/app';
 import type { FakeClock, TestUser } from './helpers/app';
 import { createTestDb, resetDb, type TestDb } from './helpers/db';
@@ -181,16 +182,38 @@ async function populate(): Promise<Record<string, string>> {
   return { deviceId: device?.id ?? '' };
 }
 
+/** Tables without a user column that still hold data about a person. */
+const KEYED_BY_ADDRESS = [
+  'verification', // better-auth keys sign-in codes by email
+  'rate_counters', // sign-in email counters, keyed by an HMAC of the address
+];
+
 describe('coverage', () => {
   it('lists every table that holds data about a user', () => {
     const tables = userColumns();
     const withUserData = tables.filter((x) => x.columns.length > 0).map((x) => x.name);
-    // verification has no user column: better-auth keys the codes by email.
     expect(Object.keys(USER_DATA_COVERAGE).sort()).toEqual(
-      [...withUserData, 'verification'].sort(),
+      [...withUserData, ...KEYED_BY_ADDRESS].sort(),
     );
     const names = tables.map((x) => x.name);
     for (const name of Object.keys(USER_DATA_COVERAGE)) expect(names).toContain(name);
+  });
+
+  it('classifies every stored column: exported, or not exported and why', () => {
+    for (const { table, name } of userColumns()) {
+      const classified = USER_DATA_COVERAGE[name];
+      if (!classified) continue;
+      const columns = getTableConfig(table).columns.map((c) => c.name);
+      expect(Object.keys(classified).sort(), name).toEqual([...columns].sort());
+      for (const [column, where] of Object.entries(classified)) {
+        expect(where.trim().length, `${name}.${column}`).toBeGreaterThan(0);
+        if (where.startsWith(NOT_EXPORTED)) {
+          expect(where.length, `${name}.${column} needs a reason`).toBeGreaterThan(
+            NOT_EXPORTED.length + 3,
+          );
+        }
+      }
+    }
   });
 });
 
@@ -207,11 +230,17 @@ describe('GET /v1/me/export', () => {
       if (Array.isArray(value)) expect(value.length, key).toBeGreaterThan(0);
     }
     expect(data.presence).toMatchObject({ state: 'study' });
-    expect(data.loginMethods).toEqual([{ provider: 'google', createdAt: expect.any(String) }]);
+    expect(data.loginMethods).toEqual([
+      { provider: 'google', accountId: 'google-subject-123456789', createdAt: expect.any(String) },
+    ]);
     expect(data.sessions).toEqual([
       { createdAt: expect.any(String), expiresAt: expect.any(String), current: true },
     ]);
-    expect(data.devices[0]).toMatchObject({ id: deviceId, current: true });
+    expect(data.devices[0]).toMatchObject({
+      id: deviceId,
+      installId: 'install-ana-000000001',
+      current: true,
+    });
     expect(data.dailyStats[0]).toMatchObject({ deviceId, day: '2026-09-27', focusMinutes: 90 });
     expect(data.friends).toEqual([
       { userId: b.userId, displayName: 'Bea', since: expect.any(String) },
@@ -232,10 +261,39 @@ describe('GET /v1/me/export', () => {
       a.sessionId,
       'code-hash-secret-value',
       'invite-hash-secret-value',
-      'google-subject-123456789',
       'hashed-code',
     ]) {
       expect(res.body, secret).not.toContain(secret);
+    }
+  });
+
+  it('carries the value of every column marked as exported', async () => {
+    await populate();
+    const res = await app.inject({ method: 'GET', url: '/v1/me/export', headers: a.headers });
+    expect(res.statusCode).toBe(200);
+    for (const { table, name, columns } of userColumns()) {
+      const classified = USER_DATA_COVERAGE[name];
+      if (!classified || columns.length === 0) continue;
+      const config = getTableConfig(table);
+      const rows = (await t.db.select().from(table)) as Array<Record<string, unknown>>;
+      const about = rows.filter((row) => Object.values(row).includes(a.userId));
+      for (const row of about) {
+        for (const column of config.columns) {
+          const where = classified[column.name] ?? '';
+          if (where.startsWith(NOT_EXPORTED)) continue;
+          const key = Object.keys(table).find(
+            (k) => (table as unknown as Record<string, { name?: string }>)[k]?.name === column.name,
+          );
+          const value = key === undefined ? undefined : row[key];
+          if (typeof value === 'string' && value !== '') {
+            expect(res.body, `${name}.${column.name}`).toContain(
+              JSON.stringify(value).slice(1, -1),
+            );
+          } else if (value instanceof Date) {
+            expect(res.body, `${name}.${column.name}`).toContain(value.toISOString());
+          }
+        }
+      }
     }
   });
 });

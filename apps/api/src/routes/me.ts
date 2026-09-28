@@ -11,7 +11,7 @@ import type {
   PatchMeRequest,
 } from '@centrate/shared/cloud-api';
 import { CLOUD_LIMITS, isValidTimeZone } from '@centrate/shared/cloud-api';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { SESSION_COOKIE } from '../auth/session';
@@ -67,6 +67,15 @@ const PatchMeSchema = z
       .optional(),
   })
   .strict() satisfies z.ZodType<PatchMeRequest>;
+
+/**
+ * The shared wire type and this schema must accept exactly the same bodies: `satisfies` alone
+ * only checks that the schema's output fits the type, so a type wider than the schema (say a
+ * nullable display name) would compile in the app and be refused here. This fails to compile
+ * when either side accepts something the other does not.
+ */
+type SameShape<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+export const PATCH_ME_TYPES_AGREE: SameShape<z.input<typeof PatchMeSchema>, PatchMeRequest> = true;
 
 const DeleteSchema = z
   .object({ confirm: z.literal('BORRAR') })
@@ -135,6 +144,12 @@ export const meRoutes: FastifyPluginAsync = async (app) => {
           ...(p.timeZone !== undefined ? { timeZone: p.timeZone } : {}),
           ...(p.dailyGoalMinutes !== undefined ? { dailyGoalMinutes: p.dailyGoalMinutes } : {}),
           ...(consentChanged ? { consentUpdatedAt: now } : {}),
+          // Ranking on: keep the time it was turned on, or start now (off → on). Friends
+          // only see days from then (§8.2). Decided on the stored row, so a concurrent
+          // PATCH cannot leave the ranking on without a start. Off: forgotten.
+          rankingSince: next.shareRanking
+            ? sql`CASE WHEN ${profiles.shareRanking} THEN coalesce(${profiles.rankingSince}, ${now.toISOString()}::timestamptz) ELSE ${now.toISOString()}::timestamptz END`
+            : null,
           updatedAt: now,
         })
         .where(eq(profiles.userId, userId));

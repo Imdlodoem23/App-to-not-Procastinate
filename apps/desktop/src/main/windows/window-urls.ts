@@ -2,11 +2,13 @@
  * Where renderers load from and which frames may talk to main (docs/DESKTOP.md §11). Pure.
  *
  * One bundle for every window: `index.html?window=main|detail` (plus `&state=<id>` in the
- * harness, which the browser harness also understands). A sender is trusted only if its
+ * harness, which the browser harness also understands, and `&neutral-service-icons=1` for
+ * marketing captures). A sender is trusted only if its
  * frame shows that document: the packaged `file://…/renderer/index.html`, or the dev server
  * (unpackaged only).
  */
 import { pathToFileURL } from 'node:url';
+import { NEUTRAL_SERVICE_ICONS_PARAM } from '@centrate/shared/service-icon';
 import type { Platform, WindowKind } from '../../shared/ui-state';
 
 export type RendererSource =
@@ -17,8 +19,13 @@ export type RendererSource =
 export function rendererQuery(
   window: WindowKind,
   harnessStateId: string | null,
+  neutralServiceIcons = false,
 ): Record<string, string> {
-  return harnessStateId ? { window, state: harnessStateId } : { window };
+  const query: Record<string, string> = harnessStateId
+    ? { window, state: harnessStateId }
+    : { window };
+  if (neutralServiceIcons) query[NEUTRAL_SERVICE_ICONS_PARAM] = '1';
+  return query;
 }
 
 /** Full URL for `loadURL` (dev) or the query for `loadFile` (file). */

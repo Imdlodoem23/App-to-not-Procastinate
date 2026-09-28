@@ -31,6 +31,7 @@ const FOCUS_SECTIONS = {
   active: BLOQUEOS_IDS.active,
   templates: BLOQUEOS_IDS.templates,
   schedules: BLOQUEOS_IDS.schedules,
+  exam: BLOQUEOS_IDS.exam,
 } as const;
 
 /** The tab stop of the duration presets (no preset is checked while the duration is open). */

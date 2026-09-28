@@ -58,22 +58,61 @@ export const STABLE_LANDMARKS = Object.freeze([
 export const MIN_PHONE_AREA = 0.004;
 /** A person box must cover at least this share of the frame (5 %). */
 export const MIN_PERSON_AREA = 0.05;
-/** Near the face: centre within cx ± this × face width… */
-export const PHONE_NEAR_X = 2.5;
-/** …and between cy − UP × face height and cy + DOWN × face height (or overlapping it). */
-export const PHONE_NEAR_UP = 0.5;
-export const PHONE_NEAR_DOWN = 3;
-/** Moving: the centre moved more than this × the box diagonal since the previous sighting… */
-export const PHONE_MOVE_DIAG = 0.25;
-/** …or the area changed by more than this share. */
-export const PHONE_MOVE_AREA = 0.3;
-/** Still: IoU with the previous sighting at least this (a phone lying on the desk). */
-export const PHONE_STILL_IOU = 0.8;
 /**
- * A phone missed by a few detector runs is still the same phone when it reappears within
- * this time, so a flickering detection on a phone lying on the desk keeps its `stillMs`.
+ * Near the face: the phone box overlaps the face box, or its centre is within cx ± this ×
+ * face width (roughly the chest in front of the user)…
  */
+export const PHONE_NEAR_X = 1.2;
+/** …and between the top of the face (cy − UP × h) and the chin + BELOW × face height. */
+export const PHONE_NEAR_UP = 0.5;
+export const PHONE_NEAR_BELOW = 1.5;
+/**
+ * A box whose bottom edge is this close to the frame's bottom (pixels) is cut by the frame:
+ * usually the desk. It only counts as near the face while it moves.
+ */
+export const PHONE_BOTTOM_EDGE_PX = 2;
+
+/**
+ * Pixel-tolerant spot tests (the detector box of an object that does not move jitters by
+ * 1–3 px per edge at 320×240, so a plain IoU test fails on a small box all the time).
+ *
+ * Still (stillness keeps growing): the centre stayed within max(MIN_PX, SPOT_DIAG × the box
+ * diagonal) and the area within SPOT_AREA (+ EDGE_PX of jitter on every side) of the spot.
+ */
+export const PHONE_SPOT_MIN_PX = 4;
+export const PHONE_SPOT_DIAG = 0.15;
+export const PHONE_SPOT_AREA = 0.3;
+export const PHONE_SPOT_EDGE_PX = 3;
+/**
+ * Moving (in-hand evidence): the centre moved more than max(MIN_PX, MOVE_DIAG × the
+ * diagonal) or the area changed more than MOVE_AREA (+ EDGE_PX) from where it was. Between
+ * the two, the sighting is neither still nor moving.
+ */
+export const PHONE_MOVE_DIAG = 0.25;
+export const PHONE_MOVE_AREA = 0.5;
+/** The resting spot is the mean of its first sightings (then fixed, so it cannot drift). */
+export const PHONE_SPOT_SETTLE_SIGHTINGS = 4;
+/**
+ * A sighting that is not still at the spot is a stray. Strays keep the stillness (detector
+ * jitter or a glitch) until LIMIT of the last WINDOW sightings strayed: a hand wobbling around
+ * one place. Two clear moves in a row restart it at once.
+ */
+export const PHONE_STRAY_WINDOW = 8;
+export const PHONE_STRAY_LIMIT = 4;
+/**
+ * A phone that stayed at one spot this long is lying on the desk or standing on a stand: it
+ * is no longer «near the face» (DECISION's `PHONE_STILL_MS` uses the same 20 s).
+ */
+export const PHONE_RESTING_MS = 20_000;
+/**
+ * A phone missed by the detector is remembered by its spot this long, so detector flicker
+ * never restarts the stillness of a phone lying on the desk.
+ */
+export const PHONE_MEMORY_MS = 60_000;
+/** A phone seen elsewhere within this time of its last sighting has moved there. */
 export const PHONE_TRACK_MS = 5_000;
+/** Phones tracked at once (a phone on a stand, a calculator, the phone in hand…). */
+export const PHONE_MAX_TRACKS = 4;
 
 // ---------------------------------------------------------------------------------------
 // Luma (§5.5)

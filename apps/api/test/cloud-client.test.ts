@@ -5,6 +5,7 @@
  */
 import type { CloudDayStats, CloudFetch, CloudClient } from '@centrate/shared/cloud-api';
 import {
+  CLOUD_TIMEOUTS,
   CloudError,
   addDays,
   approvalOutcome,
@@ -18,10 +19,12 @@ import { count, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app';
+import { ENDPOINTS } from '../src/coach/service';
 import { loadConfig } from '../src/config';
 import { accountabilityEvents, dailyStats, devices } from '../src/db/schema';
-import { buildTestApp, createTestUser, fakeClock } from './helpers/app';
+import { buildTestApp, createTestUser, fakeClock, testConfig } from './helpers/app';
 import type { FakeClock, TestUser } from './helpers/app';
+import { fakeCoachModel, ok } from './helpers/coach';
 import { createTestDb, resetDb, type TestDb } from './helpers/db';
 import { befriend, linkPartners } from './helpers/social';
 
@@ -337,5 +340,55 @@ describe('with the real app', () => {
     expect(data.devices).toHaveLength(1);
     await c.deleteAccount();
     expect((await failure(c.getMe())).isUnauthorized).toBe(true);
+  });
+  it('wakes the server once, then calls the coach directly', async () => {
+    const model = fakeCoachModel(() =>
+      ok({
+        steps: [
+          { title: 'Leer el enunciado', minutes: 10, suggestedPhrase: null },
+          { title: 'Hacer un esquema', minutes: 25, suggestedPhrase: null },
+        ],
+        firstStepTip: 'Empieza leyendo solo el primer párrafo.',
+      }),
+    );
+    const coachApp = await buildTestApp({
+      db: t.db,
+      clock,
+      config: testConfig({ ANTHROPIC_API_KEY: 'sk-ant-test-client-0000' }),
+      coachModel: model,
+    });
+    await c.updateMe({ sharing: { coach: true } });
+    const inject = injectFetch(coachApp);
+    const paths: string[] = [];
+    const coach = createCloudClient({
+      baseUrl: BASE,
+      getToken: () => ana.token,
+      fetch: (url, init) => {
+        paths.push(new URL(url).pathname);
+        return inject(url, init);
+      },
+      now: clock.now,
+    });
+    const onWaking = vi.fn();
+    const body = { task: 'Trabajo de historia', context: null, minutesAvailable: 45 };
+
+    try {
+      expect((await coach.splitTask(body, { onWaking })).steps).toHaveLength(2);
+      await coach.splitTask(body, { onWaking });
+      expect(paths).toEqual(['/health', '/v1/coach/split-task', '/v1/coach/split-task']);
+      expect(onWaking).toHaveBeenCalledTimes(1);
+      expect(model.calls).toHaveLength(2);
+    } finally {
+      await coachApp.close();
+    }
+  });
+});
+
+describe('coach calls from the client', () => {
+  it('waits longer for a coach answer than the longest server deadline', () => {
+    // The client wakes the server first, so the coach timeout only has to cover the call.
+    const longest = Math.max(...Object.values(ENDPOINTS).map((e) => e.deadlineMs));
+    expect(CLOUD_TIMEOUTS.coachMs).toBeGreaterThanOrEqual(longest + 15_000);
+    expect(CLOUD_TIMEOUTS.awakeMs).toBeLessThan(15 * 60_000);
   });
 });

@@ -11,6 +11,9 @@ export const WINDOWS_ES = {
     bloqueos: 'Bloqueos',
     emergencia: 'Emergencia',
     ajustes: 'Ajustes',
+    estadisticas: 'Estadísticas',
+    recompensas: 'Recompensas',
+    logros: 'Logros',
   } satisfies Record<DetailName, string>,
   closeHint: {
     title: 'Céntrate',

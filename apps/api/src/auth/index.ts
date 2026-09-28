@@ -6,14 +6,19 @@
  *
  * Privacy: no telemetry, no IP or user agent stored, no Google picture, and the Google tokens
  * are dropped before they reach the database (we never call Google APIs). The profile row
- * (every sharing switch off) is created with the user.
+ * (every sharing switch off) is created with the user; the Google first name only seeds its
+ * display name and is then cleared from `user.name`.
+ *
+ * Account linking: a Google sign-in joins an existing account with the same address only when
+ * Google says the address is verified (`email_verified`). Google is deliberately not a
+ * «trusted provider»: that would skip the check and let an unverified Google address take
+ * over the account.
  */
 import { betterAuth } from 'better-auth';
 import type { BetterAuthPlugin } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { bearer } from 'better-auth/plugins/bearer';
 import { emailOTP } from 'better-auth/plugins/email-otp';
-import { createHash } from 'node:crypto';
 import type { FastifyBaseLogger, FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import { deriveCapabilities } from '../config';
 import type { AppContext, Mailer, SessionResolver } from '../context';
@@ -21,6 +26,7 @@ import { authSchema } from '../db/schema';
 import { ApiError } from '../lib/errors';
 import { ensureProfile, firstNameOnly } from '../lib/profile';
 import { SIGN_IN_CODE_MINUTES, signInCodeEmail } from './email';
+import { reserveSignInEmail } from './email-limits';
 import {
   COOKIE_PREFIX,
   SESSION_TTL_SECONDS,
@@ -37,10 +43,9 @@ export interface AuthModule {
 /** What better-auth may log through; messages are scrubbed of email addresses. */
 type AuthLog = Pick<FastifyBaseLogger, 'warn' | 'error'>;
 
-/** Sign-in codes sent to one address per hour (in memory; see docs/API.md §12). */
-export const EMAIL_CODES_PER_HOUR = 3;
-
 const EMAIL_RE = /[^\s@<>"']+@[^\s@<>"']+/g;
+/** Shape check before anything is counted; better-auth validates the address again. */
+const EMAIL_SHAPE = /^[^\s@<>"',;]{1,64}@[^\s@<>"',;]{1,190}\.[^\s@<>"',;.]{2,63}$/;
 
 /** Null when accounts are off (no database, secret, URL or login method). */
 export function createAuth(ctx: AppContext, log?: AuthLog): AuthModule | null {
@@ -70,7 +75,9 @@ export function createAuth(ctx: AppContext, log?: AuthLog): AuthModule | null {
     },
     account: {
       encryptOAuthTokens: true,
-      accountLinking: { enabled: true, trustedProviders: ['google'] },
+      // No `trustedProviders`: a Google identity joins an existing account only when Google
+      // reports the address as verified (see the header).
+      accountLinking: { enabled: true },
     },
     socialProviders: config.google
       ? {
@@ -101,18 +108,20 @@ export function createAuth(ctx: AppContext, log?: AuthLog): AuthModule | null {
     databaseHooks: {
       user: {
         create: {
-          // Keep only a first name (it seeds the display name) and never the picture.
+          // Keep only a first name and never the picture. `ensureProfile` copies the name into
+          // the display name (which the user can change) and then clears `user.name`.
           before: async (u) => ({ data: { ...u, name: firstNameOnly(u.name), image: null } }),
           after: async (u) => {
             await ensureProfile(db, u.id);
           },
         },
         update: {
+          // Names and pictures are never stored after sign-up.
           before: async (u) => ({
             data: {
               ...u,
               ...('image' in u ? { image: null } : {}),
-              ...(typeof u.name === 'string' ? { name: firstNameOnly(u.name) } : {}),
+              ...(typeof u.name === 'string' ? { name: '' } : {}),
             },
           }),
         },
@@ -137,8 +146,6 @@ export function createAuth(ctx: AppContext, log?: AuthLog): AuthModule | null {
     ] as BetterAuthPlugin[],
   });
 
-  const perEmail = new SlidingWindowCounter(EMAIL_CODES_PER_HOUR, 3_600_000);
-
   const forward = (request: FastifyRequest, reply: FastifyReply) =>
     forwardToAuth(auth.handler, authConfig.url, request, reply);
 
@@ -152,23 +159,21 @@ export function createAuth(ctx: AppContext, log?: AuthLog): AuthModule | null {
     if (emailOn) {
       app.post(
         '/api/auth/email-otp/send-verification-otp',
-        {
-          config: { rateLimit: { max: 5, timeWindow: '15 minutes' } },
-          preHandler: async (request) => {
-            const body = (request.body ?? {}) as { email?: unknown; type?: unknown };
-            if (body.type !== 'sign-in' || typeof body.email !== 'string') {
-              throw new ApiError(400, 'validation_failed', 'Only sign-in codes can be requested');
-            }
-            const key = createHash('sha256').update(body.email.trim().toLowerCase()).digest('hex');
-            const retryAfterMs = perEmail.hit(key, ctx.now().getTime());
-            if (retryAfterMs > 0) {
-              throw new ApiError(429, 'rate_limited', 'Too many codes for this address', {
-                retryAfterSeconds: Math.ceil(retryAfterMs / 1000),
-              });
-            }
-          },
+        // The per-IP limit runs as a preHandler; the Postgres caps run after it, in the
+        // handler, so a request refused by IP never counts against a mailbox.
+        { config: { rateLimit: { max: 5, timeWindow: '15 minutes' } } },
+        async (request, reply) => {
+          const body = (request.body ?? {}) as { email?: unknown; type?: unknown };
+          if (body.type !== 'sign-in' || typeof body.email !== 'string') {
+            throw new ApiError(400, 'validation_failed', 'Only sign-in codes can be requested');
+          }
+          if (!EMAIL_SHAPE.test(body.email.trim())) {
+            throw new ApiError(400, 'validation_failed', 'Not an email address');
+          }
+          // Mailbox and global caps, in Postgres (email-limits.ts).
+          await reserveSignInEmail(db, config, authConfig.secret, body.email, ctx.now());
+          return forward(request, reply);
         },
-        forward,
       );
       app.post(
         '/api/auth/sign-in/email-otp',
@@ -250,34 +255,4 @@ async function forwardToAuth(
   const cookies = response.headers.getSetCookie();
   if (cookies.length > 0) reply.header('set-cookie', cookies);
   return reply.send(await response.text());
-}
-
-/** Counts hits per key in a sliding window. `hit` returns 0 or the ms until the next slot. */
-export class SlidingWindowCounter {
-  private readonly hits = new Map<string, number[]>();
-  private readonly max: number;
-  private readonly windowMs: number;
-
-  constructor(max: number, windowMs: number) {
-    this.max = max;
-    this.windowMs = windowMs;
-  }
-
-  hit(key: string, nowMs: number): number {
-    if (this.hits.size > 10_000) this.prune(nowMs);
-    const recent = (this.hits.get(key) ?? []).filter((t) => t > nowMs - this.windowMs);
-    if (recent.length >= this.max) {
-      this.hits.set(key, recent);
-      return (recent[0] ?? nowMs) + this.windowMs - nowMs;
-    }
-    recent.push(nowMs);
-    this.hits.set(key, recent);
-    return 0;
-  }
-
-  private prune(nowMs: number): void {
-    for (const [key, times] of this.hits) {
-      if (times.every((t) => t <= nowMs - this.windowMs)) this.hits.delete(key);
-    }
-  }
 }

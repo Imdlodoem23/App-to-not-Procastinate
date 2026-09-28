@@ -31,6 +31,11 @@ export interface AiLimits {
   userDailyCoachRequests: number;
   /** Input + output tokens per user per UTC day, all coach features together. */
   userDailyTokens: number;
+  /**
+   * One user's spend cap per UTC day in US dollars, both buckets together, calls in flight
+   * counted at their worst case. Bounds one account's share of the global budget.
+   */
+  userDailyBudgetUsd: number;
   /** Global spend cap per UTC day, in US dollars (0 turns the AI off). */
   globalDailyBudgetUsd: number;
 }
@@ -49,7 +54,12 @@ export interface Config {
   appOrigins: string[];
   google: { clientId: string; clientSecret: string } | null;
   /** Resend, used for sign-in codes and partner alerts. */
-  email: { resendApiKey: string; from: string } | null;
+  email: {
+    resendApiKey: string;
+    from: string;
+    /** Global cap on sign-in code emails per UTC day (`SIGNIN_EMAILS_PER_DAY`). */
+    signInCodesPerDay: number;
+  } | null;
   ai: {
     apiKey: string | null;
     /** Kill switch, `AI_ENABLED`. */
@@ -110,6 +120,7 @@ const EnvSchema = z.object({
   GOOGLE_CLIENT_ID: optional(z.string().min(1)),
   GOOGLE_CLIENT_SECRET: optional(z.string().min(1)),
   RESEND_API_KEY: optional(z.string().min(1)),
+  SIGNIN_EMAILS_PER_DAY: intInRange(0, 100_000, 50),
   EMAIL_FROM: optional(
     z.string().regex(/^(?:[^<>\r\n]{1,64} <[^\s<>@]+@[^\s<>@]+>|[^\s<>@]+@[^\s<>@]+)$/, {
       message: 'must be an email address or «Name <address>»',
@@ -123,6 +134,9 @@ const EnvSchema = z.object({
   AI_USER_DAILY_INTERPRET_REQUESTS: intInRange(0, 1000, 30),
   AI_USER_DAILY_COACH_REQUESTS: intInRange(0, 1000, 10),
   AI_USER_DAILY_TOKENS: intInRange(0, 10_000_000, 150_000),
+  AI_USER_DAILY_BUDGET_USD: optional(z.coerce.number().min(0).max(10_000)).transform(
+    (v) => v ?? 0.5,
+  ),
   AI_GLOBAL_DAILY_BUDGET_USD: optional(z.coerce.number().min(0).max(10_000)).transform(
     (v) => v ?? 2,
   ),
@@ -191,7 +205,11 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     ? { clientId: e.GOOGLE_CLIENT_ID as string, clientSecret: e.GOOGLE_CLIENT_SECRET as string }
     : null;
   const email = pair('RESEND_API_KEY', e.RESEND_API_KEY, 'EMAIL_FROM', e.EMAIL_FROM)
-    ? { resendApiKey: e.RESEND_API_KEY as string, from: e.EMAIL_FROM as string }
+    ? {
+        resendApiKey: e.RESEND_API_KEY as string,
+        from: e.EMAIL_FROM as string,
+        signInCodesPerDay: e.SIGNIN_EMAILS_PER_DAY,
+      }
     : null;
 
   return Object.freeze({
@@ -216,6 +234,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
         userDailyInterpretRequests: e.AI_USER_DAILY_INTERPRET_REQUESTS,
         userDailyCoachRequests: e.AI_USER_DAILY_COACH_REQUESTS,
         userDailyTokens: e.AI_USER_DAILY_TOKENS,
+        userDailyBudgetUsd: e.AI_USER_DAILY_BUDGET_USD,
         globalDailyBudgetUsd: e.AI_GLOBAL_DAILY_BUDGET_USD,
       },
     },
@@ -231,6 +250,8 @@ export interface RuntimeState {
   aiBudgetExhausted: boolean;
   /** The runtime kill switch in Postgres is on (`meta.ai_kill_switch`, src/coach/budget.ts). */
   aiKillSwitch?: boolean;
+  /** Today's sign-in emails reached `SIGNIN_EMAILS_PER_DAY` (src/auth/email-limits.ts). */
+  emailBudgetExhausted?: boolean;
 }
 
 const on: CloudCapability = Object.freeze({ enabled: true, reason: null });
@@ -252,19 +273,24 @@ export function deriveCapabilities(
 
   const needs = (extra: boolean): CloudCapability =>
     !accounts.enabled ? accounts : extra ? on : off('missing_key');
+  const emailLogin = needs(Boolean(config.email));
 
   let coach: CloudCapability;
   if (!accounts.enabled) coach = accounts;
   else if (!config.ai.apiKey) coach = off('missing_key');
   else if (!config.ai.enabled || state.aiKillSwitch) coach = off('kill_switch');
-  else if (config.ai.limits.globalDailyBudgetUsd <= 0 || state.aiBudgetExhausted) {
+  else if (
+    config.ai.limits.globalDailyBudgetUsd <= 0 ||
+    config.ai.limits.userDailyBudgetUsd <= 0 ||
+    state.aiBudgetExhausted
+  ) {
     coach = off('budget');
   } else coach = on;
 
   const caps: Record<CloudFeature, CloudCapability> = {
     accounts,
     googleLogin: needs(Boolean(config.google)),
-    emailLogin: needs(Boolean(config.email)),
+    emailLogin: emailLogin.enabled && state.emailBudgetExhausted ? off('budget') : emailLogin,
     sync: accounts,
     social: accounts,
     partnerEmails: needs(Boolean(config.email)),

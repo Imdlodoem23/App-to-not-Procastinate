@@ -6,10 +6,18 @@
  * which works both for `electron .` and `electron out/main/index.js` (the e2e launch).
  */
 import { join, win32 } from 'node:path';
+import { SOUND_FILES, type SoundId } from '../../shared/prefs';
 import type { Platform } from '../../shared/ui-state';
 import { TRAY_ICON_DIR } from '../tray/icons';
 
 export const GUARDIAN_EXECUTABLE = 'centrate-guardian';
+
+/**
+ * Folders under the resources directory that `electron-builder.yml` fills through
+ * `extraResources` (`to:`). test/main/app/packaged-resources.test.ts keeps both in step.
+ */
+export const SOUNDS_DIR = 'sounds';
+export const MODELS_DIR = 'models';
 
 export interface AppPathsInput {
   platform: Platform;
@@ -32,6 +40,10 @@ export interface AppPaths {
   /** Where the bundled guardian would be (the caller checks it exists). */
   guardianBinary: string;
   trayIconsDir: string;
+  /** The offline concentration loops (`resources/sounds/*.wav`). */
+  soundsDir: string;
+  /** Study Mode models and their manifest (`resources/models/`). */
+  modelsDir: string;
   preload: string;
   rendererHtml: string;
 }
@@ -58,7 +70,14 @@ export function resolveAppPaths(input: AppPathsInput): AppPaths {
     sysDir: input.sysDirOverride ?? defaultSysDir(input.platform, input.env),
     guardianBinary: join(resources, 'guardian', exe),
     trayIconsDir: join(resources, ...TRAY_ICON_DIR),
+    soundsDir: join(resources, SOUNDS_DIR),
+    modelsDir: join(resources, MODELS_DIR),
     preload: join(input.mainDir, '..', 'preload', 'index.js'),
     rendererHtml: join(input.mainDir, '..', 'renderer', 'index.html'),
   };
+}
+
+/** The WAV of a concentration loop, as `sounds:load` must read it. */
+export function soundFilePath(paths: Pick<AppPaths, 'soundsDir'>, sound: SoundId): string {
+  return join(paths.soundsDir, SOUND_FILES[sound]);
 }

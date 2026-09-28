@@ -27,7 +27,10 @@ import type {
   BrowserFamily,
   ClockTrust,
   EmergencyUnlock,
+  GuardianSettings,
   IsoUtc,
+  LocalDay,
+  PendingSettingChange,
   PointsSummary,
   Punishment,
   RewardsLockReason,
@@ -44,6 +47,8 @@ import type {
   NextScheduleInfo,
   PairedExtension,
   PairingCodeResponse,
+  RewardsResponse,
+  ScheduleInput,
   SettingsResponse,
 } from '@centrate/shared/guardian-api';
 import {
@@ -54,13 +59,41 @@ import {
 } from '@centrate/shared/guardian-api';
 import { parseIntent } from '@centrate/shared/parser';
 import type { Locale } from './i18n/locale';
-import { EMERGENCY_RULES, RULES_VERSION, emergencyPenalty } from '@centrate/shared/points';
+import {
+  ACHIEVEMENTS,
+  EMERGENCY_RULES,
+  REWARD_OFFERS,
+  RULES_VERSION,
+  addDays,
+  emergencyPenalty,
+  mascotStage,
+  xpForLevel,
+} from '@centrate/shared/points';
 import { FEATURES, type FeatureFlags } from './features';
 import type { HarnessLoad } from './ipc';
+import type { AchievementStatus, InstallOutcome, RunningProcess, UpdaterState } from './platform';
+import type { OnboardingStep } from './prefs';
+import {
+  STATS_RANGES,
+  daysBetween,
+  heatmapLevel,
+  isoWeekdayIndex,
+  statsPeriod,
+  type EventLogEntry,
+  type EventLogPage,
+  type HeatmapCell,
+  type HourStat,
+  type StatsBucket,
+  type StatsHeatmap,
+  type StatsOverview,
+  type StatsRange,
+  type TopTarget,
+} from './stats';
 import {
   DEFAULT_PREFS,
   DEFAULT_TEMPLATES,
   bloqueoVariant,
+  clonePrefs,
   draftFromParse,
   draftFromSeed,
   draftFromTemplate,
@@ -80,12 +113,16 @@ import {
   type GuardianLink,
   type MainLocalState,
   type Platform,
+  type PlatformSnapshotPatch,
+  type SurfaceKind,
   type UiOps,
   type UiPrefs,
   type UiSnapshot,
   type UiState,
-  type WindowKind,
+  type UiWindow,
   type WindowLayout,
+  initialPlatformState,
+  isSurfaceKind,
 } from './ui-state';
 
 // ---------------------------------------------------------------------------------------
@@ -391,6 +428,7 @@ export interface StateParts {
   trust?: ClockTrust;
   rewardsLock?: RewardsLockReason | null;
   problems?: string[];
+  nuclearActive?: boolean;
 }
 
 /** A `/v1/state` body; blocks and punishments are sorted `endsAt` descending like the guardian's. */
@@ -428,7 +466,7 @@ export function makeGuardianState(now: number, parts: StateParts = {}): Guardian
     },
     blocks,
     punishments,
-    nuclearActive: false,
+    nuclearActive: parts.nuclearActive ?? false,
     study: null,
     emergency: parts.emergency ?? null,
     allowances: [],
@@ -438,6 +476,370 @@ export function makeGuardianState(now: number, parts: StateParts = {}): Guardian
     pendingSettings: [],
     recent: { endedBlocks: parts.endedBlocks ?? [], endedStudy: null },
   };
+}
+
+/**
+ * `GET /v1/rewards` for a balance: offers of the services an active block covers are
+ * available when affordable («Te faltan 40 puntos» otherwise); the rest are `not_blocked`.
+ */
+export function makeRewards(
+  balance: number,
+  coveredServices: readonly string[],
+  lockReason: RewardsLockReason | null = null,
+): RewardsResponse {
+  return {
+    locked: lockReason !== null,
+    lockReason,
+    balance,
+    offers: REWARD_OFFERS.map((o) => {
+      const affordable = balance >= o.cost;
+      const unavailableReason =
+        lockReason !== null
+          ? ('locked' as const)
+          : !coveredServices.includes(o.serviceId)
+            ? ('not_blocked' as const)
+            : affordable
+              ? null
+              : ('insufficient_points' as const);
+      return {
+        offerId: o.id,
+        serviceId: o.serviceId,
+        minutes: o.minutes,
+        cost: o.cost,
+        affordable,
+        shortBy: affordable ? 0 : o.cost - balance,
+        available: unavailableReason === null,
+        unavailableReason,
+      };
+    }),
+    allowances: [],
+  };
+}
+
+/** The guardian settings of the fixtures (Madrid, 60 min goal, defaults elsewhere). */
+export function makeSettings(
+  patch: Partial<GuardianSettings> = {},
+  pending: PendingSettingChange[] = [],
+): SettingsResponse {
+  return {
+    settings: {
+      ...DEFAULT_GUARDIAN_SETTINGS,
+      timezone: 'Europe/Madrid',
+      punishment: { ...DEFAULT_GUARDIAN_SETTINGS.punishment },
+      studyWhitelist: { extraDomains: [], extraProcesses: [] },
+      ...patch,
+    },
+    pending,
+  };
+}
+
+// ---------------------------------------------------------------------------------------
+// Statistics payload builders (deterministic, from the harness clock)
+// ---------------------------------------------------------------------------------------
+
+/** Local day of `now` in Madrid (the harness clock is 17:00 there, so the UTC date matches). */
+function harnessDay(now: number): LocalDay {
+  return new Date(now + 2 * 60 * MIN).toISOString().slice(0, 10);
+}
+
+/** A stable pseudo-random 0..1 from an integer (no Math.random: fixtures are deterministic). */
+function noise(n: number): number {
+  const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+/** Minutes of a past day in the «busy student» fixtures (weekends lighter, some empty days). */
+function dayMinutes(day: LocalDay): { focus: number; block: number; attempts: number } {
+  const n = Math.round(Date.parse(`${day}T00:00:00Z`) / (24 * 60 * MIN));
+  const weekend = isoWeekdayIndex(day) >= 5;
+  const r = noise(n);
+  if (r < 0.12) return { focus: 0, block: 0, attempts: 0 };
+  const block = Math.round(((weekend ? 30 : 60) + r * 90) / 5) * 5;
+  const focus = Math.round((r * (weekend ? 40 : 95)) / 5) * 5;
+  return { focus, block, attempts: Math.floor(noise(n + 7) * 5) };
+}
+
+function emptyTotals(): StatsOverview['totals'] {
+  return {
+    focusMinutes: 0,
+    blockMinutes: 0,
+    completedBlocks: 0,
+    completedStudySessions: 0,
+    attempts: 0,
+    pointsEarned: 0,
+    pointsLost: 0,
+    goalDaysMet: 0,
+  };
+}
+
+function emptyHours(): HourStat[] {
+  return Array.from({ length: 24 }, (_, hour) => ({ hour, focusMinutes: 0, blockMinutes: 0 }));
+}
+
+/** An overview of the period of `range` containing `anchor`; `empty` gives the empty state. */
+export function makeStatsOverview(
+  range: StatsRange,
+  anchor: LocalDay,
+  now: number,
+  options: { empty?: boolean; goalMinutes?: number } = {},
+): StatsOverview {
+  const { from, to } = statsPeriod(range, anchor);
+  const today = harnessDay(now);
+  const goal = options.goalMinutes ?? 60;
+  const totals = emptyTotals();
+  const hours = emptyHours();
+  const lived = (day: LocalDay): boolean => !options.empty && day <= today;
+  let buckets: StatsBucket[];
+  if (range === 'day') {
+    const d = lived(anchor) ? dayMinutes(anchor) : { focus: 0, block: 0, attempts: 0 };
+    const nowHour = anchor === today ? new Date(now).getUTCHours() + 2 : 24;
+    buckets = Array.from({ length: 24 }, (_, hour) => {
+      const active = hour >= 15 && hour <= 20 && hour < nowHour;
+      const share = active ? (hour === 17 || hour === 18 ? 0.3 : 0.1) : 0;
+      return {
+        key: `${anchor}T${String(hour).padStart(2, '0')}`,
+        focusMinutes: Math.round(d.focus * share),
+        blockMinutes: Math.round(d.block * share),
+        attempts: hour === 18 ? d.attempts : 0,
+        points: Math.round(d.block * share) + 2 * Math.round(d.focus * share),
+      };
+    });
+  } else {
+    buckets = daysBetween(from, to).map((day) => {
+      const d = lived(day) ? dayMinutes(day) : { focus: 0, block: 0, attempts: 0 };
+      return {
+        key: day,
+        focusMinutes: d.focus,
+        blockMinutes: d.block,
+        attempts: d.attempts,
+        points: d.block + 2 * d.focus - 10 * d.attempts,
+      };
+    });
+  }
+  for (const b of buckets) {
+    totals.focusMinutes += b.focusMinutes;
+    totals.blockMinutes += b.blockMinutes;
+    totals.attempts += b.attempts;
+    totals.pointsEarned += b.blockMinutes + 2 * b.focusMinutes;
+    totals.pointsLost += 10 * b.attempts;
+    if (b.blockMinutes > 0)
+      totals.completedBlocks += range === 'day' ? 0 : 1 + (b.blockMinutes > 90 ? 1 : 0);
+    if (range !== 'day' && b.key < today && b.focusMinutes + b.blockMinutes >= goal) {
+      totals.goalDaysMet += 1;
+    }
+  }
+  if (range === 'day' && totals.blockMinutes > 0) totals.completedBlocks = 2;
+  const minutes = totals.focusMinutes + totals.blockMinutes;
+  if (minutes > 0) {
+    const shares: Record<number, number> = {
+      9: 0.05,
+      11: 0.05,
+      16: 0.2,
+      17: 0.3,
+      18: 0.25,
+      19: 0.15,
+    };
+    for (const [hour, share] of Object.entries(shares)) {
+      const h = hours[Number(hour)];
+      if (!h) continue;
+      h.focusMinutes = Math.round(totals.focusMinutes * share);
+      h.blockMinutes = Math.round(totals.blockMinutes * share);
+    }
+  }
+  const topTargets: TopTarget[] =
+    totals.attempts === 0
+      ? []
+      : [
+          {
+            kind: 'service',
+            id: 'youtube',
+            attempts: Math.ceil(totals.attempts * 0.45),
+            pointsLost: 0,
+          },
+          {
+            kind: 'service',
+            id: 'instagram',
+            attempts: Math.ceil(totals.attempts * 0.25),
+            pointsLost: 0,
+          },
+          {
+            kind: 'service',
+            id: 'tiktok',
+            attempts: Math.ceil(totals.attempts * 0.15),
+            pointsLost: 0,
+          },
+          {
+            kind: 'domain',
+            id: 'reddit.com',
+            attempts: Math.max(1, Math.floor(totals.attempts * 0.1)),
+            pointsLost: 0,
+          },
+          { kind: 'app', id: 'steam', attempts: 1, pointsLost: 0 },
+        ].map((t) => ({ ...t, pointsLost: t.attempts * 15 }) as TopTarget);
+  return {
+    range,
+    from,
+    to,
+    buckets,
+    totals,
+    topTargets,
+    hours,
+    empty: options.empty ?? false,
+  };
+}
+
+/** The `weeks` weeks ending with the week of `end`: one cell per day up to today. */
+export function makeHeatmap(
+  end: LocalDay,
+  weeks: number,
+  now: number,
+  options: { empty?: boolean; goalMinutes?: number } = {},
+): StatsHeatmap {
+  const goal = options.goalMinutes ?? 60;
+  const lastDay = statsPeriod('week', end).to;
+  const from = addDays(lastDay, -(weeks * 7 - 1));
+  const today = harnessDay(now);
+  const cells: HeatmapCell[] = daysBetween(from, lastDay)
+    .filter((day) => day <= today)
+    .map((day) => {
+      const d = options.empty ? { focus: 0, block: 0, attempts: 0 } : dayMinutes(day);
+      return {
+        day,
+        focusMinutes: d.focus,
+        blockMinutes: d.block,
+        level: heatmapLevel(d.focus + d.block, goal),
+      };
+    });
+  return { from, to: lastDay, goalMinutes: goal, cells };
+}
+
+/** A first page of the event log (newest first). */
+export function makeEventLog(now: number, options: { empty?: boolean } = {}): EventLogPage {
+  if (options.empty) return { entries: [], nextBefore: null, total: 0 };
+  const at = (minutesAgo: number): IsoUtc => iso(now - minutesAgo * MIN);
+  const rows: Omit<EventLogEntry, 'id'>[] = [
+    {
+      at: at(18),
+      type: 'block_created',
+      points: 0,
+      target: 'youtube',
+      minutes: 60,
+      mode: 'strict',
+    },
+    { at: at(35), type: 'attempt', points: -10, target: 'youtube', minutes: null, mode: 'strict' },
+    {
+      at: at(62),
+      type: 'block_completed',
+      points: 60,
+      target: 'instagram',
+      minutes: 60,
+      mode: 'normal',
+    },
+    {
+      at: at(64),
+      type: 'reward_redeemed',
+      points: -150,
+      target: 'youtube',
+      minutes: 15,
+      mode: null,
+    },
+    {
+      at: at(130),
+      type: 'block_extended',
+      points: 0,
+      target: 'instagram',
+      minutes: 30,
+      mode: 'normal',
+    },
+    {
+      at: at(190),
+      type: 'block_created',
+      points: 0,
+      target: 'Tardes de estudio',
+      minutes: 120,
+      mode: 'normal',
+    },
+    { at: at(24 * 60 - 20), type: 'day_closed', points: 0, target: null, minutes: 60, mode: null },
+    {
+      at: at(24 * 60 + 30),
+      type: 'block_completed',
+      points: 120,
+      target: 'social',
+      minutes: 120,
+      mode: 'strict',
+    },
+    {
+      at: at(24 * 60 + 95),
+      type: 'attempt',
+      points: -20,
+      target: 'tiktok',
+      minutes: null,
+      mode: 'strict',
+    },
+    {
+      at: at(24 * 60 + 97),
+      type: 'attempt',
+      points: -10,
+      target: 'reddit.com',
+      minutes: null,
+      mode: 'strict',
+    },
+    {
+      at: at(2 * 24 * 60),
+      type: 'schedule_updated',
+      points: 0,
+      target: 'Tardes de estudio',
+      minutes: null,
+      mode: 'normal',
+    },
+    {
+      at: at(3 * 24 * 60),
+      type: 'extension_paired',
+      points: 0,
+      target: 'chrome',
+      minutes: null,
+      mode: null,
+    },
+  ];
+  const entries = rows.map((row, i) => ({ id: `ep_fixture0000000001:${420 - i}`, ...row }));
+  return { entries, nextBefore: null, total: entries.length };
+}
+
+/** Logros: the first block, a 7-day streak and a clean week reached; the rest in progress. */
+export function makeAchievements(
+  now: number,
+  options: { fresh?: boolean } = {},
+): AchievementStatus[] {
+  const reached: Record<string, { current: number; at: IsoUtc | null }> = {
+    'first-block': { current: 48, at: iso(now - 20 * 24 * 60 * MIN) },
+    'streak-7': { current: 12, at: iso(now - 9 * 24 * 60 * MIN) },
+    'clean-week': { current: 7, at: iso(now - (options.fresh ? 20 : 4 * 24 * 60) * MIN) },
+  };
+  const progress: Record<string, number> = {
+    'first-session': 0,
+    'study-10h': 0,
+    'sessions-25': 0,
+    'streak-30': 12,
+    'study-50h': 0,
+  };
+  return ACHIEVEMENTS.map((a) => {
+    const done = reached[a.id];
+    return done
+      ? {
+          id: a.id,
+          achieved: true,
+          current: done.current,
+          threshold: a.threshold,
+          achievedAt: done.at,
+        }
+      : {
+          id: a.id,
+          achieved: false,
+          current: progress[a.id] ?? 0,
+          threshold: a.threshold,
+          achievedAt: null,
+        };
+  });
 }
 
 // ---------------------------------------------------------------------------------------
@@ -462,6 +864,8 @@ export interface FakeGuardianData {
   pairingCode: PairingCodeResponse;
   extensions: PairedExtension[];
   processNames: string[];
+  /** `GET /v1/rewards` (Phase 5). */
+  rewards: RewardsResponse;
   behaviour: {
     createBlock: FakeWriteBehaviour;
     extendBlock: FakeWriteBehaviour;
@@ -470,20 +874,51 @@ export interface FakeGuardianData {
   };
 }
 
+/**
+ * What the app answers from its own data in harness mode (Phase 5): the local event log's
+ * statistics and achievements, the process list, the updater and the installer. Main's
+ * handlers serve these instead of the real sources while a fixture is loaded, like
+ * `FakeGuardianData` stands in for the guardian.
+ */
+export interface FakeLocalData {
+  stats: {
+    /** `stats:overview` per range (the anchor of the request is not consulted). */
+    overview: Record<StatsRange, StatsOverview>;
+    /** `stats:heatmap`: 53 weeks; a request for fewer gets the last `weeks` of them. */
+    heatmap: StatsHeatmap;
+    /** `stats:events` (first page; later pages are empty). */
+    events: EventLogPage;
+  };
+  achievements: AchievementStatus[];
+  processes: RunningProcess[];
+  /** What `updater:check` finds (and `download` / `install` move through). */
+  updateCheck: UpdaterState;
+  /** `onboarding:install-guardian`. */
+  installGuardian: InstallOutcome;
+}
+
+/** Which window a fixture is about: the main window, a detail view or a Phase 5 surface. */
+export type FixtureWindow = 'main' | DetailName | SurfaceKind;
+
 export interface HarnessFixture {
   id: HarnessStateId;
   /** Spanish label for the screenshot index (docs/ui/index.html). */
   label: string;
-  /** Window the state is about. Detail fixtures also render the main window beside it. */
-  window: 'main' | DetailName;
+  /**
+   * Window the state is about. Detail fixtures also render the main window beside it;
+   * surface fixtures (`mini-timer`, `osd`, `nuclear`) render that window only.
+   */
+  window: FixtureWindow;
   display: DisplayPresetId;
   nowMs: number;
   snapshot: UiSnapshot;
   main: MainLocalState;
   detail: DetailLocalState;
-  /** The detail window's view (`null` for main-window fixtures). */
+  /** The detail window's view (`null` for main-window and surface fixtures). */
   detailRequest: DetailRequest | null;
   fake: FakeGuardianData;
+  /** Phase 5: answers from the app's own data (statistics, achievements, updater…). */
+  local: FakeLocalData;
   /** Self-checks (vitest) and e2e assertions. */
   expect: {
     /** `bloqueoVariant` of the main window. */
@@ -533,7 +968,32 @@ export const EXTRA_STATES = [
   'ajustes-delete',
 ] as const;
 
-export const HARNESS_STATE_IDS = [...PHASE1_REQUIRED_STATES, ...EXTRA_STATES] as const;
+/** Phase 5 states (docs/DESKTOP.md §15): every new window, surface and onboarding step. */
+export const PHASE5_STATES = [
+  'stats-empty',
+  'stats-week',
+  'rewards',
+  'rewards-short-points',
+  'logros',
+  'onboarding-1',
+  'onboarding-2',
+  'onboarding-3',
+  'onboarding-4',
+  'onboarding-5',
+  'mini-timer',
+  'osd',
+  'nuclear',
+  'ajustes-full',
+  'schedules',
+  'exam-whitelist',
+  'update-available',
+] as const;
+
+export const HARNESS_STATE_IDS = [
+  ...PHASE1_REQUIRED_STATES,
+  ...EXTRA_STATES,
+  ...PHASE5_STATES,
+] as const;
 export type HarnessStateId = (typeof HARNESS_STATE_IDS)[number];
 
 export function isHarnessStateId(value: unknown): value is HarnessStateId {
@@ -547,13 +1007,30 @@ export function isHarnessStateId(value: unknown): value is HarnessStateId {
 const REASON = 'Quiero aprobar mates';
 /** The emergency phrase, typed halfway (fixture `emergencia`). */
 const EMERGENCY_TYPED_ES = 'Acepto romper mi compromiso';
-const FIXTURE_PREFS: UiPrefs = { ...DEFAULT_PREFS, lastReason: REASON };
+/** Past the onboarding (Phase 5): only the `onboarding-*` fixtures show it. */
+const FIXTURE_PREFS: UiPrefs = {
+  ...clonePrefs(DEFAULT_PREFS),
+  lastReason: REASON,
+  onboarding: { done: true, step: 'first-block' },
+};
+
+function prefsWith(patch: Partial<UiPrefs>): UiPrefs {
+  return { ...clonePrefs(FIXTURE_PREFS), ...patch };
+}
 const INTENT = 'intent-fixture-0001';
 
 const PHRASE_OK = 'no veo YouTube en una hora';
 const PHRASE_UNKNOWN = 'no veo YouTube mañana tarde';
 const PHRASE_LONG = 'bloquea las redes sociales 6 horas';
 const PHRASE_HARDCORE = 'sin juegos hora y media';
+
+const APP_INFO: UiSnapshot['app'] = {
+  version: '0.1.0',
+  platform: 'win32',
+  packaged: false,
+  updateVersion: null,
+  systemLocale: 'es',
+};
 
 const LINK_OK = (now: number): GuardianLink => ({
   status: 'ok',
@@ -654,18 +1131,11 @@ function fakeData(now: number, state: GuardianStateResponse | null): FakeGuardia
     (b) => (b.mode === 'hardcore' || b.mode === 'exam') && b.kind !== 'punishment',
   );
   const inProgress = state?.emergency != null;
+  const covered = (state?.blocks ?? []).flatMap((b) => b.targets.serviceIds);
   return {
     reachability: 'ok',
     health: makeHealth(now),
-    settings: {
-      settings: {
-        ...DEFAULT_GUARDIAN_SETTINGS,
-        timezone: 'Europe/Madrid',
-        punishment: { ...DEFAULT_GUARDIAN_SETTINGS.punishment },
-        studyWhitelist: { extraDomains: [], extraProcesses: [] },
-      },
-      pending: [],
-    },
+    settings: makeSettings(),
     schedules: makeSchedules(now),
     emergencyPreview: {
       eligible: !inProgress && eligible.length > 0,
@@ -704,13 +1174,61 @@ function fakeData(now: number, state: GuardianStateResponse | null): FakeGuardia
       'Spotify.exe',
       'steam.exe',
     ],
+    rewards: makeRewards(balance, covered, state?.rewardsLock ?? null),
     behaviour: { createBlock: 'ok', extendBlock: 'ok', latencyMs: 0 },
+  };
+}
+
+function localData(now: number, options: { empty?: boolean } = {}): FakeLocalData {
+  const today = harnessDay(now);
+  const overview = Object.fromEntries(
+    STATS_RANGES.map((range) => [range, makeStatsOverview(range, today, now, options)]),
+  ) as Record<StatsRange, StatsOverview>;
+  return {
+    stats: {
+      overview,
+      heatmap: makeHeatmap(today, 53, now, options),
+      events: makeEventLog(now, options),
+    },
+    achievements: makeAchievements(now),
+    processes: [
+      { name: 'chrome.exe', appId: null },
+      { name: 'Code.exe', appId: null },
+      { name: 'Discord.exe', appId: 'discord' },
+      { name: 'explorer.exe', appId: null },
+      { name: 'Spotify.exe', appId: 'spotify' },
+      { name: 'steam.exe', appId: 'steam' },
+    ],
+    updateCheck: {
+      status: 'current',
+      version: null,
+      percent: null,
+      checkedAt: now,
+      error: null,
+    },
+    installGuardian: 'installed',
+  };
+}
+
+/** The Progreso mascot a snapshot would have: from today's minutes, wilted in the red. */
+function progressFor(state: GuardianStateResponse | null): UiSnapshot['progress'] {
+  if (!state) return null;
+  const { today, balance } = state.points;
+  return {
+    mascot: mascotStage({
+      todayFocusMinutes: today.focusMinutes,
+      goalMinutes: today.goalMinutes,
+      focusMinutesSinceGiveUp: balance < 0 ? 0 : null,
+    }),
+    achieved: 3,
+    total: ACHIEVEMENTS.length,
+    fresh: [],
   };
 }
 
 interface Spec {
   label: string;
-  window?: 'main' | DetailName;
+  window?: FixtureWindow;
   display?: DisplayPresetId;
   state: GuardianStateResponse | null;
   link?: GuardianLink;
@@ -722,6 +1240,9 @@ interface Spec {
   detail?: DetailLocalState;
   detailRequest?: DetailRequest | null;
   fake?: (base: FakeGuardianData) => FakeGuardianData;
+  local?: (base: FakeLocalData) => FakeLocalData;
+  /** Phase 5 snapshot fields over the defaults (updater, OSD, Nuclear…). */
+  platform?: PlatformSnapshotPatch;
   warning?: 'guardian' | 'extension' | null;
   density?: Density;
 }
@@ -738,14 +1259,22 @@ function build(id: HarnessStateId, now: number, spec: Spec): HarnessFixture {
     prefs,
     templates: DEFAULT_TEMPLATES.map((t) => ({ ...t })),
     features: spec.features ?? FEATURES,
-    app: {
-      version: '0.1.0',
-      platform: 'win32',
-      packaged: false,
-      updateVersion: null,
-      systemLocale: 'es',
-    },
+    app: { ...APP_INFO },
     harness: { stateId: id, frozenNowMs: now },
+    ...initialPlatformState(),
+    progress: progressFor(spec.state),
+    updater: {
+      status: 'current',
+      version: null,
+      percent: null,
+      checkedAt: now - 30 * MIN,
+      error: null,
+    },
+    activeWindow: {
+      status: spec.state && spec.state.blocks.length > 0 ? 'ok' : 'off',
+      lastMatch: null,
+    },
+    ...spec.platform,
   };
   const main = spec.main ?? initialMainLocal();
   const baseFake = fakeData(now, spec.state);
@@ -760,6 +1289,7 @@ function build(id: HarnessStateId, now: number, spec: Spec): HarnessFixture {
     detail: spec.detail ?? initialDetailLocal(prefs),
     detailRequest: spec.detailRequest ?? null,
     fake: spec.fake ? spec.fake(baseFake) : baseFake,
+    local: spec.local ? spec.local(localData(now)) : localData(now),
     expect: {
       variant: bloqueoVariant(snapshot, main, now),
       warning: spec.warning ?? null,
@@ -1206,7 +1736,324 @@ const BUILDERS: Readonly<Record<HarnessStateId, Builder>> = {
         ajustes: { ...d.ajustes, group: 'datos', deleteWord: 'BORRAR' },
       })),
     }),
+
+  // -------------------------------------------------------------------------------------
+  // Phase 5 (docs/DESKTOP.md §15)
+  // -------------------------------------------------------------------------------------
+
+  'stats-empty': (now) =>
+    build('stats-empty', now, {
+      label: 'Estadísticas sin datos',
+      window: 'estadisticas',
+      state: makeGuardianState(now, { points: freshPoints() }),
+      detailRequest: { name: 'estadisticas', range: null },
+      local: (l) => ({ ...localData(now, { empty: true }), achievements: l.achievements }),
+    }),
+
+  'stats-week': (now) =>
+    build('stats-week', now, {
+      label: 'Estadísticas de la semana',
+      window: 'estadisticas',
+      state: makeGuardianState(now),
+      detailRequest: { name: 'estadisticas', range: 'week' },
+      detail: detailWith((d) => ({
+        ...d,
+        estadisticas: { ...d.estadisticas, range: 'week', anchor: LAST_WEEK },
+      })),
+      local: (l) => ({
+        ...l,
+        stats: {
+          ...l.stats,
+          overview: { ...l.stats.overview, week: makeStatsOverview('week', LAST_WEEK, now) },
+        },
+      }),
+    }),
+
+  rewards: (now) =>
+    build('rewards', now, {
+      label: 'Recompensas',
+      window: 'recompensas',
+      state: makeGuardianState(now, { blocks: [oneBlock(now)] }),
+      detailRequest: { name: 'recompensas' },
+    }),
+
+  'rewards-short-points': (now) =>
+    build('rewards-short-points', now, {
+      label: 'Recompensas: te faltan puntos',
+      window: 'recompensas',
+      state: makeGuardianState(now, {
+        blocks: [oneBlock(now)],
+        points: makePoints({ balance: 110 }),
+      }),
+      detailRequest: { name: 'recompensas' },
+      detail: detailWith((d) => ({ ...d, help: { row: 'rewards', item: 'youtube-15' } })),
+    }),
+
+  logros: (now) =>
+    build('logros', now, {
+      label: 'Logros',
+      window: 'logros',
+      state: makeGuardianState(now),
+      detailRequest: { name: 'logros', focus: null },
+      detail: detailWith((d) => ({ ...d, help: { row: 'logros', item: 'streak-30' } })),
+    }),
+
+  'onboarding-1': (now) => onboarding('onboarding-1', now, 'welcome', 'Onboarding 1: bienvenida'),
+
+  'onboarding-2': (now) =>
+    onboarding('onboarding-2', now, 'guardian', 'Onboarding 2: guardián', {
+      state: null,
+      health: null,
+      link: {
+        status: 'down',
+        reason: 'not_installed',
+        since: now - 30 * SEC,
+        lastOkAt: null,
+        failures: 4,
+      },
+      fake: (f) => ({ ...f, reachability: 'not_installed' }),
+      // What section 1 would say; the onboarding hides the sections while it shows.
+      warning: 'guardian',
+    }),
+
+  'onboarding-3': (now) =>
+    onboarding('onboarding-3', now, 'extension', 'Onboarding 3: extensión', {
+      state: makeGuardianState(now, {
+        points: freshPoints(),
+        extensions: [],
+        nextSchedule: null,
+      }),
+      fake: (f) => ({ ...f, extensions: [] }),
+      main: mainWith({
+        onboarding: {
+          pairing: { code: '482913', expiresAt: iso(now + 4 * MIN + 20 * SEC), port: 47600 },
+          installing: false,
+        },
+      }),
+    }),
+
+  'onboarding-4': (now) => onboarding('onboarding-4', now, 'camera', 'Onboarding 4: cámara'),
+
+  'onboarding-5': (now) =>
+    onboarding('onboarding-5', now, 'first-block', 'Onboarding 5: primer bloqueo', {
+      main: mainWith({ composer: { text: ONBOARDING_PHRASE, openWhileActive: false } }),
+    }),
+
+  'mini-timer': (now) =>
+    build('mini-timer', now, {
+      label: 'Mini temporizador',
+      window: 'mini-timer',
+      state: makeGuardianState(now, { blocks: [oneBlock(now)] }),
+      prefs: prefsWith({ miniTimer: { visible: true, position: { x: 1720, y: 24 } } }),
+    }),
+
+  osd: (now) => {
+    const block = oneBlock(now);
+    return build('osd', now, {
+      label: 'Aviso grande (OSD)',
+      window: 'osd',
+      state: makeGuardianState(now, { blocks: [block] }),
+      ops: { ...emptyOps(), extendQueue: [extendEntry(block, 15, now)] },
+      platform: {
+        osd: { id: 1, text: OSD_EXTEND_ES, icon: 'extend', tone: 'orange', shownAt: now - 400 },
+      },
+    });
+  },
+
+  nuclear: (now) => {
+    const block = makeBlock(
+      {
+        n: 11,
+        kind: 'punishment',
+        categories: ['social', 'video', 'games', 'messaging', 'shopping', 'news'],
+        mode: 'strict',
+        leftMs: 100 * MIN,
+        elapsedMs: 20 * MIN,
+        punishmentN: 2,
+      },
+      now,
+    );
+    const punishment: Punishment = {
+      id: fixtureId('pun', 2),
+      blockId: block.id,
+      sessionId: fixtureId('stu', 2),
+      task: 'mates',
+      cause: 'three_strikes',
+      level: 'nuclear',
+      minutes: 120,
+      startsAt: iso(now - 20 * MIN),
+      endsAt: block.endsAt,
+      status: 'active',
+      endedAt: null,
+    };
+    return build('nuclear', now, {
+      label: 'Nuclear',
+      window: 'nuclear',
+      state: makeGuardianState(now, {
+        blocks: [block],
+        punishments: [punishment],
+        points: makePoints({ balance: 1095 }),
+        rewardsLock: 'punishment',
+        nuclearActive: true,
+      }),
+      platform: { nuclear: { overlay: 'shown', displays: 1, lastHeartbeatAt: now - SEC } },
+    });
+  },
+
+  'ajustes-full': (now) =>
+    build('ajustes-full', now, {
+      label: 'Ajustes completos (cambios pendientes, actualización)',
+      window: 'ajustes',
+      state: makeGuardianState(now, { blocks: [oneBlock(now)] }),
+      prefs: prefsWith({
+        sounds: { ambient: 'rain', volume: 60, autoplay: true },
+        reminders: { schedules: true, leadMinutes: 10, eyeBreaks: true },
+        shortcuts: {
+          'toggle-main': 'CommandOrControl+Alt+C',
+          'extend-15': 'CommandOrControl+Alt+E',
+          'toggle-mini-timer': null,
+        },
+      }),
+      detailRequest: { name: 'ajustes', group: null },
+      fake: (f) => ({
+        ...f,
+        settings: makeSettings({ dailyGoalMinutes: 60, attemptPenalties: true }, [
+          {
+            field: 'dailyGoalMinutes',
+            value: 45,
+            effectiveAt: iso(now + 23 * 60 * MIN + 40 * MIN),
+          },
+          { field: 'attemptPenalties', value: false, effectiveAt: iso(now + 22 * 60 * MIN) },
+        ]),
+      }),
+      platform: {
+        app: { ...APP_INFO, updateVersion: '0.2.0' },
+        updater: {
+          status: 'available',
+          version: '0.2.0',
+          percent: null,
+          checkedAt: now - 5 * MIN,
+          error: null,
+        },
+        shortcuts: { failed: ['extend-15'] },
+      },
+    }),
+
+  schedules: (now) =>
+    build('schedules', now, {
+      label: 'Bloqueos: horarios',
+      window: 'bloqueos',
+      state: makeGuardianState(now),
+      detailRequest: { name: 'bloqueos', seed: null, focus: 'schedules' },
+      detail: detailWith((d) => ({
+        ...d,
+        bloqueos: { ...d.bloqueos, schedule: { id: null, input: newScheduleInput(), error: null } },
+      })),
+    }),
+
+  'exam-whitelist': (now) =>
+    build('exam-whitelist', now, {
+      label: 'Bloqueos: modo examen y lista blanca',
+      window: 'bloqueos',
+      state: makeGuardianState(now),
+      detailRequest: { name: 'bloqueos', seed: null, focus: 'exam' },
+      detail: detailWith((d) => ({
+        ...d,
+        bloqueos: { ...d.bloqueos, exam: { domainInput: 'deepl.com', processInput: '' } },
+      })),
+      fake: (f) => ({
+        ...f,
+        settings: makeSettings(
+          {
+            studyWhitelist: {
+              extraDomains: ['wikipedia.org', 'khanacademy.org'],
+              extraProcesses: ['WINWORD.EXE'],
+            },
+          },
+          [
+            {
+              field: 'studyWhitelist.extraDomains',
+              value: ['wikipedia.org', 'khanacademy.org', 'geogebra.org'],
+              effectiveAt: iso(now + 23 * 60 * MIN + 10 * MIN),
+            },
+          ],
+        ),
+      }),
+    }),
+
+  'update-available': (now) =>
+    build('update-available', now, {
+      label: 'Actualización lista',
+      state: makeGuardianState(now),
+      platform: {
+        app: { ...APP_INFO, updateVersion: '0.2.0' },
+        updater: {
+          status: 'ready',
+          version: '0.2.0',
+          percent: 100,
+          checkedAt: now - 20 * MIN,
+          error: null,
+        },
+      },
+    }),
 };
+
+/** The Monday of the week before `HARNESS_NOW` (a full week of data in `stats-week`). */
+const LAST_WEEK = '2026-09-21';
+
+/** What onboarding step 5 leaves typed in the field (PROMPT §10). */
+const ONBOARDING_PHRASE = 'no veo YouTube en 25 minutos';
+
+/** The OSD after «Ampliar ▸ +15 min» from the tray (one-block ends at 17:42). */
+const OSD_EXTEND_ES = '+15 min · hasta las 17:57';
+
+/** A first-run user: nothing earned yet. */
+function freshPoints(): PointsSummary {
+  return makePoints({
+    balance: 0,
+    xp: 0,
+    level: 1,
+    levelFloorXp: 0,
+    nextLevelXp: xpForLevel(2),
+    streakDays: 0,
+    bestStreakDays: 0,
+    today: { day: '2026-09-28', focusMinutes: 0, goalMinutes: 60, goalMet: false },
+  });
+}
+
+/** «L–V 16:00–19:00 · Redes sociales» being created in Bloqueos (PROMPT §10). */
+function newScheduleInput(): ScheduleInput {
+  return {
+    name: 'Tardes sin redes',
+    enabled: true,
+    days: [1, 2, 3, 4, 5],
+    start: '16:00',
+    end: '19:00',
+    timezone: 'Europe/Madrid',
+    targets: { ...emptyTargets(), categoryIds: ['social'] },
+    whitelistOnly: false,
+    allow: emptyAllow(),
+    mode: 'normal',
+    reason: '',
+    acknowledgeNoEmergency: false,
+  };
+}
+
+/** The main window centred on one onboarding step of a first run. */
+function onboarding(
+  id: HarnessStateId,
+  now: number,
+  step: OnboardingStep,
+  label: string,
+  spec: Partial<Spec> = {},
+): HarnessFixture {
+  return build(id, now, {
+    label,
+    state: makeGuardianState(now, { points: freshPoints(), nextSchedule: null }),
+    ...spec,
+    prefs: { ...clonePrefs(DEFAULT_PREFS), onboarding: { done: false, step } },
+  });
+}
 
 function extendEntry(block: Block, minutes: number, now: number): ExtendEntry {
   return {
@@ -1241,6 +2088,8 @@ const SAMPLE_TEXT_EN: Readonly<Record<string, string>> = {
   'Tardes de estudio': 'Study afternoons',
   'Sábados sin juegos': 'Game-free Saturdays',
   [EMERGENCY_TYPED_ES]: 'I accept breaking my commitment',
+  'Tardes sin redes': 'Social-free afternoons',
+  [OSD_EXTEND_ES]: '+15 min · until 5:57 PM',
 };
 
 /** `value` with every string that is exactly a key of `table` swapped (plain data only). */
@@ -1281,12 +2130,23 @@ export function harnessLoad(fixture: HarnessFixture): HarnessLoad {
   return { stateId: fixture.id, main: fixture.main, detail: fixture.detail };
 }
 
+/** The renderer a fixture is about: `main`, `detail` (a detail view) or a surface. */
+export function fixtureWindowKind(fixture: Pick<HarnessFixture, 'window'>): UiWindow {
+  if (fixture.window === 'main') return 'main';
+  return isSurfaceKind(fixture.window) ? fixture.window : 'detail';
+}
+
+/** The surface a fixture is about, or `null` for main and detail fixtures. */
+export function fixtureSurface(fixture: Pick<HarnessFixture, 'window'>): SurfaceKind | null {
+  return isSurfaceKind(fixture.window) ? fixture.window : null;
+}
+
 /**
  * The `UiState` a window renders for a fixture: the main window by default for main
  * fixtures, the detail window for detail fixtures (pass `window` to get the other one).
  */
-export function fixtureUiState(fixture: HarnessFixture, window?: WindowKind): UiState {
-  const kind: WindowKind = window ?? (fixture.window === 'main' ? 'main' : 'detail');
+export function fixtureUiState(fixture: HarnessFixture, window?: UiWindow): UiState {
+  const kind: UiWindow = window ?? fixtureWindowKind(fixture);
   const preset = DISPLAY_PRESETS[fixture.display];
   return {
     env: {

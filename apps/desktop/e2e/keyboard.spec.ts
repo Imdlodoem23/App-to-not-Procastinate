@@ -69,7 +69,9 @@ function matchesShowFocus(info: FocusInfo, want: ShowFocus): boolean {
 async function checkFixture(app: LaunchedApp, fixture: HarnessFixture): Promise<void> {
   await app.harness.load(fixture.id, { display: fixture.display, theme: 'light' });
   await settleMain(app);
-  const kinds = fixture.window === 'main' ? (['main'] as const) : (['main', 'detail'] as const);
+  // Surface fixtures (mini timer, OSD, Nuclear) open no detail window.
+  const kinds =
+    fixture.detailRequest === null ? (['main'] as const) : (['main', 'detail'] as const);
   for (const kind of kinds) {
     const page = await app.page(kind);
     const problems = auditProblems(await auditKeyboard(page));

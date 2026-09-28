@@ -89,4 +89,24 @@ describe('deriveCapabilities', () => {
     expect(down.accounts.reason).toBe('database_down');
     expect(down.coach.reason).toBe('database_down');
   });
+
+  it('caps sign-in emails per day and reports the spent cap as emailLogin: budget', () => {
+    expect(loadConfig(testEnv()).email?.signInCodesPerDay).toBe(50);
+    expect(loadConfig(testEnv({ SIGNIN_EMAILS_PER_DAY: '0' })).email?.signInCodesPerDay).toBe(0);
+    expect(() => loadConfig(testEnv({ SIGNIN_EMAILS_PER_DAY: 'many' }))).toThrow(ConfigError);
+    const spent = deriveCapabilities(loadConfig(testEnv()), {
+      dbUp: true,
+      aiBudgetExhausted: false,
+      emailBudgetExhausted: true,
+    });
+    expect(spent.emailLogin).toEqual({ enabled: false, reason: 'budget' });
+    expect(spent.accounts.enabled).toBe(true);
+    expect(spent.googleLogin.enabled).toBe(true);
+    const noEmail = deriveCapabilities(loadConfig(testEnv({ RESEND_API_KEY: undefined })), {
+      dbUp: true,
+      aiBudgetExhausted: false,
+      emailBudgetExhausted: true,
+    });
+    expect(noEmail.emailLogin.reason).toBe('missing_key');
+  });
 });

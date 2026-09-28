@@ -74,6 +74,23 @@ const EXPECTED_ICON: Record<HarnessStateId, TrayIconKey> = {
   'bloqueos-prefilled': 'idle',
   'ajustes-pairing': 'idle',
   'ajustes-delete': 'idle',
+  'stats-empty': 'idle',
+  'stats-week': 'idle',
+  rewards: 'strict',
+  'rewards-short-points': 'strict',
+  logros: 'idle',
+  'onboarding-1': 'idle',
+  'onboarding-2': 'idle',
+  'onboarding-3': 'idle',
+  'onboarding-4': 'idle',
+  'onboarding-5': 'idle',
+  'mini-timer': 'strict',
+  osd: 'strict',
+  nuclear: 'red',
+  'ajustes-full': 'strict',
+  schedules: 'idle',
+  'exam-whitelist': 'idle',
+  'update-available': 'idle',
 };
 
 describe('tray icon', () => {
