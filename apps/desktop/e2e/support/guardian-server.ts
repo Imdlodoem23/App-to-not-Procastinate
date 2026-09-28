@@ -4,10 +4,11 @@
  * client, with the token from `client.json` in a temporary `CENTRATE_DATA_DIR`.
  *
  * It serves `/v1/health`, `/v1/state` (ETag `"s-<stateVersion>"`, 304 on `If-None-Match`),
- * `/v1/events` (empty long poll) and `POST /v1/pairing/code`, with payloads from the harness
- * fixture builders (they pass the shared response validators), and records every request's
- * method, path and headers. Like the real guardian, it rejects app-token requests that carry
- * an `Origin` (403 `origin_not_allowed`) and wrong tokens (401).
+ * `/v1/events` (an empty log: the first page at once, then empty long polls) and
+ * `POST /v1/pairing/code`, with payloads from the harness fixture builders (they pass the
+ * shared response validators), and records every request's method, path and headers. Like
+ * the real guardian, it rejects app-token requests that carry an `Origin` (403
+ * `origin_not_allowed`) and wrong tokens (401).
  */
 import { randomBytes } from 'node:crypto';
 import { mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -52,9 +53,13 @@ export async function startGuardianServer(): Promise<GuardianServer> {
   let token = newToken();
   let port = 0;
   const started = Date.now();
-  // One state for the whole run: its version (and ETag) only changes if a test asks.
-  const state = makeGuardianState(started);
+  // One state for the whole run: its version (and ETag) only changes if a test asks. Its event
+  // log is the empty one `/v1/events` serves (`lastEventSeq` 0, not the fixture's 420): a state
+  // ahead of its own log leaves the app's local copy behind for good, and the app keeps
+  // re-reading it (Progreso retries every 2 s for 10 s), publishing mid-test.
+  const state = { ...makeGuardianState(started), lastEventSeq: 0 };
   const etag = `"s-${state.stateVersion}"`;
+  const bootHealth = makeHealth(started);
   const pairing = harnessFixture('idle').fake.pairingCode;
 
   const writeClientJson = (): void => {
@@ -92,21 +97,29 @@ export async function startGuardianServer(): Promise<GuardianServer> {
     if (needsToken && !authed) return error(res, 401, 'unauthorized');
 
     if (req.method === 'GET' && url.pathname === GUARDIAN_PATHS.health) {
-      return send(res, 200, makeHealth(Date.now()));
+      // Only `serverNow` moves between answers: `startedAt` is the process's, like the real one's
+      // (the app republishes a health that changed in anything else).
+      return send(res, 200, { ...makeHealth(Date.now()), startedAt: bootHealth.startedAt });
     }
     if (req.method === 'GET' && url.pathname === GUARDIAN_PATHS.state) {
       if (req.headers['if-none-match'] === etag) return send(res, 304, undefined, { ETag: etag });
       return send(res, 200, state, { ETag: etag });
     }
     if (req.method === 'GET' && url.pathname === GUARDIAN_PATHS.events) {
+      // Like the real guardian (store.ReadEvents): another epoch (none on the first sync) or a
+      // cursor past the end is answered at once with `reset`; a caught-up cursor waits (up to
+      // 1 s here) for events that never come.
       const after = Number(url.searchParams.get('after') ?? 0) || 0;
-      const waitMs = Math.min(Number(url.searchParams.get('waitMs') ?? 0) || 0, 1_000);
-      await new Promise((r) => setTimeout(r, waitMs));
+      const reset = url.searchParams.get('epoch') !== state.epoch || after > state.lastEventSeq;
+      if (!reset) {
+        const waitMs = Math.min(Number(url.searchParams.get('waitMs') ?? 0) || 0, 1_000);
+        await new Promise((r) => setTimeout(r, waitMs));
+      }
       return send(res, 200, {
         epoch: state.epoch,
-        reset: false,
+        reset,
         events: [],
-        lastSeq: after,
+        lastSeq: reset ? 0 : after,
         hasMore: false,
       });
     }

@@ -88,20 +88,40 @@ test('304 answers publish nothing', async () => {
   const s = requireServer();
   const main = await mainPage();
   await waitForState(304);
-  await main.evaluate(() => {
+  await main.evaluate(async () => {
     const w = window as unknown as {
-      centrate: { on(channel: string, listener: (payload: unknown) => void): () => void };
-      __pushes: number[];
+      centrate: {
+        on(channel: string, listener: (payload: unknown) => void): () => void;
+        invoke(channel: string, payload: null): Promise<unknown>;
+      };
+      __pushes: { rev: unknown; changed: string[] }[];
     };
+    // Each push with what it changed against the snapshot before it, for the failure message.
+    let last = (
+      (await w.centrate.invoke('app:init', null)) as { snapshot: Record<string, unknown> }
+    ).snapshot;
+    const text = (v: unknown): string => (JSON.stringify(v) ?? 'undefined').slice(0, 200);
     w.__pushes = [];
-    w.centrate.on('ui:snapshot', (snapshot) => w.__pushes.push((snapshot as { rev: number }).rev));
+    w.centrate.on('ui:snapshot', (payload) => {
+      const next = payload as Record<string, unknown>;
+      const changed = Object.keys(next)
+        .filter((k) => k !== 'rev' && JSON.stringify(next[k]) !== JSON.stringify(last[k]))
+        .map((k) => (k === 'state' ? k : `${k}: ${text(last[k])} → ${text(next[k])}`));
+      w.__pushes.push({ rev: next['rev'], changed });
+      last = next;
+    });
   });
   const before = s.requests().filter((r) => r.status === 304).length;
   await main.waitForTimeout(5_000);
   const notModified = s.requests().filter((r) => r.status === 304).length - before;
   expect(notModified, '304s in 5 s (2 s poll while visible)').toBeGreaterThanOrEqual(2);
-  const pushes = await main.evaluate(() => (window as unknown as { __pushes: number[] }).__pushes);
-  expect(pushes, 'ui:snapshot pushes during 304s').toEqual([]);
+  const pushes = await main.evaluate(
+    () => (window as unknown as { __pushes: { rev: unknown; changed: string[] }[] }).__pushes,
+  );
+  expect(
+    pushes.map((p) => p.rev),
+    `ui:snapshot pushes during 304s: ${JSON.stringify(pushes)}`,
+  ).toEqual([]);
 });
 
 test('a rotated token (guardian restart) is picked up without a warning', async () => {
