@@ -3,7 +3,7 @@ import type { AchievementMetric } from '../points';
 import type { SharedMessages } from './es';
 import { formatInteger } from './format';
 
-/** English shared strings (same shape as `es.ts`). */
+/** English shared strings (same shape as `es.ts`). Conventions: en-US spelling, sentence case. */
 export const SHARED_EN: SharedMessages = {
   achievements: {
     titles: {

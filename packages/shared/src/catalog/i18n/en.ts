@@ -5,7 +5,7 @@ import type { CategoryId } from '../types';
  * the snapshot the guardian embeds) keeps the Spanish names; brand names (YouTube,
  * El País, Microsoft Word…) are the same in every language and are not listed here. Any
  * entry added to the catalog with a Spanish name needs its English name here (a test
- * checks it).
+ * checks it). Conventions: en-US spelling, sentence case.
  */
 export interface CatalogNames {
   readonly categories: Readonly<Record<CategoryId, string>>;

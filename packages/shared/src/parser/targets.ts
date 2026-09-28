@@ -329,6 +329,23 @@ function isDescriptor(
   return link;
 }
 
+/**
+ * A category word right after a service only describes it, as English puts it: «YouTube
+ * videos», «Twitch streams», «Steam games».
+ */
+function describesService(
+  tokens: readonly Token[],
+  hit: TargetHit,
+  previous: TargetHit | undefined,
+): boolean {
+  return (
+    hit.kind === 'category' &&
+    previous?.kind === 'service' &&
+    previous.end === hit.start &&
+    !tokens[hit.start]?.breakBefore
+  );
+}
+
 /** Tokens covered by `NON_TARGET_PHRASES`. */
 function nonTargetMask(tokens: readonly Token[]): boolean[] {
   const mask = tokens.map(() => false);
@@ -359,6 +376,7 @@ function isAnchored(
   triggers: readonly boolean[],
   trustedEnd: (k: number) => boolean,
   trustedStart: (k: number) => boolean,
+  trustedCategoryEnd: (k: number) => boolean,
 ): boolean {
   const { start, end } = candidate.hit;
   const lol = candidate.key === 'lol';
@@ -386,6 +404,8 @@ function isAnchored(
   const word = tokens[k]?.norm ?? '';
   if (LIST_CONNECTORS.has(word)) return !tokens[k]?.breakBefore && trustedEnd(k);
   if (lol) return LOL_LEADS.has(word);
+  // «games on Steam», «juegos en Steam»: a service the category before it describes.
+  if (DESCRIPTOR_LINKS.has(word) && !interjection && trustedCategoryEnd(k)) return true;
   if (trustedEnd(k + 1)) return !interjection;
   return followsTrigger(tokens, start, (j) => !!triggers[j]);
 }
@@ -468,11 +488,16 @@ export function scanTargets(
     candidates.some((candidate, index) => trusted[index] && candidate.hit.end === k);
   const trustedStart = (k: number): boolean =>
     candidates.some((candidate, index) => trusted[index] && candidate.hit.start === k);
+  const trustedCategoryEnd = (k: number): boolean =>
+    candidates.some(
+      (candidate, index) =>
+        trusted[index] && candidate.hit.kind === 'category' && candidate.hit.end === k,
+    );
   for (let changed = true; changed;) {
     changed = false;
     candidates.forEach((candidate, index) => {
       if (trusted[index]) return;
-      if (isAnchored(tokens, candidate, triggers, trustedEnd, trustedStart)) {
+      if (isAnchored(tokens, candidate, triggers, trustedEnd, trustedStart, trustedCategoryEnd)) {
         trusted[index] = true;
         changed = true;
       }
@@ -484,6 +509,10 @@ export function scanTargets(
     if (trusted[index]) kept.push(candidate.hit);
     else mark(candidate, false);
   });
-  const hits = kept.filter((hit, index) => !isDescriptor(tokens, hit, kept[index + 1]));
+  const hits = kept.filter(
+    (hit, index) =>
+      !isDescriptor(tokens, hit, kept[index + 1]) &&
+      !describesService(tokens, hit, kept[index - 1]),
+  );
   return { hits, hasTrigger };
 }

@@ -1,5 +1,8 @@
 import { formatClock, formatDayMonth, type LanguageTags } from '../../i18n/format';
 
+/** Clock times with a name: 12:00 and 00:00. */
+export type NamedTime = 'noon' | 'midnight';
+
 /** Chip labels and the «No he entendido» line of the parser, per UI language. */
 export interface ParserMessages {
   /** «45 min». */
@@ -19,11 +22,11 @@ export interface ParserMessages {
   untilTomorrow: (time: string) => string;
   untilDate: (date: string, time: string) => string;
   /**
-   * The midnight that ends today (`tomorrow` false) or tomorrow, for languages that name
-   * it («until midnight», «until midnight tomorrow»). Null shows the clock like any other
-   * time («hasta 00:00», «hasta el 30/9 00:00»).
+   * Noon or the midnight that ends the day, today or tomorrow, for languages that name them
+   * («until noon», «until midnight tomorrow»). Null shows the clock like any other time
+   * («hasta 12:00», «hasta 00:00», «hasta el 30/9 00:00»).
    */
-  untilMidnight: ((tomorrow: boolean) => string) | null;
+  untilNamed: ((time: NamedTime, tomorrow: boolean) => string) | null;
   notUnderstood: (fragments: readonly string[]) => string;
 }
 
@@ -37,7 +40,7 @@ export const PARSER_ES: ParserMessages = {
   until: (time: string): string => `hasta ${time}`,
   untilTomorrow: (time: string): string => `hasta mañana ${time}`,
   untilDate: (date: string, time: string): string => `hasta el ${date} ${time}`,
-  untilMidnight: null,
+  untilNamed: null,
   notUnderstood: (fragments: readonly string[]): string =>
     `No he entendido: ${fragments.map((fragment) => `"${fragment}"`).join(', ')}`,
 };

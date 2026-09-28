@@ -97,7 +97,7 @@ export const SILENT = words(
   apps sites site websites website page pages platforms platform account accounts
   distractions distraction distracted distracting focused focusing concentrate concentrating
   procrastinate procrastinating procrastination
-  next during up out
+  next during up out turn switch log take put starting
 `,
 );
 
@@ -107,7 +107,7 @@ export const SILENT = words(
  */
 export const FRAGMENT_KEEP_START = words(
   'en por para pa con durante desde sobre este esta estos estas todo toda todos todas',
-  'in at for on during with while from by this these all every everything after before',
+  'in at for on during with while from by this these all every everything after before but',
 );
 
 /** Laughter and similar noise («jajaja», «xd», «lol» when it is not League of Legends). */
@@ -201,7 +201,8 @@ export const STUDY_NOUN_ARTICLES = words(
 const TASK_FILLER = `
   ya ahora hoy rato ratito seguidas seguidos seguida seguido toda todo todas todos tarde noche
   mas menos poco bien entera entero asi
-  now today tonight right straight bit little while more less please pls just
+  now today tonight right straight bit little while more less please pls just all whole entire
+  morning afternoon evening night day
 `;
 
 /** Leading words removed from a task: «estudiar para el examen» → «examen». */
@@ -243,6 +244,6 @@ export const OTHER_KNOWN = words(
   class classes school exam exams test tests work job home dinner lunch breakfast sleep bed
   bedtime phone computer laptop mode strict hardcore normal except excluding besides apart
   other than when here there maximum minimum tops total row least most around about approx
-  roughly like only
+  roughly like only twice streaks
 `,
 );

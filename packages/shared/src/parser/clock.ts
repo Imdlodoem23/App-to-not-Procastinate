@@ -133,12 +133,13 @@ function periodAt(
   if (a === 'esta' && PERIODS.has(b)) return { period: b as Period, end: j + 2 };
   if (a === 'del' && b === 'mediodia') return { period: 'mediodia', end: j + 2 };
   if (a === 'am' || a === 'pm') return { period: a, end: j + 1 };
-  // «a.m.», «p.m.»: the period splits the letters into two tokens.
+  // «a.m.», «p.m.»: the dot splits the letters into two tokens.
   const first = tokens[j];
   const second = tokens[j + 1];
   if (
     (a === 'a' || a === 'p') &&
     second?.norm === 'm' &&
+    second.breakBefore &&
     first !== undefined &&
     second.start === first.end + 1
   ) {
@@ -451,8 +452,7 @@ export function matchUntil(tokens: readonly Token[], i: number, now: Date): Unti
   if (before) j = before.end;
   const read = readClock(tokens, j, english);
   if (!read) return null;
-  const { clock } = read;
-  const { offset } = read;
+  const { clock, offset } = read;
   j = read.end;
   if (english) j = oclockEnd(tokens, j);
   if (!clock.hasSuffix && HOUR_SUFFIXES.has(nextNorm(tokens, j))) j += 1;

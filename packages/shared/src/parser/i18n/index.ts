@@ -2,7 +2,7 @@ import { toLocale, type Locale } from '../../i18n/locale';
 import { PARSER_EN } from './en';
 import { PARSER_ES, type ParserMessages } from './es';
 
-export type { ParserMessages } from './es';
+export type { NamedTime, ParserMessages } from './es';
 export { PARSER_EN } from './en';
 export { PARSER_ES } from './es';
 

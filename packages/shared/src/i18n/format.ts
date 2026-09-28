@@ -2,8 +2,8 @@
  * Numbers, clock times and dates in a UI language, with the same `Intl` options as the
  * apps: grouping always on («1.240» in Spanish, «1,240» in English, never «1240»), the
  * typographic minus «−» for negative numbers, a 24 h clock in Spanish («17:42», «08:00»)
- * and the region's own clock in English («5:42 PM» in en-US, «17:42» in en-GB). Local time
- * zone. Pure apart from the formatter cache.
+ * and the region's own clock in English («5:42 PM» in en-US, «17:42» and «08:00» in en-GB).
+ * Local time zone. Pure apart from the formatter cache.
  *
  * Every helper takes the UI `locale` and, optionally, the user's language `tag` (or list
  * of tags, see `intlTag`) for the region: without one, Spanish formats as es-ES and
@@ -39,11 +39,20 @@ const intFormat = perLocale(
   (tag) => new Intl.NumberFormat(tag, { useGrouping: 'always', maximumFractionDigits: 0 }),
 );
 
-const clockFormat = perLocale((tag, locale) =>
-  locale === 'en'
-    ? new Intl.DateTimeFormat(tag, { hour: 'numeric', minute: '2-digit' })
-    : new Intl.DateTimeFormat(tag, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }),
-);
+/**
+ * Spanish: always 24 h with two-digit hours («08:00»). English: the region's own clock,
+ * with two-digit hours when it is a 24 h one («08:00» in en-GB, «8:00 AM» in en-US).
+ */
+const clockFormat = perLocale((tag, locale) => {
+  if (locale !== 'en') {
+    return new Intl.DateTimeFormat(tag, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  }
+  const regional = new Intl.DateTimeFormat(tag, { hour: 'numeric', minute: '2-digit' });
+  const cycle = regional.resolvedOptions().hourCycle;
+  return cycle === 'h23' || cycle === 'h24'
+    ? new Intl.DateTimeFormat(tag, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    : regional;
+});
 
 const dayMonthFormat = perLocale(
   (tag) => new Intl.DateTimeFormat(tag, { day: 'numeric', month: 'numeric' }),

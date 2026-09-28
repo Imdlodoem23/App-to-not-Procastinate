@@ -125,8 +125,8 @@ const PLURAL_NEXT: ReadonlySet<string> = new Set(['proximas', 'proximos', 'sigui
 
 const COMPACT_RE =
   /^(\d{1,4}(?:[.,]\d{1,2})?)(h|hr|hrs|hs|horas?|horitas?|oras?|hours?|m|min|mins|minutos?|minutes?|d|dias?|days?)$/;
-const COMPACT_HOURS_MINUTES_RE = /^(\d{1,3})h(\d{1,2})(?:m|min|mins|minutos?)?$/;
-const COMPACT_MINUTES_RE = /^(\d{1,2})(?:m|min|mins|minutos?)$/;
+const COMPACT_HOURS_MINUTES_RE = /^(\d{1,3})h(\d{1,2})(?:m|min|mins|minutos?|minutes?)?$/;
+const COMPACT_MINUTES_RE = /^(\d{1,2})(?:m|min|mins|minutos?|minutes?)$/;
 const CLOCK_WITH_UNIT_RE = /^(\d{1,2}):(\d{2})(?:h|hs|hrs|horas?)$/;
 const CLOCK_RE = /^(\d{1,2}):(\d{2})$/;
 

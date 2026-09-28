@@ -21,9 +21,10 @@ function calendarDays(from: Date, to: Date): number {
 /**
  * «hasta 20:30», «hasta mañana 08:00», «hasta el 30/9 08:00» (local time); in English
  * «until 8:30 PM», «until tomorrow 8:00 AM», «until 9/30 8:00 AM». The midnight that ends
- * today reads «hasta 00:00» («until midnight»), the one that ends tomorrow «hasta el 30/9
- * 00:00» («until midnight tomorrow»). `tags` are the user's language tags, for the region's
- * clock and dates (see `intlTag`; es-ES and en-US by default).
+ * today reads «hasta 00:00», the one that ends tomorrow «hasta el 30/9 00:00». English
+ * names noon and midnight: «until noon», «until noon tomorrow», «until midnight», «until
+ * midnight tomorrow». `tags` are the user's language tags, for the region's clock and
+ * dates (see `intlTag`; es-ES and en-US by default).
  */
 export function untilLabel(
   endsAt: Date,
@@ -33,9 +34,14 @@ export function untilLabel(
 ): string {
   const t = parserMessages(locale);
   const days = calendarDays(now, endsAt);
-  const midnight = endsAt.getHours() === 0 && endsAt.getMinutes() === 0;
-  if (midnight && t.untilMidnight && (days === 1 || days === 2)) {
-    return t.untilMidnight(days === 2);
+  const minuteOfDay = endsAt.getHours() * 60 + endsAt.getMinutes();
+  const midnight = minuteOfDay === 0;
+  if (t.untilNamed) {
+    // Midnight belongs to the day it ends: 00:00 on the 29th is «tonight's» midnight.
+    if (midnight && (days === 1 || days === 2)) return t.untilNamed('midnight', days === 2);
+    if (minuteOfDay === 12 * 60 && (days === 0 || days === 1)) {
+      return t.untilNamed('noon', days === 1);
+    }
   }
   const time = t.clock(endsAt, tags);
   if (days <= 0 || (days === 1 && midnight)) return t.until(time);
