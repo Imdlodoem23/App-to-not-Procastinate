@@ -9,7 +9,9 @@
 - **Hecho en Fase 1:** contrato del guardián, catálogo, parser, puntos, tokens y capa de plataforma del guardián.
 - **Hecho:** web estilo Apple (estructura completa, demo en vivo con el parser real, escena pegajosa, páginas Descargar, Novedades y Privacidad).
 - **Hecho:** motor + API HTTP del guardián (prueba de humo real: bloquea, sobrevive al reinicio, ignora cambios de hora y se quita solo), app de escritorio (bandeja, ventana de 440 px, confirmación, cuenta atrás, ampliar con deshacer, ventanas Bloqueos/Emergencia/Ajustes) y extensión del navegador.
-- **Siguiente paso:** PR de la Fase 1 a `main` con el CI en verde y release `v0.1.0` (Fase 2).
+- **Web publicada:** <https://centrate.onrender.com> (Render, de momento desde la rama de desarrollo; pasará a `main` al fusionar la Fase 1).
+- **En curso (ola 1, en paralelo):** traducción al inglés de web, app y extensión (`english-i18n`); CI de la Fase 1 en verde en Windows y macOS (`phase1-ci-green`); motor de IA del Study Mode en `packages/study-ai` (`phase4-study-ai`); iconos, mascota, sonidos y pipeline de marketing (`brand-assets`); backend `apps/api` de la Fase 6 (`phase6-cloud-api`).
+- **Siguiente (ola 2, cuando termine el inglés):** fusionar la Fase 1 en `main` y release `v0.1.0`; integrar en la app el Study Mode (cámara, calibración, resumen), la capa de ventana activa, estadísticas, recompensas, logros, mascota, Pomodoro, horarios, sonidos, recordatorios, onboarding, mini temporizador, OSD y auto-actualización; web con capturas y vídeos reales; release `v1.0.0`; cuentas y amigos en la app; y después la Fase 7.
 
 ## Fase 0 · Esqueleto
 
