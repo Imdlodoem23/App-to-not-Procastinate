@@ -320,30 +320,59 @@ test('emergency: phrase by hand (paste refused) → waiting → ready → «¿Se
   // «Desbloquear» asks «¿Seguro?» in place; the second press confirms.
   const unlock = detail.getByRole('button', { name: /Desbloquear/ });
   await expect(unlock).toBeVisible();
-  // What the page sees around the two presses (anything that disarms or skips a press), for
-  // the failure message: the Windows runner once saw the second press confirm nothing.
+  // What happens around the two presses, for the failure message (the Windows runner sometimes
+  // sees the second press confirm nothing): the detail page's events and «Desbloquear» label
+  // changes, and what main pushes to that page.
   await detail.evaluate(() => {
     const w = window as unknown as { __unlockLog: string[] };
     const t0 = performance.now();
-    const name = (t: EventTarget | null): string =>
-      t instanceof HTMLElement
-        ? (t.dataset['tileId'] ?? (t.id || t.tagName.toLowerCase()))
-        : t === window
-          ? 'window'
-          : 'document';
+    const log = (text: string): void => {
+      w.__unlockLog.push(`${Math.round(performance.now() - t0)} ${text}`);
+    };
+    const name = (t: EventTarget | null): string => {
+      if (!(t instanceof Element)) return t === window ? 'window' : 'document';
+      const tile = t.closest<HTMLElement>('[data-tile-id]');
+      return tile?.dataset['tileId'] ?? (t.id || t.tagName.toLowerCase());
+    };
     w.__unlockLog = [];
     const types = ['pointerdown', 'click', 'mouseleave', 'focusout', 'blur', 'visibilitychange'];
     for (const type of types) {
       window.addEventListener(
         type,
-        (e) => {
-          const detail = e instanceof MouseEvent ? ` detail=${e.detail}` : '';
-          w.__unlockLog.push(
-            `${Math.round(performance.now() - t0)} ${type} ${name(e.target)}${detail}`,
-          );
-        },
+        (e) => log(`${type} ${name(e.target)}${e instanceof MouseEvent ? ` ${e.detail}` : ''}`),
         true,
       );
+    }
+    const button = [...document.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('Desbloquear'),
+    );
+    if (button) {
+      new MutationObserver(() =>
+        log(`label "${button.textContent}" disabled=${button.getAttribute('aria-disabled')}`),
+      ).observe(button, { subtree: true, childList: true, characterData: true, attributes: true });
+    }
+  });
+  await app.electron.evaluate(({ BrowserWindow }) => {
+    const g = globalThis as unknown as { __detailPushes: string[] };
+    g.__detailPushes = [];
+    const t0 = Date.now();
+    for (const win of BrowserWindow.getAllWindows()) {
+      const wc = win.webContents;
+      if (!wc.getURL().includes('window=detail')) continue;
+      const send = wc.send.bind(wc);
+      wc.send = (channel: string, ...args: unknown[]): void => {
+        const p = args[0] as {
+          rev?: number;
+          harness?: { frozenNowMs?: number } | null;
+          state?: { emergency?: { status?: string } | null } | null;
+        };
+        const what =
+          channel === 'ui:snapshot'
+            ? `rev ${p.rev} frozen ${p.harness?.frozenNowMs} emergency ${p.state?.emergency?.status}`
+            : (JSON.stringify(args[0]) ?? '').slice(0, 160);
+        g.__detailPushes.push(`${Date.now() - t0} ${channel} ${what}`);
+        send(channel, ...args);
+      };
     }
   });
   await unlock.click();
@@ -358,12 +387,17 @@ test('emergency: phrase by hand (paste refused) → waiting → ready → «¿Se
     const seen = await detail.evaluate(
       () => (window as unknown as { __unlockLog: string[] }).__unlockLog,
     );
-    const now = await unlock.evaluateAll((els) =>
-      els.map((el) => `${el.textContent} (${el.getAttribute('aria-description')})`),
+    const pushes = await app.electron.evaluate(
+      () => (globalThis as unknown as { __detailPushes: string[] }).__detailPushes,
     );
+    const snap = await app.harness.snapshot();
+    const calls = (await app.harness.guardianCalls())
+      .map((c) => c.method)
+      .filter((m) => !/^(get|health)/.test(m));
     throw new Error(
       `${error instanceof Error ? error.message : String(error)}\n` +
-        `«Desbloquear» now: ${now.join(', ') || 'gone'}; page events: ${seen.join(' | ')}`,
+        `emergency ${snap.state?.emergency?.status}, frozen ${snap.harness?.frozenNowMs}, ` +
+        `writes ${calls.join(',')}\npage: ${seen.join(' | ')}\npushes: ${pushes.join(' | ')}`,
       { cause: error },
     );
   }
