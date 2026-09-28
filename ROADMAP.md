@@ -7,7 +7,8 @@
 
 - **Hecho:** Fase 0 fusionada en `main` (PR #1). Configuración de instaladores (`electron-builder.yml`, NSIS, `.deb`) y `release.yml` preparados; el `.deb` y el AppImage se han generado en local.
 - **Hecho en Fase 1:** contrato del guardián, catálogo, parser, puntos, tokens y capa de plataforma del guardián.
-- **En curso (3 workflows):** motor + API HTTP del guardián (`guardian-engine`), app de escritorio (`desktop-app`) y web estilo Apple (`web-apple-style`).
+- **Hecho:** web estilo Apple (estructura completa, demo en vivo con el parser real, escena pegajosa, páginas Descargar, Novedades y Privacidad).
+- **En curso (3 workflows):** motor + API HTTP del guardián (`guardian-engine`), app de escritorio (`desktop-app`) y extensión del navegador (`browser-extension`, adelanto de la Fase 3).
 - **Siguiente paso:** integrar los tres, PR de la Fase 1 a `main`, y release `v0.1.0` (Fase 2).
 
 ## Fase 0 · Esqueleto
