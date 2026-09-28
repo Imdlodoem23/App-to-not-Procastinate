@@ -22,8 +22,9 @@ import {
   harnessFixture,
 } from '../../apps/desktop/src/shared/fixtures';
 import { primaryBlock } from '../../apps/desktop/src/shared/ui-state';
+import { NEUTRAL_SERVICE_ICONS_PARAM } from '@centrate/shared/service-icon';
 import { CONFIG, LANG, REPO_ROOT, freshDir, video, wanted } from './lib/config';
-import { FrameRecorder, assertNoRemoteImages } from './lib/recorder';
+import { FrameRecorder, assertNeutralIcons } from './lib/recorder';
 
 const SPEC = video('blocked-page');
 const DIST = join(REPO_ROOT, 'apps', 'extension', 'dist');
@@ -179,19 +180,23 @@ test('blocked-page', async () => {
         },
       },
     } satisfies StubInput);
-    await page.goto(`${ORIGIN}/blocked.html?service=youtube`);
+    // `neutral-service-icons`: the marketing switch (@centrate/shared/service-icon).
+    await page.goto(`${ORIGIN}/blocked.html?service=youtube&${NEUTRAL_SERVICE_ICONS_PARAM}=1`);
     await expect(page.getByRole('timer')).toBeVisible();
     // The humor line waits for the first answers (at most 400 ms on the page's clock).
     await page.clock.runFor(500);
     await expect(page.locator('#blocked-humor')).not.toBeEmpty();
-    await assertNoRemoteImages(page);
 
     const rendered = await renderedFonts(context, page);
     if (!rendered.ok && !ANY_FONT) {
       throw new Error(`blocked.html renders in ${rendered.family} (${fonts.source}).`);
     }
 
-    const rec = await FrameRecorder.start(page, dir, { fps: CONFIG.fps });
+    const rec = await FrameRecorder.start(page, dir, {
+      fps: CONFIG.fps,
+      // The page draws no service icon: no neutral mark to require, but nothing may show one.
+      check: () => assertNeutralIcons(page, { requireSwitch: false }),
+    });
     await rec.hold(700, 'reporting');
     await setInfo(page, { status: 'counted', pointsDelta: -10, episodePointsDelta: -10 });
     await expect(page.locator('#blocked-points-value')).toHaveText(/−10/);

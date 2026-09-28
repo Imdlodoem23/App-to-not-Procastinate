@@ -30,31 +30,52 @@ No hay fundido cruzado porque no hace falta: todo se genera en círculo.
 
 La muestra que sigue a la última es la que la síntesis habría producido después. Un fundido cruzado, en cambio, hunde el nivel o produce filtrado en peine en la unión.
 
-## Cómo reproducirlos en la app
+## Cómo suenan en la app
 
-Descodifica cada archivo a su propia frecuencia de muestreo y repítelo con un `AudioBufferSourceNode`, que remuestrea mientras suena y cruza la unión sin notarse:
+El reproductor está en `apps/desktop/src/renderer/src/sounds/`:
+
+- `loop-audio.ts` lee el WAV y lo remuestrea una sola vez, al cargarlo, a la frecuencia del contexto de audio (la de la tarjeta de sonido: 44,1 o 48 kHz, casi siempre). Usa un filtro sinc con ventana de Kaiser (48 coeficientes, corte en 0,45 × la frecuencia más baja de las dos) que, en la unión, lee las muestras del otro extremo del bucle en vez de silencio. El resultado dura lo mismo que el bucle y es otro bucle sin cortes.
+- `loop-player.ts` lo repite con un `AudioBufferSourceNode` (`loop = true`) a velocidad 1, así que nada interpola mientras suena. Arrancar, parar y cambiar de sonido pasan siempre por una rampa de ganancia de 400 ms (al cambiar, los dos sonidos se funden), y el volumen se desliza en 50 ms.
+- `app-player.ts` lo monta sobre el `AudioContext` real. Recibe los bytes de `sounds:load`:
 
 ```ts
-const bytes = await (await fetch(url)).arrayBuffer();
-const rate = new DataView(bytes).getUint32(24, true); // 22050 or 16000, from the WAV header
-const buffer = await new OfflineAudioContext(1, 1, rate).decodeAudioData(bytes);
-const source = new AudioBufferSourceNode(context, { buffer, loop: true });
-source.connect(volume).connect(context.destination);
-source.start();
+const player = createAppLoopPlayer(prefs.sounds.volume); // 0–100
+const loaded = await invoke('sounds:load', { sound: 'rain' });
+if (loaded.ok) await player.play(loaded.value.bytes); // fades in over 400 ms
+player.setVolume(40);
+player.stop(); // fades out over 400 ms
 ```
 
-Comprobado en Chromium: con este método, el salto entre muestras en la unión es como cualquier otro de los tres archivos.
+Medido en Chromium a 48 kHz, dos vueltas de cada bucle en un `OfflineAudioContext`. La unión es el salto (segunda diferencia) al cruzarla dividido entre el percentil 99,9 del resto del bucle; por debajo de 1 no se distingue de cualquier otra muestra.
 
-- Si se descodifica directamente en el contexto de la app (48 kHz), `decodeAudioData` remuestrea el archivo como si no fuera un bucle y rellena los extremos con silencio. En lluvia y ruido blanco no se nota; en lo-fi deja un tic muy leve cada 36 s. Por eso lo-fi empieza en su momento más tranquilo, justo antes del primer tiempo, y no encima del bombo.
+| Método                                                        | Energía entre 11,3 y 22 kHz (ruido blanco · lluvia · lo-fi) | Unión (ruido blanco · lluvia · lo-fi) |
+| ------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------- |
+| Remuestreo al cargar (el de la app)                           | −94,0 · −94,1 · −88,5 dB                                    | 0,35 · 0,06 · 0,03                    |
+| El búfer a 22,05 o 16 kHz en un contexto a 48 kHz | −22,8 · −26,3 · −40,1 dB                                    | 0,11 · 0,03 · 0,04                    |
+| `decodeAudioData` a 48 kHz                                    | −81,2 · −82,2 · −79,8 dB                                    | 0,61 · 0,20 · **2,13**                |
+
+- **El búfer a 22,05 o 16 kHz** cruza la unión sin notarse, pero Chromium lo remuestrea por interpolación lineal, que deja imágenes por encima de la frecuencia de Nyquist del archivo: un siseo que el ruido blanco, «suave, sin agudos ásperos», no debe tener.
+- **`decodeAudioData` a 48 kHz** remuestrea bien, pero trata el archivo como un sonido suelto y rellena sus extremos con silencio: en lo-fi deja un tic cada 36 s.
+- **La rampa** no es opcional: el primer bombo de lo-fi llega entre 20 y 60 ms después de la muestra 0 (el RMS en ventanas de 10 ms salta de −23 a −11 dBFS), y cortar un bucle a mitad de onda hace clic. Con la rampa, los primeros 10 ms quedan por debajo de −57 dBFS.
+- **El coste:** remuestrear un bucle son entre 50 y 85 millones de multiplicaciones (0,2–0,6 s en un procesador modesto). Se hace a trozos de 65 536 muestras cediendo el hilo entre uno y otro, así que la interfaz no se congela; si eliges otro sonido mientras tanto, el primero se descarta.
 - `<audio loop>` puede dejar un pequeño hueco al volver al principio.
 
-Para empaquetarlos, `apps/desktop/electron-builder.yml` necesita esta entrada en `extraResources`; en la app instalada quedan en `process.resourcesPath/sounds`:
+Las pruebas de `apps/desktop/test/renderer/sounds/` comprueban en Node, con los tres archivos, que el remuestreo conserva los tonos dentro de banda, no deja imágenes por encima de la frecuencia de Nyquist del archivo y no marca la unión, y que el reproductor hace las rampas y los fundidos.
+
+## Empaquetado
+
+`apps/desktop/electron-builder.yml` los copia con `extraResources`:
 
 ```yaml
 - from: resources/sounds
   to: sounds
   filter: ['*.wav']
 ```
+
+En la app instalada quedan en `process.resourcesPath/sounds`; en desarrollo, en `apps/desktop/resources/sounds`. `src/main/app/paths.ts` resuelve esa carpeta (`soundsDir`) y el archivo de cada sonido (`soundFilePath`), que es lo que lee `sounds:load`.
+
+- `apps/desktop/test/main/app/packaged-resources.test.ts` comprueba que cada id de `SOUND_FILES` pasa el filtro, existe y se resuelve dentro de `process.resourcesPath/sounds`, y que en la carpeta no hay ningún WAV sin usar (este README no se empaqueta).
+- Tras empaquetar, el flujo de publicación ejecuta `apps/desktop/scripts/check-packaged-resources.mjs`, que falla si `win-unpacked`, `linux-unpacked` o la `.app` no llevan los WAV (ni los modelos del Study Mode) con el mismo tamaño que el original.
 
 ## Licencia
 

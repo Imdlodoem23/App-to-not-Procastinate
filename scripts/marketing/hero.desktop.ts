@@ -9,7 +9,7 @@
 import { test, expect } from '@playwright/test';
 import { CONFIG, LANG, freshDir, video, wanted } from './lib/config';
 import { checkFont, launchDesktop, settled } from './lib/desktop';
-import { FrameRecorder, assertNoRemoteImages } from './lib/recorder';
+import { FrameRecorder, assertNeutralIcons } from './lib/recorder';
 
 const SPEC = video('hero');
 /** The parser reads Spanish phrases in either UI language. */
@@ -28,10 +28,11 @@ test('hero', async () => {
   try {
     const font = await checkFont(app);
     const main = await app.page('main');
-    await assertNoRemoteImages(main);
     const rec = await FrameRecorder.start(main, dir, {
       fps: CONFIG.fps,
       beforeCapture: () => settled(app),
+      // Idle, the typed phrase with its YouTube chip, the card, the countdown.
+      check: () => assertNeutralIcons(main, { requireSwitch: true }),
     });
 
     // «¿Qué quieres hacer?», the only text field at rest (in either language).

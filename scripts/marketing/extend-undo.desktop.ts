@@ -9,7 +9,7 @@
 import { test, expect } from '@playwright/test';
 import { CONFIG, LANG, freshDir, video, wanted } from './lib/config';
 import { checkFont, launchDesktop, settled } from './lib/desktop';
-import { FrameRecorder, assertNoRemoteImages } from './lib/recorder';
+import { FrameRecorder, assertNeutralIcons } from './lib/recorder';
 
 const SPEC = video('extend-undo');
 
@@ -20,10 +20,10 @@ test('extend-undo', async () => {
   try {
     const font = await checkFont(app);
     const main = await app.page('main');
-    await assertNoRemoteImages(main);
     const rec = await FrameRecorder.start(main, dir, {
       fps: CONFIG.fps,
       beforeCapture: () => settled(app),
+      check: () => assertNeutralIcons(main, { requireSwitch: true }),
     });
     /** One second of video: the frame now, then the clock moves on. */
     const second = async (label: string | null = null): Promise<void> => {

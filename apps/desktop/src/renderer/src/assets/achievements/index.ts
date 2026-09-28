@@ -6,7 +6,8 @@
  * Each badge is the brand's ring around one symbol, and each file holds both states as SVG
  * views, so the shape changes with the state and not only the color:
  * - `#earned` (the default): closed ring, painted `green`;
- * - `#pending`: the ring with the brand's 80° gap at 3 o'clock, painted `fgMuted`.
+ * - `#pending`: the ring with the brand's 110° gap at 3 o'clock (its «C», without the dot),
+ *   painted `fgMuted`.
  *
  * Symbols: «1» first session, padlock first block (Bloqueo's icon), flame 7-day streak,
  * open book 10 h (Study Mode's icon), sparkle clean week, tally 25 sessions, bonfire 30-day

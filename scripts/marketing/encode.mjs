@@ -23,7 +23,9 @@
 // Budgets: each encoding starts at a quality CRF and steps it up until the file fits (hero:
 // AV1 ≤ 0.4 MB, VP9 and H.264 ≤ 1.2 MB; loops ≤ 0.5 MB; images ≤ 120 KB); it fails if the
 // last step is still over. A partial run (some jobs only) keeps the manifest entries of the
-// others; files of replaced entries that are no longer produced are removed.
+// others; entries whose video or still state left media.json are dropped, and files of
+// replaced or dropped entries that are no longer produced are removed. check-budgets.mjs then
+// checks the whole folder (build-media.mjs and the workflow run it).
 //
 //   node scripts/marketing/encode.mjs --work <dir> [--media <dir>] [--masters <dir>]
 //
@@ -451,6 +453,20 @@ export async function encodeAll({
   const videos = new Map((previous.videos ?? []).map((v) => [videoKey(v), v]));
   const stills = new Map((previous.stills ?? []).map((s) => [stillKey(s), s]));
   const replaced = [];
+  // Entries of videos and still states media.json no longer has: nothing would replace them.
+  const videoIds = new Set(CONFIG.videos.map((v) => v.id));
+  const stillStates = new Set(CONFIG.stills.map((s) => s.state));
+  for (const [map, current] of [
+    [videos, (v) => videoIds.has(v.id)],
+    [stills, (s) => stillStates.has(s.state)],
+  ]) {
+    for (const [key, entry] of map) {
+      if (current(entry)) continue;
+      console.log(`Dropping ${key.replaceAll('|', ' ')}: not in media.json any more`);
+      replaced.push(entry);
+      map.delete(key);
+    }
+  }
   const langs = readdirSync(work)
     .filter((d) => /^[a-z]{2}$/.test(d))
     .sort();

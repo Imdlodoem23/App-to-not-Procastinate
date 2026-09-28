@@ -18,6 +18,8 @@
 // 2. Encode (encode.mjs): apps/web/public/media/ (English in media/en/), manifest.json, and
 //    the lossless masters in <work>/masters (the workflow uploads them; never committed).
 // 3. ASSET-LICENSES.json: the generated-media entry is upserted (others are kept as they are).
+// 4. check-budgets.mjs on the whole media folder (older entries of a partial run included):
+//    every file listed with its size, each within its budget, the first view ≤ 1.5 MB.
 //
 // Needs: `npm run build -w apps/desktop` and `npm run build -w apps/extension` first; ffmpeg
 // with libsvtav1, libvpx-vp9, libx264, libaom-av1 and libwebp; a font of the brief's stack
@@ -43,6 +45,7 @@ import {
   encodeAll,
   recordLicenses,
 } from './encode.mjs';
+import { checkBudgets } from './check-budgets.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const XVFB_SCREEN = '-screen 0 5120x2880x24';
@@ -198,6 +201,9 @@ async function main() {
   const manifest = await encodeAll({ work: opts.work, media: opts.media });
   if (!opts['no-licenses']) await recordLicenses(manifest);
   report(manifest, opts.media);
+  const budgets = checkBudgets({ media: opts.media });
+  console.log(`\n${budgets.lines.join('\n')}`);
+  if (!budgets.ok) throw new Error(`${budgets.failures.length} media budget problems (above)`);
 }
 
 main().catch((error) => {

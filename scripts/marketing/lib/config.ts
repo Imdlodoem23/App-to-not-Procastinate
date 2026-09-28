@@ -35,7 +35,9 @@ export interface MediaConfig {
   scaleFactor: number;
   display: DisplayPresetId;
   fps: number;
-  budgets: Record<'heroAv1' | 'heroOther' | 'loop' | 'image', number>;
+  budgets: Record<'heroAv1' | 'heroOther' | 'loop' | 'image' | 'firstView', number>;
+  /** `<state>-<theme>` stills the web shows above the fold (check-budgets.mjs). */
+  firstViewStills: string[];
   stills: StillSpec[];
   videos: VideoSpec[];
 }

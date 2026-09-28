@@ -1,12 +1,15 @@
 /**
  * The desktop app for marketing captures: the built app in harness mode (fake guardian on a
  * frozen clock, deterministic fixtures) through the e2e launcher, at the scale factor of
- * media.json, with the brief's typeface checked like `npm run capture` does.
+ * media.json, with the brief's typeface checked like `npm run capture` does, and with neutral
+ * service icons (`--harness-neutral-service-icons`: monograms, never favicons; PROMPT.md §11
+ * «Legal»), which `assertNeutralIcons` checks on every named moment.
  */
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ThemeName } from '@centrate/shared/design/tokens';
+import { HARNESS_NEUTRAL_ICONS_ARG } from '../../../apps/desktop/src/main/app/launch-options';
 import { launchApp, type LaunchedApp } from '../../../apps/desktop/e2e/support/app';
 import { settleWindow } from '../../../apps/desktop/e2e/support/checks';
 import { renderedFonts } from '../../../apps/desktop/e2e/support/fonts';
@@ -51,7 +54,7 @@ export async function launchDesktop(state: HarnessStateId, theme: ThemeName): Pr
     theme,
     display: CONFIG.display,
     scaleFactor: CONFIG.scaleFactor,
-    args: [`--harness-lang=${LANG}`, ...DETERMINISTIC_ARGS],
+    args: [`--harness-lang=${LANG}`, HARNESS_NEUTRAL_ICONS_ARG, ...DETERMINISTIC_ARGS],
     env,
   });
 }

@@ -1,5 +1,5 @@
 {
-  "$comment": "Third-party assets shipped by Céntrate (PROMPT.md § 11, Legal: CC0 or OFL only, listed here). One entry per asset. Add yours when a module bundles a new font, icon set, image, sound or model. Exceptions to CC0/OFL are recorded in DECISIONS.md.",
+  "$comment": "Third-party assets shipped by Céntrate (PROMPT.md § 11, Legal: CC0 or OFL only, listed here). One entry per asset. Add yours when a module bundles a new font, icon set, image, sound or model, with \"shippedIn\" (desktop, extension, web): scripts/gen-third-party-notices.mjs builds each product's third-party notices from it (CI checks they are fresh). Exceptions to CC0/OFL are recorded in DECISIONS.md.",
   "assets": [
     {
       "name": "Inter",
@@ -10,6 +10,7 @@
       "license": "OFL-1.1",
       "copyright": "Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter)",
       "licenseText": "node_modules/@fontsource-variable/inter/LICENSE",
+      "shippedIn": ["web"],
       "notice": "apps/web/public/third-party-notices.txt",
       "usedBy": [
         "apps/web/src/styles/global.css (self-hosted @font-face, opsz + wght axes)",
@@ -34,43 +35,71 @@
         }
       ],
       "licenseText": "node_modules/lucide-react/LICENSE",
-      "notice": "apps/web/public/third-party-notices.txt",
+      "shippedIn": ["web", "desktop", "extension"],
+      "notice": [
+        "apps/web/public/third-party-notices.txt",
+        "apps/desktop/resources/third-party-notices.txt",
+        "apps/extension/public/third-party-notices.txt"
+      ],
       "usedBy": [
         "apps/web/src/components/AppWindow.astro (inline SVG paths, same shapes as lucide-react 1.48.0)",
         "apps/web/src/components/home/CardVisual.astro (inline SVG paths)",
         "apps/web/src/components/home/StickyScene.astro (inline SVG paths)",
         "apps/web/src/components/home/MoreFeatures.astro (inline SVG paths)",
-        "apps/desktop/package.json (lucide-react dependency for the app's icons)"
+        "apps/desktop/package.json (lucide-react dependency for the app's icons)",
+        "apps/extension/src/pages/shared/icons.ts (inline SVG paths, same shapes as lucide-react 1.48.0; @license comment kept in the bundle)"
       ]
     },
     {
       "name": "Céntrate brand mark and mascot",
       "kind": "icons",
       "source": "original work of the Céntrate project, drawn by hand as SVG (no third-party, Apple, G-Helper or brand shapes)",
+      "originalityCheck": "2026-09-28: the first mark (ring with a centred dot) was too close to CircleCI, Clerk and Target; the dot moved into the mouth of the «C» (110° gap). Compared against the 3,463 brand logos of simple-icons 16.33.0; a TMview / WIPO figurative search is still to do before release (DECISIONS.md, PENDIENTE_PARA_MI.md).",
       "license": "MIT",
       "copyright": "Copyright (c) 2026 Imdlodoem23 and Céntrate contributors",
       "licenseText": "LICENSE",
+      "shippedIn": ["desktop", "extension", "web"],
       "colors": "packages/shared/src/design/tokens.ts (colors.light.blue plate, colors.light.tile mark; the mascot uses currentColor)",
       "files": [
-        "assets/brand/icon.svg (app icon master: .icns, .ico, Linux PNG, favicon)",
+        "assets/brand/icon.svg (app icon master: .icns, .ico, Linux PNG, favicons, extension icons, the mark cut out of the active tray glyph)",
         "assets/brand/icon-mono.svg (monochrome template: macOS menu bar, idle tray glyph)",
         "assets/brand/mascot-brote.svg",
         "assets/brand/mascot-planta.svg",
         "assets/brand/mascot-arbol.svg",
         "assets/brand/mascot-marchita.svg"
       ],
-      "generated": "Every PNG, .ico and .icns made from these masters (marketing-assets.yml, tray and extension icon generators) is covered by this entry.",
       "generatedFiles": [
         {
-          "generator": "scripts/gen-app-icons.mjs (npm run gen:icons; --check for CI freshness). Rendered with @resvg/resvg-js; .ico and .icns containers written in plain JS.",
+          "generator": "scripts/gen-app-icons.mjs (npm run gen:icons; --check for CI freshness), through scripts/brand-masters.mjs. Rendered with @resvg/resvg-js; .ico and .icns containers written in plain JS.",
           "from": "assets/brand/icon.svg, colors from packages/shared/src/design/tokens.ts",
           "files": [
             "apps/desktop/build/icon.icns (macOS, 1024 canvas with margin; PNG entries ic07-ic14)",
             "apps/desktop/build/icon.ico (Windows, cropped to the plate; PNG entries 16, 20, 24, 32, 40, 48, 64, 128, 256)",
             "apps/desktop/build/icon.png (1024, cropped to the plate)",
             "apps/desktop/build/icons/16x16.png … 512x512.png (Linux hicolor: 16, 24, 32, 48, 64, 128, 256, 512)",
+            "apps/web/public/favicon.svg (the master cropped to the plate, comments stripped)",
             "apps/web/public/favicon-32.png",
             "apps/web/public/apple-touch-icon.png (180, square plate)"
+          ]
+        },
+        {
+          "generator": "apps/desktop/scripts/gen-tray-icons.mjs (npm run gen:tray-icons -w apps/desktop; --check for CI freshness), through scripts/brand-masters.mjs. Rendered with @resvg/resvg-js at 16, 20, 24 and 32 px.",
+          "from": "assets/brand/icon-mono.svg (idle glyph: fg of each theme, black for the macOS template) and assets/brand/icon.svg cropped to the plate (the mark cut out of the active disc); colors from packages/shared/src/design/tokens.ts",
+          "files": [
+            "apps/desktop/resources/assets/tray/tray-idleTemplate*.png (macOS menu bar, template image)",
+            "apps/desktop/resources/assets/tray/tray-idle-{light,dark}*.png",
+            "apps/desktop/resources/assets/tray/tray-{normal,strict,red,study}-{light,dark}*.png (disc in the mode accent with the mark cut out)",
+            "apps/desktop/resources/assets/tray/tray-study-cam-{light,dark}*.png (plus the red camera dot)"
+          ]
+        },
+        {
+          "generator": "apps/extension/scripts/gen-icons.mjs (npm run gen:icons -w apps/extension; --check for CI freshness), through scripts/brand-masters.mjs. Rendered with @resvg/resvg-js.",
+          "from": "assets/brand/icon.svg cropped to the plate, colors from packages/shared/src/design/tokens.ts",
+          "files": [
+            "apps/extension/public/icons/icon-16.png",
+            "apps/extension/public/icons/icon-32.png",
+            "apps/extension/public/icons/icon-48.png",
+            "apps/extension/public/icons/icon-128.png (96 px plate with a 16 px transparent margin)"
           ]
         },
         {
@@ -99,10 +128,11 @@
     {
       "name": "Céntrate achievement badges",
       "kind": "icons",
-      "source": "original work of the Céntrate project, drawn by hand as SVG on the 24 grid with lucide's conventions (stroke 1.75, round caps and joins) but no lucide path data; the frame is the brand ring of assets/brand/icon-mono.svg (closed when earned, 80° gap when pending). No third-party, Apple, G-Helper or brand shapes.",
+      "source": "original work of the Céntrate project, drawn by hand as SVG on the 24 grid with lucide's conventions (stroke 1.75, round caps and joins) but no lucide path data; the frame is the brand ring of assets/brand/icon-mono.svg (closed when earned, its 110° gap when pending). No third-party, Apple, G-Helper or brand shapes.",
       "license": "MIT",
       "copyright": "Copyright (c) 2026 Imdlodoem23 and Céntrate contributors",
       "licenseText": "LICENSE",
+      "shippedIn": ["desktop"],
       "colors": "none in the files (currentColor); painted through a CSS mask with packages/shared/src/design/tokens.ts (green when earned, fgMuted while pending)",
       "files": [
         "apps/desktop/src/renderer/src/assets/achievements/first-session.svg («1»)",
@@ -128,10 +158,12 @@
       "license": "Apache-2.0",
       "copyright": "Copyright The MediaPipe Authors (Google LLC)",
       "licenseText": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+      "shippedIn": ["desktop"],
+      "notice": "apps/desktop/resources/third-party-notices.txt",
       "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff",
       "bytes": 3758596,
       "contents": "Bundle of face_detector, face_landmarks_detector, face_blendshapes and geometry_pipeline_metadata.",
-      "exception": "Apache-2.0: exception to the CC0/OFL rule (PROMPT.md §11), to be recorded in DECISIONS.md like Lucide. Ship the Apache-2.0 text and this notice in the app third-party notices.",
+      "exception": "Apache-2.0: exception to the CC0/OFL rule (PROMPT.md §11), recorded in DECISIONS.md «Study Mode (IA de la cámara)» (like Lucide under «Web»). The Apache-2.0 text and this notice ship in the app third-party notices.",
       "files": ["apps/desktop/resources/models/face_landmarker.task"],
       "usedBy": [
         "packages/study-ai/src/assets.ts (MODEL_MANIFEST: url, size, sha256)",
@@ -150,10 +182,12 @@
       "license": "Apache-2.0",
       "copyright": "Copyright The TensorFlow Authors and The MediaPipe Authors (Google LLC)",
       "licenseText": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+      "shippedIn": ["desktop"],
+      "notice": "apps/desktop/resources/third-party-notices.txt",
       "sha256": "0720bf247bd76e6594ea28fa9c6f7c5242be774818997dbbeffc4da460c723bb",
       "bytes": 4602795,
       "trainingData": "COCO 2017 (annotations CC BY 4.0, COCO Consortium). Only the labels person, cell phone and book are used.",
-      "exception": "Apache-2.0: exception to the CC0/OFL rule (PROMPT.md §11), to be recorded in DECISIONS.md like Lucide. Ship the Apache-2.0 text and this notice in the app third-party notices.",
+      "exception": "Apache-2.0: exception to the CC0/OFL rule (PROMPT.md §11), recorded in DECISIONS.md «Study Mode (IA de la cámara)» (like Lucide under «Web»). The Apache-2.0 text and this notice ship in the app third-party notices.",
       "files": ["apps/desktop/resources/models/efficientdet_lite0_int8.tflite"],
       "usedBy": [
         "packages/study-ai/src/assets.ts (MODEL_MANIFEST: url, size, sha256)",
@@ -172,7 +206,9 @@
       "license": "Apache-2.0",
       "copyright": "Copyright The MediaPipe Authors (Google LLC)",
       "licenseText": "https://www.apache.org/licenses/LICENSE-2.0.txt (the npm package ships no LICENSE file)",
-      "exception": "Apache-2.0: exception to the CC0/OFL rule (PROMPT.md §11), to be recorded in DECISIONS.md like Lucide. Ship the Apache-2.0 text and this notice in the app third-party notices.",
+      "shippedIn": ["desktop"],
+      "notice": "apps/desktop/resources/third-party-notices.txt",
+      "exception": "Apache-2.0: exception to the CC0/OFL rule (PROMPT.md §11), recorded in DECISIONS.md «Study Mode (IA de la cámara)» (like Lucide under «Web»). The Apache-2.0 text and this notice ship in the app third-party notices.",
       "privacy": "The bundle contains a usage logger that POSTs to odml.pa.googleapis.com; the analysis window blocks all network (packages/study-ai HANDOFF.md).",
       "files": [
         "node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_internal.js (sha256 e170ee67dd4e16c1a6fcd8840a206687e5a59b22c20e4a902bc445b095454d73, 323377 bytes)",
@@ -192,6 +228,7 @@
       "license": "CC0-1.0",
       "copyright": "No rights reserved: dedicated to the public domain by the Céntrate contributors under CC0 1.0 Universal",
       "licenseText": "https://creativecommons.org/publicdomain/zero/1.0/legalcode",
+      "shippedIn": ["desktop"],
       "generator": "scripts/gen-sounds.mjs (node scripts/gen-sounds.mjs; --check for freshness). Deterministic output; 16-bit PCM WAV, mono, -20 LUFS integrated (ITU-R BS.1770-4), true peak <= -1 dBTP. The WAV LIST/INFO metadata repeats the CC0 dedication.",
       "files": [
         "apps/desktop/resources/sounds/lluvia.wav (rain, 22.05 kHz, 27 s seamless loop)",
@@ -199,7 +236,10 @@
         "apps/desktop/resources/sounds/lo-fi.wav (lo-fi beat, 80 bpm, 16 kHz, 36 s seamless loop)"
       ],
       "usedBy": [
-        "apps/desktop/resources/sounds/README.md (contents, loudness table, playback and packaging notes)"
+        "apps/desktop/resources/sounds/README.md (contents, loudness table, playback and packaging notes)",
+        "apps/desktop/electron-builder.yml (extraResources: resources/sounds/*.wav to <resources>/sounds)",
+        "apps/desktop/src/main/app/paths.ts (soundsDir, soundFilePath: the files sounds:load reads)",
+        "apps/desktop/src/renderer/src/sounds/ (WAV parsing, circular band-limited resampling to the context rate, looped playback with 400 ms fades)"
       ]
     }
   ]

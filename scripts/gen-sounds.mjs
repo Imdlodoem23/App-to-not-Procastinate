@@ -33,10 +33,11 @@
 //   node scripts/gen-sounds.mjs --check    write nothing; exit 1 if a file is missing or differs
 //   node scripts/gen-sounds.mjs --out DIR  write to DIR instead (previews)
 //
-// Playback (see the README next to the files): decode each file at its own sample rate (an
-// OfflineAudioContext at 22050 or 16000 Hz) and loop it with an AudioBufferSourceNode, which
-// resamples across the loop point. decodeAudioData in a 48 kHz context resamples the file as a
-// one-shot and pads its ends with silence; lo-fi starts at a quiet moment to soften that case.
+// Playback (see the README next to the files): apps/desktop/src/renderer/src/sounds/ resamples
+// each file once, at load, to the context rate with a band-limited kernel that wraps around the
+// seam, then loops it at rate 1 behind a 400 ms gain ramp. Looping the 22.05/16 kHz buffer
+// directly makes Chromium interpolate linearly (images above the file's Nyquist), and
+// decodeAudioData at 48 kHz pads the ends with silence (a tick at the lo-fi seam).
 //
 // Output is deterministic (seeded PRNG, V8's own Math functions), byte for byte on the same Node
 // major; --check is meant for that.
@@ -335,7 +336,8 @@ function peakOf(x) {
  * Rotates a loop so it starts at the quietest sample between `from` and `to` seconds from its
  * start (negative: before it, from the end), judged by the energy of the signal and of its slope
  * over ±2 ms. The loop is unchanged; the seam just lands where a player that resamples the file
- * as a one-shot (Web Audio's decodeAudioData pads it with silence) has least to smooth over.
+ * as a one-shot (Web Audio's decodeAudioData pads it with silence) has least to smooth over. The
+ * app does not rely on it: it resamples circularly and fades in (resources/sounds/README.md).
  * @param {Float64Array} x @param {number} fs @param {number} from @param {number} to
  */
 function startAtQuietest(x, fs, from, to) {

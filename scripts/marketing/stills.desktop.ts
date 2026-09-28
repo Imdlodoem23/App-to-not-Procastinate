@@ -13,7 +13,7 @@ import type { ThemeName } from '@centrate/shared/design/tokens';
 import { harnessFixture, type HarnessStateId } from '../../apps/desktop/src/shared/fixtures';
 import { CONFIG, LANG, freshDir, wanted, writeJson } from './lib/config';
 import { checkFont, launchDesktop, settled } from './lib/desktop';
-import { assertNoRemoteImages, pngSize } from './lib/recorder';
+import { assertNeutralIcons, pngSize } from './lib/recorder';
 
 const THEMES = ['light', 'dark'] as const;
 
@@ -45,7 +45,7 @@ test('stills', async () => {
           await settled(app, 'detail');
         }
         const page = await app.page(kind);
-        await assertNoRemoteImages(page);
+        await assertNeutralIcons(page, { requireSwitch: true });
         const png = await page.screenshot({
           scale: 'device',
           animations: 'disabled',

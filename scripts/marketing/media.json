@@ -1,5 +1,5 @@
 {
-  "$comment": "What scripts/marketing captures and encodes (PROMPT.md §11 «Material visual»). Stills: harness states of the desktop app at scale 2 in both themes. Videos: frame-by-frame flows (specs *.desktop.ts and *.extension.ts, one per video id). Budgets in bytes; the encoder raises the CRF until a file fits and fails if it never does. Alt texts go to the web through apps/web/public/media/manifest.json.",
+  "$comment": "What scripts/marketing captures and encodes (PROMPT.md §11 «Material visual»). Stills: harness states of the desktop app at scale 2 in both themes. Videos: frame-by-frame flows (specs *.desktop.ts and *.extension.ts, one per video id). Budgets in bytes; the encoder raises the CRF until a file fits and fails if it never does. Alt texts go to the web through apps/web/public/media/manifest.json. firstView: the media of a page's first view (hero poster and AV1 source, or its reduced-motion still, plus the stills of firstViewStills, as <state>-<theme>, that the web shows above the fold); check-budgets.mjs holds every language's first view to it and re-checks the whole media folder before the workflow opens its pull request.",
   "scaleFactor": 2,
   "display": "1920x1080@100",
   "fps": 30,
@@ -7,8 +7,10 @@
     "heroAv1": 400000,
     "heroOther": 1200000,
     "loop": 500000,
-    "image": 120000
+    "image": 120000,
+    "firstView": 1500000
   },
+  "firstViewStills": [],
   "stills": [
     {
       "state": "idle",

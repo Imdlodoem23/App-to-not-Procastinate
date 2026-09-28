@@ -2,9 +2,10 @@
   <!--
     Céntrate monochrome template (docs/brand.md). Original work, MIT.
     Only alpha counts: macOS menu-bar template image, idle tray glyph, one-color prints.
-    16-unit box drawn at 16, 20, 24 and 32 px. Ring 2 thick, radius 6, 80° gap at 3 o'clock;
-    dot radius 2.5 (same dot-to-inner-ring ratio as icon.svg). Crisp outer edges at 16 and 32 px.
+    16-unit box drawn at 16, 20, 24 and 32 px. Ring 2 thick, radius 6, 110° gap at 3 o'clock;
+    dot radius 2 centred on the ring's inner edge, as in icon.svg. Crisp at 16 and 32 px: ring
+    outer edges on px 1 and 15, dot on px 11 to 15 and 6 to 10.
   -->
-  <path id="ring" d="M12.6 4.14A6 6 0 1 0 12.6 11.86" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-  <circle id="dot" cx="8" cy="8" r="2.5" fill="currentColor"/>
+  <path id="ring" d="M11.441 3.085A6 6 0 1 0 11.441 12.915" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  <circle id="dot" cx="13" cy="8" r="2" fill="currentColor"/>
 </svg>

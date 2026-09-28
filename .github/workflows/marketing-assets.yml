@@ -5,21 +5,32 @@
 # - Stills and frame-by-frame videos (scripts/marketing/build-media.mjs): the built Electron app
 #   in harness mode (fixture data, fake guardian, frozen clock) at device scale factor 2 under
 #   Xvfb, and the extension's blocked page in Chromium with a fake clock. Services show neutral
-#   monograms, never their favicons. Videos: AV1 (SVT-AV1), VP9 and H.264 (bt709) plus WebP
-#   posters, within the budgets (hero ≤ 0.4 MB AV1 / ≤ 1.2 MB H.264, loops ≤ 0.5 MB, images
-#   ≤ 120 KB). Output: apps/web/public/media/ with manifest.json.
-# - The Open Graph images (apps/web/scripts/render-og.mjs) and the app icons
-#   (scripts/gen-app-icons.mjs), when those scripts exist.
+#   monograms, never their favicons (the app runs with --harness-neutral-service-icons, and
+#   assertNeutralIcons checks every named moment). Videos: AV1 (SVT-AV1), VP9 and H.264
+#   (bt709) plus WebP posters, within the budgets (hero ≤ 0.4 MB AV1 / ≤ 1.2 MB H.264, loops
+#   ≤ 0.5 MB, images ≤ 120 KB, first view ≤ 1.5 MB). Output: apps/web/public/media/ with
+#   manifest.json.
+# - The Open Graph images (apps/web/scripts/render-og.mjs) and every icon drawn from the brand
+#   masters: app icons and favicons (scripts/gen-app-icons.mjs), tray icons
+#   (apps/desktop/scripts/gen-tray-icons.mjs) and extension icons
+#   (apps/extension/scripts/gen-icons.mjs), when those scripts exist.
+# - The desktop and extension third-party notices (scripts/gen-third-party-notices.mjs).
 # - ASSET-LICENSES.json: the generated-media entry.
 #
 # The lossless masters (FFV1) and the PNG stills go to the «marketing-masters» artifact only.
 #
-# Pull request: against `dev` (or the branch given when run by hand; the default branch when it
+# Before the pull request, «Check budgets» re-checks the final apps/web/public/media tree
+# (scripts/marketing/check-budgets.mjs: every file listed in manifest.json with its size, each
+# file within its budget, the first view ≤ 1.5 MB) and runs the website's weight tests on the
+# built site; the pull request is only opened when both pass.
+#
+# Pull request: against `main` (or the branch given when run by hand; the default branch when it
 # does not exist), from the branch marketing-assets/<base>, updated in place by later runs.
-# GITHUB_TOKEN needs «Allow GitHub Actions to create and approve pull requests» (Settings ›
-# Actions › General). Pull requests opened with GITHUB_TOKEN do not start other workflows: set
-# a MARKETING_PR_TOKEN secret (fine-grained, contents + pull requests: write) to have CI run on
-# them, or close and reopen the pull request.
+# Repository settings this needs (PENDIENTE_PARA_MI.md, «Material de la web»): GITHUB_TOKEN
+# needs «Allow GitHub Actions to create and approve pull requests» (Settings › Actions ›
+# General › Workflow permissions). Pull requests opened with GITHUB_TOKEN do not start other
+# workflows: set a MARKETING_PR_TOKEN secret (fine-grained, contents + pull requests: write) to
+# have CI run on them, or close and reopen the pull request.
 name: Marketing assets
 
 on:
@@ -35,7 +46,7 @@ on:
       base:
         description: 'Branch to regenerate from and open the pull request against'
         required: false
-        default: 'dev'
+        default: 'main'
       langs:
         description: 'Languages to capture (es, en), comma separated'
         required: false
@@ -71,7 +82,7 @@ jobs:
         id: base
         env:
           GH_TOKEN: ${{ github.token }}
-          WANTED: ${{ inputs.base || 'dev' }}
+          WANTED: ${{ inputs.base || 'main' }}
         run: |
           set -euo pipefail
           if ! [[ "$WANTED" =~ ^[A-Za-z0-9._/-]+$ ]]; then
@@ -125,15 +136,25 @@ jobs:
             --langs "$LANGS" --only "$ONLY" --work "$RUNNER_TEMP/marketing"
 
       - name: App icons
-        # A failure here or in the Open Graph step still lets the media reach the pull request
-        # (the run shows the failed step).
+        # Every icon from the brand masters in assets/brand (docs/brand.md): app icons and
+        # favicons, tray and menu bar, extension. Then the third-party notices, which list what
+        # ASSET-LICENSES.json and the shipped packages hold. A failure here or in the Open Graph
+        # step still lets the media reach the pull request (the run shows the failed step).
         continue-on-error: true
         run: |
-          if [ -f scripts/gen-app-icons.mjs ]; then
-            node scripts/gen-app-icons.mjs
-          else
-            echo "scripts/gen-app-icons.mjs not found: icons left as they are."
-          fi
+          status=0
+          for script in \
+            scripts/gen-app-icons.mjs \
+            apps/desktop/scripts/gen-tray-icons.mjs \
+            apps/extension/scripts/gen-icons.mjs \
+            scripts/gen-third-party-notices.mjs; do
+            if [ -f "$script" ]; then
+              node "$script" || status=1
+            else
+              echo "$script not found: its files are left as they are."
+            fi
+          done
+          exit "$status"
 
       - name: Open Graph images
         continue-on-error: true
@@ -147,6 +168,19 @@ jobs:
 
       - name: Format generated JSON
         run: npx prettier --write ASSET-LICENSES.json apps/web/public/media/manifest.json
+
+      - name: Check budgets
+        # The gate before the pull request (PROMPT.md § 11 «Presupuestos»), on the final media
+        # folder whatever this run re-encoded: a partial run (`only`) keeps older entries, and
+        # the pull request may get no CI (GITHUB_TOKEN). check-budgets.mjs: every file listed in
+        # manifest.json with its size, hero ≤ 0.4 MB AV1 / ≤ 1.2 MB VP9 and H.264, loops
+        # ≤ 0.5 MB, images ≤ 120 KB, first view ≤ 1.5 MB (totals in the run summary). Then the
+        # website's own weight tests (apps/web/tests/quality.spec.ts) on the built site: every
+        # file of dist/ within its budget and the first view of every page ≤ 1.5 MB.
+        run: |
+          node scripts/marketing/check-budgets.mjs --summary "$GITHUB_STEP_SUMMARY"
+          npm run build -w apps/web
+          npm run test:quality -w apps/web -- -g weight
 
       - name: Summary
         if: ${{ !cancelled() }}
@@ -205,12 +239,17 @@ jobs:
               apps/web/public/media \
               apps/web/public/og.png \
               apps/web/public/og-en.png \
+              apps/web/public/favicon.svg \
               apps/web/public/favicon-32.png \
               apps/web/public/apple-touch-icon.png \
               apps/desktop/build/icon.icns \
               apps/desktop/build/icon.ico \
               apps/desktop/build/icon.png \
               apps/desktop/build/icons \
+              apps/desktop/resources/assets/tray \
+              apps/desktop/resources/third-party-notices.txt \
+              apps/extension/public/icons \
+              apps/extension/public/third-party-notices.txt \
               ASSET-LICENSES.json; do
               if [ -e "$path" ] || [ -n "$(git ls-files -- "$path")" ]; then echo "$path"; fi
             done
@@ -233,7 +272,8 @@ jobs:
             Material regenerated from the real app by `.github/workflows/marketing-assets.yml` (run [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}), trigger `${{ github.event_name }}`, from `${{ steps.base.outputs.branch }}` at `${{ steps.paths.outputs.sha }}`).
 
             - `apps/web/public/media/`: stills and frame-by-frame videos (AV1, VP9, H.264 bt709, WebP posters) listed in `manifest.json`, within the PROMPT.md § 11 budgets. The run summary has the sizes.
-            - Open Graph images and app icons, when their scripts exist.
+            - Open Graph images, and the app, favicon, tray and extension icons from `assets/brand`, when their scripts exist.
+            - Third-party notices of the desktop app and the extension.
             - `ASSET-LICENSES.json`: the generated-media entry.
 
             Lossless masters and PNG stills: artifact `marketing-masters` of the run.

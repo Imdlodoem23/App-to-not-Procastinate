@@ -6,9 +6,14 @@
 //   apps/desktop/build/icon.ico            Windows: cropped to the plate, 16 to 256 px
 //   apps/desktop/build/icons/<N>x<N>.png   Linux (hicolor sizes 16 to 512), cropped to the plate
 //   apps/desktop/build/icon.png            1024, cropped to the plate (electron-builder fallback)
+//   apps/web/public/favicon.svg            the master cropped to the plate, comments stripped
 //   apps/web/public/favicon-32.png         32, cropped to the plate
 //   apps/web/public/apple-touch-icon.png   180, square plate: iOS rounds the corners itself and
 //                                          paints transparent pixels black
+//
+// The tray glyphs (apps/desktop/scripts/gen-tray-icons.mjs) and the extension icons
+// (apps/extension/scripts/gen-icons.mjs) come from the same masters through
+// scripts/brand-masters.mjs.
 //
 // electron-builder picks icon.icns, icon.ico and icons/ from buildResources (build/) by name, so
 // electron-builder.yml needs no `icon` key. The generated files are committed; rerun after
@@ -25,15 +30,19 @@
 //   node scripts/gen-app-icons.mjs --check   write nothing; exit 1 if any file is missing or
 //                                            differs (CI freshness check)
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { Resvg } from '@resvg/resvg-js';
+import {
+  APP_MASTER,
+  compact,
+  cropToPlate,
+  paintAppIcon,
+  readMaster,
+  renderPng,
+  syncOutputs,
+} from './brand-masters.mjs';
 
 const { colors } = await import('../packages/shared/src/design/tokens.ts');
 
-const root = resolve(import.meta.dirname, '..');
-const MASTER = 'assets/brand/icon.svg';
 const DESKTOP_BUILD = 'apps/desktop/build';
 const WEB_PUBLIC = 'apps/web/public';
 
@@ -55,69 +64,7 @@ const ICNS_TYPES = [
 
 const { values: args } = parseArgs({ options: { check: { type: 'boolean', default: false } } });
 
-const master = readFileSync(join(root, MASTER), 'utf8');
-
-/** Opening tag of the element with this id (throws if the master lost it). */
-function elementTag(svg, id) {
-  const tag = svg.match(new RegExp(`<[a-zA-Z]+\\b[^>]*\\bid="${id}"[^>]*>`));
-  if (!tag) throw new Error(`${MASTER}: no element with id="${id}"`);
-  return tag[0];
-}
-
-function readAttribute(tag, name) {
-  return tag.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1];
-}
-
-function withAttribute(tag, name, value) {
-  const pattern = new RegExp(`\\s${name}="[^"]*"`);
-  if (!pattern.test(tag)) throw new Error(`${MASTER}: ${tag} has no ${name}`);
-  return tag.replace(pattern, ` ${name}="${value}"`);
-}
-
-function setAttribute(svg, id, name, value) {
-  const tag = elementTag(svg, id);
-  return svg.replace(tag, withAttribute(tag, name, value));
-}
-
-/** The master with the token colors; warns when the copy of a hex in the master is stale. */
-function paint(svg) {
-  const theme = colors.light;
-  const fills = [
-    ['plate', 'fill', theme.blue, 'colors.light.blue'],
-    ['ring', 'stroke', theme.tile, 'colors.light.tile'],
-    ['dot', 'fill', theme.tile, 'colors.light.tile'],
-  ];
-  let out = svg;
-  for (const [id, name, value, token] of fills) {
-    const current = readAttribute(elementTag(out, id), name);
-    if (current?.toUpperCase() !== value.toUpperCase()) {
-      console.warn(
-        `note: ${MASTER} #${id} ${name}="${current}", ${token} is ${value} (using ${value})`,
-      );
-    }
-    out = setAttribute(out, id, name, value);
-  }
-  return out;
-}
-
-/** The plate alone (viewBox = the plate's box); `square` drops its rounded corners. */
-function cropToPlate(svg, { square = false } = {}) {
-  const plate = elementTag(svg, 'plate');
-  const [x, y, width, height] = ['x', 'y', 'width', 'height'].map((name) =>
-    Number(readAttribute(plate, name)),
-  );
-  if (![x, y, width, height].every(Number.isFinite) || width !== height) {
-    throw new Error(`${MASTER}: #plate needs numeric x, y and a square width/height`);
-  }
-  const rootTag = svg.match(/<svg\b[^>]*>/)[0];
-  let croppedRoot = withAttribute(rootTag, 'viewBox', `${x} ${y} ${width} ${height}`);
-  croppedRoot = withAttribute(croppedRoot, 'width', String(width));
-  croppedRoot = withAttribute(croppedRoot, 'height', String(height));
-  const out = svg.replace(rootTag, croppedRoot);
-  return square ? setAttribute(out, 'plate', 'rx', '0') : out;
-}
-
-const painted = paint(master);
+const painted = paintAppIcon(readMaster(APP_MASTER), colors.light);
 const variants = {
   /** macOS: 1024 canvas with the 100 margin of the macOS icon grid. */
   canvas: painted,
@@ -130,19 +77,17 @@ const variants = {
 const renders = new Map();
 function png(variant, px) {
   const key = `${variant}@${px}`;
-  if (!renders.has(key)) {
-    const image = new Resvg(variants[variant], {
-      fitTo: { mode: 'width', value: px },
-      font: { loadSystemFonts: false },
-    }).render();
-    if (image.width !== px || image.height !== px) {
-      throw new Error(
-        `${variant} rendered at ${image.width}x${image.height}, expected ${px}x${px}`,
-      );
-    }
-    renders.set(key, image.asPng());
-  }
+  if (!renders.has(key)) renders.set(key, renderPng(variants[variant], px));
   return renders.get(key);
+}
+
+/** The favicon: the plate crop, 32 px nominal size, with a provenance comment. */
+function faviconSvg() {
+  const svg = compact(cropToPlate(painted, { size: 32 }));
+  const note =
+    `<!-- Generated by scripts/gen-app-icons.mjs from ${APP_MASTER} ` +
+    `(colors from packages/shared/src/design/tokens.ts). Do not edit. -->`;
+  return `${svg.replace(/^(<svg\b[^>]*>)/, `$1${note}`)}\n`;
 }
 
 /** ICO container (ICONDIR + one 16-byte ICONDIRENTRY per image) with PNG image data. */
@@ -191,31 +136,13 @@ const outputs = new Map([
   [`${DESKTOP_BUILD}/icon.ico`, ico(ICO_SIZES.map((px) => ({ px, data: png('plate', px) })))],
   [`${DESKTOP_BUILD}/icon.png`, png('plate', 1024)],
   ...LINUX_SIZES.map((px) => [`${DESKTOP_BUILD}/icons/${px}x${px}.png`, png('plate', px)]),
+  [`${WEB_PUBLIC}/favicon.svg`, faviconSvg()],
   [`${WEB_PUBLIC}/favicon-32.png`, png('plate', 32)],
   [`${WEB_PUBLIC}/apple-touch-icon.png`, png('square', 180)],
 ]);
 
-let stale = 0;
-for (const [path, data] of outputs) {
-  const file = join(root, path);
-  if (args.check) {
-    if (!existsSync(file) || !readFileSync(file).equals(data)) {
-      console.error(`stale: ${path}`);
-      stale += 1;
-    }
-    continue;
-  }
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, data);
-}
-
-if (args.check) {
-  if (stale > 0) {
-    console.error(`${stale} app icon(s) out of date: run npm run gen:icons`);
-    process.exit(1);
-  }
-  console.log('app icons up to date');
-} else {
-  console.log(`wrote ${outputs.size} app icons from ${MASTER}:`);
-  for (const path of outputs.keys()) console.log(`  ${path}`);
-}
+syncOutputs(outputs, {
+  check: args.check,
+  what: `app icons from ${APP_MASTER}`,
+  command: 'npm run gen:icons',
+});

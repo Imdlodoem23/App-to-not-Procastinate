@@ -16,6 +16,12 @@ import { createHash } from 'node:crypto';
 import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
+import { SERVICES } from '@centrate/shared/catalog';
+import {
+  NEUTRAL_SERVICE_ICONS_ATTR,
+  SERVICE_FAVICON_ATTR,
+  catalogFavicon,
+} from '@centrate/shared/service-icon';
 import type { Backdrop, Lang } from './config';
 import { writeJson } from './config';
 
@@ -49,6 +55,8 @@ export interface RecorderOptions {
   fps: number;
   /** Runs before every screenshot (e.g. wait until the window finished resizing). */
   beforeCapture?: () => Promise<void>;
+  /** Runs before every labelled screenshot, the flow's named moments (`assertNeutralIcons`). */
+  check?: () => Promise<void>;
 }
 
 export type CaretMode = 'hide' | 'initial';
@@ -58,29 +66,116 @@ export function pngSize(png: Buffer): { width: number; height: number } {
   return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
 }
 
+export interface NeutralIconsOptions {
+  /**
+   * The page must run with the neutral switch on (`<html data-neutral-service-icons>`): the
+   * desktop app does when launched by lib/desktop.ts. The blocked page draws no service icon
+   * and does not mark itself.
+   */
+  requireSwitch: boolean;
+}
+
+/** Catalog favicons (`data:` URLs or asset paths), once the catalog has them. */
+const CATALOG_FAVICONS = SERVICES.flatMap((service) => catalogFavicon(service) ?? []);
+
 /**
- * Fails when the page shows an image from another origin (a service favicon, a remote
- * avatar): PROMPT.md §11 «Legal» wants neutral icons in marketing shots, and the app and the
- * blocked page draw catalog monograms and inline icons only.
+ * PROMPT.md §11 «Legal»: marketing shots show neutral icons, never a service's favicon. Fails
+ * when the page
+ * - does not report the neutral switch (with `requireSwitch`);
+ * - has an element tagged `data-service-favicon` (every service favicon is, see
+ *   @centrate/shared/service-icon);
+ * - draws a catalog favicon anyway: an `<img>`, an SVG `<image>`, a `<link rel=icon>` or a
+ *   computed background, mask, border image, list image or `content` (also `::before` and
+ *   `::after`) whose URL is one (a `data:` URL, or a path ending like the catalog's);
+ * - draws any of those from another origin (a remote favicon or avatar).
  */
-export async function assertNoRemoteImages(page: Page): Promise<void> {
-  const remote = await page.evaluate(() => {
-    const own = location.origin;
-    const urls = [
-      ...[...document.images].map((img) => img.currentSrc || img.src),
-      ...[...document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]')].map((l) => l.href),
-    ];
-    return urls.filter((url) => {
-      if (!url || url.startsWith('data:') || url.startsWith('blob:')) return false;
-      try {
-        return new URL(url).origin !== own;
-      } catch {
-        return true;
+export async function assertNeutralIcons(page: Page, options: NeutralIconsOptions): Promise<void> {
+  const problems = await page.evaluate(
+    ({ requireSwitch, switchAttr, faviconAttr, favicons }) => {
+      const found: string[] = [];
+      const root = document.documentElement;
+      if (requireSwitch && !root.hasAttribute(switchAttr)) {
+        found.push(`the page is not in neutral mode (<html ${switchAttr}> is missing)`);
       }
-    });
-  });
-  if (remote.length > 0) {
-    throw new Error(`Remote images in a marketing shot (use neutral icons): ${remote.join(', ')}`);
+      for (const el of document.querySelectorAll(`[${faviconAttr}]`)) {
+        found.push(`<${el.localName} ${faviconAttr}>: a service favicon`);
+      }
+
+      const urls: { url: string; where: string }[] = [];
+      for (const img of document.images) {
+        urls.push({ url: img.currentSrc || img.src, where: '<img>' });
+      }
+      for (const image of document.querySelectorAll('image')) {
+        const href = image.getAttribute('href') ?? image.getAttribute('xlink:href');
+        if (href) urls.push({ url: href, where: '<image>' });
+      }
+      for (const link of document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]')) {
+        urls.push({ url: link.href, where: '<link rel=icon>' });
+      }
+      const properties = [
+        'background-image',
+        'mask-image',
+        '-webkit-mask-image',
+        'border-image-source',
+        'list-style-image',
+        'content',
+      ];
+      const cssUrl = /url\(\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|([^)\s]*))\s*\)/g;
+      for (const el of document.querySelectorAll('*')) {
+        for (const pseudo of [null, '::before', '::after']) {
+          const style = getComputedStyle(el, pseudo);
+          for (const property of properties) {
+            const value = style.getPropertyValue(property);
+            if (!value.includes('url(')) continue;
+            for (const match of value.matchAll(cssUrl)) {
+              const raw = (match[1] ?? match[2] ?? match[3] ?? '').replace(/\\(.)/g, '$1');
+              urls.push({ url: raw, where: `${property} of <${el.localName}>${pseudo ?? ''}` });
+            }
+          }
+        }
+      }
+
+      const resolve = (url: string): URL | null => {
+        try {
+          return new URL(url, document.baseURI);
+        } catch {
+          return null;
+        }
+      };
+      const isFavicon = (url: string, resolved: URL | null): boolean =>
+        favicons.some((favicon) => {
+          if (favicon.startsWith('data:')) return url === favicon;
+          const path = resolved ? decodeURIComponent(resolved.pathname) : url;
+          return path.endsWith(`/${favicon.replace(/^\.?\/+/, '')}`);
+        });
+      for (const { url, where } of urls) {
+        if (!url) continue;
+        const resolved = resolve(url);
+        if (isFavicon(url, resolved)) {
+          found.push(`${where}: a catalog favicon (${url.slice(0, 80)})`);
+        } else if (!resolved) {
+          found.push(`${where}: an image URL that does not parse (${url.slice(0, 80)})`);
+        } else if (
+          // Web URLs must be the page's own; file:, data: and blob: are local to the app.
+          (resolved.protocol === 'http:' || resolved.protocol === 'https:') &&
+          resolved.origin !== location.origin
+        ) {
+          found.push(`${where}: an image from another origin (${url})`);
+        }
+      }
+      return found;
+    },
+    {
+      requireSwitch: options.requireSwitch,
+      switchAttr: NEUTRAL_SERVICE_ICONS_ATTR,
+      faviconAttr: SERVICE_FAVICON_ATTR,
+      favicons: CATALOG_FAVICONS,
+    },
+  );
+  if (problems.length > 0) {
+    throw new Error(
+      `Service icons in a marketing shot must be neutral:\n- ${problems.join('\n- ')}`,
+    );
   }
 }
 
@@ -116,6 +211,7 @@ export class FrameRecorder {
   /** Takes a screenshot now and keeps it on screen for `ms` (at least one frame). */
   async hold(ms: number, label: string | null = null, caret: CaretMode = 'hide'): Promise<void> {
     await this.options.beforeCapture?.();
+    if (label !== null) await this.options.check?.();
     const png = await this.page.screenshot({ scale: 'device', animations: 'disabled', caret });
     this.push(png, ms, label);
   }
