@@ -36,7 +36,8 @@ func TestUpdateMarkerNeverExemptsHostsChange(t *testing.T) {
 }
 
 // An update that needs a reboot is exempt when the binary changed; the same marker with
-// the same binary is a manual stop before a reboot.
+// the same binary is a manual stop before a reboot. The service manager is named (one
+// that reports OS shutdowns): left unnamed, the host's platform decides.
 func TestUpdateMarkerAcrossReboot(t *testing.T) {
 	for _, c := range []struct {
 		name    string
@@ -48,6 +49,7 @@ func TestUpdateMarkerAcrossReboot(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			env := newTestEnv(t)
+			env.serviceManager = "windows-service"
 			e := env.open()
 			earnSome(env)
 			env.create(durationReq(ModeStrict, 60, "youtube"))
@@ -72,8 +74,10 @@ func TestUpdateMarkerAcrossReboot(t *testing.T) {
 	}
 }
 
-// SysV, OpenRC and upstart send a plain stop at an OS shutdown and no «shutdown» marker
-// is ever written there: a clean stop and a reboot used to be priced as a manual stop.
+// SysV, OpenRC, upstart and launchd send a plain stop at an OS shutdown and no
+// «shutdown» marker is ever written there: a clean stop and a reboot used to be priced
+// as a manual stop. The named manager decides, whatever the host running the test (the
+// platform, the host's by default, used to overrule it on a Mac).
 func TestRebootWithoutShutdownNotice(t *testing.T) {
 	for _, c := range []struct {
 		manager string
@@ -82,6 +86,8 @@ func TestRebootWithoutShutdownNotice(t *testing.T) {
 		{"unix-systemv", false},
 		{"linux-openrc", false},
 		{"linux-upstart", false},
+		{"darwin-launchd", false},
+		{"interactive", false},
 		{"linux-systemd", true},
 		{"windows-service", true},
 	} {

@@ -624,16 +624,20 @@ func (e *Engine) plannedUpdate(si *startInfo) bool {
 
 // shutdownNoticed reports whether the service manager tells an OS shutdown apart from a
 // plain stop, so the guardian writes the «shutdown» marker (§13): the Windows service
-// control manager and systemd. launchd (macOS), SysV init, OpenRC and upstart send the
-// same signal for both. An unnamed manager (tests, embedding) counts as noticing unless
-// the platform is macOS.
+// control manager and systemd. launchd (macOS), SysV init, OpenRC, upstart and an
+// interactive run send the same signal for both.
+//
+// The named manager decides on its own: it is what delivers (or not) the notice. Only an
+// unnamed manager (tests, embedding) falls back to the catalog platform, and counts as
+// noticing unless the platform is macOS, whose only manager is launchd. The platform
+// used to be checked first, so a manager named explicitly was overruled by the platform
+// (which defaults to the host's): "linux-systemd" counted as launchd on a Mac.
 func (e *Engine) shutdownNoticed() bool {
-	if e.platform == catalog.PlatformMac {
-		return false
-	}
 	switch e.o.ServiceManager {
-	case "", "windows-service", "linux-systemd":
+	case "windows-service", "linux-systemd":
 		return true
+	case "":
+		return e.platform != catalog.PlatformMac
 	}
 	return false
 }
