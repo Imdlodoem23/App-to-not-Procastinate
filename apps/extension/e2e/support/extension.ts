@@ -139,8 +139,16 @@ async function launch(profileDir: string, uiLocale: string): Promise<BrowserCont
     executablePath: process.env['PW_CHROMIUM_PATH'] || undefined,
     headless: HEADLESS,
     locale: uiLocale,
+    // The manifest's __MSG_…__ strings follow the browser process language, which on Linux
+    // comes from --lang and LANG/LANGUAGE (CI runs with LANG=es_ES), not from `locale`.
+    env: {
+      ...process.env,
+      LANG: `${uiLocale.replace('-', '_')}.UTF-8`,
+      LANGUAGE: uiLocale.replace('-', '_'),
+    },
     viewport: { width: 1280, height: 800 },
     args: [
+      `--lang=${uiLocale}`,
       `--disable-extensions-except=${EXTENSION_DIR}`,
       `--load-extension=${EXTENSION_DIR}`,
       '--no-first-run',

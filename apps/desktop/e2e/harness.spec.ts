@@ -84,11 +84,20 @@ async function checkLayout(
     Math.abs(probe.width - 440),
     `${where}: viewport width ${probe.width} CSS px (want 440)`,
   ).toBeLessThanOrEqual(tolerance);
-  soft(wa.x + wa.width - (outer.x + outer.width), `${where}: right inset`).toBe(SCREEN_INSET);
+  // At a fractional scale on Linux the window manager places windows in whole physical
+  // pixels (10 DIP = 12.5 px at 125 %), so the inset read back in DIP can be off by the same
+  // rounding the width tolerance allows.
+  const inset = (value: number, label: string): void => {
+    soft(
+      Math.abs(value - SCREEN_INSET),
+      `${where}: ${label} ${value} DIP (want ${SCREEN_INSET})`,
+    ).toBeLessThanOrEqual(tolerance);
+  };
+  inset(wa.x + wa.width - (outer.x + outer.width), 'right inset');
   if (EXPECTED_ANCHOR === 'bottom') {
-    soft(wa.y + wa.height - (outer.y + outer.height), `${where}: bottom inset`).toBe(SCREEN_INSET);
+    inset(wa.y + wa.height - (outer.y + outer.height), 'bottom inset');
   } else {
-    soft(outer.y - wa.y, `${where}: top inset`).toBe(SCREEN_INSET);
+    inset(outer.y - wa.y, 'top inset');
   }
   soft(outer.y, `${where}: top edge inside the work area`).toBeGreaterThanOrEqual(
     wa.y + SCREEN_INSET,
