@@ -10,6 +10,7 @@ import type {
   AttentionEvent,
   AttentionSnapshot,
   AttentionTotals,
+  CameraDeviceInfo,
   CameraIdentity,
   CameraStatus,
   Clock,
@@ -142,6 +143,8 @@ export class FakeSource implements FrameSource {
   /** `next()` returns `null` while this is false. */
   delivering = true;
   identityValue: CameraIdentity = CAMERA_ID;
+  /** The `deviceId` it was opened with (`null`: the default camera). */
+  deviceId: string | null = null;
 
   constructor(private readonly clock: Clock) {}
 
@@ -163,7 +166,12 @@ export class FakeSource implements FrameSource {
   }
 }
 
-/** `openCamera` double: hands out `FakeSource`s, or rejects with `failWith`. */
+/**
+ * `openCamera` double: hands out `FakeSource`s, or rejects with `failWith`. With `devices`
+ * set it also models the plugged cameras: `list` returns them, a `deviceId` not among them is
+ * `not_found` (an id from another partition, or a replugged camera's old id), and the default
+ * camera is the first one (`not_found` when none is plugged).
+ */
 export class FakeCamera {
   readonly opened: FakeSource[] = [];
   readonly calls: OpenCameraOptions[] = [];
@@ -171,15 +179,37 @@ export class FakeCamera {
   identity: CameraIdentity = CAMERA_ID;
   /** `open` never answers (a wedged driver) until `answerHung()`. */
   hang = false;
+  /** Plugged cameras, or `null` to accept any `deviceId`. */
+  devices: CameraDeviceInfo[] | null = null;
+  /** Identity per label (a different camera looks different). */
+  identities = new Map<string, CameraIdentity>();
   private readonly hung: ((source: FrameSource) => void)[] = [];
 
   constructor(private readonly clock: Clock) {}
+
+  /** `list` rejects with this (enumerateDevices failing). */
+  listFailsWith: unknown = null;
+
+  readonly list = (): Promise<CameraDeviceInfo[]> =>
+    this.listFailsWith !== null
+      ? Promise.reject(this.listFailsWith)
+      : Promise.resolve((this.devices ?? []).map((d) => ({ ...d })));
 
   readonly open = (options: OpenCameraOptions): Promise<FrameSource> => {
     this.calls.push(options);
     if (this.hang) return new Promise((resolve) => this.hung.push(resolve));
     if (this.failWith !== null) return Promise.reject(this.failWith);
-    return Promise.resolve(this.make());
+    const deviceId = options.deviceId ?? null;
+    let device: CameraDeviceInfo | undefined;
+    if (this.devices !== null) {
+      device =
+        deviceId === null ? this.devices[0] : this.devices.find((d) => d.deviceId === deviceId);
+      if (device === undefined) return Promise.reject(new CameraError('not_found'));
+    }
+    const source = this.make();
+    source.deviceId = deviceId;
+    if (device) source.identityValue = this.identities.get(device.label) ?? this.identity;
+    return Promise.resolve(source);
   };
 
   /** The hung opens finally answer (too late); returns their sources. */

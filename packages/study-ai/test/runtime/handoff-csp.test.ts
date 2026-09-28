@@ -52,7 +52,9 @@ describe('analysis window CSP', () => {
   it('the smoke-test page uses exactly the HANDOFF policy (centrate-ai: → self)', () => {
     const expected: Policy = {};
     for (const [name, sources] of Object.entries(handoffPolicy())) {
-      expected[name] = [...new Set(sources.map((s) => (s === 'centrate-ai:' ? "'self'" : s)))].sort();
+      expected[name] = [
+        ...new Set(sources.map((s) => (s === 'centrate-ai:' ? "'self'" : s))),
+      ].sort();
     }
     expect(pagePolicy()).toEqual(expected);
   });

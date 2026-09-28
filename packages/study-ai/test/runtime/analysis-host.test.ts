@@ -28,6 +28,7 @@ function rig(visionFails: unknown = null) {
     clock: s,
     timers: s,
     openCamera: camera.open,
+    listCameras: camera.list,
     createVision: () =>
       visionFails === null ? Promise.resolve(vision) : Promise.reject(visionFails),
     nowIso: () => '2026-09-28T10:00:00.000Z',
@@ -53,7 +54,7 @@ const start = (mode: 'camera' | 'no-camera' = 'camera'): AnalysisInbound => ({
   mode,
   settings: {},
   profileJson: null,
-  cameraDeviceId: null,
+  cameraLabel: null,
   context: WORK,
 });
 
@@ -191,7 +192,7 @@ describe('analysis host', () => {
 
   it('runs a calibration: record with progress, build, close; busy while running', async () => {
     const r = rig();
-    r.send({ type: 'calibration_start', profileJson: null, cameraDeviceId: null });
+    r.send({ type: 'calibration_start', profileJson: null, cameraLabel: null });
     r.vision.features = replay(
       calibrationFrames('screen', { persona: PERSONAS.baseline, seed: 5 }),
     );
@@ -224,14 +225,14 @@ describe('analysis host', () => {
 
   it('maps calibration failures: vision at start, the camera at each recording', async () => {
     const r = rig(new VisionError('simd_unsupported'));
-    r.send({ type: 'calibration_start', profileJson: null, cameraDeviceId: null });
+    r.send({ type: 'calibration_start', profileJson: null, cameraLabel: null });
     await r.s.advance(10);
     expect(r.ofType('error')).toEqual([{ type: 'error', code: 'vision_failed', camera: null }]);
     expect(r.camera.calls).toHaveLength(0);
 
     const r2 = rig();
     r2.camera.failWith = new CameraError('permission_denied');
-    r2.send({ type: 'calibration_start', profileJson: null, cameraDeviceId: null });
+    r2.send({ type: 'calibration_start', profileJson: null, cameraLabel: null });
     await r2.s.advance(10);
     expect(r2.ofType('error')).toEqual([]); // the camera is not opened until a recording
     r2.send({ type: 'calibration_record', cls: 'screen' });
@@ -253,5 +254,53 @@ describe('analysis host', () => {
     await r.s.advance(5_000);
     expect(r.posted.length).toBe(count);
     expect(r.s.pending).toBe(0);
+  });
+});
+
+describe('analysis host: cameras', () => {
+  it('answers `list_cameras` with labels only, with or without a job, never opening one', async () => {
+    const r = rig();
+    r.camera.devices = [
+      { deviceId: 'salted-1', label: 'FaceTime HD Camera' },
+      { deviceId: 'salted-2', label: 'Logitech C920 (046d:082d)' },
+    ];
+    r.send({ type: 'list_cameras' });
+    await r.s.advance(10);
+    expect(r.ofType('cameras')).toEqual([
+      {
+        type: 'cameras',
+        cameras: [{ label: 'FaceTime HD Camera' }, { label: 'Logitech C920 (046d:082d)' }],
+      },
+    ]);
+    expect(JSON.stringify(r.posted)).not.toContain('salted');
+    expect(r.camera.calls).toHaveLength(0);
+
+    // During a session, with the label main stored: the session opens that camera.
+    r.send({ ...start(), cameraLabel: 'Logitech C920 (046d:082d)' });
+    r.send({ type: 'list_cameras' });
+    await r.s.advance(2_000);
+    expect(r.ofType('cameras')).toHaveLength(2);
+    expect(r.camera.calls.map((c) => c.deviceId)).toEqual(['salted-2']);
+    expect(r.ofType('error')).toEqual([]);
+    await r.host.dispose();
+  });
+
+  it('caps the answer and survives a failing enumeration', async () => {
+    const r = rig();
+    r.camera.devices = Array.from({ length: 40 }, (_, i) => ({
+      deviceId: `id${i}`,
+      label: `Camera ${i} ${'x'.repeat(300)}`,
+    }));
+    r.send({ type: 'list_cameras' });
+    await r.s.advance(10);
+    const answer = r.ofType('cameras')[0];
+    expect(answer?.cameras).toHaveLength(32);
+    expect(answer?.cameras.every((c) => c.label.length <= 256)).toBe(true);
+
+    const r2 = rig();
+    r2.camera.listFailsWith = new Error('enumerateDevices failed');
+    r2.send({ type: 'list_cameras' });
+    await r2.s.advance(10);
+    expect(r2.ofType('cameras')).toEqual([{ type: 'cameras', cameras: [] }]);
   });
 });

@@ -40,7 +40,7 @@ tests. It has **no Electron imports**.
 | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
 | 2–4 fps, low resolution                                                     | 320×240 capture; loop levels between 250 and 500 ms; floor of 2 fps                                                                                                                   | PERCEPTION, RUNTIME         |
 | setTimeout loop, never rAF; keeps running with the window hidden            | `AdaptiveLoop` on injected `TimerApi`; `ImageCapture.grabFrame()` does not depend on rendering; hidden window with `backgroundThrottling:false`; a guard test bans rAF and rVFC       | RUNTIME                     |
-| CPU under 15 %                                                              | `CpuGovernor`: duty target 0.08 of one core, optional process-CPU probe at 12 %, adapts fps and detector rate                                                                         | RUNTIME                     |
+| CPU under 15 %                                                              | `CpuGovernor`: duty target 0.08 of one core, optional process-CPU probe at 12 %, adapts fps and detector rate; `AdaptiveLoop`: hard duty cap of 0.15 of one core (never a busy loop)  | RUNTIME                     |
 | No image stored or leaving the process                                      | Only `FrameFeatures` numbers leave the vision pipeline; frames are closed in `finally`; guard tests ban storage, network and image-export APIs; MediaPipe telemetry is blocked (§5.2) | all                         |
 | Looking down to write or read is studying                                   | Looking-down floor (§7.3) and the `paper` calibration class; only a visible phone in hand overrides it                                                                                | DECISION, LEARNING          |
 | Phone in hand weighs heavily                                                | `phoneCap` 0.10 overrides every floor; persistent `E_phone` names the strike cause                                                                                                    | DECISION, PERCEPTION        |
@@ -781,11 +781,12 @@ _True positives:_
 ### 8.1 Loop (`AdaptiveLoop`)
 
 - **Timers:** only `TimerApi.set`. The next step is scheduled only after the current one settles, so steps never overlap.
-- **Delay:** max(10, plan.intervalMs − elapsed).
+- **Delay:** max(10, plan.intervalMs − elapsed) on a fixed-rate grid; more than an interval behind restarts the grid.
+- **Hard duty cap:** a token bucket earns 0.15 ms of compute per ms (burst 300 ms) and each step spends its measured cost (`visionMs + objectMs + otherMs`; a step that threw is charged its wall time; an idle step nothing). A step that overdraws it waits until the bucket is back at zero, and the grid restarts after that wait. The wait for the next camera frame is not compute and never counts. A machine too slow for 2 fps therefore runs a controlled 1–1.5 fps instead of a busy loop; `overBudget` stays set for 10 s after the cap last delayed a step.
 - **Errors:** counted in `stats.errors`, and the loop keeps going.
 - **Stats:**
   - `maxGapMs` and measured `fps`;
-  - `throttled` when under 1 tick/s for 30 s while running.
+  - `throttled` when the median timer lateness of the analysed frames over 30 s exceeds 250 ms (Chromium aligns a throttled hidden page's timers to 1 s wake-ups: the loop still ticks at 1 Hz), or under 1 tick/s for 30 s while running unless the duty cap spaced the ticks. Idle ticks (breaks) never count.
 - **`stop()`** clears the pending timer, and a step in flight schedules nothing.
 
 ### 8.2 CPU governor (`CpuGovernor`)
@@ -798,16 +799,18 @@ _True positives:_
   - Slow down immediately.
   - Speed up only after 10 s of predicted duty ≤ 0.75 × target.
 - **Measured CPU:** `reportProcessCpu(pct)` above 12 % forces one level slower for 10 s.
-- **Over budget:** L4 still over budget → `overBudget` (hint `over_budget`).
+- **Over budget:** L4 still over budget → the emergency level L5 (default levels only) with `overBudget` (hint `over_budget`); below that the loop's hard duty cap (§8.1).
 - **No face visible:** objects run at ≥ 1 Hz anyway, because the person detector decides between hidden and absent.
+- **Alert:** so they do while a phone (not at rest) was seen in the last 20 s, or the engine is in doubt (`StepCost.alert`). At L3/L4 PERCEPTION's tracker, which counts sightings, would otherwise take a phone wobbling in the hand for one at rest (sightings 4–8 s apart) and E_phone would drop. The alert is left out of the predicted duty (it lasts seconds; it must not walk the levels down), and the duty cap bounds it.
 
-| Level      | Interval | fps | Objects every | Objects rate |
-| ---------- | -------- | --- | ------------- | ------------ |
-| L0         | 250 ms   | 4   | 2 frames      | 2 Hz         |
-| L1 (start) | 333 ms   | 3   | 3 frames      | 1 Hz         |
-| L2         | 500 ms   | 2   | 2 frames      | 1 Hz         |
-| L3         | 500 ms   | 2   | 4 frames      | 0.5 Hz       |
-| L4         | 500 ms   | 2   | 8 frames      | 0.25 Hz      |
+| Level       | Interval | fps | Objects every | Objects rate |
+| ----------- | -------- | --- | ------------- | ------------ |
+| L0          | 250 ms   | 4   | 2 frames      | 2 Hz         |
+| L1 (start)  | 333 ms   | 3   | 3 frames      | 1 Hz         |
+| L2          | 500 ms   | 2   | 2 frames      | 1 Hz         |
+| L3          | 500 ms   | 2   | 4 frames      | 0.5 Hz       |
+| L4          | 500 ms   | 2   | 8 frames      | 0.25 Hz      |
+| L5 (emerg.) | 500 ms   | 2   | 16 frames     | 0.125 Hz     |
 
 **Expected cost:** face ≈ 8–12 ms, detector ≈ 30–45 ms and luma < 1 ms per call. At L1 that is about 6–8 % of one core.
 
@@ -820,11 +823,12 @@ _True positives:_
    - an error means no profile, plus the `recalibrate` hint;
    - `migrated`, or a stale `trainer`, means retrain and emit `profile_updated{migrated}`.
 3. **Camera mode:**
-   - Run `openCamera` and `createVision` in parallel.
+   - Load `createVision` first (≤ 30 s), then open the camera (≤ 15 s): the camera is never on while MediaPipe loads or when it cannot. `camera{starting}` is emitted the moment the stream opens.
+   - The camera is named by label (`cameraLabel`) and resolved with `enumerateDevices()` on every open: `deviceId`s are salted per partition and run. A chosen camera that is missing → the default camera and the sticky `camera_default` hint.
    - `identity()` then decides the classifier: personal if `profileMatchesCamera`, else generic plus `recalibrate`.
    - The engine gets `new CameraObserver({classifier, fallback: createGenericClassifier()})`.
-   - If the camera fails to open, `startStudySession` rejects with the `CameraOpenError`. The host maps it to `error{camera_failed, camera}`, and the UI explains it or offers no-camera mode.
-   - A `VisionLoadError` switches to no-camera mode, with `mode{vision_failed}` and the `vision_failed` hint.
+   - The start never rejects for a camera or vision problem (the guardian session already runs): a camera that fails → `camera{error}` then `mode{no-camera}`; a `VisionLoadError` → `mode{vision_failed}` and the `vision_failed` hint.
+   - **Recovery:** when the cause may pass (camera `in_use`/`not_found`/`unknown`; a load that failed or timed out), retries run in the background after 30 s, 60 s, 2 min, then every 5 min, and a late pipeline is adopted. Success → `mode{camera, recovered}`. `continueWithoutCamera()` stops them.
 4. **No-camera mode:** `new NoCameraObserver()`, ticked at 1 Hz.
 
 **Loop step (camera mode, phase work):**
@@ -841,6 +845,7 @@ In phases other than work, and in no-camera mode, the step only ticks the engine
 
 - `setContext` stores the latest value.
 - Context older than 5 s is treated as foreground `unknown` and idle `null`; the phase is kept.
+- `visibleDistraction` (a catalog service playing on another display) with the input idle for ≥ 10 s reaches the engine as foreground `distraction` (`engineContext`): the same F_dist discount of p.screen, so paper stays study.
 
 **Camera lifecycle:**
 
@@ -853,8 +858,8 @@ In phases other than work, and in no-camera mode, the step only ticks the engine
 - **`continueWithoutCamera()`:**
   - Allowed only while the camera is not `ok`; returns false otherwise. This prevents covering the lens and switching to dodge a `no_face` strike.
   - It stops the camera, swaps in the `NoCameraObserver` (`engine.setObserver`) and emits `mode{user}`.
-- **Vision failures:** 5 `process` failures in a row switch to no-camera mode (`mode{vision_failed}`).
-- **Lost WebGL context** (`VisionLoadError.contextLost`, or `vision.contextLost` on `resume()`): not a failure. The pipeline is rebuilt at once with `deps.createVision` (about 1 s); meanwhile the loop ticks without frames, so nothing is counted as absent. A rebuild that fails or takes over 8 s (under `cameraLostMs`), or a second loss within 60 s, switches to no-camera mode (`mode{vision_failed}`).
+- **Vision failures:** 5 `process` failures in a row rebuild the pipeline once (often a dead WASM module); the same streak again without a good frame switches to no-camera mode (`mode{vision_failed}`, then the background recovery).
+- **Lost WebGL context** (`VisionLoadError.contextLost`, or `vision.contextLost` on `resume()`): not a failure. The pipeline is rebuilt at once with `deps.createVision` (about 1 s, up to 30 s). Meanwhile the loop keeps taking and closing frames, so the camera stays `ok` and the engine keeps the last presence: nothing is counted as absent. A rebuild that fails or takes over 30 s, or a second loss within 60 s, switches to no-camera mode (`mode{vision_failed}`, then the background recovery).
 
 **Other operations:**
 
@@ -888,8 +893,8 @@ when the foreground is `study`), and s_base = 1.0 for foreground `study`, otherw
 
 ### 8.5 Calibration session (`startCalibration`)
 
-- Opens the camera and vision like the session.
-- `record(cls)` runs a 250 ms loop (objects every 2nd frame, luma at 1 Hz). It feeds `CalibrationRecorder`, calls `onProgress` every step, and resolves with the summary when the recorder is done.
+- Loads vision at start; opens the camera **per recording** (the camera is off between clips), by label like the session. A chosen camera that is missing fails the recording with `not_found` (never calibrates another camera).
+- `record(cls)` runs a 250 ms loop (objects every 2nd frame, luma at 1 Hz) under the loop's duty cap. It feeds `CalibrationRecorder`, calls `onProgress` every step, and resolves with the summary when the clip ends: 20 s, extended up to 60 s (until ~50 rows) when the cap slows the frames; `remainingMs` follows the planned end.
 - Only one recording at a time. `cancel()` rejects the pending one with `AbortError`.
 - `build()` calls `buildProfile({recordings, previous, camera: identity, nowIso})` and returns `serializeProfile(profile)`.
 - `close()` releases everything.
@@ -900,6 +905,7 @@ when the foreground is `study`), and s_base = 1.0 for foreground `study`, otherw
 - `createAnalysisHost({post, assets})` is all the hidden window's script needs.
 - `handle(message)` validates with `isAnalysisInbound`; an invalid message → `error{invalid_message}`.
 - It runs one session or calibration at a time; anything else → `error{busy}`.
+- `list_cameras` works any time and answers `cameras` with labels only (never ids, never opening a camera).
 - It maps the `AnalysisInbound` and `AnalysisOutbound` unions in `types.ts` one to one onto the facades.
 - **Guards** (`isAnalysisInbound`, `isAnalysisOutbound`) are strict: known `type` values, exact keys, finite numbers, known enums, `profileJson` ≤ 512 KB.
 
@@ -962,7 +968,9 @@ A new `runId` starts a new baseline, so a restarted analysis window never re-sen
 
 ### 8.9 `HANDOFF.md` (RUNTIME writes it for the desktop team)
 
-It must cover:
+**HANDOFF.md is the authoritative integration spec**: where it and this list differ (it has been
+refined since, e.g. exactly-once heartbeats and strikes, camera labels, the foreground rule),
+HANDOFF wins. It must cover:
 
 1. **Hidden analysis window:**
    - `show:false`, `webPreferences: { backgroundThrottling: false, contextIsolation: true, sandbox: true, nodeIntegration: false, partition: 'centrate-ai' }`, a preload exposing only `post`/`onMessage`, loaded from the app bundle, never navigable.
@@ -978,7 +986,7 @@ It must cover:
    - Linux: the `/dev/video*` group hint.
 3. **IPC:** the `AnalysisInbound`/`AnalysisOutbound` contract, validated on both sides.
 4. **Main loop:**
-   - Send `context` at 1 Hz: phase from `GET /v1/study/sessions/current`, foreground class from the active-window layer (`distraction` = catalog category not `educationalCapable`, `study` = the study whitelist, else `neutral`/`unknown`), and `powerMonitor.getSystemIdleTime()` × 1000.
+   - Send `context` at 1 Hz: phase from `GET /v1/study/sessions/current`, foreground class from the active-window layer (`distraction` = **any** catalog service, `educationalCapable` ones such as YouTube included, unless the per-session «Voy a usar YouTube para estudiar» opt-in makes it `neutral`; `study` = the study whitelist; else `neutral`/`unknown`), the optional `visibleDistraction` flag, and `powerMonitor.getSystemIdleTime()` × 1000.
    - On each `strike` event, POST `/strike` with idempotency key `<sessionId>:<runId>:<seq>`; convert `cooldownUntil` to `cooldownLeftMs` and send `strike_result`.
    - Heartbeat every 15 s from `HeartbeatAccumulator.take`, at once after resume, and once when the planned end passes; stop when `take` returns `null`.
    - Forward `powerMonitor` `resume` as `resume`.
@@ -1066,6 +1074,7 @@ It must cover:
 - With glasses glare (`eyes.reliable = false`) drowsiness detection is off; no strike is lost, since drowsiness never strikes.
 - A camera change without recalibrating falls back to the generic classifier. It is less precise, but it never punishes looking down.
 - The generic classifier learns a second screen only from keyboard or mouse input on it (§6.9). A second monitor that is only watched, at 40° or more, reads as looking away until the user types or scrolls there, or calibrates. The safety net is DECISION's: in generic mode a pose-only doubt (`looking_away`/`unknown`) should stop at DUDA (requested, not yet in §7.6).
+- A video on a second monitor while a study app has the focus is only caught when main sends `visibleDistraction` (a catalog service visible and playing on any display) and the input is idle for 10 s. Without it the second monitor reads as a screen and the video gets full focus credit. A video watched while typing in the notes is not caught.
 - The generic classifier keeps the session's opening pose (the first 20 s of calm frames) as a screen. A user who starts by looking elsewhere without touching the keyboard teaches it that direction until three other screens displace it.
 - The pitch sign must be checked once by hand in the demo, on a real face.
 

@@ -89,6 +89,12 @@ export interface LaunchOptions {
    * start those runs in English. Harness launches get the language from the fixture.
    */
   language?: LanguagePreference;
+  /**
+   * Without a harness state: the onboarding already finished (`prefs.onboarding.done`), so the
+   * main window opens on its sections. Default `true`; `false` starts on the onboarding like a
+   * fresh install (docs/DESKTOP.md §15.7).
+   */
+  onboardingDone?: boolean;
   /** Extra environment and arguments. */
   env?: Record<string, string>;
   args?: string[];
@@ -238,7 +244,10 @@ export async function launchApp(options: LaunchOptions): Promise<LaunchedApp> {
   if (options.sysDir) env[HARNESS_ENV.sysDir] = options.sysDir;
   if (options.state === null) {
     writeStoredPrefs(prefsPath(userDataDir), {
-      prefs: sanitizePrefs({ language: options.language ?? 'es' }),
+      prefs: sanitizePrefs({
+        language: options.language ?? 'es',
+        onboarding: { done: options.onboardingDone ?? true, step: 'welcome' },
+      }),
       templates: sanitizeTemplates([]),
     });
   } else {

@@ -9,7 +9,8 @@
  * - The shop in rows: «15 min de YouTube · 150 pts · Canjear», «Canjear» with the in-place
  *   «¿Seguro?» (armed id `redeem:<offerId>`, the consequence in red on the row's help line).
  *   When it cannot be redeemed the button is disabled and the help line says why: «Te faltan
- *   40 puntos», «Como mucho 60 min seguidos de YouTube», the lock.
+ *   40 puntos», «Como mucho 1 h de YouTube a la vez», the lock. The outcome of a redeem goes on
+ *   its own line under the shop («Canjeado: YouTube abierto hasta las 17:15 · …»).
  * - Offers of services no block covers are hidden (nothing to open) and named in one line; with
  *   nothing blocked at all, the empty state points to Bloqueos.
  * - The mascot in large, with its phase and what makes it grow.
@@ -47,6 +48,8 @@ export const RWD_IDS = {
   row: 'rewards',
   retry: 'rwd-retry',
   empty: 'rwd-empty',
+  /** The last redeem's outcome line. */
+  result: 'rwd-result',
 } as const;
 
 /** The in-place «¿Seguro?» of an offer (docs/DESKTOP.md §15.1). */
@@ -72,6 +75,8 @@ export interface OfferRowView {
   help: string;
   /** Why «Canjear» is disabled («Te faltan 40 puntos»), `null` when it can be redeemed. */
   disabledReason: string | null;
+  /** Disabled for want of points (what more blocks fix). */
+  short: boolean;
   /** The armed «¿Seguro?» consequence. */
   consequence: string;
   /** Alt + this key presses its «Canjear» (the row's number: «Canjear» repeats on every row). */
@@ -104,8 +109,14 @@ export interface RecompensasView {
   hidden: string | null;
   /** Nothing to show in the shop: nothing is blocked and it is not closed. */
   empty: boolean;
-  /** The shop row's own help (nothing hovered): a result, the lock, or what a reward does. */
+  /** The shop row's own help (nothing hovered): the lock, or what a reward does. */
   help: LineView;
+  /**
+   * The last redeem's outcome, on its own line under the shop (like Bloqueo's undo line), so
+   * the help of the «Canjear» still under the pointer never hides it: «Canjeado: YouTube
+   * abierto hasta las 17:15 · te quedan 1.090 puntos» in green, or the refusal in red.
+   */
+  result: LineView | null;
   mascot: MascotView | null;
 }
 
@@ -183,9 +194,11 @@ function offerRow(
   const from = open ? Date.parse(open.endsAt) : nowMs;
   const left = formatPoints(balance - offer.cost);
   let disabledReason: string | null = null;
+  let short = false;
   if (offer.unavailableReason === 'locked') disabledReason = lockText ?? R.closed;
   else if (offer.unavailableReason === 'insufficient_points' || !offer.affordable) {
     disabledReason = R.shop.short(formatPoints(Math.max(1, offer.shortBy || offer.cost - balance)));
+    short = true;
   } else if (offer.unavailableReason === 'allowance_limit') {
     disabledReason = R.shop.limit(service, formatMinutes(GUARDIAN_LIMITS.allowanceMaxMinutes));
   } else if (offer.unavailableReason === 'not_blocked') {
@@ -200,6 +213,7 @@ function offerRow(
     price: formatPointsShort(offer.cost),
     help: open ? R.shop.helpExtend(duration, service, left) : R.shop.help(service, duration, left),
     disabledReason,
+    short,
     consequence: R.shop.consequence(
       formatPoints(-offer.cost),
       service,
@@ -260,11 +274,11 @@ export function deriveRecompensasView(input: RecompensasInput): RecompensasView 
   }
   const rows = offers.map((offer, i) => offerRow(offer, i, balance, lockText, allowances, nowMs));
 
-  let help: LineView;
+  let result: LineView | null = null;
   const opened = redeemed?.allowance ?? null;
-  if (notice) help = notice;
+  if (notice) result = notice;
   else if (redeemed && opened && Date.parse(opened.endsAt) > nowMs) {
-    help = {
+    result = {
       tone: 'green',
       text: R.shop.redeemed(
         serviceName(opened.serviceId),
@@ -272,8 +286,11 @@ export function deriveRecompensasView(input: RecompensasInput): RecompensasView 
         formatPoints(redeemed.balanceAfter),
       ),
     };
-  } else if (lockText) help = { tone: 'muted', text: lockText };
-  else if (rows.length > 0 && rows.every((r) => r.disabledReason !== null)) {
+  }
+
+  let help: LineView;
+  if (lockText) help = { tone: 'orange', text: lockText };
+  else if (rows.some((r) => r.short) && rows.every((r) => r.disabledReason !== null)) {
     help = {
       tone: 'muted',
       text: R.shop.rowHelpShort(formatPoints(POINT_RULES.blockPointsPerMinute)),
@@ -293,6 +310,7 @@ export function deriveRecompensasView(input: RecompensasInput): RecompensasView 
         : null,
     empty: rewards !== null && !rewards.locked && rows.length === 0,
     help,
+    result,
     mascot: mascotView(snapshot),
   };
 }

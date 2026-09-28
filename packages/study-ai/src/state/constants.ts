@@ -18,6 +18,15 @@ export const FAST_RECOVERY_HOLD_MS = 1_500;
 /** Raw presence must hold this long before the snapshot shows it. */
 export const PRESENCE_DEBOUNCE_MS = 1_000;
 
+/**
+ * An absent-like run (no face, covered) counts for the absence path only once it has lasted
+ * this long; it is then counted back from its first tick, so a real absence still strikes
+ * exactly `noFaceStrikeMs` after the first absent frame. Shorter runs are landmarker
+ * dropouts between tracked-face frames (dim room, head bent over a notebook): they neither
+ * add to the accumulator nor break the presence that resets it.
+ */
+export const ABSENT_CONFIRM_MS = 2_000;
+
 /** Eyes: coverage needed for a drowsiness decision, and the «eyes open again» rule. */
 export const EYES_MIN_COVERAGE = 0.5;
 export const EYES_OPEN_WINDOW_MS = 5_000;

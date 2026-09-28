@@ -31,7 +31,7 @@ export const RECOMPENSAS_EN: RecompensasMessages = {
       `Adds ${duration} to ${service} · ${left} left`,
     consequence: (points: string, service: string, time: string): string =>
       `${points}: ${service} open until ${time}`,
-    short: (points: string): string => `You need ${points} more`,
+    short: (points: string): string => `You are ${points} short`,
     limit: (service: string, duration: string): string =>
       `At most ${duration} of ${service} at a time`,
     notBlocked: (service: string): string => `${service} is not blocked now`,
@@ -47,8 +47,9 @@ export const RECOMPENSAS_EN: RecompensasMessages = {
   },
 
   errors: {
-    short: (points: string): string => `You need ${points} more`,
-    notBlocked: (service: string): string => `${service} is no longer blocked: no need to redeem it`,
+    short: (points: string): string => `You are ${points} short`,
+    notBlocked: (service: string): string =>
+      `${service} is no longer blocked: no need to redeem it`,
     limit: (service: string, duration: string): string =>
       `At most ${duration} of ${service} at a time`,
     unknownOffer: 'That reward no longer exists: update Céntrate',

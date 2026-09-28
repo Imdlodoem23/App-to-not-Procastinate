@@ -1,13 +1,25 @@
 /**
  * The lists under the Bloqueos form: «Activos» (what the guardian enforces now, with the way to
  * the emergency unlock), «Plantillas» (use one in the form, delete your own with an in-place
- * «¿Seguro?»), «Horarios» («L–V 16:00–19:00 · Redes sociales» with a switch per row) and
- * «Modo examen» (whitelist + Hardcore, straight to the main window's confirmation).
+ * «¿Seguro?»), «Horarios» («L–V 16:00–19:00 · Redes sociales» with «Editar» and a switch per
+ * row, then «Nuevo horario» or the editor in place) and «Modo examen» (whitelist + Hardcore,
+ * straight to the main window's confirmation, whose red line says it cannot be cancelled; then
+ * the user's whitelist extras).
  *
  * Results («No se ha podido borrar…») show under their list without being live regions (they
  * mount with the text already in them); the window's polite region announces them.
  */
-import { BookOpen, CalendarClock, GraduationCap, LayoutTemplate, Lock, Trash } from 'lucide-react';
+import {
+  BookOpen,
+  CalendarClock,
+  CalendarPlus,
+  GraduationCap,
+  LayoutTemplate,
+  Lock,
+  Pencil,
+  Trash,
+} from 'lucide-react';
+import { useLayoutEffect, useRef } from 'react';
 import {
   HelpLine,
   InPlaceConfirm,
@@ -23,7 +35,9 @@ import {
 import { errorCopy } from '../../i18n/errors';
 import { useArmedState } from '../../store/context';
 import { BLOQUEOS } from './i18n';
+import { ScheduleEditor } from './ScheduleEditor';
 import type { BloqueosActions, Notice } from './useBloqueosWindow';
+import { WhitelistEditor } from './WhitelistEditor';
 import {
   BLOQUEOS_IDS,
   BLOQUEOS_KEYS,
@@ -135,12 +149,78 @@ export function TemplatesSection(props: {
   );
 }
 
+function ScheduleRow(props: {
+  row: SchedulesView['rows'][number];
+  actions: BloqueosActions;
+}): React.JSX.Element {
+  const { row, actions } = props;
+  const id = `blq-schedule-${row.id}`;
+  const ids = settingsRowIds(id);
+  return (
+    <SettingsRow id={id} title={row.title} description={row.description}>
+      <div className="blq-row-actions" role="group" aria-labelledby={ids.title}>
+        <Tile
+          id={`edit-${row.id}`}
+          label={E.schedules.edit}
+          icon={Pencil}
+          size="text"
+          mnemonic={row.editKey}
+          help={E.schedules.editHelp}
+          describedBy={ids.description}
+          disabled={row.editLock !== null || row.editing}
+          disabledReason={row.editLock ?? undefined}
+          onPress={() => actions.editSchedule(row.id)}
+        />
+        <Toggle
+          checked={row.enabled}
+          disabled={row.locked || row.saving}
+          labelledBy={ids.title}
+          describedBy={ids.description}
+          onChange={(on) => actions.toggleSchedule(row.id, on)}
+        />
+      </div>
+    </SettingsRow>
+  );
+}
+
 export function SchedulesSection(props: {
   view: SchedulesView;
   notice: Notice | undefined;
   actions: BloqueosActions;
 }): React.JSX.Element {
   const { view, actions, notice } = props;
+  const editorOpen = view.editor !== null;
+
+  // Closing the editor gives the focus back where it was opened from (the row's «Editar», else
+  // «Nuevo horario»), never to <body>.
+  const openedFrom = useRef<string | null>(null);
+  const wasOpen = useRef(editorOpen);
+  const editorId = view.editor?.id ?? null;
+  if (editorOpen) openedFrom.current = editorId === null ? 'new' : editorId;
+  useLayoutEffect(() => {
+    const was = wasOpen.current;
+    wasOpen.current = editorOpen;
+    if (editorOpen) {
+      document
+        .querySelector<HTMLElement>(`[data-section="${BLOQUEOS_IDS.schedules}"] .blq-editor`)
+        ?.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+    if (!was) return;
+    const from = openedFrom.current;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    const target =
+      from !== null && from !== 'new'
+        ? document.querySelector<HTMLElement>(`[data-tile-id="edit-${CSS.escape(from)}"]`)
+        : null;
+    (
+      target ??
+      document.querySelector<HTMLElement>(`[data-tile-id="${BLOQUEOS_IDS.newSchedule}"]`) ??
+      document.querySelector<HTMLElement>(`[data-section="${BLOQUEOS_IDS.schedules}"]`)
+    )?.focus({ preventScroll: false });
+  }, [editorOpen]);
+
   return (
     <Section
       id={BLOQUEOS_IDS.schedules}
@@ -157,32 +237,37 @@ export function SchedulesSection(props: {
           </TextButton>
         </div>
       ) : null}
-      {view.status === 'ready' && view.rows.length === 0 ? (
+      {view.status === 'ready' && view.rows.length === 0 && !editorOpen ? (
         <p className="blq-note">{E.schedules.empty}</p>
       ) : null}
       {view.rows.length > 0 ? (
-        <div className="blq-rows">
-          {view.rows.map((row) => {
-            const ids = settingsRowIds(`blq-schedule-${row.id}`);
-            return (
-              <SettingsRow
-                key={row.id}
-                id={`blq-schedule-${row.id}`}
-                title={row.title}
-                description={row.description}
-              >
-                <Toggle
-                  checked={row.enabled}
-                  disabled={row.locked || row.saving}
-                  labelledBy={ids.title}
-                  describedBy={ids.description}
-                  onChange={(on) => actions.toggleSchedule(row.id, on)}
-                />
-              </SettingsRow>
-            );
-          })}
+        <div className="blq-rows" role="list" aria-label={E.schedules.listLabel}>
+          {view.rows.map((row) => (
+            <div key={row.id} role="listitem">
+              <ScheduleRow row={row} actions={actions} />
+            </div>
+          ))}
         </div>
       ) : null}
+      {view.canCreate ? (
+        <TileRow
+          id={BLOQUEOS_IDS.rows.newSchedule}
+          label={E.schedules.newSchedule}
+          columns={3}
+          help={E.schedules.newScheduleHelp}
+        >
+          <Tile
+            id={BLOQUEOS_IDS.newSchedule}
+            label={E.schedules.newSchedule}
+            icon={CalendarPlus}
+            size="text"
+            mnemonic={BLOQUEOS_KEYS.newSchedule}
+            help={E.schedules.newScheduleHelp}
+            onPress={actions.newSchedule}
+          />
+        </TileRow>
+      ) : null}
+      {view.editor ? <ScheduleEditor view={view.editor} actions={actions} /> : null}
       {notice ? (
         <HelpLine tone={notice.tone} className="blq-wrap">
           {notice.text}
@@ -194,6 +279,9 @@ export function SchedulesSection(props: {
 
 export function ExamSection(props: {
   view: ExamView;
+  domainInput: string;
+  processInput: string;
+  notice: Notice | undefined;
   actions: BloqueosActions;
 }): React.JSX.Element {
   const { view, actions } = props;
@@ -229,6 +317,13 @@ export function ExamSection(props: {
           onPress={actions.customizeExam}
         />
       </TileRow>
+      <WhitelistEditor
+        view={view.whitelist}
+        domainInput={props.domainInput}
+        processInput={props.processInput}
+        notice={props.notice}
+        actions={actions}
+      />
     </Section>
   );
 }

@@ -1,0 +1,75 @@
+/*
+ * Onboarding (PROMPT §10 «Onboarding»): one section per step in the main window, the pairing
+ * code at 32 px and the progress dots. Colors come only from tokens.css; no cards or shadows.
+ */
+
+@layer components {
+  .ob {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .ob-sentence {
+    margin: 0;
+    color: var(--fg);
+    font-size: var(--font-size-13);
+    line-height: var(--line-height-13);
+  }
+
+  .ob-pairing {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .ob-code {
+    margin: 0;
+    font-size: var(--font-size-32);
+    line-height: var(--line-height-32);
+    font-weight: var(--font-weight-semibold);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.12em;
+  }
+
+  .ob-meta {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-1);
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+
+  .ob-meta .c-countdown-digits {
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+
+  /* Progress: five 8 px dots; the current one in the accent, the done ones filled. */
+  .ob-dots {
+    display: flex;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .ob-dot {
+    width: 8px;
+    height: 8px;
+    border: var(--size-border) solid var(--control);
+    border-radius: 50%;
+  }
+
+  .ob-dot[data-state='done'] {
+    border-color: var(--fg-muted);
+    background: var(--fg-muted);
+  }
+
+  .ob-dot[data-state='current'] {
+    border-color: var(--blue);
+    background: var(--blue);
+  }
+}

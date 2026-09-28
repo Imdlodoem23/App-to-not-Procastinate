@@ -1,18 +1,22 @@
 /**
  * Section 5 «Pie»: the protection status line («● Guardián activo · ● Extensión conectada», or
  * «● Guardián detenido · Reparar»), the version on the right («Actualizar a vX» in blue when
- * there is one), and equal 32 px secondary buttons filling the row: Mini temporizador (with its
- * flag) | Ajustes… | Salir, so two buttons split the width while the flag is off. «Salir»
- * explains that blocks stay active. Outside `<main>`, so it is the window's `contentinfo` and
- * never scrolls with the sections.
+ * there is one: it downloads, then installs), and equal 32 px secondary buttons filling the row:
+ * Mini temporizador (with its flag; pressed while the mini timer shows) | Ajustes… | Salir, so
+ * two buttons split the width while the flag is off. «Salir» explains that blocks stay active.
+ * The buttons use the footer's 12 px (`footer.css`), so «Mini temporizador» fits a third of
+ * the row. Outside `<main>`, so it is the window's `contentinfo` and never scrolls with the
+ * sections.
  */
 import { LogOut, Settings, Timer } from 'lucide-react';
-import { Fragment, useMemo } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { StatusDot, TextButton, Tile, TileRow } from '../../components';
 import { useRepair } from '../../hooks/useRepair';
 import { RENDERER } from '../../i18n/messages';
 import { useBridge, useSnapshot } from '../../store/context';
+import { useUpdate } from './useUpdate';
 import { deriveFooterView, type FooterButton } from './view';
+import './footer.css';
 
 const F = RENDERER.footer;
 
@@ -23,11 +27,20 @@ export function Footer(): React.JSX.Element {
   const view = useMemo(() => deriveFooterView(snapshot), [snapshot]);
   const bridge = useBridge();
   const repair = useRepair();
+  const update = useUpdate();
+  // The help line reports the last thing pressed (a repair or an update).
+  const [last, setLast] = useState<'repair' | 'update'>('repair');
+  const message = last === 'update' ? update.message : repair.message;
 
   const press = (button: FooterButton): void => {
     if (button === 'settings') bridge.send('window:open-detail', { name: 'ajustes', group: null });
     else if (button === 'quit') bridge.send('app:quit', null);
-    // Mini temporizador: its window comes with the `miniTimer` flag.
+    else bridge.send('mini-timer:toggle', { visible: null });
+  };
+
+  const runRepair = (): void => {
+    setLast('repair');
+    repair.run();
   };
 
   const statusItems = [
@@ -38,7 +51,7 @@ export function Footer(): React.JSX.Element {
   ];
   if (view.guardian.action) {
     statusItems.push(
-      <TextButton key="repair" tone="blue" onPress={repair.run}>
+      <TextButton key="repair" tone="blue" onPress={runRepair}>
         {repair.running
           ? RENDERER.protection.actions.repairing
           : view.guardian.action === 'install'
@@ -55,6 +68,24 @@ export function Footer(): React.JSX.Element {
       </span>,
     );
   }
+
+  const { action } = view.version;
+  const version = action ? (
+    <TextButton
+      tone="blue"
+      className="footer-version"
+      onPress={() => {
+        setLast('update');
+        update.run(action);
+      }}
+    >
+      {view.version.label}
+    </TextButton>
+  ) : (
+    <span className="footer-version" data-tone={view.version.update ? 'blue' : 'muted'}>
+      {view.version.label}
+    </span>
+  );
 
   return (
     <footer
@@ -75,16 +106,14 @@ export function Footer(): React.JSX.Element {
             </Fragment>
           ))}
         </div>
-        <span className="footer-version" data-tone={view.version.update ? 'blue' : 'muted'}>
-          {view.version.label}
-        </span>
+        {version}
       </div>
       <TileRow
         id="pie"
         label={F.rowLabel}
         columns={3}
-        help={repair.message?.text}
-        helpTone={repair.message?.tone ?? 'muted'}
+        help={message?.text}
+        helpTone={message?.tone ?? 'muted'}
         helpLive="polite"
       >
         {view.buttons.map((button) => (
@@ -96,6 +125,7 @@ export function Footer(): React.JSX.Element {
             size="text"
             secondary
             door={button === 'settings'}
+            selected={button === 'miniTimer' ? view.miniTimerVisible : undefined}
             help={F.help[button]}
             mnemonic={F.mnemonics[button]}
             onPress={() => press(button)}

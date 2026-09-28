@@ -265,6 +265,8 @@ describe('false positives: study never strikes', { timeout: HEAVY_MS }, () => {
       'notebook',
       'readBook',
       'phoneOnDesk',
+      'sideNotebook',
+      'sideBook',
     ];
     const short: Activity[] = ['coffeeSip', 'stretch'];
     for (let k = 0; k < 50; k += 1) {

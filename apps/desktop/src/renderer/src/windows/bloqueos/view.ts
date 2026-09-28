@@ -6,8 +6,10 @@
  *    «Qué bloquear: YouTube +1» on the left; «Duración: 1 h» · «hasta 18:00», «Modo: Estricto»
  *    and «Tu motivo» on the right; then «Guardar como plantilla | Bloquear…» (the draft goes to
  *    the main window's card, the one confirmation path);
- * 2. «Activos» (from the snapshot), «Plantillas», «Horarios» (fetched when the window opens,
- *    one switch per row) and «Modo examen» (whitelist + Hardcore).
+ * 2. «Activos» (from the snapshot), «Plantillas», «Horarios» (fetched when the window opens:
+ *    one row per schedule with «Editar» and a switch, then «Nuevo horario» or the editor in
+ *    place) and «Modo examen» (whitelist + Hardcore, with the user's whitelist extras from the
+ *    guardian's settings).
  *
  * Nothing is invented (PROMPT §4): opened from a phrase whose time was not understood, the
  * duration stays «sin elegir» and «Bloquear…» says «Elige cuánto dura» until the user picks one.
@@ -17,7 +19,13 @@
  */
 import { STUDY_WHITELIST, studySiteName } from '@centrate/shared/catalog';
 import type { Accent } from '@centrate/shared/design/tokens';
-import { BLOCK_MODES, type BlockMode, type Schedule } from '@centrate/shared/domain';
+import {
+  BLOCK_MODES,
+  type BlockMode,
+  type IsoWeekday,
+  type Schedule,
+} from '@centrate/shared/domain';
+import type { CategoryId } from '@centrate/shared/catalog';
 import { durationLabel } from '@centrate/shared/parser';
 import { modeLabel, targetsLabel } from '../../../../shared/format';
 import {
@@ -45,8 +53,34 @@ import { DURATION_PRESETS, durationFields, selectedPreset, type DurationFields }
 import { activeLocale, localized } from '../../../../shared/i18n/locale';
 import { BLOQUEOS } from './i18n';
 import { allocateMnemonics } from './mnemonics';
-import { scheduleRow, type ScheduleRowView } from './schedules';
+import {
+  ISO_WEEKDAYS,
+  formAddsTargets,
+  scheduleAutoName,
+  scheduleChips,
+  scheduleCategories,
+  scheduleDeleteLock,
+  scheduleErrorText,
+  scheduleNeedsConsequence,
+  scheduleProblem,
+  scheduleProblemText,
+  scheduleWindowLabel,
+  type ScheduleChip,
+} from './schedule-editor';
+import {
+  isWhitelistSchedule,
+  scheduleRow,
+  scheduleSummary,
+  type ScheduleRowView,
+} from './schedules';
 import { untilPhrase, whenLabel } from './time';
+import {
+  whitelistLists,
+  whitelistSuggestions,
+  whitelistView,
+  type SettingsData,
+  type WhitelistView,
+} from './whitelist';
 
 const E = BLOQUEOS;
 
@@ -61,12 +95,21 @@ export const BLOQUEOS_IDS = {
   schedules: 'blq-schedules',
   exam: 'blq-exam',
   search: 'blq-search',
+  /** The schedule editor (a group inside «Horarios») and its name field. */
+  scheduleEditor: 'blq-schedule-editor',
+  scheduleName: 'blq-schedule-name',
+  newSchedule: 'blq-new-schedule',
+  whitelist: 'blq-whitelist',
+  whitelistDomain: 'blq-whitelist-domain',
   rows: {
     presets: 'blq-presets',
     modes: 'blq-modes',
     actions: 'blq-actions',
     naming: 'blq-naming',
     exam: 'blq-exam-row',
+    newSchedule: 'blq-new-schedule-row',
+    scheduleModes: 'blq-schedule-modes',
+    scheduleActions: 'blq-schedule-actions',
   },
 } as const;
 
@@ -86,6 +129,11 @@ interface BloqueosKeys {
   saveName: string;
   cancelName: string;
   customize: string;
+  /** «Nuevo horario» (hidden while the editor is open). */
+  newSchedule: string;
+  /** «Permitir» next to the whitelist's web and app fields. */
+  allowDomain: string;
+  allowApp: string;
 }
 
 /** Per language, read at call time like the copy. */
@@ -100,6 +148,9 @@ export const BLOQUEOS_KEYS: BloqueosKeys = localized<BloqueosKeys>({
     saveName: 'g',
     cancelName: 'c',
     customize: 'p',
+    newSchedule: 'o',
+    allowDomain: 'i',
+    allowApp: 't',
   },
   en: {
     addDomain: 'd',
@@ -111,6 +162,9 @@ export const BLOQUEOS_KEYS: BloqueosKeys = localized<BloqueosKeys>({
     saveName: 'v',
     cancelName: 'c',
     customize: 'u',
+    newSchedule: 'w',
+    allowDomain: 'l',
+    allowApp: 'o',
   },
 });
 
@@ -127,6 +181,9 @@ export function fixedBloqueosKeys(): string[] {
     k.saveName,
     k.cancelName,
     k.customize,
+    k.newSchedule,
+    k.allowDomain,
+    k.allowApp,
   ];
 }
 
@@ -153,6 +210,12 @@ export interface BloqueosData {
    * a typed value, a template). Until then that duration is «sin elegir».
    */
   durationPicked?: boolean;
+  /** The guardian's settings (the whitelist extras), fetched with the schedules. */
+  settings?: SettingsData;
+  /** A schedule write (create, update, delete) is waiting for the guardian. */
+  scheduleSaving?: boolean;
+  /** A whitelist change (`settings:put`) is waiting for the guardian. */
+  whitelistSaving?: boolean;
 }
 
 /** Why «Bloquear…» is disabled: the draft's own problems, or a duration nobody chose yet. */
@@ -222,12 +285,58 @@ export interface TemplateRowView {
   removeKey: string | undefined;
 }
 
+export interface ScheduleEditorView {
+  /** `null`: a new schedule. */
+  id: string | null;
+  /** «Nuevo horario: L–V 16:00–19:00 · Redes sociales», «Editar: …». */
+  title: string;
+  name: string;
+  /** The name saved when «Nombre» stays empty («Redes sociales · L–V»). */
+  namePlaceholder: string;
+  reason: string;
+  days: { day: IsoWeekday; short: string; long: string; checked: boolean }[];
+  /** What the fields show (as typed, or the saved `HH:MM`). */
+  start: string;
+  end: string;
+  /** «Dura 3 h», or what is wrong with a time (orange). */
+  times: { text: string; tone: 'muted' | 'orange' };
+  /** Examen: the whitelist line replaces the targets. */
+  whitelist: string | null;
+  categories: { id: CategoryId; name: string; checked: boolean }[];
+  /** Services, apps, domains and processes beyond the categories (removable). */
+  chips: ScheduleChip[];
+  /** «Añadir lo del formulario de arriba» would add something. */
+  fromForm: boolean;
+  mode: BlockMode;
+  /** Keys come after every list's (`undefined` once the window's 36 are taken). */
+  modes: (Omit<OptionView<BlockMode>, 'mnemonic'> & { mnemonic: string | undefined })[];
+  /** Hardcore and Examen: «Guardar» asks «¿Seguro?» with this line in red. */
+  consequence: string | null;
+  /** Why «Guardar» is disabled (the input, or a guard), `null` when it can send. */
+  problem: string | null;
+  /** The guardian's last refusal. */
+  error: string | null;
+  saving: boolean;
+  /** «Borrar» (existing schedules): why it is disabled now, and its «¿Seguro?» line. */
+  remove: { lock: string | null; consequence: string } | null;
+  keys: { save: string | undefined; remove: string | undefined; cancel: string | undefined };
+}
+
 export interface SchedulesView {
   title: string;
   datum: string | null;
   status: SchedulesData['status'];
   error: UiError | null;
   rows: ScheduleRowView[];
+  /** «Nuevo horario» shows while the list is loaded and no editor is open. */
+  canCreate: boolean;
+  editor: ScheduleEditorView | null;
+}
+
+export interface ExamWhitelistView extends WhitelistView {
+  /** Running programs that match the app field. */
+  suggestions: string[];
+  saving: boolean;
 }
 
 export interface ExamView {
@@ -235,6 +344,7 @@ export interface ExamView {
   datum: string;
   allowed: string;
   tiles: { minutes: number; label: string; help: string; mnemonic: string | undefined }[];
+  whitelist: ExamWhitelistView;
 }
 
 export interface BloqueosView {
@@ -369,25 +479,68 @@ function activeView(state: UiState, nowMs: number): BloqueosView['active'] {
 }
 
 /**
- * Keys of the tiles that repeat (exam presets, then «Usar» per template, then «Borrar» per user
- * template): what the fixed tiles left, in that order.
+ * Keys of the tiles that repeat or come and go (exam presets, then «Usar» per template, «Borrar»
+ * per user template, «Editar» per schedule, then the schedule editor's modes and actions): what
+ * the fixed tiles left, in that order, so the lists above keep their letters when the editor
+ * opens.
  */
-function listKeys(state: UiState): {
+function listKeys(
+  state: UiState,
+  schedules: readonly Schedule[],
+  editorOpen: boolean,
+): {
   exam: (string | undefined)[];
   use: (string | undefined)[];
   remove: Map<string, string | undefined>;
+  edit: Map<string, string | undefined>;
+  editorModes: (string | undefined)[];
+  editorActions: {
+    save: string | undefined;
+    remove: string | undefined;
+    cancel: string | undefined;
+  };
 } {
   const templates = state.snapshot.templates;
   const own = templates.filter((t) => !t.builtin);
   const examLabels = EXAM_PRESETS.map((m) => E.exam.tile(durationLabel(m)));
+  const editorLabels = editorOpen
+    ? [
+        ...BLOCK_MODES.map((mode) => modeLabel(mode)),
+        E.schedules.editor.save,
+        E.schedules.editor.remove,
+        E.schedules.editor.cancel,
+      ]
+    : [];
   const keys = allocateMnemonics(
-    [...examLabels, ...templates.map(() => E.templates.use), ...own.map(() => E.templates.remove)],
+    [
+      ...examLabels,
+      ...templates.map(() => E.templates.use),
+      ...own.map(() => E.templates.remove),
+      ...schedules.map(() => E.schedules.edit),
+      ...editorLabels,
+    ],
     fixedBloqueosKeys(),
   );
-  const exam = keys.slice(0, examLabels.length);
-  const use = keys.slice(examLabels.length, examLabels.length + templates.length);
-  const removeKeys = keys.slice(examLabels.length + templates.length);
-  return { exam, use, remove: new Map(own.map((t, i) => [t.id, removeKeys[i]])) };
+  let at = 0;
+  const take = (n: number): (string | undefined)[] => {
+    const out = keys.slice(at, at + n);
+    at += n;
+    return out;
+  };
+  const exam = take(examLabels.length);
+  const use = take(templates.length);
+  const removeKeys = take(own.length);
+  const editKeys = take(schedules.length);
+  const modeKeys = take(editorOpen ? BLOCK_MODES.length : 0);
+  const [save, remove, cancel] = take(editorOpen ? 3 : 0);
+  return {
+    exam,
+    use,
+    remove: new Map(own.map((t, i) => [t.id, removeKeys[i]])),
+    edit: new Map(schedules.map((s, i) => [s.id, editKeys[i]])),
+    editorModes: modeKeys,
+    editorActions: { save, remove, cancel },
+  };
 }
 
 function templatesView(
@@ -412,18 +565,116 @@ function templatesView(
   };
 }
 
-function schedulesView(state: UiState, data: BloqueosData, nowMs: number): SchedulesView {
+function editorView(
+  state: UiState,
+  data: BloqueosData,
+  nowMs: number,
+  keys: ReturnType<typeof listKeys>,
+): ScheduleEditorView | null {
+  const editor = state.detail.bloqueos.schedule;
+  if (!editor) return null;
+  const list = data.schedules.status === 'ready' ? data.schedules.list : [];
+  const before = editor.id === null ? null : (list.find((s) => s.id === editor.id) ?? null);
+  const input = editor.input;
+  const whitelist = isWhitelistSchedule(input);
+  const summary = scheduleSummary(input);
+  const problem = scheduleProblem(input, before, nowMs, list.length);
+  const ES = E.schedules.editor;
+  const timeProblem =
+    problem === 'bad_start' ||
+    problem === 'bad_end' ||
+    problem === 'same_time' ||
+    problem === 'too_short'
+      ? scheduleProblemText(problem, before, nowMs)
+      : null;
+  return {
+    id: editor.id,
+    title: editor.id === null ? ES.titleNew(summary) : ES.titleEdit(summary),
+    name: input.name,
+    namePlaceholder: scheduleAutoName(input),
+    reason: input.reason,
+    days: ISO_WEEKDAYS.map((day) => ({
+      day,
+      short: E.schedules.days[day - 1] ?? String(day),
+      long: ES.dayNames[day - 1] ?? String(day),
+      checked: input.days.includes(day),
+    })),
+    start: input.start,
+    end: input.end,
+    times: timeProblem
+      ? { text: timeProblem, tone: 'orange' }
+      : { text: scheduleWindowLabel(input) ?? ES.timesHelp, tone: 'muted' },
+    whitelist: whitelist ? ES.whitelist : null,
+    categories: scheduleCategories(input.targets),
+    chips: whitelist ? [] : scheduleChips(input.targets),
+    fromForm:
+      !whitelist &&
+      !isWhitelistSchedule(state.detail.bloqueos.form) &&
+      formAddsTargets(input.targets, state.detail.bloqueos.form.targets),
+    mode: input.mode,
+    modes: BLOCK_MODES.map((mode, i) => ({
+      value: mode,
+      label: modeLabel(mode),
+      help: E.mode.help[mode],
+      tone: modeAccent(mode),
+      mnemonic: keys.editorModes[i],
+    })),
+    consequence: scheduleNeedsConsequence(input)
+      ? input.mode === 'exam'
+        ? ES.consequence.exam
+        : ES.consequence.hardcore
+      : null,
+    problem: problem ? scheduleProblemText(problem, before, nowMs) : null,
+    error: editor.error ? scheduleErrorText(editor.error, nowMs) : null,
+    saving: data.scheduleSaving === true,
+    remove: before
+      ? {
+          lock: scheduleDeleteLock(before, nowMs),
+          consequence: ES.removeConsequence(before.name || summary),
+        }
+      : null,
+    keys: keys.editorActions,
+  };
+}
+
+function schedulesView(
+  state: UiState,
+  data: BloqueosData,
+  nowMs: number,
+  keys: ReturnType<typeof listKeys>,
+): SchedulesView {
   const next = state.snapshot.state?.nextSchedule ?? null;
   const datum = next ? E.schedules.next(whenLabel(Date.parse(next.startsAt), nowMs)) : null;
   const s = data.schedules;
+  const editing = state.detail.bloqueos.schedule;
+  const editor = editorView(state, data, nowMs, keys);
   if (s.status === 'loading') {
-    return { title: E.schedules.loading, datum, status: s.status, error: null, rows: [] };
+    return {
+      title: E.schedules.loading,
+      datum,
+      status: s.status,
+      error: null,
+      rows: [],
+      canCreate: false,
+      editor,
+    };
   }
   if (s.status === 'error') {
-    return { title: E.schedules.unavailable, datum, status: s.status, error: s.error, rows: [] };
+    return {
+      title: E.schedules.unavailable,
+      datum,
+      status: s.status,
+      error: s.error,
+      rows: [],
+      canCreate: false,
+      editor,
+    };
   }
   const rows = s.list.map((schedule) =>
-    scheduleRow(schedule, nowMs, data.pendingSchedules[schedule.id]),
+    scheduleRow(schedule, nowMs, data.pendingSchedules[schedule.id], {
+      editing: editing?.id === schedule.id,
+      editKey: keys.edit.get(schedule.id),
+    }),
   );
   const on = rows.filter((r) => r.enabled).length;
   return {
@@ -432,12 +683,23 @@ function schedulesView(state: UiState, data: BloqueosData, nowMs: number): Sched
     status: s.status,
     error: null,
     rows,
+    canCreate: editing === null,
+    editor,
   };
 }
 
-function examView(keys: readonly (string | undefined)[]): ExamView {
+function examView(
+  state: UiState,
+  data: BloqueosData,
+  nowMs: number,
+  keys: readonly (string | undefined)[],
+): ExamView {
   const names = studyWhitelistNames();
   const shown = names.slice(0, 5);
+  const settings = data.settings ?? { status: 'loading' as const };
+  const whitelist = whitelistView(settings, nowMs);
+  const lists =
+    settings.status === 'ready' ? whitelistLists(settings.value) : { domains: [], processes: [] };
   return {
     title: E.exam.title,
     datum: E.exam.datum,
@@ -451,6 +713,19 @@ function examView(keys: readonly (string | undefined)[]): ExamView {
         mnemonic: keys[i],
       };
     }),
+    whitelist: {
+      ...whitelist,
+      suggestions:
+        settings.status === 'ready'
+          ? whitelistSuggestions(
+              state.detail.bloqueos.exam.processInput,
+              data.processNames,
+              lists,
+              toCatalogPlatform(state.env.platform),
+            )
+          : [],
+      saving: data.whitelistSaving === true,
+    },
   };
 }
 
@@ -475,7 +750,8 @@ export function deriveBloqueosView(
   const form = local.form;
   const open = seedLeavesDurationOpen(state) && data.durationPicked !== true;
   const problem = formProblem(form, nowMs, open);
-  const keys = listKeys(state);
+  const scheduleList = data.schedules.status === 'ready' ? data.schedules.list : [];
+  const keys = listKeys(state, scheduleList, local.schedule !== null);
   return {
     seedLine: local.seedPhrase ? E.seed(local.seedPhrase) : null,
     targets: targetsView(form, state, data),
@@ -485,8 +761,8 @@ export function deriveBloqueosView(
     problemText: problem ? E.actions.problem[problem] : null,
     active: activeView(state, nowMs),
     templates: templatesView(state, keys),
-    schedules: schedulesView(state, data, nowMs),
-    exam: examView(keys.exam),
+    schedules: schedulesView(state, data, nowMs, keys),
+    exam: examView(state, data, nowMs, keys.exam),
   };
 }
 

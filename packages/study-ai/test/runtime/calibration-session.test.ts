@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { parseProfile } from '../../src/calibration/profile';
-import { startCalibration } from '../../src/runtime/calibration-session';
+import {
+  CALIBRATION_MAX_DURATION_MS,
+  startCalibration,
+} from '../../src/runtime/calibration-session';
+import { MAX_STEP_DUTY } from '../../src/runtime/loop';
 import { isAnalysisOutbound } from '../../src/runtime/ipc';
 import { CALIBRATION_CLASSES } from '../../src/types';
 import type {
@@ -27,6 +31,7 @@ function rig(visionFails: unknown = null) {
     clock: s,
     timers: s,
     openCamera: camera.open,
+    listCameras: camera.list,
     createVision: () =>
       visionFails === null ? Promise.resolve(vision) : Promise.reject(visionFails),
     nowIso: () => '2026-09-28T10:00:00.000Z',
@@ -374,6 +379,108 @@ describe('calibration session', () => {
       issues: CALIBRATION_CLASSES.map((cls) => ({ code: 'missing', cls, severity: 'error' })),
     });
     expect(isAnalysisOutbound({ type: 'calibration_built', outcome })).toBe(true);
+    handle.close();
+  });
+});
+
+describe('calibration session: slow laptops and the chosen camera', () => {
+  it('a laptop too slow for 4 fps stays under the duty cap and records a longer clip', async () => {
+    const r = rig();
+    // Face 60 ms, detector 200 ms: 4 fps with objects at 2 Hz would be 64 % of a core.
+    const slow = new FakeVision(r.s);
+    slow.cost = { faceMs: 60, objectMs: 0, lumaMs: 0.5, totalMs: 60.5 };
+    slow.objectMs = 200;
+    r.deps.createVision = () => Promise.resolve(slow);
+    const handle = await startCalibration({
+      assets: ASSETS,
+      profileJson: null,
+      onProgress: (p) => r.progress.push(p),
+      deps: r.deps,
+    });
+    slow.features = replay(calibrationFrames('screen', { persona: PERSONAS.baseline, seed: 3 }));
+    const startedAt = r.s.t;
+    let summary: Awaited<ReturnType<typeof handle.record>> | null = null;
+    void handle.record('screen').then((value) => {
+      summary = value;
+    });
+    await r.s.advance(21_000);
+    expect(summary).toBeNull(); // not enough frames yet: extended
+    await r.s.advance(CALIBRATION_MAX_DURATION_MS);
+    const done = summary as unknown as Awaited<ReturnType<typeof handle.record>>;
+    expect(done).not.toBeNull();
+    expect(done.rows).toBeGreaterThanOrEqual(40); // no `too_short`
+    expect(done.issues.map((i) => i.code)).not.toContain('too_short');
+    // Duty: the inference time of every frame over the recording's wall time.
+    const busy = slow.calls.reduce(
+      (sum, c) => sum + slow.cost.totalMs + (c.options.objects ? slow.objectMs : 0),
+      0,
+    );
+    const lastFrame = slow.calls.at(-1)?.frame.t ?? startedAt;
+    expect(busy / (lastFrame - startedAt)).toBeLessThanOrEqual(MAX_STEP_DUTY + 0.02);
+    // The countdown followed the planned end: it grew once, then ran down to 0.
+    const recording = r.progress.filter((p) => p.phase === 'recording');
+    const peak = Math.max(...recording.map((p) => p.remainingMs));
+    expect(peak).toBeLessThanOrEqual(CALIBRATION_MAX_DURATION_MS);
+    expect(recording.at(-1)?.remainingMs ?? Infinity).toBeLessThan(1_500);
+    expect(r.progress.at(-1)?.phase).toBe('done');
+    for (const p of r.progress) {
+      expect(isAnalysisOutbound({ type: 'calibration_progress', progress: p })).toBe(true);
+    }
+    handle.close();
+  });
+
+  it('a normal laptop keeps the 20 s clip', async () => {
+    const r = rig();
+    const handle = await startCalibration({
+      assets: ASSETS,
+      profileJson: null,
+      onProgress: (p) => r.progress.push(p),
+      deps: r.deps,
+    });
+    const summary = await recordClass(r, handle, 'screen');
+    expect(summary.rows).toBeGreaterThanOrEqual(60);
+    const remaining = r.progress.filter((p) => p.phase !== 'done').map((p) => p.remainingMs);
+    expect(Math.max(...remaining)).toBeLessThanOrEqual(20_000);
+    handle.close();
+  });
+
+  it('records the chosen camera by label, whatever its deviceId in this window', async () => {
+    const r = rig();
+    r.camera.devices = [
+      { deviceId: 'built-in-salted', label: 'FaceTime HD Camera' },
+      { deviceId: 'usb-salted', label: 'Logitech C920' },
+    ];
+    const handle = await startCalibration({
+      assets: ASSETS,
+      profileJson: null,
+      cameraLabel: 'Logitech C920',
+      onProgress: (p) => r.progress.push(p),
+      deps: r.deps,
+    });
+    await recordClass(r, handle, 'screen');
+    expect(r.camera.calls.map((c) => c.deviceId)).toEqual(['usb-salted']);
+    handle.close();
+  });
+
+  it('a chosen camera that is missing fails the recording (never calibrates another camera)', async () => {
+    const r = rig();
+    r.camera.devices = [{ deviceId: 'built-in', label: 'FaceTime HD Camera' }];
+    const handle = await startCalibration({
+      assets: ASSETS,
+      profileJson: null,
+      cameraLabel: 'Logitech C920',
+      onProgress: (p) => r.progress.push(p),
+      deps: r.deps,
+    });
+    const failure = handle.record('screen').then(
+      () => null,
+      (error: unknown) => error,
+    );
+    await r.s.advance(100);
+    const error = (await failure) as { name?: string; code?: string } | null;
+    expect(error?.name).toBe('CameraOpenError');
+    expect(error?.code).toBe('not_found');
+    expect(r.camera.opened).toHaveLength(0); // the built-in camera was never switched on
     handle.close();
   });
 });

@@ -13,7 +13,10 @@
  *   heartbeats never stop because of a camera problem.
  * - Calibration opens the camera per recording: its failure answers `calibration_record`
  *   with `error{camera_failed, camera}`.
- * - Only numbers, enums and the profile JSON cross IPC; never a frame.
+ * - `list_cameras` works any time (also during a job) and never opens a camera: it answers
+ *   `cameras` with this window's video inputs by label. Main stores a label, never a
+ *   `deviceId` (salted per partition and run), and sends it back as `cameraLabel`.
+ * - Only numbers, enums, camera labels and the profile JSON cross IPC; never a frame.
  */
 import type {
   AnalysisHost,
@@ -22,12 +25,14 @@ import type {
   AnalysisOutbound,
   CalibrationBuildOutcome,
   CalibrationSessionHandle,
+  CameraChoice,
+  CameraDeviceInfo,
   StudySessionHandle,
 } from '../types';
 import { startCalibration } from './calibration-session';
 import { cameraErrorCodeOf, isAbortError, isCameraOpenError, isVisionLoadError } from './errors';
 import { isAnalysisInbound } from './ipc';
-import { startStudySession } from './session';
+import { resolveSessionDeps, startStudySession } from './session';
 
 type Job =
   | { kind: 'idle' }
@@ -55,6 +60,17 @@ const CALIBRATION_MESSAGES: ReadonlySet<AnalysisInbound['type']> = new Set([
 
 /** Starting jobs queue at most this many messages (main sends context at 1 Hz). */
 const MAX_QUEUE = 64;
+/** Caps of the `cameras` answer (the outbound guard rejects anything longer). */
+export const MAX_CAMERAS = 32;
+export const MAX_CAMERA_LABEL = 256;
+
+/** This window's cameras by label, capped for the IPC guard. */
+export function cameraChoices(devices: readonly CameraDeviceInfo[]): CameraChoice[] {
+  return devices
+    .filter((d) => typeof d.label === 'string')
+    .slice(0, MAX_CAMERAS)
+    .map((d) => ({ label: d.label.slice(0, MAX_CAMERA_LABEL) }));
+}
 
 /**
  * Runs a handler; an unexpected exception must not escape into the IPC listener. The job
@@ -126,6 +142,10 @@ class Host implements AnalysisHost {
 
   private dispatch(message: AnalysisInbound): void {
     const job = this.job;
+    if (message.type === 'list_cameras') {
+      this.listCameras();
+      return;
+    }
     if (message.type === 'session_start') {
       if (job.kind !== 'idle') return this.error('busy');
       this.startSession(message);
@@ -164,6 +184,21 @@ class Host implements AnalysisHost {
     }
   }
 
+  /** Answers `list_cameras` (never opens a camera; labels need the `media` permission check). */
+  private listCameras(): void {
+    const list = resolveSessionDeps(this.options.deps).listCameras;
+    let listing: Promise<readonly CameraDeviceInfo[]>;
+    try {
+      listing = list();
+    } catch {
+      listing = Promise.resolve([]);
+    }
+    listing.then(
+      (devices) => this.post({ type: 'cameras', cameras: cameraChoices(devices) }),
+      () => this.post({ type: 'cameras', cameras: [] }),
+    );
+  }
+
   // -------------------------------------------------------------------------------------
   // Study session
   // -------------------------------------------------------------------------------------
@@ -176,7 +211,7 @@ class Host implements AnalysisHost {
       settings: message.settings,
       profileJson: message.profileJson,
       assets: message.mode === 'camera' ? this.options.assets : null,
-      cameraDeviceId: message.cameraDeviceId,
+      cameraLabel: message.cameraLabel,
       initialContext: message.context,
       onEvent: (event) => this.post({ type: 'event', event }),
       onReport: (report) => this.post({ type: 'report', report }),
@@ -251,7 +286,7 @@ class Host implements AnalysisHost {
     startCalibration({
       assets: this.options.assets,
       profileJson: message.profileJson,
-      cameraDeviceId: message.cameraDeviceId,
+      cameraLabel: message.cameraLabel,
       onProgress: (progress) => this.post({ type: 'calibration_progress', progress }),
       ...(this.options.deps ? { deps: this.options.deps } : {}),
     }).then(

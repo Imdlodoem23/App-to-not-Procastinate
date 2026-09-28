@@ -107,6 +107,36 @@ describe('rules in order', () => {
     expect(fuse(hidden('unknown', 0.55)).study).toBeCloseTo(0.65);
   });
 
+  it('1d. a book up to 60° to the side lifts a face looking down at it', () => {
+    const away = probs({ away: 0.84, screen: 0.16 }); // generic at 45°
+    const side = (faceYaw: number, facingDown: boolean) =>
+      fuse(input({ p: away, faceYaw, facingDown, ev: { book: true } })).study;
+    expect(side(45, true)).toBeCloseTo(0.7);
+    expect(side(-59, true)).toBeCloseTo(0.7);
+    expect(side(60, true)).toBeCloseTo(0.26); // past 60°: the bonus only
+    expect(side(45, false)).toBeCloseTo(0.26); // level head and eyes (TV to the side)
+    // Never over a phone in hand.
+    expect(
+      fuse(input({ p: away, faceYaw: 45, facingDown: true, ev: { book: true, phone: true } }))
+        .study,
+    ).toBeCloseTo(0.1);
+  });
+
+  it('1e. hidden: a book held up in front of the face gets the floor', () => {
+    const p = probs({ screen: 0.1, paper: 0.1, away: 0.8 });
+    const book = fuse(
+      input({
+        presence: 'hidden',
+        p,
+        faceYaw: null,
+        hidden: { value: studyFloor(50), pose: 'book' },
+        ev: { book: true },
+      }),
+    );
+    expect(book.study).toBeCloseTo(0.7);
+    expect(book.cause).toBeNull();
+  });
+
   it('2. keyboard and mouse add a weak +0.10 (capped at 1), not with a distraction or phone', () => {
     const p = probs({ screen: 0.3, away: 0.7 });
     expect(fuse(input({ p, ev: { inputActive: true } })).study).toBeCloseTo(0.4);
@@ -165,6 +195,8 @@ describe('hidden face', () => {
   it('last-pose values: down → floor for 10 min, turned → 0.2, unknown → θ+5 for 20 s', () => {
     expect(hiddenValue('down', 0, 50)).toBeCloseTo(0.7);
     expect(hiddenValue('down', 600_000, 50)).toBeCloseTo(0.7);
+    expect(hiddenValue('book', 600_000, 60)).toBeCloseTo(0.8);
+    expect(hiddenValue('book', 600_001, 60)).toBeNull();
     expect(hiddenValue('turned', 0, 50)).toBeCloseTo(0.2);
     expect(hiddenValue('turned', 3_600_000, 50)).toBeCloseTo(0.2);
     expect(hiddenValue('unknown', 20_000, 60)).toBeCloseTo(0.65);

@@ -46,7 +46,7 @@ export const RECOMPENSAS_ES = {
     /** «Te faltan 40 puntos» (`points` already says «puntos»). */
     short: (points: string): string => `Te faltan ${points}`,
     limit: (service: string, duration: string): string =>
-      `Como mucho ${duration} seguidos de ${service}`,
+      `Como mucho ${duration} de ${service} a la vez`,
     notBlocked: (service: string): string => `${service} no está bloqueado ahora`,
     /** The row's help when nothing is hovered. */
     rowHelp: 'Un descanso ganado abre ese servicio un rato, sin penalización',
@@ -68,7 +68,7 @@ export const RECOMPENSAS_ES = {
     notBlocked: (service: string): string =>
       `${service} ya no está bloqueado: no hace falta canjearlo`,
     limit: (service: string, duration: string): string =>
-      `Como mucho ${duration} seguidos de ${service}`,
+      `Como mucho ${duration} de ${service} a la vez`,
     unknownOffer: 'Esa recompensa ya no existe: actualiza Céntrate',
     load: 'No he podido leer la tienda',
     retry: 'Reintentar',

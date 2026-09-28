@@ -224,6 +224,47 @@ describe('absence path', () => {
     expect(kept.rec.strikes().map((s) => s.cause)).toEqual(['no_face']);
   });
 
+  it('landmarker dropouts under 2 s never add up to a strike (30 min, never 10 s unbroken)', () => {
+    // A dim room the thumbnail reads as covered: the face is missed for 1.5 s of every 3 s,
+    // so presence is never 10 s unbroken, as the old reset rule wanted.
+    for (const kind of ['covered', 'absent'] as const) {
+      const { rec } = scriptedEngine((i) => ({
+        presence: i.now >= 20_000 && i.now % 3_000 >= 1_500 ? kind : 'visible',
+      }));
+      rec.run(0, 20_000 + 30 * 60_000, TICK);
+      expect(rec.strikes(), kind).toEqual([]);
+      expect(rec.warnings(), kind).toEqual([]);
+      expect(rec.firstStateAt('away'), kind).toBeNull();
+      const totals = rec.engine.totals();
+      expect(totals.focusedMs / totals.workMs, kind).toBeGreaterThan(0.99); // dropouts credited
+    }
+  });
+
+  it('a run of 2 s or more counts back from its first frame', () => {
+    // 2.5 s gone, 5 s back (no reset), then gone for good: the first run's 2.25 s count.
+    const { rec } = scriptedEngine((i) => {
+      const t = i.now;
+      const gone = (t >= 20_000 && t < 22_500) || t >= 27_500;
+      return { presence: gone ? 'absent' : 'visible' };
+    });
+    rec.run(0, 100_000, TICK);
+    expect(rec.strikes()).toEqual([{ at: 27_500 + 60_000 - 2_250, cause: 'no_face' }]);
+  });
+
+  it('dropouts do not break the presence that resets the accumulator', () => {
+    // 50 s away, then 20 s back with a 1 s dropout every 3 s, then 50 s away: the return
+    // (≥ 10 s of presence between dropouts) resets the accumulator, so no strike.
+    const { rec } = scriptedEngine((i) => {
+      const t = i.now;
+      if (t >= 20_000 && t < 70_000) return { presence: 'absent' };
+      if (t >= 70_000 && t < 90_000) return { presence: t % 3_000 < 1_000 ? 'absent' : 'visible' };
+      if (t >= 90_000 && t < 140_000) return { presence: 'absent' };
+      return { presence: 'visible' };
+    });
+    rec.run(0, 160_000, TICK);
+    expect(rec.strikes()).toEqual([]);
+  });
+
   it('absence has priority over a doubt in progress', () => {
     const { rec } = scriptedEngine((i) => {
       if (i.now < 30_000) return { study: 1 };
@@ -406,6 +447,62 @@ describe('observer switch and settings', () => {
     expect((rec.strikes()[0]?.at as number) - (low + 10_000)).toBe(120_000);
   });
 
+  it('mid-session, weaker settings wait for the next session (they cannot dodge a strike)', () => {
+    const control = scriptedEngine(dropAt(30_000));
+    control.rec.run(0, 200_000, TICK);
+    const strikeAt = control.rec.strikes()[0]?.at as number;
+    const doubtAt = control.rec.firstStateAt('doubt') as number;
+
+    const { rec, engine } = scriptedEngine(dropAt(30_000));
+    rec.run(0, doubtAt + TICK, TICK);
+    expect(engine.snapshot().state).toBe('doubt');
+    // Ajustes during DUDA: lowest sensitivity, longest timers, a different window.
+    engine.setSettings(
+      resolveStudyAiSettings({
+        focusScoreThreshold: 30,
+        doubtAfterMs: 60_000,
+        strikeAfterDoubtMs: 120_000,
+        noFaceStrikeMs: 180_000,
+        focusWindowMs: 20_000,
+        noCameraIdleMs: 1_200_000,
+      }),
+    );
+    expect(engine.settingsInUse).toEqual(resolveStudyAiSettings());
+    rec.run(doubtAt + TICK, 200_000, TICK);
+    expect(rec.strikes()[0]?.at).toBe(strikeAt);
+    expect(rec.of('doubt_cleared')).toEqual([]);
+  });
+
+  it('mid-session, stricter settings apply at once', () => {
+    const control = scriptedEngine(dropAt(30_000));
+    control.rec.run(0, 200_000, TICK);
+    const doubtAt = control.rec.firstStateAt('doubt') as number;
+
+    const { rec, engine } = scriptedEngine(dropAt(30_000));
+    rec.run(0, doubtAt + TICK, TICK);
+    engine.setSettings(
+      resolveStudyAiSettings({ strikeAfterDoubtMs: 15_000, noFaceStrikeMs: 30_000 }),
+    );
+    expect(engine.settingsInUse.strikeAfterDoubtMs).toBe(15_000);
+    expect(engine.settingsInUse.noFaceStrikeMs).toBe(30_000);
+    rec.run(doubtAt + TICK, 120_000, TICK);
+    expect(rec.strikes()[0]?.at).toBe(doubtAt + 15_000);
+    // Mixed: each field keeps the stricter value.
+    engine.setSettings(resolveStudyAiSettings({ focusScoreThreshold: 70, doubtAfterMs: 60_000 }));
+    expect(engine.settingsInUse.focusScoreThreshold).toBe(70);
+    expect(engine.settingsInUse.doubtAfterMs).toBe(15_000);
+  });
+
+  it('mid-absence, a longer no-face time does not push the strike back', () => {
+    const { rec, engine } = scriptedEngine((i) => ({
+      presence: i.now < 20_000 ? 'visible' : 'absent',
+    }));
+    rec.run(0, 50_000, TICK);
+    engine.setSettings(resolveStudyAiSettings({ noFaceStrikeMs: 180_000 }));
+    rec.run(50_000, 90_000, TICK);
+    expect(rec.strikes()).toEqual([{ at: 80_000, cause: 'no_face' }]);
+  });
+
   it('a higher sensitivity goes low sooner', () => {
     const at = (focusScoreThreshold: number) => {
       const { rec } = scriptedEngine(dropAt(30_000), { focusScoreThreshold });
@@ -506,6 +603,28 @@ describe('eyes: drowsiness and yawns', () => {
     rec.run(0, 300_000, TICK);
     expect(rec.strikes()).toEqual([]);
     expect(rec.engine.snapshot().drowsy).toBe(true);
+  });
+
+  it('a hidden head asleep on the desk: a break suggestion, no credit, never a strike', () => {
+    // The observer marks hidden frames of a still head down as drowsy candidates.
+    const { rec } = scriptedEngine((i) => {
+      if (i.now < 30_000) return { study: 1 };
+      if (i.now < 630_000) return { presence: 'hidden', study: null, eyes: { closed: true } };
+      return { presence: 'hidden', study: 0.7 }; // moving again (writing), face still hidden
+    });
+    rec.run(0, 30_000, TICK);
+    const credited = rec.engine.totals().focusedMs;
+    rec.run(30_000, 630_000, TICK);
+    const [suggest] = rec.of('suggest_break');
+    expect(suggest?.reason).toBe('eyes_closed');
+    expect((suggest?.at as number) - 30_000).toBeLessThanOrEqual(17_000);
+    expect(rec.engine.snapshot().drowsy).toBe(true);
+    expect(rec.engine.totals().focusedMs - credited).toBeLessThanOrEqual(17_000);
+    expect(rec.strikes()).toEqual([]);
+    expect(rec.warnings()).toEqual([]);
+    // Awake again: drowsiness ends within the 5 s eyes-open window.
+    rec.run(630_000, 640_000, TICK);
+    expect(rec.engine.snapshot().drowsy).toBe(false);
   });
 
   it('suggests at most once per 10 min', () => {

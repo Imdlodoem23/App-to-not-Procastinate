@@ -16,11 +16,11 @@ of §3) may stop the heartbeats.
 
 ## 0. Imports and build
 
-| Where                      | Import                                                                                                                                                                                                                                          |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Electron main              | `@centrate/study-ai` (pure entry: `HeartbeatAccumulator`, `isAnalysisOutbound`, `isAnalysisInbound`, `ANALYSIS_ASSET_SCHEME`, `MODEL_MANIFEST`, `MEDIAPIPE_WASM_FILES`, `resolveStudyAiSettings`, `heartbeatState`, `bucketizeTimeline`, types). Never `parseProfile` (§5) |
-| The hidden analysis window | `@centrate/study-ai/runtime` (`createAnalysisHost`, `ANALYSIS_ASSETS`)                                                                                                                                                                          |
-| Never                      | `@centrate/study-ai/runtime` from main or preload (it pulls in DOM code and MediaPipe)                                                                                                                                                          |
+| Where                      | Import                                                                                                                                                                                                                                                                                                                                  |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Electron main              | `@centrate/study-ai` (pure entry: `HeartbeatAccumulator`, `isAnalysisOutbound`, `isAnalysisInbound`, `ANALYSIS_ASSET_SCHEME`, `MODEL_MANIFEST`, `MEDIAPIPE_WASM_FILES`, `resolveStudyAiSettings`, `heartbeatState`, `bucketizeTimeline`, `profileStatus`, `calibrationSteps`, `nextPendingSituation`, types). Never `parseProfile` (§5) |
+| The hidden analysis window | `@centrate/study-ai/runtime` (`createAnalysisHost`, `ANALYSIS_ASSETS`)                                                                                                                                                                                                                                                                  |
+| Never                      | `@centrate/study-ai/runtime` from main or preload (it pulls in DOM code and MediaPipe)                                                                                                                                                                                                                                                  |
 
 - The package ships TypeScript source (`exports` → `src/*.ts`), like `@centrate/shared`. Add it
   to `apps/desktop/package.json` (`"@centrate/study-ai": "*"`) and to the
@@ -34,7 +34,15 @@ of §3) may stop the heartbeats.
   script and the release workflow): it verifies the two committed models and copies the SIMD
   WASM pair from `node_modules/@mediapipe/tasks-vision/wasm/` into
   `apps/desktop/resources/models/mediapipe/` (git-ignored, SHA-256 checked). With the models
-  already committed it downloads nothing. `-- --check` only verifies.
+  already committed it downloads nothing. `-- --check` only verifies. **Neither runs it yet**
+  (to do in `apps/desktop` and `.github/`, outside this package): a release built from a clean
+  checkout would ship without the runtime, every `centrate-ai://assets/mediapipe/…` request
+  would 404 and every user would get `mode{no-camera, vision_failed}`. So:
+  - `.github/workflows/release.yml`, after `npm ci` and before «Build app»:
+    `- run: npm run fetch-models -w packages/study-ai`;
+  - `apps/desktop/package.json`: `"dist": "npm run fetch-models -w packages/study-ai && electron-vite build && electron-builder --publish never"`;
+  - `apps/desktop/scripts/check-packaged-resources.mjs`: a missing `models/mediapipe/*`, or
+    one whose size differs from `manifest.wasm.files[i].bytes`, is an `error`, not a `warn`.
 - `electron-builder.yml` → `extraResources`:
 
   ```yaml
@@ -100,10 +108,13 @@ expected). So:
   a driver or TDR reset, a hybrid-GPU switch), both WebGL contexts are lost and MediaPipe
   silently returns empty results. The pipeline watches its task canvases
   (`webglcontextlost`, `isContextLost()`) and throws `VisionLoadError{contextLost: true}`;
-  the session then rebuilds the pipeline (about 1 s, measured in the demo smoke test) without
-  counting those frames as «no te veo». A rebuild that fails or takes over 8 s, or a second
-  loss within 60 s, switches to no-camera mode (`mode{vision_failed}`). `resume` from main
-  (below) also rebuilds at once when the context was lost during the suspend.
+  the session then rebuilds the pipeline (about 1 s, measured in the demo smoke test; up to
+  the first load's 30 s on a slow laptop after resume) without counting those frames as «no
+  te veo»: the camera keeps delivering meanwhile (frames are taken and closed unanalysed), so
+  it never reads as stalled. A rebuild that fails or takes over 30 s, or a second loss within
+  60 s, switches to no-camera mode (`mode{vision_failed}`), which is retried in the
+  background (§3). `resume` from main (below) also rebuilds at once when the context was
+  lost during the suspend.
 - Nothing to do in main for this, apart from not disabling the GPU and forwarding
   `powerMonitor` `resume`.
 
@@ -137,6 +148,7 @@ ses.setPermissionRequestHandler((wc, permission, callback, details) => {
   callback(videoOnly && wc === analysis.webContents);
 });
 ses.setPermissionCheckHandler(
+  // Also what lets `enumerateDevices()` return camera labels for `list_cameras` (§3.1).
   (wc, permission) => permission === 'media' && wc === analysis?.webContents,
 );
 ses.setDevicePermissionHandler(() => false);
@@ -262,8 +274,10 @@ window.addEventListener('pagehide', () => void host.dispose());
   seguridad › Cámara › «Permitir que las aplicaciones de escritorio accedan a la cámara»). The
   package maps `NotReadableError`/`AbortError` to `in_use`; main knows better and should show
   the `blocked_by_system` text instead.
-- **Linux:** when the camera error is `not_found` or `permission_denied`, hint that the user
-  must be in the `video` group (`/dev/video*`).
+- **Linux:** when the camera error is `permission_denied`, or `not_found` while
+  `list_cameras` answers an empty list, hint that the user must be in the `video` group
+  (`/dev/video*`). A `not_found` with cameras listed is a chosen camera that is unplugged
+  (§3.1), not a permission problem.
 - **A camera that never answers** (a wedged driver, macOS `VDCAssistant`, a stuck Windows frame
   server) is given up after 15 s and reported as `unknown`: suggest closing other camera apps or
   replugging it.
@@ -287,26 +301,30 @@ ipcMain.on('analysis:out', (event, message: unknown) => {
 });
 ```
 
-| main sends                                                             | when                                            | the window answers                                                                           |
-| ---------------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `session_start {mode, settings, profileJson, cameraDeviceId, context}` | the guardian accepted `POST /v1/study/sessions` | `event`s + a `report` every second, within 30 s at most (a camera or vision problem starts it without camera, below) |
-| `context {context}`                                                    | every 1 s during a session                      | —                                                                                            |
-| `settings {settings}`                                                  | the user changed Study Mode settings            | —                                                                                            |
-| `strike_result {ack}`                                                  | after each `POST …/strike`                      | —                                                                                            |
-| `studying_feedback`                                                    | «¡Estaba estudiando!» clicked                   | `feedback_result {outcome}` (+ `profile_updated`)                                            |
-| `continue_without_camera`                                              | «Continuar sin cámara» clicked                  | `event {mode: 'no-camera', reason: 'user'}` if allowed; nothing otherwise                    |
-| `resume`                                                               | `powerMonitor` `resume`                         | —                                                                                            |
-| `session_stop`                                                         | the session ended (any reason)                  | a last `report`, then `session_stopped {summary}`                                            |
-| `calibration_start {profileJson, cameraDeviceId}`                      | the wizard opens                                | `error{vision_failed}` on failure (the camera is not opened yet)                             |
-| `calibration_record {cls}`                                             | «Grabar 20 s»                                   | `calibration_progress` ~4 per second, then `calibration_recorded`; `error{camera_failed, camera}` if the camera cannot open |
-| `calibration_cancel`                                                   | the user cancels a recording                    | —                                                                                            |
-| `calibration_build`                                                    | after the recordings                            | `calibration_built {outcome}`                                                                |
-| `calibration_close`                                                    | the wizard closes                               | —                                                                                            |
+| main sends                                                          | when                                            | the window answers                                                                                                          |
+| ------------------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `session_start {mode, settings, profileJson, cameraLabel, context}` | the guardian accepted `POST /v1/study/sessions` | `event`s + a `report` every second, within 47 s at most (a camera or vision problem starts it without camera, below)        |
+| `context {context}`                                                 | every 1 s during a session                      | —                                                                                                                           |
+| `settings {settings}`                                               | the user changed Study Mode settings            | —                                                                                                                           |
+| `strike_result {ack}`                                               | after each `POST …/strike`                      | —                                                                                                                           |
+| `studying_feedback`                                                 | «¡Estaba estudiando!» clicked                   | `feedback_result {outcome}` (+ `profile_updated`)                                                                           |
+| `continue_without_camera`                                           | «Continuar sin cámara» / «Seguir sin cámara»    | `event {mode: 'no-camera', reason: 'user'}` if allowed; nothing otherwise                                                   |
+| `resume`                                                            | `powerMonitor` `resume`                         | —                                                                                                                           |
+| `session_stop`                                                      | the session ended (any reason)                  | a last `report`, then `session_stopped {summary}`                                                                           |
+| `calibration_start {profileJson, cameraLabel}`                      | the wizard opens                                | `error{vision_failed}` on failure (the camera is not opened yet)                                                            |
+| `calibration_record {cls}`                                          | «Grabar 20 s»                                   | `calibration_progress` ~4 per second, then `calibration_recorded`; `error{camera_failed, camera}` if the camera cannot open |
+| `calibration_cancel`                                                | the user cancels a recording                    | —                                                                                                                           |
+| `calibration_build`                                                 | after the recordings                            | `calibration_built {outcome}`                                                                                               |
+| `calibration_close`                                                 | the wizard closes                               | —                                                                                                                           |
+| `list_cameras`                                                      | the camera picker opens (any time, no job too)  | `cameras {cameras: [{label}]}` (never opens a camera)                                                                       |
 
 - One job at a time: a second `session_start`/`calibration_start` gets `error{busy}`. Messages
   sent while a job is still starting are queued and replayed.
 - Messages for no job get `error{not_running}`.
-- **A study session always starts**, camera or not, because the guardian session already runs:
+- **A study session always starts**, camera or not, because the guardian session already runs.
+  The window loads MediaPipe first (≤ 30 s) and opens the camera only once it is ready (≤ 15
+  s), so the camera is never on while MediaPipe loads or when it cannot; `camera{status:
+'starting'}` is sent the moment the stream opens, before the first report.
   - the camera cannot be opened (in use, blocked by the OS, unplugged) or does not answer
     within 15 s → `camera{status: 'error', error}`, then `mode{no-camera}`: the session runs
     without camera. (The mode reason is `vision_failed`, «the camera analysis is unavailable»,
@@ -316,11 +334,23 @@ ipcMain.on('analysis:out', (event, message: unknown) => {
     cámara»;
   - MediaPipe fails to load, or takes over 30 s → `mode{no-camera, vision_failed}` and the
     `vision_failed` hint.
+- **Recovery.** When the cause may pass (the camera `in_use` by a video call, `not_found`
+  (unplugged), `unknown` (no answer); a MediaPipe load that failed or timed out; a pipeline
+  that keeps failing after one rebuild mid-session), the window retries in the background
+  after 30 s, 60 s, 2 min, then every 5 min, and a MediaPipe load that finishes after its
+  deadline is used at once. When it works: `camera{status: 'starting'}` then
+  `mode{mode: 'camera', reason: 'recovered'}` (the `vision_failed` hint turns off): header «Con
+  cámara» again, and the pill. It is stricter for the user, so no loophole. Not retried: a
+  denied permission, an OS privacy block, a missing API, SIMD missing or a model hash
+  mismatch. «Seguir sin cámara» on the start-failure notice sends `continue_without_camera`,
+  which stops the retries (`mode{no-camera, reason: 'user'}`); «Terminar» ends the session.
 - **Never leave a guardian session without an analysis job.** After `session_start`, reports
-  must arrive within ~45 s. If an `error` answers it instead (`busy`: a job was still running,
-  so send `session_stop`/`calibration_close` and start again; anything else is a bug), send
+  must arrive within 47 s (MediaPipe ≤ 30 s, then the camera ≤ 15 s, then the first report).
+  If an `error` answers it instead (`busy`: a job was still running, so send
+  `session_stop`/`calibration_close` and start again; anything else is a bug), send
   `session_start{mode: 'no-camera'}` at once, or end the guardian session (`POST …/end` is free)
-  and tell the user. Do the same if no report arrives within 45 s.
+  and tell the user. Do the same if no report arrives within 55 s (the guardian's abandonment
+  needs 120 s of heartbeat silence, and the accumulator keeps waiting 60 s).
 - **A crashed or hung analysis window is recreated.** On `render-process-gone`, or when no
   `report` has arrived for 20 s while a session runs (a hidden window gets no `unresponsive`
   event), `destroy()` it, create a new one and resend `session_start` (same mode, current
@@ -331,10 +361,34 @@ ipcMain.on('analysis:out', (event, message: unknown) => {
   the renderer.
 - Calibration opens the camera only while a situation is being recorded (§6); a camera problem
   answers that `calibration_record` with `error{camera_failed, camera}` and the wizard can try
-  again.
+  again. On a laptop too slow for 4 fps a recording lasts longer than 20 s (up to 60 s, until
+  it has enough frames): follow `calibration_progress.remainingMs`, never a fixed 20 s timer.
 - Recording all five situations before `calibration_build` is «Recalibrar» (clean slate, the
   «¡Estaba estudiando!» rows are dropped); recording fewer replaces just those clips. A
   different camera between two recordings discards the earlier clips (`missing` at build).
+
+### 3.1 Which camera
+
+Chromium derives every `deviceId` from a salt of the session partition plus the page
+origin, and the analysis window's in-memory `centrate-ai` partition gets a new salt on every
+launch. **A `deviceId` read in the settings or wizard window, or saved from an earlier run, is
+never valid in the analysis window** (`getUserMedia` fails with `OverconstrainedError` →
+`not_found`); a USB camera replugged into another port gets a new raw id too. So the contract
+has no `deviceId` at all:
+
+- The camera picker sends `list_cameras`; the window answers `cameras {cameras: [{label}]}`
+  from its own `enumerateDevices()` (labels only, never ids; the permission check handler of
+  §1.1 is what makes the labels readable). Store the chosen **label** in the settings
+  (`null` = the system default camera).
+- Send it as `cameraLabel` in `session_start` and `calibration_start`. The window resolves it
+  on every open (start, every reopen after an unplug or a break, every calibration clip).
+- A session whose chosen camera is missing uses the default camera and turns the
+  `camera_default` hint on (§6); the hint turns off when a later open finds the chosen camera
+  (after a break, or a reopen). A calibration recording never falls back: it fails with
+  `error{camera_failed, not_found}`, since a profile is only valid for the camera it was
+  recorded with.
+- The wizard's visible preview picks its own camera by the same label (its own
+  `enumerateDevices()` in its own window), so the preview and the analysed camera agree.
 
 ## 4. Main loop during a session
 
@@ -386,6 +440,15 @@ const notActive = (e: unknown): boolean =>
     - `study` = the study whitelist (catalog defaults + `settings.studyWhitelist`).
     - `neutral` = anything else identified; `unknown` when unsure (unreadable title, macOS
       without Screen Recording).
+  - `visibleDistraction` (optional, `true` or absent): a catalog service is **visible on any
+    display and playing media** although another window has the focus (a video on the
+    second monitor next to the notes). From the active-window layer's window enumeration;
+    «playing» where the platform can tell (the extension's audible tab, the OS media
+    session), else visible and unminimised. Not for a service allowed with «Voy a usar
+    YouTube para estudiar». Only the flag leaves main. With the keyboard and mouse idle for
+    10 s it counts like `distraction` in the foreground (typing or scrolling ends it; writing
+    on paper stays studying). Without it, such a video gets full focus credit: the second
+    monitor reads as a screen.
   - `idleMs`: `powerMonitor.getSystemIdleTime() * 1000`.
   - Context older than 5 s is treated as foreground `unknown` and idle `null` by the window.
 - **Heartbeat, every 15 s**, at once after `resume`, and once when the planned end passes. The
@@ -447,7 +510,8 @@ const notActive = (e: unknown): boolean =>
       try {
         res = await guardian.studyStrike(sessionId, { cause }, { idempotencyKey });
       } catch (error) {
-        if (notActive(error) || definitive(error) || performance.now() > giveUpAt) return;
+        if (notActive(error)) return sessionEndedElsewhere(); // below
+        if (definitive(error) || performance.now() > giveUpAt) return;
         await sleep(Math.min(30_000, 1_000 * 2 ** attempt)); // guardian restarting: retry
       }
     }
@@ -508,6 +572,7 @@ const notActive = (e: unknown): boolean =>
   This loses at most the ~1 s of focus between `take()` and `session_stop`. Sending
   `session_stop` first would kill the loop: if `/end` then failed, `take()` would return `null`
   60 s later, the heartbeats would stop and «Terminar» would turn into abandonment.
+
 - **The session ended elsewhere** (completed at the planned end, third strike, abandoned,
   interrupted): a heartbeat or `GET …/current` shows `status` ≠ `active`, or a study call
   answers 409 `study_not_active`. Stop heartbeating and retrying, send `session_stop`, and show
@@ -558,7 +623,10 @@ The header follows `report.mode` (every second, so it is also right after a recr
 
 **«● Cámara activa»** (PROMPT §8: a visible indicator whenever the camera is on):
 
-- during a session it follows `report.cameraOn`;
+- during a session: on at `camera{status: 'starting'}` (sent the moment the stream opens,
+  before the first report, at start and on a recovery), then it follows `report.cameraOn`;
+  off at `mode{no-camera}` or `camera{status: 'off'}`. The window never opens the camera while
+  MediaPipe loads, so nothing is on before that event;
 - in the calibration wizard the window opens the camera only while a situation is recorded
   and stops it when the clip ends, so the pill shows from sending `calibration_record` until
   `calibration_recorded`, an `error{camera_failed}`, or sending `calibration_cancel` /
@@ -567,18 +635,19 @@ The header follows `report.mode` (every second, so it is also right after a recr
 
 **Events:**
 
-| Event                                   | UI                                                                        |
-| --------------------------------------- | ------------------------------------------------------------------------- |
-| `warning{kind: 'doubt'}`                | soft sound + «¿Sigues ahí?» + the full-width «¡Estaba estudiando!» button |
-| `warning{kind: 'absent'}`               | soft sound + «No te veo» (30 s before the `no_face` strike)               |
-| `doubt_cleared`                         | hide the doubt notice                                                     |
-| `strike`, the guardian answered `counted: true` | notification + sound + `res.pointsDelta` from the response («−15 puntos», «−115 puntos» on the punishing one; never a hardcoded value); keep «¡Estaba estudiando!» visible; with `res.punishment`, show the punishment and the summary |
-| `strike`, `counted: false`              | nothing (cooldown or not in a work phase): `strike_result` only updates the grace |
-| `suggest_break{eyes_closed \| yawning}` | gentle «Parece que estás cansado: ¿un descanso?» (never a strike)         |
-| `camera{status: 'error', error}`, mid-session (`report.mode` `camera`) | explain the camera error (§2) and offer «Continuar sin cámara» |
-| `camera{status: 'error', error}` followed by `mode{no-camera}` (the camera failed at start) | explain the camera error (§2): the session already runs without camera; offer «Seguir sin cámara» (closes the notice) and «Terminar» (free `POST …/end`) |
-| `mode{no-camera}`                       | header «Sin cámara» (reason `user`, or `vision_failed` = the camera analysis is unavailable; the `vision_failed` hint or the `camera` event says why) |
-| `hint{code, active}`                    | a one-line help text while active (below)                                 |
+| Event                                                                                       | UI                                                                                                                                                                                                                                     |
+| ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `warning{kind: 'doubt'}`                                                                    | soft sound + «¿Sigues ahí?» + the full-width «¡Estaba estudiando!» button                                                                                                                                                              |
+| `warning{kind: 'absent'}`                                                                   | soft sound + «No te veo» (30 s before the `no_face` strike)                                                                                                                                                                            |
+| `doubt_cleared`                                                                             | hide the doubt notice                                                                                                                                                                                                                  |
+| `strike`, the guardian answered `counted: true`                                             | notification + sound + `res.pointsDelta` from the response («−15 puntos», «−115 puntos» on the punishing one; never a hardcoded value); keep «¡Estaba estudiando!» visible; with `res.punishment`, show the punishment and the summary |
+| `strike`, `counted: false`                                                                  | nothing (cooldown or not in a work phase): `strike_result` only updates the grace                                                                                                                                                      |
+| `suggest_break{eyes_closed \| yawning}`                                                     | gentle «Parece que estás cansado: ¿un descanso?» (never a strike)                                                                                                                                                                      |
+| `camera{status: 'error', error}`, mid-session (`report.mode` `camera`)                      | explain the camera error (§2) and offer «Continuar sin cámara»                                                                                                                                                                         |
+| `camera{status: 'error', error}` followed by `mode{no-camera}` (the camera failed at start) | explain the camera error (§2): the session already runs without camera; offer «Seguir sin cámara» (closes the notice) and «Terminar» (free `POST …/end`)                                                                               |
+| `mode{no-camera}`                                                                           | header «Sin cámara» (reason `user`, or `vision_failed` = the camera analysis is unavailable; the `vision_failed` hint or the `camera` event says why)                                                                                  |
+| `mode{camera, recovered}`                                                                   | header «Con cámara» again, close the camera-error notice; the session is analysed again (stricter, never a way out of a strike)                                                                                                        |
+| `hint{code, active}`                                                                        | a one-line help text while active (below)                                                                                                                                                                                              |
 
 «¡Estaba estudiando!» → `studying_feedback` → `feedback_result`:
 `{ok: true, doubtCleared}` → «Gracias: la IA ha aprendido de este momento» (and the doubt
@@ -601,34 +670,86 @@ never refunds a strike).
 | `over_budget`         | «Tu ordenador va justo: la IA analiza menos fotogramas».               |
 | `throttled`           | «El análisis va lento: no cierres Céntrate a la fuerza».               |
 | `vision_failed`       | «La IA de la cámara no ha podido arrancar: sigues en modo sin cámara». |
+| `camera_default`      | «No encuentro la cámara elegida: uso la predeterminada».               |
 
 **Resumen:** `session_stopped.summary.timeline` → `bucketizeTimeline(timeline, n)` for the
 full-width line (distractions in orange and red); totals from the guardian's `StudySummary`.
 
-**Calibration window:** rows «Pendiente → Grabando 12 s → Hecho» from `calibration_progress`
-(`phase`, `remainingMs`, `liveIssues` such as `no_face` to say «no te veo» early) and
-`calibration_recorded.summary.issues`; after `calibration_built`, `issues` with
-`weak_separation` (`pair`) → «La IA confunde el móvil con mirar a otro lado: repite esas dos».
+**Calibration window** (all from the pure entry; main never parses a profile, §5):
+
+```ts
+import { calibrationSteps, nextPendingSituation, profileStatus } from '@centrate/study-ai';
+
+const saved = profileStatus(profileJson); // one JSON.parse, never a retrain
+const steps = calibrationSteps({
+  profile: saved,
+  recordings, // this wizard's `calibration_recorded.summary` by class
+  active, // the latest `calibration_progress` of the clip in progress, or null
+  fresh, // «Recalibrar»: the saved clips no longer count
+});
+const next = nextPendingSituation(steps); // the class the single «Grabar 20 s» button records
+```
+
+- Rows «Pendiente → Grabando 12 s → Hecho» from `steps` (`state`, `remainingS`, `issues`):
+  saved clips show «Hecho» when the user re-records one situation; `liveIssues` of the
+  progress (such as `no_face`) say «no te veo» early. After `calibration_built`, `issues` with
+  `weak_separation` (`pair`) → «La IA confunde el móvil con mirar a otro lado: repite esas
+  dos».
+- Header «Con cámara · calibrado» when `profileStatus(profileJson).ok`, «Con cámara» otherwise
+  (PROMPT §10). Whether the profile matches the camera in use is only known once it is open:
+  the session says so with the `recalibrate` hint.
 
 ## 7. Tests the desktop must add
 
+Items 2–5 are about main's study controller: unit tests with a fake guardian client and a fake
+analysis window are enough (no camera, no MediaPipe); the others need the Electron e2e build.
+
 1. **Hidden window e2e** (Playwright for Electron, `xvfb-run -a`, Chromium fake camera via
    `app.commandLine.appendSwitch('use-fake-device-for-media-stream')` in a test build):
-   window hidden for 5 minutes, reports keep coming with `loop.fps ≥ 2`; sample
-   `app.getAppMetrics()` for the analysis window's pid and assert its CPU stays under 15 %
-   (on the CI runner, with a tolerance note).
-2. **Dead loop:** kill the analysis renderer (`analysis.webContents.forcefullyCrashRenderer()`);
+   window hidden for 5 minutes, reports keep coming with `loop.fps ≥ 2` and `loop.throttled`
+   stays false (it turns true when the timers are aligned to 1 s wake-ups, i.e. when
+   `backgroundThrottling: false` did not apply). Assert the analysis
+   window's CPU in **% of one core** (the unit of §1.3) stays under 15: from two
+   `app.getAppMetrics()` samples of its pid, `Δ cpu.cumulativeCPUUsage / Δ seconds × 100`, or,
+   where `cumulativeCPUUsage` is missing, `cpu.percentCPUUsage × navigator.hardwareConcurrency`
+   (read from the window: the same count Electron divides by). The raw `percentCPUUsage` is a
+   share of the whole machine: on a 4-core runner it would let 60 % of a core pass. Log the GPU
+   process's share too (MediaPipe uploads every frame there, §1.0), with a tolerance note for
+   the CI runner.
+2. **Crashed analysis window:** `analysis.webContents.forcefullyCrashRenderer()` during a
+   session. The window is recreated and `session_start` resent (§3); reports resume with a new
+   `runId`; heartbeats never stop, and the guardian session stays `active` with its focus
+   counted once. After the third crash (beyond the 2 recreations) no window is created and
    heartbeats stop within 60 s (`HeartbeatAccumulator.take` returns `null`).
-3. **No network:** with the analysis window running, no http(s)/ws(s) request from its
+3. **Camera failure at start:** deny `media` in the permission handler (or start without a
+   camera): after `session_start` the window answers `camera{status: 'error', error}` and
+   `mode{no-camera}`, reports arrive every second, heartbeats keep flowing and the guardian
+   session is still `active` after 3 minutes (never `abandoned`). When the window answers
+   `session_start` with an `error` instead, main sends a no-camera `session_start` or ends the
+   session within 55 s (§3).
+4. **Heartbeats are exactly-once:** the fake guardian accepts a heartbeat and drops its
+   response; main resends the identical `{seq, body}`, which answers `duplicate: true`, and the
+   next heartbeat has `seq + 1` with only new deltas (the guardian's focus is not doubled). A
+   main that re-attaches to an active session starts from `session.lastHeartbeatSeq + 1`, never
+   from 1. A 409 `study_not_active` stops heartbeats and retries and sends `session_stop`.
+5. **«Terminar» while the guardian restarts:** `/end` fails (connection refused, then 503):
+   the analysis keeps running and the 15 s heartbeats go on; `/end` is retried with the same
+   Idempotency-Key and body, and `session_stop` is sent only after its 200. A `/strike` that
+   fails is retried with the same key; `ui.strike` runs only for `counted: true`, with the
+   response's `pointsDelta`.
+6. **No network:** with the analysis window running, no http(s)/ws(s) request from its
    session succeeds (spy `onBeforeRequest`, which cancels them all). After `session_stop` the
    MediaPipe logger tries `odml.pa.googleapis.com`: it must show up as a CSP violation
    (`securitypolicyviolation`) or a cancelled request, never as a response.
-4. **Protocol:** `centrate-ai://assets/../x`, unknown files and non-GET methods return 404.
-5. **GPU reset:** in the running analysis window, `WEBGL_lose_context.loseContext()` on the
+7. **Protocol:** `centrate-ai://assets/../x`, unknown files and non-GET methods return 404.
+8. **GPU reset:** in the running analysis window, `WEBGL_lose_context.loseContext()` on the
    WebGL contexts (record them with an init script, as `demo/smoke.pw.ts` does): reports keep
    `mode: 'camera'`, `loop.errors` stays 0 and frames are analysed again within a few seconds.
-6. **Permissions:** `media` with audio is denied; any other webContents is denied.
+9. **Permissions:** `media` with audio is denied; any other webContents is denied.
 
 `packages/study-ai` already covers the browser side in `npm run test:browser -w
 packages/study-ai` (real WASM and models in Chromium with a fake camera: ≥ 2 fps, finite
-features, the logger's POST refused by the CSP).
+features, a GPU reset, and the analysis page `demo/analysis.html` under exactly the CSP of
+§1.1, where the logger's POST must be refused). `npm test` checks that the page's CSP and
+§1.1 stay identical. Run it in CI like the extension e2e:
+`npx playwright install --with-deps chromium && npm run test:browser -w packages/study-ai`.

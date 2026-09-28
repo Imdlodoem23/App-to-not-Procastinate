@@ -1,7 +1,8 @@
 /**
  * The facade's own hints (owner: RUNTIME): `camera_lost`, `over_budget`, `throttled` are
- * debounced like the engine's (on after 5 s active, off after 5 s inactive); `recalibrate`
- * and `vision_failed` are sticky. Pure and DOM-free.
+ * debounced like the engine's (on after 5 s active, off after 5 s inactive); `recalibrate`,
+ * `vision_failed` and `camera_default` are sticky (the last two are cleared when the camera
+ * analysis recovers, or the chosen camera is back). Pure and DOM-free.
  */
 import { STUDY_AI_CONSTANTS } from '../config';
 import { HINT_CODES } from '../types';
@@ -27,6 +28,11 @@ export class FacadeHints {
     if (this.sticky.has(code)) return false;
     this.sticky.add(code);
     return true;
+  }
+
+  /** Turns a sticky hint off; returns true when it was on. */
+  clearSticky(code: HintCode): boolean {
+    return this.sticky.delete(code);
   }
 
   /** Feeds the raw state of a debounced hint; returns the change to announce, if any. */

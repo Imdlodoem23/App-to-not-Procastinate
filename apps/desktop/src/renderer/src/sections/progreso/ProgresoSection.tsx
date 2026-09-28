@@ -3,7 +3,8 @@
  * «Racha: 5 días», and the 4 px daily goal bar with «Hoy: 42 de 60 min». In «números rojos» the
  * title is red with the «Números rojos» pill. Its 40 px doors (Estadísticas… | Recompensas… |
  * Logros…) join with their feature flags and open their detail views; each has its Alt + letter
- * and its help on the row's help line.
+ * and its help on the row's help line. In compact density the goal row and that help line fold
+ * away (progreso.css).
  */
 import type { LucideIcon } from 'lucide-react';
 import { ChartColumn, Gift, Trophy } from 'lucide-react';

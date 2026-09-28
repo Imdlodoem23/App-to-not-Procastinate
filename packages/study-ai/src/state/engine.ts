@@ -32,6 +32,7 @@ import type {
   TimelineKind,
 } from '../types';
 import {
+  ABSENT_CONFIRM_MS,
   FAST_RECOVERY_HOLD_MS,
   FAST_RECOVERY_MAX,
   FOCUS_MINUTE_MS,
@@ -58,6 +59,27 @@ function classifierKindOf(observer: Observer): ClassifierKind | null {
   if (typeof classifier !== 'object' || classifier === null) return null;
   const kind = (classifier as { readonly kind?: unknown }).kind;
   return kind === 'personal' || kind === 'generic' ? kind : null;
+}
+
+/**
+ * Mid-session settings: each field keeps the stricter of the value in use and the requested
+ * one (a higher θ, shorter timers, a shorter no-camera idle limit). The smoothing window is
+ * neither and stays as the session started. Weaker values wait for the next session, like
+ * the guardian delays weakening its own settings: opening Ajustes during a DUDA must not
+ * clear it or push the strike back.
+ */
+function stricterSettings(
+  current: Readonly<StudyAiSettings>,
+  requested: Readonly<StudyAiSettings>,
+): Readonly<StudyAiSettings> {
+  return Object.freeze({
+    doubtAfterMs: Math.min(current.doubtAfterMs, requested.doubtAfterMs),
+    strikeAfterDoubtMs: Math.min(current.strikeAfterDoubtMs, requested.strikeAfterDoubtMs),
+    noFaceStrikeMs: Math.min(current.noFaceStrikeMs, requested.noFaceStrikeMs),
+    focusScoreThreshold: Math.max(current.focusScoreThreshold, requested.focusScoreThreshold),
+    focusWindowMs: current.focusWindowMs,
+    noCameraIdleMs: Math.min(current.noCameraIdleMs, requested.noCameraIdleMs),
+  });
 }
 
 /** Whole work minutes seen, and how many of them were mostly focused. */
@@ -92,10 +114,15 @@ export class AttentionEngine {
   private doubtMs = 0;
   private absentMs = 0;
   private absenceWarned = false;
+  /** Raw absent-like run (dropouts included), counted from its first tick. */
   private absentLikeRun = 0;
+  /** Time of the current absent-like run not yet confirmed (shorter than 2 s). */
+  private pendingAbsentMs = 0;
+  /** Presence time since the last confirmed absence (dropouts pause it). */
   private presentRun = 0;
   private cameraLostRun = 0;
   private prevAbsentLike = false;
+  private prevPending = false;
   private prevPresent = false;
   private prevLost = false;
   private absentLike = false;
@@ -230,8 +257,19 @@ export class AttentionEngine {
     return events;
   }
 
+  /**
+   * Settings are a snapshot of the session start. Before the first tick they are replaced;
+   * after it only stricter values apply at once (`stricterSettings`), weaker ones wait for
+   * the next session. Every value is clamped either way.
+   */
   setSettings(settings: Readonly<StudyAiSettings>): void {
-    this.settings = resolveStudyAiSettings(settings);
+    const requested = resolveStudyAiSettings(settings);
+    this.settings = this.sums.ticks === 0 ? requested : stricterSettings(this.settings, requested);
+  }
+
+  /** The settings this engine runs with (after `setSettings` kept only stricter values). */
+  get settingsInUse(): Readonly<StudyAiSettings> {
+    return this.settings;
   }
 
   /** Camera ↔ no-camera switch; resets the window and timers (not the totals). */
@@ -358,9 +396,11 @@ export class AttentionEngine {
     this.absentMs = 0;
     this.absenceWarned = false;
     this.absentLikeRun = 0;
+    this.pendingAbsentMs = 0;
     this.presentRun = 0;
     this.cameraLostRun = 0;
     this.prevAbsentLike = false;
+    this.prevPending = false;
     this.prevPresent = false;
     this.prevLost = false;
     this.absentLike = false;
@@ -398,22 +438,42 @@ export class AttentionEngine {
     const present = presence === 'visible' || presence === 'hidden';
     const lost = presence === 'camera_lost';
     this.cameraLostRun = lost ? (this.prevLost ? this.cameraLostRun + step : 0) : 0;
-    const absentLike =
+    const rawAbsent =
       presence === 'absent' ||
       presence === 'covered' ||
       (lost && this.cameraLostRun >= C.cameraLostMs);
+    this.absentLikeRun = rawAbsent ? (this.prevAbsentLike ? this.absentLikeRun + step : 0) : 0;
+    // A run shorter than 2 s is a dropout between tracked-face frames: pending, not absent.
+    const absentLike = rawAbsent && this.absentLikeRun >= ABSENT_CONFIRM_MS;
+    const pending = rawAbsent && !absentLike;
     this.absentLike = absentLike;
-    this.absentLikeRun = absentLike ? (this.prevAbsentLike ? this.absentLikeRun + step : 0) : 0;
-    this.presentRun = present ? (this.prevPresent ? this.presentRun + step : 0) : 0;
-
-    // Absence accumulator: grows from the first absent frame, resets only after 10 s present.
-    if (absentLike) {
-      if (this.prevAbsentLike) this.absentMs += free;
-    } else if (present && this.presentRun >= C.absenceResetMs) {
-      this.absentMs = 0;
-      this.absenceWarned = false;
+    // Presence time: a dropout pauses it, a confirmed absence or a lost camera breaks it.
+    if (present) {
+      if (this.prevPresent) this.presentRun += step;
+      else if (!this.prevPending) this.presentRun = 0;
+    } else if (!pending) {
+      this.presentRun = 0;
     }
-    if (inGrace) this.absentMs = 0;
+
+    // Absence accumulator: a confirmed run counts from its first absent frame; it resets only
+    // after 10 s of presence (dropouts shorter than 2 s neither count nor break it).
+    if (rawAbsent) {
+      if (this.prevAbsentLike) this.pendingAbsentMs += free;
+      if (absentLike) {
+        this.absentMs += this.pendingAbsentMs;
+        this.pendingAbsentMs = 0;
+      }
+    } else {
+      this.pendingAbsentMs = 0;
+      if (present && this.presentRun >= C.absenceResetMs) {
+        this.absentMs = 0;
+        this.absenceWarned = false;
+      }
+    }
+    if (inGrace) {
+      this.absentMs = 0;
+      this.pendingAbsentMs = 0;
+    }
 
     // «No te veo»
     if (
@@ -447,9 +507,13 @@ export class AttentionEngine {
     this.refreshScores(now);
     this.updateLow(now);
 
-    // Eyes: drowsiness and yawns suggest a break, never a strike.
+    // Eyes: drowsiness and yawns suggest a break, never a strike. A hidden frame is judged
+    // when the observer marks it as a drowsy candidate (head down on the desk, still); while
+    // drowsy, any other hidden frame (moving again, turned) counts as awake.
     if (this.state !== 'away') {
-      const entered = this.eyes.update(now, step, presence === 'visible', obs.eyes.closed);
+      const judged =
+        presence === 'visible' || (presence === 'hidden' && (obs.eyes.closed || this.eyes.drowsy));
+      const entered = this.eyes.update(now, step, judged, obs.eyes.closed);
       if (entered) this.suggestBreak('eyes_closed', now, events);
     }
     const yawn = obs.eyes.yawn;
@@ -462,10 +526,10 @@ export class AttentionEngine {
       this.yawns = [];
     }
 
-    // ENFOCADO → DUDA → STRIKE. Drowsy and unknown presence freeze the timers; absence has
-    // priority (its own path below).
+    // ENFOCADO → DUDA → STRIKE. Drowsy and unknown presence (a lost camera, a dropout)
+    // freeze the timers; absence has priority (its own path below).
     const drowsy = this.eyes.drowsy;
-    const frozen = drowsy || absentLike || lost;
+    const frozen = drowsy || rawAbsent || lost;
     if (this.state === 'focused') {
       if (!frozen) {
         if (!this.low) {
@@ -526,7 +590,8 @@ export class AttentionEngine {
     events.push(...this.hints.update(now, obs.hints));
     if (obs.cause !== null) this.lastCause = obs.cause;
 
-    this.prevAbsentLike = absentLike;
+    this.prevAbsentLike = rawAbsent;
+    this.prevPending = pending;
     this.prevPresent = present;
     this.prevLost = lost;
     this.prevLow = this.low;

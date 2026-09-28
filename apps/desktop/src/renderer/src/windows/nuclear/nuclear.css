@@ -1,0 +1,78 @@
+/*
+ * Nuclear overlay (PROMPT §10 «Nuclear»): the whole display in the theme background (the
+ * window's own `backgroundColor` and `--bg`), and the app's 440 px column centred on it, laid
+ * out like a main-window section: the 20 px header, the countdown at 72 px (`--font-size-72`,
+ * 600, `tabular-nums`, −0.02em, seconds at 60 %), the cause line at 12 px and one full-width
+ * 32 px secondary tile with its reserved 12 px help line. 12 px between the blocks, as between
+ * sections. Colors only from tokens.css.
+ */
+
+@layer components {
+  /* Browser harness: a small display instead of the page. */
+  html[data-browser-harness][data-window='nuclear'] #root {
+    width: 960px;
+    height: 600px;
+  }
+
+  .nuc {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding: var(--layout-margin);
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--fg);
+  }
+
+  .nuc-column {
+    display: flex;
+    flex-direction: column;
+    gap: var(--section-gap);
+    width: var(--layout-main-width);
+    max-width: 100%;
+    min-width: 0;
+    padding: 0 var(--layout-margin);
+    box-sizing: border-box;
+  }
+
+  .nuc .c-countdown.nuc-countdown[data-size='big'] .c-countdown-digits {
+    font-size: var(--font-size-72);
+    line-height: var(--line-height-72);
+  }
+
+  .nuc-cause {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+    white-space: nowrap;
+  }
+
+  .nuc-points {
+    color: var(--red-text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* One tile across the column (blocked.html's «Volver a lo mío» has the same shape). */
+  .nuc-exit .c-tilegrid[data-columns] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .nuc-emergency {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-1);
+  }
+
+  .nuc-emergency .c-countdown[data-size='row'] .c-countdown-digits {
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+}

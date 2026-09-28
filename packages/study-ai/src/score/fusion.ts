@@ -12,15 +12,20 @@ import { clamp01 } from '../util/math';
 import {
   BOOK_BONUS,
   BOOK_READING_MAX_YAW,
+  BOOK_READING_SIDE_MAX_YAW,
   DISTRACTION_SCREEN_KEEP,
+  HIDDEN_BOOK_MAX_MS,
   HIDDEN_DOWN_MAX_MS,
   HIDDEN_LOW_VALUE,
   HIDDEN_UNKNOWN_MARGIN,
   HIDDEN_UNKNOWN_MS,
 } from './constants';
 
-/** Where the head was just before the face was lost. */
-export type HiddenPose = 'down' | 'turned' | 'unknown';
+/**
+ * Where the head was just before the face was lost, or `book`: a book held up where the face
+ * was (reading while leaning back), seen by the detector while the face is hidden.
+ */
+export type HiddenPose = 'down' | 'turned' | 'unknown' | 'book';
 
 /**
  * Study floor for looking down and books: min(95, θ + 20)/100. Always ≥ θ + hysteresis, so
@@ -42,6 +47,7 @@ export function neutralValue(threshold: number): number {
  * instead of pushing a value that would blame attention for a framing or light problem.
  *
  * - `down` (writing): the floor for 10 min, then not observable;
+ * - `book` (a book held up in front of the face): the floor for 10 min, like `down`;
  * - `turned`: 0.2, always (looking away is observable enough);
  * - `unknown`: neutral for 20 s, then not observable, unless `holdUnknown` (low light with
  *   recent keyboard or mouse input, judged like the no-camera mode).
@@ -55,6 +61,8 @@ export function hiddenValue(
   switch (pose) {
     case 'down':
       return hiddenMs <= HIDDEN_DOWN_MAX_MS ? studyFloor(threshold) : null;
+    case 'book':
+      return hiddenMs <= HIDDEN_BOOK_MAX_MS ? studyFloor(threshold) : null;
     case 'turned':
       return HIDDEN_LOW_VALUE;
     case 'unknown':
@@ -76,6 +84,12 @@ export interface FusionInput {
    * one exists. `null` without a face.
    */
   faceYaw: number | null;
+  /**
+   * The visible face looks down toward the desk: eyes down, or the head pitched ≤ −12°
+   * relative (absolute ≤ −20° before a baseline exists). A book up to 60° to the side can
+   * then be the one it reads.
+   */
+  facingDown?: boolean;
   /** θ, 30–80. */
   threshold: number;
   /** A closed-eyes frame (drowsy candidate). */
@@ -102,14 +116,21 @@ function finite01(value: number): number {
 
 /**
  * The head could be reading a book in view: looking down; or, visible, facing the desk area
- * (|yaw| < 35°) without the model saying «away»; or, hidden, lost with the head down.
+ * (|yaw| < 35°) without the model saying «away», or head or eyes down toward a book up to 60°
+ * to the side (a textbook next to the laptop); or, hidden, lost with the head down or behind
+ * a book held up in front of the face.
  */
 export function readingPose(input: FusionInput): boolean {
   if (input.evidence.lookingDown) return true;
-  if (input.presence === 'hidden') return input.hidden?.pose === 'down';
+  if (input.presence === 'hidden') {
+    const pose = input.hidden?.pose;
+    return pose === 'down' || pose === 'book';
+  }
   if (input.presence !== 'visible') return false;
   const yaw = input.faceYaw;
-  if (yaw === null || !Number.isFinite(yaw) || Math.abs(yaw) >= BOOK_READING_MAX_YAW) return false;
+  if (yaw === null || !Number.isFinite(yaw)) return false;
+  if (input.facingDown === true && Math.abs(yaw) < BOOK_READING_SIDE_MAX_YAW) return true;
+  if (Math.abs(yaw) >= BOOK_READING_MAX_YAW) return false;
   return !(input.p && argmaxIsAway(input.p));
 }
 

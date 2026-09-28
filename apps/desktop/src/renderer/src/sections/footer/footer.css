@@ -1,0 +1,17 @@
+/*
+ * Footer buttons (PROMPT §10 «Pie»: three equal 32 px secondary buttons with an icon; «Ayuda y
+ * pie a 12 px»). A third of the 416 px row is 136 px: at the footer's 12 px, with 4 px side
+ * padding and 4 px between the 16 px icon and the label, «Mini temporizador» fits without
+ * clipping (at 13 px with the kit's 8 + 6 px it was 12 px short). The label stays centred, so
+ * «Ajustes…» and «Salir» look the same as before. The rest of the footer lives in
+ * `styles/shell.css`. Colors only from tokens.css.
+ */
+
+@layer components {
+  .main-footer .c-tile[data-size='text'] {
+    gap: var(--space-1);
+    padding: 0 var(--space-1);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+}

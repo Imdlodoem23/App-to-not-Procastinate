@@ -8,7 +8,7 @@ import { canonicalProfileJson, isAnalysisOutbound } from '../../src/runtime/ipc'
 import { profileFor } from '../calibration/fixtures';
 
 vi.mock('../../src/calibration/profile', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/calibration/profile')>();
+  const actual = await importOriginal<typeof profileModule>();
   return { ...actual, parseProfile: vi.fn(actual.parseProfile) };
 });
 

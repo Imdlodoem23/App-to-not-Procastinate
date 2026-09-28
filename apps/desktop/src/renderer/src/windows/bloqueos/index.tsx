@@ -13,8 +13,8 @@
  * phrase named what to block but not for how long, else the search; with `focus` it scrolls
  * there and focuses that section (the search for the form); a plain door (footer, tray) focuses
  * the search, so the focus never starts on <body>. One polite region, there from the start, announces results and the search count.
- * `data-loading` marks the root while the schedules are being fetched (the harness waits for it
- * to go before a screenshot).
+ * `data-loading` marks the root while the schedules or the settings (the exam whitelist) are
+ * being fetched (the harness waits for it to go before a screenshot).
  */
 import { useLayoutEffect, useRef } from 'react';
 import { useAppStore } from '../../store/context';
@@ -44,7 +44,7 @@ function presetTabStop(): HTMLElement | null {
 
 export default function BloqueosWindow(): React.JSX.Element {
   const { view, local, notices, announcement, actions } = useBloqueosWindow();
-  const loading = view.schedules.status === 'loading';
+  const loading = view.schedules.status === 'loading' || view.exam.whitelist.status === 'loading';
   const request = useAppStore((s) => (s.env.detail?.name === 'bloqueos' ? s.env.detail : null));
 
   // Read by the door effect below, which must run once per door (not when the user picks).
@@ -102,7 +102,13 @@ export default function BloqueosWindow(): React.JSX.Element {
       <ActiveSection view={view.active} actions={actions} />
       <TemplatesSection view={view.templates} notice={notices.templates} actions={actions} />
       <SchedulesSection view={view.schedules} notice={notices.lists} actions={actions} />
-      <ExamSection view={view.exam} actions={actions} />
+      <ExamSection
+        view={view.exam}
+        domainInput={local.exam.domainInput}
+        processInput={local.exam.processInput}
+        notice={notices.whitelist}
+        actions={actions}
+      />
       <Announcer announcement={announcement} />
     </div>
   );

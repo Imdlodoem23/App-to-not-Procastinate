@@ -6,17 +6,23 @@
  * guardian replays instead of charging twice; the result lives in the detail window's local
  * state (`recompensas.redeemed`, fixture-settable) and the shop is read again.
  *
- * Screen readers: the shop row's help line is not a live region; the window's one polite region
- * says the redemption and refusals (the row's own region says the armed «¿Seguro?»).
+ * Screen readers: the shop row's polite region (`helpLive`) says the armed «¿Seguro?»; the
+ * window's one polite region, mounted empty with it, says the outcome (the redemption, a
+ * refusal), which shows on its own line under the shop.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RewardsResponse } from '@centrate/shared/guardian-api';
 import { newIntentId } from '../../app/push';
 import { useNow } from '../../hooks/useNow';
+import { useAnnouncer, type Announcement } from '../bloqueos/announcer';
 import { useAppStore, useAppStoreApi } from '../../store/context';
 import type { UiError } from '../../../../shared/ui-state';
-import { useAnnouncer, type Announcement } from '../bloqueos/announcer';
-import { deriveRecompensasView, redeemErrorText, type LineView, type RecompensasView } from './view';
+import {
+  deriveRecompensasView,
+  redeemErrorText,
+  type LineView,
+  type RecompensasView,
+} from './view';
 
 export interface RecompensasApi {
   view: RecompensasView;
@@ -155,9 +161,10 @@ export function useRecompensas(): RecompensasApi {
             return;
           }
           intents.current.delete(offerId);
-          api
-            .getState()
-            .updateDetail((d) => ({ ...d, recompensas: { ...d.recompensas, redeemed: result.value } }));
+          api.getState().updateDetail((d) => ({
+            ...d,
+            recompensas: { ...d.recompensas, redeemed: result.value },
+          }));
           setReload((n) => n + 1);
         },
         () => {
@@ -168,13 +175,13 @@ export function useRecompensas(): RecompensasApi {
     [api, bridge, busy, rewards, view.rows, announce],
   );
 
-  // The redemption, once it shows on the help line, is said once.
+  // The redemption, once it shows, is said once.
   const spoken = useRef(redeemed);
   useEffect(() => {
     if (redeemed === spoken.current) return;
     spoken.current = redeemed;
-    if (redeemed && view.help.tone === 'green') announce(view.help.text);
-  }, [redeemed, view.help, announce]);
+    if (redeemed && view.result?.tone === 'green') announce(view.result.text);
+  }, [redeemed, view.result, announce]);
 
   return {
     view,

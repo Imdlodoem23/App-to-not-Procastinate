@@ -284,6 +284,12 @@
     width: 88px;
   }
 
+  /* «Sí» and «No» differ in width: the switches (and the «Editar» beside them) line up. */
+  .blq-row-actions > .c-toggle {
+    justify-content: flex-end;
+    min-width: 64px;
+  }
+
   .blq-inline {
     display: flex;
     align-items: center;
@@ -293,5 +299,80 @@
   /* A row of two equal tiles («Guardar como plantilla | Bloquear…»). */
   .blq-row-2 .c-tilegrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* An addition to the whitelist that waits its 24 h: dashed, like a suggestion. */
+  .blq-chip[data-kind='pending'] {
+    border-style: dashed;
+    border-color: var(--control);
+    color: var(--fg-muted);
+  }
+
+  /* Schedule editor and exam whitelist ------------------------------------------------------ */
+
+  /* In place under the list, no card: a sub-heading and the same rows as the form. */
+  .blq-editor,
+  .blq-whitelist {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    min-width: 0;
+  }
+
+  .blq-whitelist {
+    gap: var(--space-2);
+  }
+
+  .blq-editor-title {
+    margin: 0;
+    font-size: var(--font-size-13);
+    line-height: var(--line-height-13);
+    font-weight: var(--font-weight-semibold);
+    overflow-wrap: anywhere;
+  }
+
+  /* Results and guards may take two lines here (the detail window scrolls). */
+  .blq-editor .c-help,
+  .blq-whitelist .c-help {
+    white-space: normal;
+    overflow: visible;
+  }
+
+  .blq-fieldset {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .blq-fieldset > legend {
+    padding: 0;
+    margin-bottom: var(--space-1);
+  }
+
+  /* L M X J V S D: one checkbox per day, each a 32 px target at least. */
+  .blq-days {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-3);
+  }
+
+  .blq-days .c-check {
+    min-width: 40px;
+  }
+
+  /* The six categories in three columns. */
+  .blq-categories {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    column-gap: var(--space-3);
+  }
+
+  .blq-categories .c-check-label {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 }

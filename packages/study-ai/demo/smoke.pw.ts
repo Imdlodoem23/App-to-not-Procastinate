@@ -1,7 +1,10 @@
 /**
  * 20 s of the real pipeline in Chromium with a fake camera (DESIGN.md §8.8): the loop keeps
- * ≥ 2 frames/s, every feature is a finite number, and nothing reaches a host other than this
- * loopback server. MediaPipe's usage logger tries `odml.pa.googleapis.com` when its tasks close;
+ * ≥ 2 frames/s with its timers on time (never `throttled`), every feature is a finite number,
+ * and nothing reaches a host other than this loopback server. On a machine too slow for 2 fps
+ * within the 15 % duty cap (software WebGL; the fake camera shows no face, so the detector
+ * runs at 1 Hz) the cap sets the pace instead: the report says `overBudget`, and ≥ 1 frame/s
+ * with timers on time is required. MediaPipe's usage logger tries `odml.pa.googleapis.com` when its tasks close;
  * the page's CSP must refuse it (and the route below would abort it anyway).
  *
  * Then a GPU reset: `WEBGL_lose_context` on MediaPipe's WebGL contexts in the middle of a
@@ -25,6 +28,8 @@ interface ProbeView {
   fps: number | null;
   level: number | null;
   duty: number | null;
+  overBudget: boolean;
+  throttled: boolean;
   camera: string | null;
   cost: string;
   medianGapMs: number;
@@ -43,7 +48,13 @@ declare global {
         at: number;
         camera: string;
         totals: { ticks: number };
-        loop: { fps: number; level: number; duty: number } | null;
+        loop: {
+          fps: number;
+          level: number;
+          duty: number;
+          overBudget: boolean;
+          throttled: boolean;
+        } | null;
       } | null;
       frameTimes: number[];
       lastCost: { faceMs: number; objectMs: number; lumaMs: number; totalMs: number } | null;
@@ -98,6 +109,8 @@ test('real WASM + models: ≥ 2 fps, finite features, no network', async ({ page
         fps: r?.loop?.fps ?? null,
         level: r?.loop?.level ?? null,
         duty: r?.loop?.duty ?? null,
+        overBudget: r?.loop?.overBudget ?? false,
+        throttled: r?.loop?.throttled ?? false,
         camera: r?.camera ?? null,
         cost: d.lastCost
           ? `face ${d.lastCost.faceMs.toFixed(0)} ms, objects ${d.lastCost.objectMs.toFixed(0)} ms`
@@ -122,16 +135,24 @@ test('real WASM + models: ≥ 2 fps, finite features, no network', async ({ page
   const ticksPerSecond = (after.ticks - before.ticks) / seconds;
   test.info().annotations.push({
     type: 'loop',
-    description: `${ticksPerSecond.toFixed(2)} ticks/s over ${seconds.toFixed(1)} s, level L${after.level}, duty ${after.duty}, fps ${after.fps}, median frame gap ${after.medianGapMs.toFixed(0)} ms, last frame ${after.cost}`,
+    description: `${ticksPerSecond.toFixed(2)} ticks/s over ${seconds.toFixed(1)} s, level L${after.level}, duty ${after.duty}, fps ${after.fps}, over budget ${after.overBudget}, median frame gap ${after.medianGapMs.toFixed(0)} ms, last frame ${after.cost}`,
   });
   expect(after.running).toBe(true);
   expect(after.camera).toBe('ok');
   expect(seconds).toBeGreaterThan(15);
-  // The scheduler keeps ≥ 2 fps: the typical frame gap is ≤ 500 ms (+ timer slack)…
-  expect(after.medianGapMs).toBeLessThanOrEqual(520);
-  // …and the average holds even on a loaded CI runner (a throttled window would fall to 1/s).
-  expect(ticksPerSecond).toBeGreaterThanOrEqual(1.6);
-  expect(after.frames - before.frames).toBeGreaterThanOrEqual(1.6 * seconds);
+  // The timers fire on time: a throttled window (1 s wake-ups) would say so.
+  expect(after.throttled).toBe(false);
+  if (after.overBudget) {
+    // Too slow for 2 fps within the 15 % duty cap: the cap sets the pace, never a busy loop.
+    expect(ticksPerSecond).toBeGreaterThanOrEqual(1);
+    expect(after.frames - before.frames).toBeGreaterThanOrEqual(1 * seconds);
+  } else {
+    // The scheduler keeps ≥ 2 fps: the typical frame gap is ≤ 500 ms (+ timer slack)…
+    expect(after.medianGapMs).toBeLessThanOrEqual(520);
+    // …and the average holds even on a loaded CI runner (a throttled window falls to 1/s).
+    expect(ticksPerSecond).toBeGreaterThanOrEqual(1.6);
+    expect(after.frames - before.frames).toBeGreaterThanOrEqual(1.6 * seconds);
+  }
   expect(after.reports - before.reports).toBeGreaterThanOrEqual(18);
   expect(after.nonFinite).toBe(0);
 
@@ -254,7 +275,7 @@ test('the analysis window under the HANDOFF CSP: camera mode ≥ 2 fps, logger r
       mode: 'camera',
       settings: {},
       profileJson: null,
-      cameraDeviceId: null,
+      cameraLabel: null,
       context: ctx,
     });
     probe.keepContext(ctx);
@@ -290,20 +311,20 @@ test('the analysis window under the HANDOFF CSP: camera mode ≥ 2 fps, logger r
   const ticksPerSecond = (after.loop.ticks - before.loop.ticks) / seconds;
   test.info().annotations.push({
     type: 'analysis window',
-    description: `${ticksPerSecond.toFixed(2)} ticks/s over ${seconds.toFixed(1)} s, L${after.loop.level}, duty ${after.loop.duty}, fps ${after.loop.fps}`,
+    description: `${ticksPerSecond.toFixed(2)} ticks/s over ${seconds.toFixed(1)} s, L${after.loop.level}, duty ${after.loop.duty}, fps ${after.loop.fps}, over budget ${after.loop.overBudget}`,
   });
   // The real pipeline runs under the strict CSP: no fallback, no error, no violation.
   expect(during.messages.filter((m) => m.type === 'error')).toEqual([]);
-  expect(
-    during.messages.filter((m) => m.type === 'event' && m.event.type === 'mode'),
-  ).toEqual([]);
+  expect(during.messages.filter((m) => m.type === 'event' && m.event.type === 'mode')).toEqual([]);
   expect(during.invalid).toBe(0);
   expect(during.blocked).toEqual([]);
   expect(after.mode).toBe('camera');
   expect(after.camera).toBe('ok');
   expect(after.cameraOn).toBe(true);
   expect(after.loop.errors).toBe(0);
-  expect(ticksPerSecond).toBeGreaterThanOrEqual(1.6);
+  expect(after.loop.throttled).toBe(false);
+  // ≥ 2 fps, or the pace of the 15 % duty cap on a machine too slow for it (see the header).
+  expect(ticksPerSecond).toBeGreaterThanOrEqual(after.loop.overBudget ? 1 : 1.6);
 
   // Stop: the last report, then the summary; MediaPipe's logger POST is refused by the CSP.
   await page.evaluate(() => {

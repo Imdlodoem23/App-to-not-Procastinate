@@ -63,6 +63,11 @@
     width: calc(3 * 80px + 2 * var(--layout-tile-gap));
   }
 
+  /* «Objetivo diario»: four compact tiles («30 min | 45 min | 60 min | 90 min»). */
+  .aj-choice-4 .c-settings-control .c-tilerow {
+    width: calc(4 * 64px + 3 * var(--layout-tile-gap));
+  }
+
   .aj-choice .c-tilerow > .c-help {
     position: absolute;
     width: 1px;
@@ -92,5 +97,66 @@
 
   .aj-delete-word.c-field {
     width: 128px;
+  }
+
+  /* «Atajo global»: the combination in a read-only field; while it records, the placeholder
+     «Pulsa las teclas» shows in the accent so the state is visible without the caret. */
+  .aj-shortcut.c-field {
+    width: 176px;
+    cursor: default;
+    caret-color: transparent;
+  }
+
+  .aj-shortcut.c-field[data-capturing] {
+    border-color: var(--blue);
+  }
+
+  .aj-shortcut.c-field[data-capturing]::placeholder {
+    color: var(--blue);
+  }
+
+  /* «Volumen»: a native slider in the accent, 32 px tall so it is an easy target. */
+  .aj-range {
+    width: 160px;
+    height: var(--size-min-target);
+    margin: 0;
+    accent-color: var(--blue);
+  }
+
+  .aj-range-value {
+    min-width: 5ch;
+    text-align: right;
+  }
+
+  /* «Lo que resta puntos»: read-only label | value lines, 12 px. */
+  .aj-values {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    column-gap: var(--space-3);
+    row-gap: 2px;
+    margin: 0;
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+
+  .aj-values-row {
+    display: contents;
+  }
+
+  .aj-values dt {
+    color: var(--fg);
+  }
+
+  .aj-values dd {
+    margin: 0;
+    color: var(--fg-muted);
+  }
+
+  /* One muted sentence under a row (Nuclear's honest note). */
+  .aj-note {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
   }
 }

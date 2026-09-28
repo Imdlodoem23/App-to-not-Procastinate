@@ -18,6 +18,13 @@
  *   Electron's `percentCPUUsage` is a share of the whole machine (divided by the number of
  *   logical cores): the probe must convert it (HANDOFF §1.3).
  * - With no face visible the detector runs at ≥ 1 Hz anyway (it decides hidden vs absent).
+ *   So it does on **alert**: a phone (not at rest) seen in the last 20 s, or the engine in
+ *   doubt. At L4 the detector would otherwise run every 4 s, and PERCEPTION's phone tracker,
+ *   which counts sightings, would take a phone wobbling in the hand for one at rest.
+ * - **Emergency level** (default levels only): when even L4 does not fit the target, L5 keeps
+ *   2 fps but runs the detector every 16 frames (8 s), with `overBudget` set. Below that the
+ *   loop's hard duty cap (`AdaptiveLoop`, 15 % of one core) stretches the steps: a controlled
+ *   1–1.5 fps instead of a busy loop.
  */
 import { STUDY_AI_CONSTANTS } from '../config';
 import type { CpuBudget, LoopLevel, LoopPlan, MonoMs, StepCost } from '../types';
@@ -32,6 +39,15 @@ export const LOOP_LEVELS: readonly Readonly<LoopLevel>[] = Object.freeze([
 ]);
 
 export const START_LEVEL = 1;
+
+/**
+ * L5, used only while L4 does not fit the target (then `overBudget`): still 2 fps, the detector
+ * every 16 frames. The alert and no-face rules still raise the detector to 1 Hz.
+ */
+export const EMERGENCY_LEVEL: Readonly<LoopLevel> = Object.freeze({
+  intervalMs: 500,
+  objectEvery: 16,
+});
 
 export const DEFAULT_CPU_BUDGET: Readonly<CpuBudget> = Object.freeze({
   targetDuty: 0.08,
@@ -48,7 +64,7 @@ const OUTLIER_FACTOR = 3;
 const UP_MARGIN = 0.75;
 /** Minimum time between two slow-downs forced by the measured process CPU. */
 const CPU_FORCE_EVERY_MS = 5_000;
-/** Detector rate kept when no face is visible. */
+/** Detector rate kept when no face is visible, or on alert (phone seen, doubt). */
 const NO_FACE_OBJECT_HZ = 1;
 
 const MIN_INTERVAL_MS = 1_000 / STUDY_AI_CONSTANTS.maxFps;
@@ -101,6 +117,8 @@ function sanitizeLevels(levels: readonly LoopLevel[]): readonly Readonly<LoopLev
 export class CpuGovernor {
   private readonly budget: CpuBudget;
   private readonly levels: readonly Readonly<LoopLevel>[];
+  /** Index of the slowest regular level; the ones after it are emergency levels. */
+  private readonly lastRegular: number;
   private current: number;
   private readonly vision: Ema = { value: 0, samples: 0 };
   private readonly object: Ema = { value: 0, samples: 0 };
@@ -115,10 +133,14 @@ export class CpuGovernor {
   private lastCpuPct: number | null = null;
   private lastCpuAt: MonoMs = Number.NEGATIVE_INFINITY;
   private faceVisible = true;
+  private alert = false;
 
+  /** The default levels get the emergency level L5 after L4; custom levels are used as given. */
   constructor(budget: Partial<CpuBudget> = {}, levels: readonly LoopLevel[] = LOOP_LEVELS) {
     this.budget = sanitizeBudget(budget);
-    this.levels = sanitizeLevels(levels);
+    const regular = sanitizeLevels(levels);
+    this.lastRegular = regular.length - 1;
+    this.levels = levels === LOOP_LEVELS ? [...regular, EMERGENCY_LEVEL] : regular;
     this.current = Math.min(START_LEVEL, this.levels.length - 1);
   }
 
@@ -137,6 +159,7 @@ export class CpuGovernor {
     emaPush(this.other, otherMs);
     if (cost.ranObjects) emaPush(this.object, objectMs);
     this.faceVisible = cost.faceSeen;
+    this.alert = cost.alert === true;
   }
 
   /**
@@ -156,9 +179,13 @@ export class CpuGovernor {
     }
   }
 
-  /** Plan for the next step. With no face visible, objects run at ≥ 1 Hz. */
-  plan(now: MonoMs, faceVisible: boolean): LoopPlan {
+  /**
+   * Plan for the next step. With no face visible, or on `alert` (a phone seen in the last 20 s,
+   * or the engine in doubt), objects run at ≥ 1 Hz.
+   */
+  plan(now: MonoMs, faceVisible: boolean, alert = false): LoopPlan {
     this.faceVisible = faceVisible;
+    this.alert = alert;
     this.update(now);
     const level = this.levels[this.current] as Readonly<LoopLevel>;
     const target = this.budget.targetDuty;
@@ -170,9 +197,11 @@ export class CpuGovernor {
     return {
       level: this.current,
       intervalMs: level.intervalMs,
-      objectEvery: this.objectEvery(level, faceVisible),
+      objectEvery: this.objectEvery(level),
       lumaEveryMs: STUDY_AI_CONSTANTS.lumaEveryMs,
-      overBudget: last && (this.predict(this.current) > target || cpuOver),
+      overBudget:
+        this.current > this.lastRegular ||
+        (last && (this.predict(this.current) > target || cpuOver)),
     };
   }
 
@@ -206,15 +235,20 @@ export class CpuGovernor {
     return typical === null || totalMs > OUTLIER_FACTOR * typical;
   }
 
-  private objectEvery(level: Readonly<LoopLevel>, faceVisible: boolean): number {
-    if (faceVisible) return level.objectEvery;
+  /**
+   * Frames per detector run at `level`. The alert is left out of the predictions (`withAlert`
+   * false): it lasts seconds, so it must not walk the governor down levels it then needs 10 s
+   * each to climb back; the loop's hard duty cap bounds its cost meanwhile.
+   */
+  private objectEvery(level: Readonly<LoopLevel>, withAlert = true): number {
+    if (this.faceVisible && !(withAlert && this.alert)) return level.objectEvery;
     const perSecond = Math.max(1, Math.floor(1_000 / (level.intervalMs * NO_FACE_OBJECT_HZ)));
     return Math.min(level.objectEvery, perSecond);
   }
 
   private predict(index: number): number {
     const level = this.levels[index] as Readonly<LoopLevel>;
-    const every = this.objectEvery(level, this.faceVisible);
+    const every = this.objectEvery(level, false);
     const busy = this.vision.value + this.other.value + this.object.value / every;
     return busy / level.intervalMs;
   }

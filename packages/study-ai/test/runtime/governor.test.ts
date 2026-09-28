@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { FrameCadence } from '../../src/runtime/frame-step';
-import { CpuGovernor, LOOP_LEVELS, START_LEVEL } from '../../src/runtime/governor';
+import { CpuGovernor, EMERGENCY_LEVEL, LOOP_LEVELS, START_LEVEL } from '../../src/runtime/governor';
 import type { StepCost } from '../../src/types';
 
 function cost(at: number, visionMs: number, objectMs: number, ranObjects: boolean): StepCost {
   return { at, visionMs, objectMs, otherMs: 0.5, ranObjects, faceSeen: true };
 }
+
+/** L5: after L4 in the default levels, used only while L4 does not fit. */
+const L5 = LOOP_LEVELS.length;
+const L4 = LOOP_LEVELS.length - 1;
 
 /** Feeds `seconds` of steps at the governor's own pace; returns the level after each step. */
 function drive(
@@ -68,12 +72,13 @@ describe('CpuGovernor', () => {
     expect(levels.slice(0, 29).every((l) => l === 1)).toBe(true);
   });
 
-  it('climbs back from L4 one level at a time, never faster than every 10 s', () => {
+  it('climbs back from the emergency level one level at a time, never faster than every 10 s', () => {
     const g = new CpuGovernor();
     g.plan(0, true);
     g.record(cost(0, 80, 60, true));
     g.record(cost(1, 80, 60, true)); // two in a row are real, not an outlier
-    expect(g.plan(500, true).level).toBe(4);
+    // (80.5 + 60 / 8) / 500 = 0.176 at L4: over the target, so the emergency level.
+    expect(g.plan(500, true).level).toBe(L5);
     // Costs drop: every EMA converges quickly, but each step up waits 10 s.
     const { levels } = drive(g, 1_000, 60, { visionMs: 3, objectMs: 8 });
     const changes: number[] = [];
@@ -119,13 +124,64 @@ describe('CpuGovernor', () => {
   it('keeps the detector at ≥ 1 Hz without a face', () => {
     const g = new CpuGovernor({}, LOOP_LEVELS);
     g.plan(0, true);
-    g.record(cost(0, 40, 60, true));
-    g.record(cost(1, 40, 60, true));
+    g.record(cost(0, 30, 60, true));
+    g.record(cost(1, 30, 60, true));
     const withFace = g.plan(500, true);
-    expect(withFace.level).toBe(4);
+    expect(withFace.level).toBe(L4); // (30.5 + 60 / 8) / 500 = 0.076
     expect(withFace.objectEvery).toBe(8);
     const noFace = g.plan(1_000, false);
     expect(noFace.intervalMs * noFace.objectEvery).toBeLessThanOrEqual(1_000);
+  });
+
+  it('keeps the detector at ≥ 1 Hz on alert (a phone seen lately, or DUDA), at every level', () => {
+    for (const costs of [
+      { visionMs: 10, objectMs: 35 }, // L1
+      { visionMs: 30, objectMs: 60 }, // L4
+      { visionMs: 36, objectMs: 60 }, // L5
+    ]) {
+      const g = new CpuGovernor();
+      drive(g, 0, 3, costs);
+      const calm = g.plan(3_000, true);
+      const alert = g.plan(3_001, true, true);
+      expect(alert.level).toBe(calm.level);
+      expect(alert.intervalMs * alert.objectEvery).toBeLessThanOrEqual(1_000);
+      // Back to the level's own rate when the alert ends.
+      expect(g.plan(3_002, true, false).objectEvery).toBe(calm.objectEvery);
+    }
+  });
+
+  it('an alert does not walk the levels down (it lasts seconds; the duty cap bounds it)', () => {
+    const g = new CpuGovernor();
+    drive(g, 0, 3, { visionMs: 20, objectMs: 60 }); // L3: (20.5 + 60 / 4) / 500 = 0.071
+    const before = g.plan(3_000, true).level;
+    expect(before).toBe(3);
+    let t = 3_000;
+    for (let i = 0; i < 60; i += 1) {
+      const plan = g.plan(t, true, true);
+      g.record({ ...cost(t, 20, 60, i % plan.objectEvery === 0), alert: true });
+      expect(plan.level).toBe(before);
+      expect(plan.overBudget).toBe(false);
+      t += plan.intervalMs;
+    }
+  });
+
+  it('adds the emergency level after L4: still 2 fps, the detector every 16 frames', () => {
+    expect(EMERGENCY_LEVEL).toEqual({ intervalMs: 500, objectEvery: 16 });
+    const g = new CpuGovernor();
+    g.plan(0, true);
+    g.record(cost(0, 36, 60, true));
+    g.record(cost(1, 36, 60, true));
+    // L4: (36.5 + 7.5) / 500 = 0.088 > 0.08; L5: (36.5 + 3.75) / 500 = 0.0805: still over.
+    const plan = g.plan(500, true);
+    expect(plan.level).toBe(L5);
+    expect(plan.intervalMs).toBe(500);
+    expect(plan.objectEvery).toBe(16);
+    expect(plan.overBudget).toBe(true);
+    // Custom levels get no emergency level.
+    const custom = new CpuGovernor({}, [{ intervalMs: 250, objectEvery: 2 }]);
+    custom.record(cost(0, 200, 0, false));
+    custom.record(cost(1, 200, 0, false));
+    expect(custom.plan(1, true).level).toBe(0);
   });
 
   it('never goes under 2 fps and flags an impossible budget', () => {
@@ -135,7 +191,17 @@ describe('CpuGovernor', () => {
     g.record(cost(1, 300, 90, true));
     const plan = g.plan(1_000, true);
     expect(plan.intervalMs).toBeLessThanOrEqual(500);
-    expect(plan.level).toBe(LOOP_LEVELS.length - 1);
+    expect(plan.level).toBe(L5);
+    expect(plan.overBudget).toBe(true);
+  });
+
+  it('the measured process CPU can push L4 into the emergency level', () => {
+    const g = new CpuGovernor();
+    drive(g, 0, 3, { visionMs: 30, objectMs: 60 });
+    expect(g.plan(3_000, true).level).toBe(L4);
+    g.reportProcessCpu(20, 3_000);
+    const plan = g.plan(3_001, true);
+    expect(plan.level).toBe(L5);
     expect(plan.overBudget).toBe(true);
   });
 
@@ -161,10 +227,10 @@ describe('CpuGovernor', () => {
     g.record(cost(2_333, 10, 30, false));
     g.record(cost(2_666, 900, 0, false));
     g.record(cost(3_000, 900, 0, false));
-    expect(g.plan(3_333, true).level).toBe(4);
+    expect(g.plan(3_333, true).level).toBe(L5);
   });
 
-  it('counts a detector that is slow on every run (420 ms, fast frames in between): L4, over budget', () => {
+  it('counts a detector that is slow on every run (420 ms, fast frames in between): over budget', () => {
     // A cheap laptop on battery saver: face 30 ms, EfficientDet 420 ms on WASM. The detector
     // steps are never consecutive, so a filter that only lets «two slow steps in a row»
     // through would drop every one of them and believe the duty is 6 %.
@@ -189,10 +255,11 @@ describe('CpuGovernor', () => {
     }
     expect(objectRuns).toBeGreaterThan(5);
     const plan = g.plan(t, true);
-    expect(plan.level).toBe(LOOP_LEVELS.length - 1);
+    expect(plan.level).toBe(L5);
+    expect(plan.objectEvery).toBe(16);
     expect(plan.overBudget).toBe(true);
-    // The real duty at L4: (30.5 + 420 / 8) / 500 ≈ 0.166 of one core.
-    expect(g.duty).toBeCloseTo((30.5 + 420 / 8) / 500, 2);
+    // The real duty at L5: (30.5 + 420 / 16) / 500 ≈ 0.113 of one core (L4 would be 0.166).
+    expect(g.duty).toBeCloseTo((30.5 + 420 / 16) / 500, 2);
   });
 
   it('skips the first slow step of a kind (warm-up) and counts the next one', () => {
@@ -203,7 +270,7 @@ describe('CpuGovernor', () => {
     expect(g.plan(666, true).level).toBe(2); // 30.5 / 333 = 0.092 → L2 (0.061)
     g.record(cost(666, 30, 0, false));
     g.record(cost(1_000, 30, 420, true)); // the second slow run is real
-    expect(g.plan(1_500, true).level).toBe(4);
+    expect(g.plan(1_500, true).level).toBe(L5);
   });
 
   it('still ignores a single slow detector run among normal ones (GC pause)', () => {
@@ -216,8 +283,8 @@ describe('CpuGovernor', () => {
     g.record(cost(5_333, 10, 0, false));
     g.record(cost(5_666, 10, 0, false));
     g.record(cost(6_000, 10, 900, true));
-    // …it is the second in a row for the detector, so it counts.
-    expect(g.plan(6_333, true).level).toBe(4);
+    // …it is the second in a row for the detector, so it counts: (10.5 + 208 / 8) / 500 = 0.073.
+    expect(g.plan(6_333, true).level).toBe(L4);
   });
 
   it('ignores non-finite costs and CPU readings', () => {

@@ -53,6 +53,15 @@ export async function analyseNextFrame(
   }
 }
 
+/**
+ * Takes the newest frame and closes it unanalysed (the pipeline is being rebuilt): the camera
+ * keeps delivering, so a healthy one never reads as stalled meanwhile.
+ */
+export async function discardNextFrame(source: FrameSource): Promise<void> {
+  const frame = await source.next();
+  if (frame !== null) closeOnce(frame);
+}
+
 /** Luma is due a little early so timer jitter never halves its rate (333 × 3 = 999 ms). */
 const LUMA_SLACK_MS = 50;
 

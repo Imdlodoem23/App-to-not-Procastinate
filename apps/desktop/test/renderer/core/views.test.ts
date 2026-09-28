@@ -7,7 +7,7 @@ import {
   makeBlock,
   HARNESS_NOW,
 } from '../../../src/shared/fixtures';
-import { resolveFeatures } from '../../../src/shared/features';
+import { PHASE1_FEATURES, resolveFeatures } from '../../../src/shared/features';
 import { uiError, type UiError, type UiSnapshot } from '../../../src/shared/ui-state';
 import { errorActionLabel, errorCopy } from '../../../src/renderer/src/i18n/errors';
 import {
@@ -15,7 +15,7 @@ import {
   deriveProtectionView,
   guideFor,
 } from '../../../src/renderer/src/sections/protection/view';
-import { deriveProgresoView, mascotPhase } from '../../../src/renderer/src/sections/progreso/view';
+import { deriveProgresoView } from '../../../src/renderer/src/sections/progreso/view';
 import { deriveFooterView } from '../../../src/renderer/src/sections/footer/view';
 
 const now = HARNESS_NOW;
@@ -131,9 +131,12 @@ describe('section 1 «Aviso de protección»', () => {
 });
 
 describe('section 4 «Progreso»', () => {
+  const doorIds = (snapshot: UiSnapshot) => deriveProgresoView(snapshot)?.doors.map((d) => d.id);
+
   it('reads level, points, streak and the daily goal', () => {
-    expect(deriveProgresoView(snapshotOf('idle'))).toEqual({
-      phase: 'tree',
+    expect(deriveProgresoView(snapshotOf('idle'))).toMatchObject({
+      // 42 of 60 min: past half the goal, the sprout is a plant.
+      phase: 'plant',
       title: 'Nivel 7 · 1.240 puntos',
       negative: false,
       pill: null,
@@ -144,28 +147,31 @@ describe('section 4 «Progreso»', () => {
         met: false,
         aria: 'Objetivo de hoy: 42 de 60 minutos concentrado',
       },
-      // Phase 5 turned the stats, rewards and achievements flags on.
-      doors: ['stats', 'rewards', 'achievements'],
     });
+    // Phase 5 turned the stats, rewards and achievements flags on: three 40 px doors.
+    expect(
+      deriveProgresoView(snapshotOf('idle'))?.doors.map((d) => [d.id, d.label, d.mnemonic]),
+    ).toEqual([
+      ['stats', 'Estadísticas…', 'c'],
+      ['rewards', 'Recompensas…', 'w'],
+      ['achievements', 'Logros…', 'g'],
+    ]);
   });
 
   it('shows each door only with its flag (and the guardian capability)', () => {
     const base = snapshotOf('idle');
     const all = resolveFeatures({ stats: true, rewards: true, achievements: true });
-    expect(deriveProgresoView({ ...base, features: all })?.doors).toEqual([
-      'stats',
-      'rewards',
-      'achievements',
-    ]);
+    expect(doorIds({ ...base, features: all })).toEqual(['stats', 'rewards', 'achievements']);
     const noRewardsCapability = {
       ...base,
       features: all,
       health: base.health ? { ...base.health, capabilities: [] } : null,
     };
-    expect(deriveProgresoView(noRewardsCapability)?.doors).toEqual(['stats', 'achievements']);
+    expect(doorIds(noRewardsCapability)).toEqual(['stats', 'achievements']);
+    expect(doorIds({ ...base, features: PHASE1_FEATURES })).toEqual([]);
   });
 
-  it('shows «números rojos» as a fact: red title, pill, typographic minus', () => {
+  it('shows «números rojos» as a fact: red title, pill, typographic minus, wilted mascot', () => {
     const view = deriveProgresoView(snapshotOf('negative-points'));
     expect(view).toMatchObject({
       phase: 'wilted',
@@ -195,13 +201,6 @@ describe('section 4 «Progreso»', () => {
     expect(view?.goal).toMatchObject({ label: 'Hoy: 95 de 60 min', value: 1, met: true });
     expect(view?.streak).toBe('Racha: 1 día');
   });
-
-  it('grows the mascot with the level and wilts it in the red', () => {
-    expect(mascotPhase({ balance: 10, level: 1 })).toBe('sprout');
-    expect(mascotPhase({ balance: 10, level: 4 })).toBe('plant');
-    expect(mascotPhase({ balance: 10, level: 12 })).toBe('tree');
-    expect(mascotPhase({ balance: -1, level: 12 })).toBe('wilted');
-  });
 });
 
 describe('section 5 «Pie»', () => {
@@ -209,9 +208,10 @@ describe('section 5 «Pie»', () => {
     expect(deriveFooterView(snapshotOf('idle'))).toEqual({
       guardian: { tone: 'green', label: 'Guardián activo', action: null },
       extension: { tone: 'green', label: 'Extensión conectada' },
-      version: { label: 'v0.1.0', update: false },
-      // Phase 5 turned the miniTimer flag on.
+      version: { label: 'v0.1.0', update: false, action: null },
+      // Phase 5 turned the miniTimer flag on (its window starts hidden).
       buttons: ['miniTimer', 'settings', 'quit'],
+      miniTimerVisible: false,
     });
   });
 
@@ -262,7 +262,11 @@ describe('section 5 «Pie»', () => {
       app: { ...base.app, updateVersion: '1.3.0' },
     });
     expect(connecting.guardian.label).toBe('Conectando con el guardián…');
-    expect(connecting.version).toEqual({ label: 'Actualizar a v1.3.0', update: true });
+    expect(connecting.version).toEqual({
+      label: 'Actualizar a v1.3.0',
+      update: true,
+      action: 'download',
+    });
   });
 
   it('adds «Mini temporizador» only with its flag', () => {

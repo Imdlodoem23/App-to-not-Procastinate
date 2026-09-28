@@ -7,8 +7,10 @@
  * observation carries the frame's numbers for the 90 s «¡Estaba estudiando!» ring only.
  */
 import { STUDY_AI_CONSTANTS } from '../config';
+import { boxArea } from '../perception/geometry';
 import type {
   AttentionClassifier,
+  Box,
   ClassProbabilities,
   FaceFeatures,
   FrameFeatures,
@@ -26,6 +28,9 @@ import type {
 } from '../types';
 import { clamp } from '../util/math';
 import {
+  BOOK_OVER_FACE_SHARE,
+  BOOK_SPAN_MS,
+  BOOK_UP_HOLD_MS,
   CANT_SEE_HIDDEN_MS,
   CANT_SEE_TRUNCATED,
   CANT_SEE_UNKNOWN_MS,
@@ -34,13 +39,19 @@ import {
   EYES_MAX_LOOK_DOWN,
   EYES_MIN_QUALITY,
   FACE_RECENT_MS,
+  HIDDEN_ACTIVE_MOTION,
+  HIDDEN_ASLEEP_MAX_MS,
   HIDDEN_LOOKBACK_MS,
   HIDDEN_LOW_VALUE,
+  HIDDEN_STILL_MS,
   HIDDEN_TURNED_YAW,
   LOOK_DOWN_ABS_PITCH,
   LOOK_DOWN_BLEND,
   LOOK_DOWN_DPITCH,
   LOOK_DOWN_MAX_YAW,
+  LOOK_DOWN_SIDE_ABS_PITCH,
+  LOOK_DOWN_SIDE_DPITCH,
+  LOOK_DOWN_SIDE_MAX_YAW,
   MOTION_NEAR_FACE,
   OBSERVE_MAX_STEP_MS,
   STALE_AWAY_SHARE,
@@ -71,13 +82,27 @@ interface LastVisible {
   lookingDown: boolean;
   /** How much the face was cut by the frame edge. */
   truncated: number;
+  box: Box;
 }
 
 interface HiddenStretch {
   since: MonoMs;
+  /** The last-pose rule's pose, fixed when the face was lost. */
   pose: HiddenPose;
+  /** The pose judged on the latest tick (`book` while a book is held up in front). */
+  current: HiddenPose;
   /** The face was cut by the frame edge just before it was lost (it slid out of view). */
   slidOut: boolean;
+  /** Last sign of life: keyboard or mouse, or motion where the face was. */
+  activeAt: MonoMs;
+  /** Last tick with a book held up where the face was (`null`: never in this stretch). */
+  bookAt: MonoMs | null;
+}
+
+/** One frame of the stale-profile check (observed work time). */
+interface StaleSample {
+  at: number;
+  away: boolean;
 }
 
 /** Rule-side inputs of a hidden observation, kept for `rescore` (never serialised). */
@@ -94,16 +119,41 @@ interface DeskSpotMemo {
 
 const NO_EYES = Object.freeze({ closed: false, yawn: false });
 
-/** True when the frame has a usable relative pose for the looking-down test. */
+/**
+ * Looking down at the desk: head or eyes down within 35° of the screen direction; or, up to
+ * 60° to the side where a notebook or a textbook next to the laptop lies, the head clearly
+ * down (relative pitch ≤ −20°), or moderately down (≤ −12°) with the eyes down too. Without
+ * a baseline, absolute pitch (−20°, and −25° for «clearly»).
+ */
 function isLookingDown(face: FaceFeatures, rel: RelativePose | null): boolean {
   const eyesDown = face.lookDown >= LOOK_DOWN_BLEND;
-  if (rel) {
-    return (rel.dpitch <= LOOK_DOWN_DPITCH || eyesDown) && Math.abs(rel.dyaw) <= LOOK_DOWN_MAX_YAW;
+  const pitch = rel ? rel.dpitch : face.pose.pitch;
+  const yaw = Math.abs(rel ? rel.dyaw : face.pose.yaw);
+  const downPitch = rel ? LOOK_DOWN_DPITCH : LOOK_DOWN_ABS_PITCH;
+  const clearlyDown = pitch <= (rel ? LOOK_DOWN_SIDE_DPITCH : LOOK_DOWN_SIDE_ABS_PITCH);
+  if (yaw <= LOOK_DOWN_SIDE_MAX_YAW && (clearlyDown || (pitch <= downPitch && eyesDown))) {
+    return true;
   }
-  return (
-    (face.pose.pitch <= LOOK_DOWN_ABS_PITCH || eyesDown) &&
-    Math.abs(face.pose.yaw) <= LOOK_DOWN_MAX_YAW
-  );
+  return (pitch <= downPitch || eyesDown) && yaw <= LOOK_DOWN_MAX_YAW;
+}
+
+/** The face looks down toward the desk, head or eyes (whatever the yaw). */
+function isFacingDown(face: FaceFeatures, rel: RelativePose | null): boolean {
+  if (face.lookDown >= LOOK_DOWN_BLEND) return true;
+  return rel ? rel.dpitch <= LOOK_DOWN_DPITCH : face.pose.pitch <= LOOK_DOWN_ABS_PITCH;
+}
+
+/** Share of `target`'s area that `cover` covers (0–1). */
+function coverShare(cover: Box, target: Box): number {
+  const ix =
+    Math.min(cover.cx + cover.w / 2, target.cx + target.w / 2) -
+    Math.max(cover.cx - cover.w / 2, target.cx - target.w / 2);
+  const iy =
+    Math.min(cover.cy + cover.h / 2, target.cy + target.h / 2) -
+    Math.max(cover.cy - cover.h / 2, target.cy - target.h / 2);
+  const area = boxArea(target);
+  if (!(ix > 0) || !(iy > 0) || !(area > 0)) return 0;
+  return Math.min(1, (ix * iy) / area);
 }
 
 /** Yaw of a visible face: relative to the screen baseline, or absolute before one exists. */
@@ -129,6 +179,13 @@ function argmax(p: ClassProbabilities): keyof ClassProbabilities {
   return best;
 }
 
+/** The answer's argmax is a study class (screen or paper). */
+function studyFor(p: ClassProbabilities | null): boolean {
+  if (!p) return false;
+  const best = argmax(p);
+  return best === 'screen' || best === 'paper';
+}
+
 export class CameraObserver implements Observer, DeskPhoneLearner {
   readonly mode: StudyMode = 'camera';
 
@@ -146,15 +203,19 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
   /** The hidden stretch is past its allowance and reported as `absent` (not observable). */
   private unseen = false;
   private yawnSince: MonoMs | null = null;
+  /** `at` of the first luma sample of the current «covered» stretch (`null`: not covered). */
+  private coveredSince: MonoMs | null = null;
 
   // Vouched desk phones (session memory: survive reset(), forgotten once the phone leaves)
   private observedMs = 0;
   private deskSpots: DeskSpotMemo[] = [];
   private vouchedSpan: { from: MonoMs; to: MonoMs } | null = null;
 
-  // Stale-profile check (sticky: survives reset())
+  // Stale-profile check (sticky: survives reset()): the last STALE_MIN_FRAMES qualifying
+  // frames, in observed work time.
   private staleObservedMs = 0;
-  private staleFrames = 0;
+  private staleRing: StaleSample[] = [];
+  private staleNext = 0;
   private staleAway = 0;
   private staleDone: boolean;
   private stale = false;
@@ -238,13 +299,17 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
     this.evidence.update(now);
 
     // Presence. A tracked face beats the luma statistic: a dim, low-contrast room can look
-    // «covered» to the 32×24 thumbnail while the landmarker still follows the user.
-    // Covering the lens removes the face, so this is no way around `covered`.
+    // «covered» to the 32×24 thumbnail while the landmarker still follows the user. So does a
+    // person the detector found on an image taken while the luma already said «covered» (a
+    // dim room between tracked-face frames). Covering the lens removes the face and the
+    // person from the next image on, so this is no way around `covered`.
+    if (!cameraOk) this.coveredSince = null;
+    else if (frame) this.trackCovered(frame);
     let presence: Presence;
     if (!cameraOk) presence = 'camera_lost';
     else if (!frame) presence = this.presence;
     else if (frame.face) presence = 'visible';
-    else if (frame.luma?.covered) presence = 'covered';
+    else if (frame.luma?.covered && !this.personInDimRoom(thresholds.person)) presence = 'covered';
     else if (this.someoneWithoutFace(frame, now, thresholds.person)) presence = 'hidden';
     else presence = 'absent';
 
@@ -260,11 +325,14 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
     };
 
     // Face bookkeeping and the hidden last-pose rule. A hidden stretch past its allowance
-    // (unknown pose after 20 s, head down after 10 min) is not observable: without a phone
-    // or a distraction to go by it is reported `absent`, so the absence path (warning at
-    // half, strike at `noFaceStrikeMs`, cause `no_face`) replaces a DUDA that would blame
-    // attention for a framing or light problem. Turned away stays observable (0.2).
+    // (unknown pose after 20 s, head down or a book held up after 10 min) is not observable:
+    // without a phone or a distraction to go by it is reported `absent`, so the absence path
+    // (warning at half, strike at `noFaceStrikeMs`, cause `no_face`) replaces a DUDA that
+    // would blame attention for a framing or light problem. Turned away stays observable
+    // (0.2). A head down (or behind a book) with no sign of life for 90 s is asleep on the
+    // desk: a drowsy candidate, never a strike, until `HIDDEN_ASLEEP_MAX_MS`.
     let hidden: HiddenMemo | null = null;
+    let asleep = false;
     if (frame) {
       if (face) {
         this.lastFaceAt = now;
@@ -274,19 +342,35 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
           pose: face.pose,
           lookingDown,
           truncated: face.truncated,
+          box: face.box,
         };
         this.hidden = null;
       } else if (presence === 'hidden') {
-        if (!this.hidden) {
-          this.hidden = { since: now, pose: this.lastPose(now), slidOut: this.slidOut(now) };
+        const stretch = this.hiddenStretch(now);
+        this.noteActivity(stretch, frame, idle, now);
+        const bookRule = !phone && !distractionApp;
+        if (bookRule && evidence.book && this.bookOverFace(now)) stretch.bookAt = now;
+        const bookHeld =
+          bookRule && stretch.bookAt !== null && now - stretch.bookAt <= BOOK_UP_HOLD_MS;
+        const pose: HiddenPose = bookHeld ? 'book' : stretch.pose;
+        stretch.current = pose;
+        const still = now - stretch.activeAt >= HIDDEN_STILL_MS;
+        if ((pose === 'down' || pose === 'book') && still && !phone) {
+          if (now - stretch.since <= HIDDEN_ASLEEP_MAX_MS) asleep = true;
+          else presence = 'absent';
+        } else {
+          // After a book was lowered, the unknown pose gets its allowance from then on.
+          const from =
+            pose === 'unknown' && stretch.bookAt !== null
+              ? Math.max(stretch.since, stretch.bookAt)
+              : stretch.since;
+          const holdUnknown =
+            frame.luma?.lowLight === true && recentInput(idle, settings.noCameraIdleMs);
+          const value = hiddenValue(pose, now - from, threshold, holdUnknown);
+          if (value !== null) hidden = { value, pose };
+          else if (phone || distractionApp) hidden = { value: HIDDEN_LOW_VALUE, pose };
+          else presence = 'absent';
         }
-        const pose = this.hidden.pose;
-        const holdUnknown =
-          frame.luma?.lowLight === true && recentInput(idle, settings.noCameraIdleMs);
-        const value = hiddenValue(pose, now - this.hidden.since, threshold, holdUnknown);
-        if (value !== null) hidden = { value, pose };
-        else if (phone || distractionApp) hidden = { value: HIDDEN_LOW_VALUE, pose };
-        else presence = 'absent';
       } else {
         this.hidden = null;
       }
@@ -346,18 +430,24 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
       this.yawnSince = null;
     }
 
-    const fused = fuse({
-      presence,
-      p,
-      trust: classifier.trust,
-      evidence,
-      hidden,
-      faceYaw: faceYaw(face, rel),
-      threshold,
-      eyesClosed: closed,
-    });
+    // Asleep on the desk: out of the window like closed eyes (the engine freezes the timers
+    // and suggests a break), whatever the foreground.
+    const fused = asleep
+      ? { study: null, cause: null }
+      : fuse({
+          presence,
+          p,
+          trust: classifier.trust,
+          evidence,
+          hidden,
+          faceYaw: faceYaw(face, rel),
+          facingDown: face ? isFacingDown(face, rel) : false,
+          threshold,
+          eyesClosed: closed,
+        });
+    if (asleep) closed = true;
 
-    if (work && cameraOk) this.checkStale(dt, face !== null, p, inputActive, distractionApp);
+    if (work && cameraOk) this.checkStale(dt, frame, p, inputActive, distractionApp);
 
     const observation: Observation = {
       at: now,
@@ -403,6 +493,7 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
       evidence: vouched ? { ...observation.evidence, phone: false } : observation.evidence,
       hidden: this.hiddenMemo.get(observation) ?? null,
       faceYaw: faceYaw(face, observation.rel),
+      facingDown: face ? isFacingDown(face, observation.rel) : false,
       threshold: settings.focusScoreThreshold,
       eyesClosed: false,
     }).study;
@@ -418,6 +509,7 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
     this.hidden = null;
     this.unseen = false;
     this.yawnSince = null;
+    this.coveredSince = null;
   }
 
   /** A phone at a vouched desk spot is not seen; spots the phone left are forgotten. */
@@ -459,41 +551,118 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
     );
   }
 
+  /** Follows the luma «covered» stretch: when its first sample was taken. */
+  private trackCovered(frame: FrameFeatures): void {
+    const luma = frame.luma;
+    if (!luma?.covered || !Number.isFinite(luma.at)) this.coveredSince = null;
+    else if (this.coveredSince === null || luma.at < this.coveredSince) this.coveredSince = luma.at;
+  }
+
+  /**
+   * The latest detector run saw a person on an image taken after the luma already said
+   * «covered»: the room is dim, the lens is not covered (a covered lens shows no one).
+   */
+  private personInDimRoom(personThreshold: number): boolean {
+    const run = this.evidence.latest;
+    return (
+      run !== null &&
+      this.coveredSince !== null &&
+      run.at >= this.coveredSince &&
+      run.person >= personThreshold
+    );
+  }
+
+  /** The current hidden stretch (started on this tick if there was none). */
+  private hiddenStretch(now: MonoMs): HiddenStretch {
+    if (!this.hidden) {
+      const pose = this.lastPose(now);
+      this.hidden = {
+        since: now,
+        pose,
+        current: pose,
+        slidOut: this.slidOut(now),
+        activeAt: now,
+        bookAt: null,
+      };
+    }
+    return this.hidden;
+  }
+
+  /** Keyboard or mouse (the last input time), or motion where the face was. */
+  private noteActivity(
+    stretch: HiddenStretch,
+    frame: FrameFeatures,
+    idleMs: number | null,
+    now: MonoMs,
+  ): void {
+    if (typeof idleMs === 'number' && Number.isFinite(idleMs) && idleMs >= 0) {
+      stretch.activeAt = Math.max(stretch.activeAt, now - idleMs);
+    }
+    const luma = frame.luma;
+    if (luma && luma.motionNearFace >= HIDDEN_ACTIVE_MOTION && Number.isFinite(luma.at)) {
+      stretch.activeAt = Math.max(stretch.activeAt, Math.min(luma.at, now));
+    }
+  }
+
+  /** The latest book (≤ 6 s old) covers at least half of where the face last was. */
+  private bookOverFace(now: MonoMs): boolean {
+    const face = this.lastVisible?.box;
+    const book = this.evidence.lastBookBox(now, BOOK_SPAN_MS);
+    return !!face && !!book && coverShare(book, face) >= BOOK_OVER_FACE_SHARE;
+  }
+
   /** Where the head was within 2 s before the face was lost. */
   private lastPose(now: MonoMs): HiddenPose {
     const last = this.lastVisible;
     if (!last || now - last.at > HIDDEN_LOOKBACK_MS) return 'unknown';
+    // Looking down at a notebook up to 60° to the side is writing, not turned away.
+    if (last.lookingDown) return 'down';
     const yaw = last.rel ? last.rel.dyaw : last.pose.yaw;
     if (Math.abs(yaw) >= HIDDEN_TURNED_YAW) return 'turned';
     const down = last.rel
       ? last.rel.dpitch <= LOOK_DOWN_DPITCH
       : last.pose.pitch <= LOOK_DOWN_ABS_PITCH;
-    return down || last.lookingDown ? 'down' : 'unknown';
+    return down ? 'down' : 'unknown';
   }
 
+  /**
+   * Rolling stale-profile check: among the last 60 face frames with keyboard or mouse input
+   * and no distraction app (all within the last 120 s of observed work time), ≥ 70 % are
+   * «away» for the profile while the fallback, fed with the same fresh input, calls them
+   * study → switch to the fallback for good and raise `recalibrate`.
+   */
   private checkStale(
     dt: number,
-    hasFace: boolean,
+    frame: FrameFeatures,
     p: ClassProbabilities | null,
     inputActive: boolean,
     distraction: boolean,
   ): void {
-    if (this.staleDone || this.current.kind !== 'personal' || !this.fallback) return;
+    const fallback = this.fallback;
+    if (this.staleDone || this.current.kind !== 'personal' || !fallback) return;
     this.staleObservedMs += dt;
-    if (hasFace && p && inputActive && !distraction) {
-      this.staleFrames += 1;
-      if (argmax(p) === 'away') this.staleAway += 1;
+    if (!frame.face || !p || !inputActive || distraction) return;
+    const at = this.staleObservedMs;
+    const away = argmax(p) === 'away' && studyFor(fallback.predict(frame));
+    const ring = this.staleRing;
+    if (ring.length < STALE_MIN_FRAMES) {
+      ring.push({ at, away });
+    } else {
+      const old = ring[this.staleNext] as StaleSample;
+      if (old.away) this.staleAway -= 1;
+      ring[this.staleNext] = { at, away };
+      this.staleNext = (this.staleNext + 1) % STALE_MIN_FRAMES;
     }
-    if (
-      this.staleFrames >= STALE_MIN_FRAMES &&
-      this.staleAway / this.staleFrames >= STALE_AWAY_SHARE
-    ) {
-      this.current = this.fallback;
+    if (away) this.staleAway += 1;
+    if (ring.length < STALE_MIN_FRAMES) return;
+    const oldest = ring[this.staleNext] as StaleSample;
+    if (at - oldest.at > STALE_WINDOW_MS) return;
+    if (this.staleAway / STALE_MIN_FRAMES >= STALE_AWAY_SHARE) {
+      this.current = fallback;
       this.stale = true;
       this.staleDone = true;
-      return;
+      this.staleRing = [];
     }
-    if (this.staleObservedMs >= STALE_WINDOW_MS) this.staleDone = true;
   }
 
   private hints(presence: Presence, frame: FrameFeatures | null, now: MonoMs): HintCode[] {
@@ -509,7 +678,7 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
         this.unseen ||
         stretch.slidOut ||
         ms > CANT_SEE_HIDDEN_MS ||
-        (stretch.pose === 'unknown' && ms >= CANT_SEE_UNKNOWN_MS);
+        (stretch.current === 'unknown' && ms >= CANT_SEE_UNKNOWN_MS);
     }
     const truncated = presence === 'visible' && (frame?.face?.truncated ?? 0) > CANT_SEE_TRUNCATED;
     if (cantSee || truncated) out.push('camera_cant_see_you');

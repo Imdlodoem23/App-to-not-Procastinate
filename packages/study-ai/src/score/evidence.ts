@@ -6,7 +6,7 @@
  * slow loop levels still have evidence.
  */
 import { boxesOverlap } from '../perception/geometry';
-import type { FrameFeatures, MonoMs } from '../types';
+import type { Box, FrameFeatures, MonoMs } from '../types';
 import {
   BOOK_MIN_RUNS,
   BOOK_SCORE,
@@ -30,7 +30,15 @@ interface DetectorRun {
   /** Phone in hand and in use on this run (`phoneInUseOn`). */
   phone: boolean;
   book: boolean;
+  /** The book's box when `book` (for the «book held up in front of the face» rule). */
+  bookBox: Box | null;
   person: number;
+}
+
+/** What the observer may read of one stored detector run. */
+export interface DetectorRunView {
+  readonly at: MonoMs;
+  readonly person: number;
 }
 
 /** Phone in hand on one frame's detector values. */
@@ -74,10 +82,12 @@ export class DetectorEvidence {
     if (!frame || !objects || !objects.fresh || !Number.isFinite(objects.ranAt)) return;
     const last = this.runs.at(-1);
     if (last && objects.ranAt <= last.at) return;
+    const book = (objects.book?.score ?? 0) >= BOOK_SCORE;
     this.runs.push({
       at: objects.ranAt,
       phone: phoneInUseOn(frame, thresholds.phone, lookingDown),
-      book: (objects.book?.score ?? 0) >= BOOK_SCORE,
+      book,
+      bookBox: book ? (objects.book?.box ?? null) : null,
       person: Number.isFinite(objects.person?.score) ? (objects.person?.score ?? 0) : 0,
     });
     if (this.runs.length > RUN_RING_MAX) this.runs.splice(0, this.runs.length - RUN_RING_MAX);
@@ -108,6 +118,21 @@ export class DetectorEvidence {
   book(now: MonoMs): boolean {
     const recent = this.count(now, BOOK_SPAN_MS, BOOK_MIN_RUNS, isBook);
     return recent.runs > 0 && recent.hits / recent.runs >= BOOK_SHARE;
+  }
+
+  /** The latest stored run (within the retention time), or `null`. */
+  get latest(): DetectorRunView | null {
+    return this.runs.at(-1) ?? null;
+  }
+
+  /** The box of the latest book seen within `spanMs`, or `null`. */
+  lastBookBox(now: MonoMs, spanMs: number): Box | null {
+    for (let i = this.runs.length - 1; i >= 0; i -= 1) {
+      const run = this.runs[i] as DetectorRun;
+      if (run.at < now - spanMs) return null;
+      if (run.book && run.bookBox) return run.bookBox;
+    }
+    return null;
   }
 
   /** A person above `threshold` in any of the last 3 runs (within the retention time). */

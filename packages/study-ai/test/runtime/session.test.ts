@@ -6,7 +6,14 @@ import { describe, expect, it } from 'vitest';
 import { serializeProfile } from '../../src/calibration/profile';
 import { isAnalysisOutbound } from '../../src/runtime/ipc';
 import { NoCameraObserver } from '../../src/runtime/no-camera';
-import { startStudySession, startStudySessionWith } from '../../src/runtime/session';
+import {
+  PHONE_ALERT_MS,
+  RECOVERY_DELAYS_MS,
+  VISIBLE_DISTRACTION_IDLE_MS,
+  engineContext,
+  startStudySession,
+  startStudySessionWith,
+} from '../../src/runtime/session';
 import type {
   AttentionEvent,
   ContextInput,
@@ -27,6 +34,7 @@ import {
   FakeVision,
   VisionError,
   fakeParts,
+  plainFeatures,
   replay,
 } from './fakes';
 
@@ -78,6 +86,7 @@ function rig(): Rig {
     clock: s,
     timers: s,
     openCamera: camera.open,
+    listCameras: camera.list,
     createVision: () => {
       r.visionLoads += 1;
       return r.visionFails === null ? Promise.resolve(vision) : Promise.reject(r.visionFails);
@@ -142,7 +151,9 @@ describe('study session facade (wiring)', () => {
     expect(last.camera).toBe('ok');
     expect(last.loop?.fps).toBeGreaterThan(2);
     for (const event of r.events) expect(isAnalysisOutbound({ type: 'event', event })).toBe(true);
+    // `starting` the moment the stream opens (main shows «● Cámara activa» at once), then ok.
     expect(eventsOf(r.events, 'camera')).toEqual([
+      { type: 'camera', at: expect.any(Number), status: 'starting', error: null },
       { type: 'camera', at: expect.any(Number), status: 'ok', error: null },
     ]);
     await handle.stop();
@@ -171,7 +182,7 @@ describe('study session facade (wiring)', () => {
     await run(r, handle, 3_000, breakCtx);
     expect(first.stopped).toBe(1);
     expect(r.reports[r.reports.length - 1]?.cameraOn).toBe(false);
-    expect(eventsOf(r.events, 'camera').map((e) => e.status)).toEqual(['ok', 'off']);
+    expect(eventsOf(r.events, 'camera').map((e) => e.status)).toEqual(['starting', 'ok', 'off']);
 
     // Breaks tick the engine once a second without frames.
     const engine = f.engine();
@@ -188,7 +199,12 @@ describe('study session facade (wiring)', () => {
     expect(r.camera.opened.length).toBe(2);
     expect(r.vision.resets).toBeGreaterThan(resetsBefore);
     expect(r.reports[r.reports.length - 1]?.cameraOn).toBe(true);
-    expect(eventsOf(r.events, 'camera').map((e) => e.status)).toEqual(['ok', 'off', 'ok']);
+    expect(eventsOf(r.events, 'camera').map((e) => e.status)).toEqual([
+      'starting',
+      'ok',
+      'off',
+      'ok',
+    ]);
     expect(r.visionLoads).toBe(1); // the WASM and models stay loaded
     await handle.stop();
   });
@@ -282,12 +298,12 @@ describe('study session facade (wiring)', () => {
     await handle.stop();
   });
 
-  it('vision that fails to load falls back to no-camera mode at start', async () => {
+  it('vision that fails to load falls back to no-camera mode at start, the camera never on', async () => {
     const r = rig();
     r.visionFails = new VisionError('simd_unsupported');
     const f = fakeParts();
     const handle = await startStudySessionWith(r.options(), f.parts);
-    expect(r.camera.opened[0]?.stopped).toBe(1);
+    expect(r.camera.calls).toHaveLength(0); // vision first: the camera was never opened
     expect(f.observers).toHaveLength(0);
     expect(f.engine().observer).toBeInstanceOf(NoCameraObserver);
     expect(eventsOf(r.events, 'mode')).toEqual([
@@ -298,10 +314,45 @@ describe('study session facade (wiring)', () => {
     expect(report.mode).toBe('no-camera');
     expect(report.snapshot.hints).toContain('vision_failed');
     expect(f.engine().ticks.every((t) => t.frame === null && t.camera === 'off')).toBe(true);
+    // SIMD missing fails the same way every time: never retried.
+    await run(r, handle, 600_000);
+    expect(r.visionLoads).toBe(1);
+    expect(r.camera.calls).toHaveLength(0);
     await handle.stop();
   });
 
-  it('5 processing failures in a row switch to no-camera mode', async () => {
+  it('a vision load that fails for a passing reason is retried, then the camera comes back', async () => {
+    const r = rig();
+    r.visionFails = new VisionError('load_failed');
+    const f = fakeParts();
+    const handle = await startStudySessionWith(r.options(), f.parts);
+    expect(r.camera.calls).toHaveLength(0);
+    await run(r, handle, RECOVERY_DELAYS_MS[0] as number);
+    expect(r.visionLoads).toBe(2); // retried after 30 s, failed again
+    r.visionFails = null;
+    await run(r, handle, (RECOVERY_DELAYS_MS[1] as number) + 2_000);
+    expect(r.visionLoads).toBe(3);
+    expect(r.camera.calls).toHaveLength(1);
+    const modes = eventsOf(r.events, 'mode');
+    expect(modes.map((e) => [e.mode, e.reason])).toEqual([
+      ['no-camera', 'vision_failed'],
+      ['camera', 'recovered'],
+    ]);
+    for (const e of r.events) expect(isAnalysisOutbound({ type: 'event', event: e })).toBe(true);
+    const hints = eventsOf(r.events, 'hint').filter((e) => e.code === 'vision_failed');
+    expect(hints.map((e) => e.active)).toEqual([true, false]);
+    expect(f.observers).toHaveLength(1);
+    expect(f.engine().observer).toBe(f.observers[0]);
+    const report = handle.report();
+    expect(report.mode).toBe('camera');
+    expect(report.cameraOn).toBe(true);
+    expect(report.snapshot.hints).not.toContain('vision_failed');
+    expect(f.engine().ticks.at(-1)?.frame).not.toBeNull();
+    await handle.stop();
+    expect(r.s.pending).toBe(0);
+  });
+
+  it('5 processing failures in a row rebuild the pipeline once; the same streak again falls back', async () => {
     const r = rig();
     const f = fakeParts();
     const handle = await startStudySessionWith(r.options(), f.parts);
@@ -309,11 +360,24 @@ describe('study session facade (wiring)', () => {
     r.vision.failNext = 4;
     await run(r, handle, 6_000);
     expect(eventsOf(r.events, 'mode')).toEqual([]); // 4 failures, then it recovered
+    expect(r.visionLoads).toBe(1);
     r.vision.failNext = 5;
     await run(r, handle, 8_000);
+    // A WASM abort leaves the module dead: rebuilt once instead of giving up.
+    expect(r.visionLoads).toBe(2);
+    expect(eventsOf(r.events, 'mode')).toEqual([]);
+    expect(handle.report().mode).toBe('camera');
+    r.vision.failNext = 5;
+    await run(r, handle, 8_000);
+    expect(r.visionLoads).toBe(3); // a good frame came between the two streaks
+    expect(eventsOf(r.events, 'mode')).toEqual([]);
+    r.vision.failNext = 10; // two streaks with no good frame in between
+    await run(r, handle, 12_000);
     expect(eventsOf(r.events, 'mode').map((e) => e.reason)).toEqual(['vision_failed']);
     expect(r.camera.last.stopped).toBe(1);
-    for (const frame of r.camera.last.frames) expect(frame.closed).toBe(1);
+    for (const source of r.camera.opened) {
+      for (const frame of source.frames) expect(frame.closed).toBe(1);
+    }
     await handle.stop();
   });
 
@@ -358,23 +422,75 @@ describe('study session facade (wiring)', () => {
       expect(fresh.closed).toBe(1);
     });
 
-    it('a rebuild that fails, or takes over 8 s, switches to no-camera mode at once', async () => {
-      for (const outcome of [new VisionError('load_failed'), 'hang'] as const) {
+    it('a rebuild that fails, or takes over 30 s, switches to no-camera mode', async () => {
+      for (const outcome of [new VisionError('hash_mismatch'), 'hang'] as const) {
         const r = rebuildRig([outcome]);
         const f = fakeParts();
         const handle = await startStudySessionWith(r.options(), f.parts);
         await run(r, handle, 2_000);
         r.vision.contextLost = true;
-        await run(r, handle, outcome === 'hang' ? 7_000 : 1_000);
+        await run(r, handle, outcome === 'hang' ? 28_000 : 1_000);
         if (outcome === 'hang') {
           expect(eventsOf(r.events, 'mode')).toEqual([]);
-          await run(r, handle, 2_000);
+          await run(r, handle, 3_000);
         }
         expect(eventsOf(r.events, 'mode').map((e) => e.reason)).toEqual(['vision_failed']);
         expect(handle.report().mode).toBe('no-camera');
         expect(r.camera.last.stopped).toBe(1);
         await handle.stop();
       }
+    });
+
+    it('a slow rebuild keeps the camera healthy: frames are taken and closed, nothing absent', async () => {
+      const r = rebuildRig(['hang']);
+      const f = fakeParts();
+      const handle = await startStudySessionWith(r.options(), f.parts);
+      await run(r, handle, 2_000);
+      const source = r.camera.last;
+      const grabbed = source.frames.length;
+      r.vision.contextLost = true;
+      await run(r, handle, 25_000); // 25 s rebuild (a slow laptop after resume)
+      expect(eventsOf(r.events, 'mode')).toEqual([]);
+      expect(source.frames.length).toBeGreaterThan(grabbed + 20); // ~1 per second
+      for (const frame of source.frames) expect(frame.closed).toBe(1);
+      expect(source.stopped).toBe(0);
+      const lostAt = r.vision.calls.at(-1)?.frame.t ?? 0;
+      const blind = f.engine().ticks.filter((t) => t.now > lostAt);
+      expect(blind.length).toBeGreaterThan(20);
+      expect(blind.every((t) => t.frame === null && t.camera === 'ok')).toBe(true);
+      expect(handle.report().snapshot.hints).not.toContain('camera_lost');
+      expect(eventsOf(r.events, 'camera').filter((e) => e.status === 'error')).toEqual([]);
+      await handle.stop();
+    });
+
+    it('a rebuild that failed for a passing reason is retried and adopted late', async () => {
+      const r = rebuildRig([]);
+      let answer: ((vision: FakeVision) => void) | null = null;
+      r.deps.createVision = () => {
+        r.visionLoads += 1;
+        if (r.visionLoads === 1) return Promise.resolve(r.vision);
+        return new Promise((resolve) => {
+          answer = resolve;
+        });
+      };
+      const f = fakeParts();
+      const handle = await startStudySessionWith(r.options(), f.parts);
+      await run(r, handle, 2_000);
+      r.vision.contextLost = true;
+      await run(r, handle, 31_000);
+      expect(eventsOf(r.events, 'mode').map((e) => e.reason)).toEqual(['vision_failed']);
+      // The rebuild finally loads (seconds after its deadline): used to recover at once.
+      const late = new FakeVision(r.s);
+      (answer as unknown as (vision: FakeVision) => void)(late);
+      await run(r, handle, 3_000);
+      expect(eventsOf(r.events, 'mode').map((e) => e.reason)).toEqual([
+        'vision_failed',
+        'recovered',
+      ]);
+      expect(late.calls.length).toBeGreaterThan(3);
+      expect(late.closed).toBe(0);
+      await handle.stop();
+      expect(late.closed).toBe(1);
     });
 
     it('a second loss within 60 s of a rebuild gives up; a later one rebuilds again', async () => {
@@ -393,6 +509,8 @@ describe('study session facade (wiring)', () => {
       third.contextLost = true;
       await run(r, handle, 2_000);
       expect(eventsOf(r.events, 'mode').map((e) => e.reason)).toEqual(['vision_failed']);
+      // A broken GPU is still retried, with backoff (30 s, 60 s, …).
+      expect(handle.report().mode).toBe('no-camera');
       await handle.stop();
     });
 
@@ -449,7 +567,7 @@ describe('study session facade (wiring)', () => {
     await run(r, handle, 30_000);
     const loop = handle.report().loop;
     expect(loop?.processCpuPct).toBe(30);
-    expect(loop?.level).toBe(4);
+    expect(loop?.level).toBe(5); // down to the emergency level
     expect(loop?.overBudget).toBe(true);
     expect(handle.report().snapshot.hints).toContain('over_budget');
     await handle.stop();
@@ -459,14 +577,14 @@ describe('study session facade (wiring)', () => {
     // Main starts the analysis after the guardian accepted the session: rejecting here would
     // leave that session without reports, heartbeats, and so abandoned and punished.
     const r = rig();
-    r.camera.failWith = new CameraError('in_use');
+    r.camera.failWith = new CameraError('permission_denied');
     const f = fakeParts();
     const handle = await startStudySessionWith(r.options(), f.parts);
-    expect(r.vision.closed).toBe(1);
+    expect(r.vision.closed).toBe(1); // a denied permission will not pass: nothing kept
     expect(f.observers).toHaveLength(0);
     expect(f.engine().observer).toBeInstanceOf(NoCameraObserver);
     expect(r.events).toEqual([
-      { type: 'camera', at: expect.any(Number), status: 'error', error: 'in_use' },
+      { type: 'camera', at: expect.any(Number), status: 'error', error: 'permission_denied' },
       { type: 'mode', at: expect.any(Number), mode: 'no-camera', reason: 'vision_failed' },
     ]);
     for (const event of r.events) expect(isAnalysisOutbound({ type: 'event', event })).toBe(true);
@@ -477,11 +595,55 @@ describe('study session facade (wiring)', () => {
     expect(report.totals.ticks).toBeGreaterThan(0);
     // The camera error explains it: not the «the AI could not start» hint.
     expect(report.snapshot.hints).not.toContain('vision_failed');
-    expect(r.camera.calls).toHaveLength(1); // no-camera mode never retries the camera
+    await run(r, handle, 600_000);
+    expect(r.camera.calls).toHaveLength(1); // never retried: the user must allow it first
     expect(handle.continueWithoutCamera()).toBe(false); // already without camera
     expect(handle.studyingFeedback()).toEqual({ ok: false, reason: 'no_camera' });
     await handle.stop();
     expect(r.s.pending).toBe(0);
+  });
+
+  it('a camera busy at start (a video call) is retried and the session goes back to camera mode', async () => {
+    const r = rig();
+    r.camera.failWith = new CameraError('in_use');
+    const f = fakeParts();
+    const handle = await startStudySessionWith(r.options(), f.parts);
+    expect(r.vision.closed).toBe(0); // kept for the retries
+    await run(r, handle, (RECOVERY_DELAYS_MS[0] as number) + 1_000);
+    expect(r.camera.calls).toHaveLength(2); // retried at 30 s: still busy
+    expect(handle.report().mode).toBe('no-camera');
+    r.camera.failWith = null; // the call ended
+    await run(r, handle, RECOVERY_DELAYS_MS[1] as number);
+    expect(r.camera.calls).toHaveLength(3);
+    expect(r.visionLoads).toBe(1); // the pipeline was kept, not reloaded
+    const recovered = r.events.slice(2);
+    expect(recovered.slice(0, 2)).toEqual([
+      { type: 'camera', at: expect.any(Number), status: 'starting', error: null },
+      { type: 'mode', at: expect.any(Number), mode: 'camera', reason: 'recovered' },
+    ]);
+    expect(handle.report().mode).toBe('camera');
+    expect(handle.report().cameraOn).toBe(true);
+    expect(f.engine().observerSwaps).toEqual([f.observers[0]]);
+    expect(f.engine().ticks.at(-1)?.frame).not.toBeNull();
+    await handle.stop();
+    expect(r.s.pending).toBe(0);
+  });
+
+  it('«Seguir sin cámara» after a start-time failure stops the retries', async () => {
+    const r = rig();
+    r.camera.failWith = new CameraError('in_use');
+    const f = fakeParts();
+    const handle = await startStudySessionWith(r.options(), f.parts);
+    await run(r, handle, 2_000);
+    expect(handle.continueWithoutCamera()).toBe(true);
+    expect(eventsOf(r.events, 'mode').map((e) => e.reason)).toEqual(['vision_failed', 'user']);
+    expect(r.vision.closed).toBe(1);
+    r.camera.failWith = null;
+    await run(r, handle, 600_000);
+    expect(r.camera.calls).toHaveLength(1);
+    expect(handle.report().mode).toBe('no-camera');
+    expect(handle.continueWithoutCamera()).toBe(false);
+    await handle.stop();
   });
 
   it('a camera that never answers at start gives up after 15 s and stops the late stream', async () => {
@@ -500,7 +662,7 @@ describe('study session facade (wiring)', () => {
       { type: 'camera', at: expect.any(Number), status: 'error', error: 'unknown' },
     ]);
     expect(eventsOf(r.events, 'mode')).toHaveLength(1);
-    expect(r.vision.closed).toBe(1);
+    expect(r.vision.closed).toBe(0); // kept: a camera that did not answer is retried
     // The stream arrives much later: released at once, never analysed.
     const late = r.camera.answerHung();
     await r.s.advance(1_000);
@@ -511,7 +673,7 @@ describe('study session facade (wiring)', () => {
     await (handle as unknown as StudySessionHandle).stop();
   });
 
-  it('a vision load that never settles gives up after 30 s: no-camera mode, late pipeline closed', async () => {
+  it('a vision load that never settles gives up after 30 s; a late pipeline brings the camera back', async () => {
     const r = rig();
     const lateVision = new FakeVision(r.s);
     let answer: ((vision: FakeVision) => void) | null = null;
@@ -528,14 +690,47 @@ describe('study session facade (wiring)', () => {
     expect(handle).toBeNull();
     await r.s.advance(1_500);
     expect(handle).not.toBeNull();
-    expect(r.camera.opened[0]?.stopped).toBe(1);
+    expect(r.camera.calls).toHaveLength(0); // never on while MediaPipe loads
     expect(eventsOf(r.events, 'mode')).toEqual([
       { type: 'mode', at: expect.any(Number), mode: 'no-camera', reason: 'vision_failed' },
     ]);
+    // A slow laptop finishes compiling the WASM at 35 s: adopted, not thrown away.
     (answer as unknown as (vision: FakeVision) => void)(lateVision);
-    await r.s.advance(1_000);
+    const h = handle as unknown as StudySessionHandle;
+    await run(r, h, 3_000);
+    expect(r.camera.calls).toHaveLength(1);
+    expect(eventsOf(r.events, 'mode').map((e) => e.reason)).toEqual(['vision_failed', 'recovered']);
+    expect(lateVision.closed).toBe(0);
+    expect(lateVision.calls.length).toBeGreaterThan(3);
+    await h.stop();
     expect(lateVision.closed).toBe(1);
-    expect(lateVision.calls).toHaveLength(0);
+  });
+
+  it('opens the camera only once the vision pipeline is ready, and says so before any report', async () => {
+    const r = rig();
+    let answer: ((vision: FakeVision) => void) | null = null;
+    r.deps.createVision = () =>
+      new Promise((resolve) => {
+        answer = resolve;
+      });
+    const f = fakeParts();
+    let handle: StudySessionHandle | null = null;
+    void startStudySessionWith(r.options(), f.parts).then((h) => {
+      handle = h;
+    });
+    await r.s.advance(8_000); // MediaPipe compiling on a slow laptop
+    expect(r.camera.calls).toHaveLength(0); // the camera light is off meanwhile
+    (answer as unknown as (vision: FakeVision) => void)(r.vision);
+    await r.s.advance(1);
+    expect(r.camera.calls).toHaveLength(1);
+    expect(handle).not.toBeNull();
+    expect(r.reports).toHaveLength(0);
+    expect(r.events[0]).toEqual({
+      type: 'camera',
+      at: expect.any(Number),
+      status: 'starting',
+      error: null,
+    });
     await (handle as unknown as StudySessionHandle).stop();
   });
 
@@ -821,5 +1016,212 @@ describe('study session facade with the real engine', () => {
     const summary = await handle.stop();
     expect(summary.timeline.durationMs).toBeGreaterThan(10_000);
     expect(isAnalysisOutbound({ type: 'session_stopped', summary })).toBe(true);
+  });
+});
+
+describe('study session facade: the chosen camera, by label', () => {
+  const USB = 'Logitech C920 (046d:082d)';
+  const BUILT_IN = 'FaceTime HD Camera';
+  const USB_ID = { key: `sha256:${'b'.repeat(64)}`, aspect: 4 / 3 };
+
+  it('resolves the label in this window: the id main never had is found by enumeration', async () => {
+    const r = rig();
+    r.camera.devices = [
+      { deviceId: 'salted-built-in', label: BUILT_IN },
+      { deviceId: 'salted-usb', label: USB },
+    ];
+    const f = fakeParts();
+    const handle = await startStudySessionWith(r.options({ cameraLabel: USB }), f.parts);
+    expect(r.camera.calls.map((c) => c.deviceId)).toEqual(['salted-usb']);
+    await run(r, handle, 3_000);
+    expect(handle.report().snapshot.hints).not.toContain('camera_default');
+    await handle.stop();
+  });
+
+  it('unplugged and replugged into another port (new deviceId): back on the same camera', async () => {
+    const r = rig();
+    r.camera.devices = [{ deviceId: 'usb-port-1', label: USB }];
+    const f = fakeParts();
+    const handle = await startStudySessionWith(r.options({ cameraLabel: USB }), f.parts);
+    await run(r, handle, 2_000);
+    r.camera.devices = [];
+    r.camera.last.status = 'error'; // unplugged
+    await run(r, handle, 25_000);
+    expect(handle.report().camera).toBe('error'); // nothing to open: fails closed meanwhile
+    r.camera.devices = [{ deviceId: 'usb-port-2', label: USB }]; // a new raw id
+    await run(r, handle, 11_000);
+    expect(r.camera.last.deviceId).toBe('usb-port-2');
+    const report = handle.report();
+    expect(report.camera).toBe('ok');
+    expect(report.cameraOn).toBe(true);
+    expect(report.snapshot.hints).not.toContain('camera_default');
+    // The old id was never retried: every open resolved the label again.
+    expect(r.camera.calls.filter((c) => c.deviceId === 'usb-port-1')).toHaveLength(1);
+    await handle.stop();
+  });
+
+  it('a chosen camera that is missing: the default one, with the `camera_default` hint', async () => {
+    const r = rig();
+    r.camera.devices = [{ deviceId: 'built-in', label: BUILT_IN }];
+    r.camera.identities.set(USB, USB_ID);
+    const f = fakeParts();
+    const handle = await startStudySessionWith(r.options({ cameraLabel: USB }), f.parts);
+    expect(r.camera.last.deviceId).toBeNull(); // the default camera
+    expect(handle.report().mode).toBe('camera');
+    expect(handle.report().snapshot.hints).toContain('camera_default');
+    const hint = eventsOf(r.events, 'hint').find((e) => e.code === 'camera_default');
+    expect(hint?.active).toBe(true);
+    for (const e of r.events) expect(isAnalysisOutbound({ type: 'event', event: e })).toBe(true);
+
+    // Plugged in during a break: the reopen after the break finds it.
+    r.camera.devices = [
+      { deviceId: 'built-in', label: BUILT_IN },
+      { deviceId: 'usb', label: USB },
+    ];
+    await run(r, handle, 12_000, { ...WORK, phase: 'break' });
+    await run(r, handle, 2_000);
+    expect(r.camera.last.deviceId).toBe('usb');
+    expect(handle.report().snapshot.hints).not.toContain('camera_default');
+    const hints = eventsOf(r.events, 'hint').filter((e) => e.code === 'camera_default');
+    expect(hints.map((e) => e.active)).toEqual([true, false]);
+    await handle.stop();
+  });
+
+  it('a stale raw deviceId (another partition, an earlier run) falls back instead of failing', async () => {
+    const r = rig();
+    r.camera.devices = [{ deviceId: 'this-window-id', label: BUILT_IN }];
+    const f = fakeParts();
+    const handle = await startStudySessionWith(
+      r.options({ cameraDeviceId: 'id-from-the-settings-window' }),
+      f.parts,
+    );
+    expect(handle.report().mode).toBe('camera'); // not a silent no-camera session
+    expect(r.camera.last.deviceId).toBeNull();
+    await handle.stop();
+  });
+});
+
+describe('study session facade: a video on another display', () => {
+  it('maps `visibleDistraction` with idle input to a distraction in the foreground', () => {
+    const base: ContextInput = { phase: 'work', foreground: 'study', idleMs: 0 };
+    expect(engineContext(base)).toEqual({ foreground: 'study', idleMs: 0 });
+    const idle = VISIBLE_DISTRACTION_IDLE_MS;
+    expect(engineContext({ ...base, visibleDistraction: true, idleMs: idle - 1 })).toEqual({
+      foreground: 'study',
+      idleMs: idle - 1,
+    });
+    expect(engineContext({ ...base, visibleDistraction: true, idleMs: idle })).toEqual({
+      foreground: 'distraction',
+      idleMs: idle,
+    });
+    // Idle unknown: cannot tell watching from working.
+    expect(engineContext({ ...base, visibleDistraction: true, idleMs: null }).foreground).toBe(
+      'study',
+    );
+    expect(engineContext({ ...base, visibleDistraction: false, idleMs: idle }).foreground).toBe(
+      'study',
+    );
+  });
+
+  it('hands the engine the mapped context, and forgets the flag when main goes quiet', async () => {
+    const r = rig();
+    const f = fakeParts();
+    const handle = await startStudySessionWith(r.options(), f.parts);
+    const watching: ContextInput = { ...WORK, idleMs: 30_000, visibleDistraction: true };
+    await run(r, handle, 3_000, watching);
+    const engine = f.engine();
+    expect(engine.ticks.at(-1)?.context).toEqual({ foreground: 'distraction', idleMs: 30_000 });
+    await run(r, handle, 2_000, { ...watching, idleMs: 500 }); // typing in the notes
+    expect(engine.ticks.at(-1)?.context.foreground).toBe('study');
+    handle.setContext(watching);
+    await r.s.advance(7_000); // no context for 7 s: stale
+    expect(engine.ticks.at(-1)?.context).toEqual({ foreground: 'unknown', idleMs: null });
+    await handle.stop();
+  });
+});
+
+describe('study session facade: the governor alert', () => {
+  it('a phone in view keeps the detector at ≥ 1 Hz for 20 s, even at the slowest level', async () => {
+    const r = rig();
+    r.vision.cost = { faceMs: 30, objectMs: 0, lumaMs: 0.5, totalMs: 30.5 };
+    r.vision.objectMs = 60; // L4: (30.5 + 60 / 8) / 500 = 0.076
+    let phone = false;
+    r.vision.features = (frame, index) => {
+      const base = plainFeatures(frame.t);
+      const ran = r.vision.calls[index]?.options.objects === true;
+      if (!ran) return base;
+      return {
+        ...base,
+        objects: {
+          ranAt: frame.t,
+          ageMs: 0,
+          fresh: true,
+          phone: phone
+            ? {
+                score: 0.8,
+                box: { cx: 0.5, cy: 0.8, w: 0.12, h: 0.18 },
+                nearFace: true,
+                moving: false,
+                stillMs: 4_000,
+              }
+            : null,
+          book: null,
+          person: { score: 0.9, box: { cx: 0.5, cy: 0.6, w: 0.6, h: 0.8 } },
+        },
+      };
+    };
+    const f = fakeParts();
+    const handle = await startStudySessionWith(r.options(), f.parts);
+    await run(r, handle, 20_000);
+    expect(handle.report().loop?.level).toBe(4);
+    const runsIn = (from: number, to: number): number =>
+      r.vision.calls.filter((c) => c.options.objects && c.frame.t >= from && c.frame.t < to).length;
+    const t0 = r.s.t;
+    expect(runsIn(t0 - 16_000, t0)).toBeLessThanOrEqual(5); // every 4 s
+    phone = true;
+    await run(r, handle, 10_000);
+    const t1 = r.s.t;
+    // Seen within one slow run (≤ 4 s), then ≥ 1 Hz.
+    expect(runsIn(t1 - 5_000, t1)).toBeGreaterThanOrEqual(4);
+    phone = false;
+    await run(r, handle, PHONE_ALERT_MS + 12_000);
+    const t2 = r.s.t;
+    expect(runsIn(t2 - 8_000, t2)).toBeLessThanOrEqual(3); // back to every 4 s
+    expect(handle.report().loop?.level).toBe(4); // the alert never walked the levels down
+    await handle.stop();
+  });
+
+  it('a phone lying still (at rest) does not raise the detector rate', async () => {
+    const r = rig();
+    r.vision.cost = { faceMs: 30, objectMs: 0, lumaMs: 0.5, totalMs: 30.5 };
+    r.vision.objectMs = 60;
+    r.vision.features = (frame, index) => {
+      const base = plainFeatures(frame.t);
+      if (r.vision.calls[index]?.options.objects !== true) return base;
+      return {
+        ...base,
+        objects: {
+          ranAt: frame.t,
+          ageMs: 0,
+          fresh: true,
+          phone: {
+            score: 0.6,
+            box: { cx: 0.8, cy: 0.9, w: 0.1, h: 0.08 },
+            nearFace: false,
+            moving: false,
+            stillMs: 120_000,
+          },
+          book: null,
+          person: null,
+        },
+      };
+    };
+    const f = fakeParts();
+    const handle = await startStudySessionWith(r.options(), f.parts);
+    await run(r, handle, 40_000);
+    const t = r.s.t;
+    const runs = r.vision.calls.filter((c) => c.options.objects && c.frame.t >= t - 16_000);
+    expect(runs.length).toBeLessThanOrEqual(5);
+    await handle.stop();
   });
 });

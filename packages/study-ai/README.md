@@ -21,6 +21,7 @@ La IA del Study Mode de Céntrate: mira la cámara (o, sin cámara, la app en pr
 - **Un libro** en la imagen suma.
 - **Los ojos cerrados** mucho rato no dan strike: te sugieren un descanso.
 - **Una app de distracción en primer plano** solo cuenta si estás mirando la pantalla. Si escribes en tu cuaderno con música puesta, sigues estudiando.
+- **Un vídeo en la segunda pantalla** mientras tus apuntes tienen el foco cuenta como distracción solo si no tocas el teclado ni el ratón durante 10 s: si escribes en el ordenador o en papel, sigues estudiando.
 
 ### Tu IA personal
 
@@ -38,22 +39,25 @@ La IA del Study Mode de Céntrate: mira la cámara (o, sin cámara, la app en pr
 
 Usa solo la app o web en primer plano y si tocas el teclado o el ratón. Si estás en una distracción, o llevas mucho rato sin tocar nada (8 min por defecto), te pregunta «¿Sigues ahí?».
 
+Si la cámara falla al empezar (otra app la está usando, está desenchufada), la sesión sigue sin cámara y lo vuelve a intentar sola cada poco; «Seguir sin cámara» deja de intentarlo.
+
 ### Privacidad
 
 - **Ninguna imagen se guarda, se sube ni sale del proceso.** De cada fotograma solo salen números (ángulos, probabilidades), y el fotograma se libera al momento.
 - **Solo se guarda `profile.json`**, con los números de la calibración, en la carpeta de datos de la app. «Borrar todos mis datos» lo elimina.
 - **La ventana que analiza la cámara no tiene acceso a internet.** La librería MediaPipe intenta enviar estadísticas de uso a Google y Céntrate lo bloquea.
-- **Gasta menos del 15 % de CPU:** si tu ordenador va justo, baja sola a 2 fotogramas por segundo.
+- **Gasta menos del 15 % de CPU:** si tu ordenador va justo, baja sola a 2 fotogramas por segundo y busca el móvil con menos frecuencia (salvo cuando acaba de ver uno). En un ordenador muy lento analiza aún menos fotogramas antes que pasarse del 15 %.
 
 ## Estado
 
-Diseño cerrado en [DESIGN.md](DESIGN.md). Los módulos marcados como _stub_ lanzan `not implemented` hasta que su equipo los termine (ver DESIGN.md §4). La integración en la app de escritorio se documentará en `HANDOFF.md`.
+Todos los módulos están implementados y probados en Node (y en Chromium con `npm run test:browser`). El diseño está en [DESIGN.md](DESIGN.md); **la integración en la app de escritorio (ventana oculta, IPC, latidos, strikes, interfaz) está en [HANDOFF.md](HANDOFF.md), que manda sobre DESIGN.md en todo lo que toca a la integración.**
 
 ---
 
 ## API (English)
 
-Full specification: [DESIGN.md](DESIGN.md). Contract: [`src/types.ts`](src/types.ts).
+Design: [DESIGN.md](DESIGN.md). Contract: [`src/types.ts`](src/types.ts). **Integration (the
+authoritative spec for the desktop): [HANDOFF.md](HANDOFF.md).**
 
 ### Entry points
 
@@ -74,27 +78,45 @@ bridge.onMessage((m) => host.handle(m)); // AnalysisInbound, validated inside
 
 **Messages:**
 
-- **main → window** (`AnalysisInbound`): `session_start`, `context` (1 Hz: phase, foreground class, idle ms), `settings`, `strike_result`, `studying_feedback`, `continue_without_camera`, `resume`, `session_stop`, `calibration_*`.
+- **main → window** (`AnalysisInbound`): `session_start` (with a camera **label**, never a `deviceId`: HANDOFF §3.1), `context` (1 Hz: phase, foreground class, idle ms, optional `visibleDistraction`), `settings`, `strike_result`, `studying_feedback`, `continue_without_camera`, `resume`, `session_stop`, `calibration_*`, `list_cameras`.
 - **window → main** (`AnalysisOutbound`):
   - `event`: `warning`, `strike`, `suggest_break`, `hint`, `state`, `profile_updated`, `camera`, `mode`;
   - `report` (1 Hz, cumulative totals);
-  - `feedback_result`, `session_stopped`, `calibration_progress`, `calibration_recorded`, `calibration_built`, `error`.
+  - `feedback_result`, `session_stopped`, `calibration_progress`, `calibration_recorded`, `calibration_built`, `cameras`, `error`.
 
 ### Electron main
+
+Follow [HANDOFF.md §4](HANDOFF.md#4-main-loop-during-a-session): heartbeats and strikes must
+be **exactly once**, and the naive loop (a new body and a new `seq` on every tick, a strike
+POST without a key) loses focus time or counts it twice when a request fails, and turns a
+retried strike into a second −15. In short:
 
 ```ts
 import { HeartbeatAccumulator, isAnalysisOutbound } from '@centrate/study-ai';
 
-const heartbeats = new HeartbeatAccumulator();
+const acc = new HeartbeatAccumulator();
+let seq = session.lastHeartbeatSeq; // continue the guardian's seq, never restart at 0
+let pending: HeartbeatRequest | null = null; // sent but not answered: resent UNCHANGED
+
 onAnalysisMessage((m) => {
   if (!isAnalysisOutbound(m)) return;
-  if (m.type === 'report') heartbeats.report(m.report, performance.now());
-  if (m.type === 'event' && m.event.type === 'strike') postStrike(m.event.cause, m.event.seq);
+  if (m.type === 'report') acc.report(m.report, performance.now());
+  if (m.type === 'event' && m.event.type === 'strike') {
+    // Retried with the same key and body until the guardian answers (HANDOFF §4).
+    postStrike(m.event.cause, { idempotencyKey: `${sessionId}:${runId}:${m.event.seq}` });
+  }
 });
-setInterval(() => {
-  const body = heartbeats.take(performance.now()); // null → analysis loop dead: stop heartbeating
-  if (body) postHeartbeat({ seq: nextSeq(), ...body });
-}, 15_000);
+
+async function heartbeat(): Promise<void> {
+  if (pending === null) {
+    const body = acc.take(performance.now()); // null → analysis loop dead: stop heartbeating
+    if (body === null) return;
+    pending = { seq: seq + 1, ...body };
+  }
+  const res = await guardian.studyHeartbeat(sessionId, pending); // on failure: keep `pending`
+  seq = Math.max(pending.seq, res.session.lastHeartbeatSeq);
+  pending = null;
+}
 ```
 
 ### Main building blocks
@@ -106,9 +128,10 @@ setInterval(() => {
 | `MODEL_MANIFEST`, `ANALYSIS_ASSETS`, `isAllowedAssetUrl`                   | PERCEPTION | Pinned offline models, local asset URLs, the local-only URL rule.                      |
 | `createVisionPipeline`, `openCamera`, `FeatureExtractor`, `poseFromMatrix` | PERCEPTION | Camera frames → `FrameFeatures` (numbers only).                                        |
 | `CalibrationRecorder`, `buildProfile`, `parseProfile`, `serializeProfile`  | LEARNING   | 5-situation calibration → `CalibrationProfile` (softmax, CV).                          |
+| `profileStatus`, `calibrationSteps`, `nextPendingSituation`                | LEARNING   | Wizard rows and «calibrado» header in main, from the JSON, without retraining.         |
 | `createPersonalClassifier`, `createGenericClassifier`, `learnFromFeedback` | LEARNING   | Class probabilities per frame; «¡Estaba estudiando!» retraining.                       |
 | `CameraObserver`, `AttentionEngine`, `heartbeatState`, `bucketizeTimeline` | DECISION   | Fusion rules, smoothing, hysteresis, ENFOCADO → DUDA → STRIKE, totals, timeline.       |
-| `NoCameraObserver`, `CpuGovernor`, `AdaptiveLoop`                          | RUNTIME    | No-camera mode, CPU budget, setTimeout loop.                                           |
+| `NoCameraObserver`, `CpuGovernor`, `AdaptiveLoop`                          | RUNTIME    | No-camera mode, CPU budget (hard 15 % duty cap), setTimeout loop.                      |
 | `startStudySession`, `startCalibration`, `createAnalysisHost`              | RUNTIME    | Facades that wire everything and speak the IPC contract.                               |
 | `HeartbeatAccumulator`                                                     | RUNTIME    | Main-side deltas for the 15 s heartbeat; dead-loop detection.                          |
 

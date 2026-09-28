@@ -93,6 +93,8 @@ export const ACTIVITIES = [
   'typing',
   'notebook',
   'readBook',
+  'sideNotebook',
+  'sideBook',
   'phoneInHand',
   'phoneOnDesk',
   'phoneOnStand',
@@ -155,6 +157,8 @@ interface ActivitySpec {
   person: number;
   phone: PhoneSpec | null;
   book: ObjectSpec | null;
+  /** Horizontal offset of the book box from the face (× side). */
+  bookDx?: number;
   /** Probability per second of a keyboard/mouse event. */
   inputRate: number;
   luma: 'normal' | 'dark' | 'covered';
@@ -208,6 +212,36 @@ const SPECS: Readonly<Record<Activity, ActivitySpec>> = {
     boxDy: 0.04,
     faceDrop: 0.1,
     book: { score: [0.5, 0.9], detectP: 0.6 },
+    inputRate: 0,
+  },
+  /** Writing in a notebook lying next to the laptop, 40° to one side. */
+  sideNotebook: {
+    ...SCREEN,
+    yaw: (_p, side) => side * 40,
+    pitch: -35,
+    poseSd: 2.5,
+    blinkAdd: 0.3,
+    lookDown: 0.6,
+    truncated: 0.1,
+    boxDy: 0.06,
+    faceDrop: 0.3,
+    book: { score: [0.4, 0.7], detectP: 0.3 },
+    bookDx: 0.3,
+    inputRate: 0,
+  },
+  /** Reading a textbook lying next to the laptop, 40° to one side. */
+  sideBook: {
+    ...SCREEN,
+    yaw: (_p, side) => side * 40,
+    pitch: -25,
+    poseSd: 2,
+    blinkAdd: 0.2,
+    lookDown: 0.5,
+    truncated: 0.15,
+    boxDy: 0.04,
+    faceDrop: 0.1,
+    book: { score: [0.5, 0.9], detectP: 0.6 },
+    bookDx: 0.3,
     inputRate: 0,
   },
   phoneInHand: {
@@ -437,7 +471,8 @@ export function synthesize(script: Script, options: SynthOptions = {}): SynthTic
         );
         let book: ObjectDetection | null = null;
         if (spec.book && rng() < spec.book.detectP) {
-          book = { score: range(rng, spec.book.score), box: boxAround(box, 0, 0.45, 0.35, 0.2) };
+          const dx = (spec.bookDx ?? 0) * side;
+          book = { score: range(rng, spec.book.score), box: boxAround(box, dx, 0.45, 0.35, 0.2) };
         }
         let person: ObjectDetection | null = null;
         const personScore = spec.person + gaussian(rng, 0, 0.03);

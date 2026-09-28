@@ -5,8 +5,8 @@ import type { ProgresoMessages } from './es';
 
 export const PROGRESO_EN: ProgresoMessages = {
   /**
-   * Section 2 takes «Homework» h, «Exam» e, «Read» a, «More…» o, the card's modes n t h e,
-   * «Block» b, the extend row 5 0 h o, section 1 r d i and the footer m s q.
+   * Section 1 takes r d i, the footer m s q, and section 2 the first free letter of its labels
+   * (0 5 a b e h n o p t y across the fixtures).
    */
   mnemonics: { stats: 'c', rewards: 'w', achievements: 'v' },
   achievementsCount: (achieved: string, total: string): string =>

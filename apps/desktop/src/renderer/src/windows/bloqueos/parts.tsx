@@ -20,17 +20,22 @@ export function isPlainEnter(event: KeyboardEvent): boolean {
   );
 }
 
-/** «marca.com ×»: a chip whose press removes the entry (its name is the visible text). */
+/**
+ * «marca.com ×»: a chip whose press removes the entry (its name is the visible text). `pending`
+ * draws it dashed: an addition that is still waiting to apply («geogebra.org · desde mañana»).
+ */
 export function EntryChip(props: {
   label: string;
   ariaLabel: string;
   describedBy?: string;
+  pending?: boolean;
   onPress(): void;
 }): React.JSX.Element {
   return (
     <button
       type="button"
       className="blq-chip"
+      data-kind={props.pending ? 'pending' : undefined}
       aria-label={props.ariaLabel}
       aria-describedby={props.describedBy}
       onClick={props.onPress}

@@ -1,12 +1,51 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CpuGovernor } from '../../src/runtime/governor';
-import { AdaptiveLoop, type LoopStep } from '../../src/runtime/loop';
+import { AdaptiveLoop, DUTY_BURST_MS, MAX_STEP_DUTY, type LoopStep } from '../../src/runtime/loop';
 import { analyseNextFrame, FrameCadence } from '../../src/runtime/frame-step';
 import type { LoopPlan, StepCost } from '../../src/types';
 import { FakeScheduler, FakeSource, FakeVision } from './fakes';
 
 function frameCost(at: number): StepCost {
   return { at, visionMs: 10, objectMs: 0, otherMs: 1, ranObjects: false, faceSeen: true };
+}
+
+/**
+ * Chromium's timer alignment for a hidden page that is throttled anyway (no
+ * `backgroundThrottling: false`): every timer fires on the next whole second.
+ */
+class AlignedScheduler extends FakeScheduler {
+  override set(fn: () => void, ms: number): unknown {
+    const at = Math.ceil((this.t + Math.max(0, ms)) / 1_000) * 1_000;
+    return super.set(fn, at - this.t);
+  }
+}
+
+/** Runs a loop whose every step computes for `computeMs` (the fake clock moves meanwhile). */
+async function dutyOf(
+  computeMs: number,
+  seconds: number,
+): Promise<{ duty: number; steps: number; loop: AdaptiveLoop; governor: CpuGovernor }> {
+  const s = new FakeScheduler();
+  const governor = new CpuGovernor();
+  let busy = 0;
+  let steps = 0;
+  const loop = new AdaptiveLoop(
+    async (now) => {
+      steps += 1;
+      s.t += computeMs;
+      busy += computeMs;
+      return { ...frameCost(now), visionMs: computeMs, otherMs: 0 };
+    },
+    governor,
+    s,
+    s,
+  );
+  loop.start();
+  await s.advance(seconds * 1_000);
+  // Up to the next step: a step's idle time comes after it, so a window that ends right after
+  // a long step would cut its repayment off.
+  const nextAt = s.t + Math.min(...s.delays());
+  return { duty: busy / nextAt, steps, loop, governor };
 }
 
 function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
@@ -57,8 +96,8 @@ describe('AdaptiveLoop', () => {
     const loop = new AdaptiveLoop(
       async (now) => {
         steps += 1;
-        s.t += 150; // slow machine: L4 at 2 fps
-        return { ...frameCost(now), visionMs: 150 };
+        s.t += 60; // slow machine: the emergency level, still 2 fps (duty 0.12 < the cap)
+        return { ...frameCost(now), visionMs: 60 };
       },
       g,
       s,
@@ -67,7 +106,7 @@ describe('AdaptiveLoop', () => {
     loop.start();
     await s.advance(60_000);
     loop.stop();
-    expect(g.level).toBe(4);
+    expect(g.level).toBe(5);
     // 2 fps for 60 s despite 7 ms of latency on every timer.
     expect(steps).toBeGreaterThanOrEqual(119);
     expect(steps).toBeLessThanOrEqual(121);
@@ -248,9 +287,181 @@ describe('AdaptiveLoop', () => {
     await s.advance(3_000);
     loop.stop();
     expect(plans[0]?.level).toBe(1);
-    expect(plans[plans.length - 1]?.level).toBe(4);
+    expect(plans[plans.length - 1]?.level).toBe(5);
     expect(loop.stats.overBudget).toBe(true);
-    expect(loop.stats.level).toBe(4);
+    expect(loop.stats.level).toBe(5);
+  });
+
+  it('passes the alert to the governor: the detector at ≥ 1 Hz while a phone was seen', async () => {
+    const s = new FakeScheduler();
+    const plans: LoopPlan[] = [];
+    let alert = false;
+    const loop = new AdaptiveLoop(
+      async (now, plan) => {
+        plans.push(plan);
+        s.t += 30;
+        return { ...frameCost(now), visionMs: 30, objectMs: 60, ranObjects: true, alert };
+      },
+      new CpuGovernor(),
+      s,
+      s,
+    );
+    loop.start();
+    await s.advance(5_000);
+    const calm = plans[plans.length - 1] as LoopPlan;
+    expect(calm.objectEvery * calm.intervalMs).toBeGreaterThan(1_000); // L4/L5: every 4–8 s
+    alert = true;
+    await s.advance(2_000);
+    const alerted = plans[plans.length - 1] as LoopPlan;
+    expect(alerted.objectEvery * alerted.intervalMs).toBeLessThanOrEqual(1_000);
+    loop.stop();
+  });
+});
+
+describe('AdaptiveLoop: hard duty cap', () => {
+  const allowed = (seconds: number): number => MAX_STEP_DUTY + DUTY_BURST_MS / (seconds * 1_000);
+
+  for (const computeMs of [150, 400, 600, 900]) {
+    it(`a ${computeMs} ms step never takes more than ${MAX_STEP_DUTY * 100} % of a core`, async () => {
+      const { duty, steps, loop, governor } = await dutyOf(computeMs, 60);
+      // Without the cap: 30 %, 81 %, 99 %, 99 % of a core at L4 (a busy loop).
+      expect(duty).toBeLessThanOrEqual(allowed(60));
+      // It keeps analysing, as fast as the cap allows.
+      expect(steps).toBeGreaterThanOrEqual(Math.floor((60_000 * MAX_STEP_DUTY) / computeMs) - 1);
+      expect(governor.level).toBe(5);
+      expect(loop.stats.overBudget).toBe(true);
+      loop.stop();
+    });
+  }
+
+  it('leaves normal costs alone: 3–4 fps, never delayed by the cap', async () => {
+    const { duty, steps, loop } = await dutyOf(15, 30);
+    expect(duty).toBeLessThan(0.07);
+    expect(steps).toBeGreaterThanOrEqual(89);
+    expect(loop.stats.overBudget).toBe(false);
+    loop.stop();
+  });
+
+  it('absorbs a slow detector run among fast frames without slowing the frame rate', async () => {
+    // L4-like pace: 30 ms frames, a 200 ms detector every 8th frame = 11 % on average.
+    const s = new FakeScheduler();
+    let i = 0;
+    const starts: number[] = [];
+    const loop = new AdaptiveLoop(
+      async (now) => {
+        starts.push(now);
+        const ranObjects = i % 8 === 0;
+        i += 1;
+        const objectMs = ranObjects ? 200 : 0;
+        s.t += 30 + objectMs;
+        return { ...frameCost(now), visionMs: 30, objectMs, otherMs: 0, ranObjects };
+      },
+      new CpuGovernor({}, [{ intervalMs: 500, objectEvery: 8 }]),
+      s,
+      s,
+    );
+    loop.start();
+    await s.advance(60_000);
+    loop.stop();
+    const inLastMinute = starts.filter((t) => t >= 0).length;
+    expect(inLastMinute).toBeGreaterThanOrEqual(118); // 2 fps kept
+  });
+
+  it('counts only the compute, not the wait for the next camera frame', async () => {
+    const s = new FakeScheduler();
+    let steps = 0;
+    const loop = new AdaptiveLoop(
+      async (now) => {
+        steps += 1;
+        s.t += 200; // grabFrame waits for the next frame (5 fps camera): idle, not CPU
+        s.t += 20;
+        return { ...frameCost(now), visionMs: 20, otherMs: 0 };
+      },
+      new CpuGovernor(),
+      s,
+      s,
+    );
+    loop.start();
+    await s.advance(30_000);
+    loop.stop();
+    expect(steps).toBeGreaterThanOrEqual(85); // ~3 fps: the cap never kicks in
+    expect(loop.stats.overBudget).toBe(false);
+  });
+
+  it('a failing step is charged its wall time', async () => {
+    const s = new FakeScheduler();
+    let steps = 0;
+    const loop = new AdaptiveLoop(
+      async () => {
+        steps += 1;
+        s.t += 600;
+        throw new Error('WASM abort');
+      },
+      new CpuGovernor(),
+      s,
+      s,
+    );
+    loop.start();
+    await s.advance(60_000);
+    const nextAt = s.t + Math.min(...s.delays());
+    loop.stop();
+    expect(loop.stats.errors).toBe(steps);
+    expect((steps * 600) / nextAt).toBeLessThanOrEqual(allowed(60));
+  });
+});
+
+describe('AdaptiveLoop: throttling', () => {
+  it('flags timers aligned to 1 s wake-ups (a hidden page throttled anyway)', async () => {
+    const s = new AlignedScheduler();
+    const loop = new AdaptiveLoop(
+      async (now) => {
+        s.t += 10;
+        return frameCost(now);
+      },
+      new CpuGovernor(),
+      s,
+      s,
+    );
+    loop.start();
+    await s.advance(120_000);
+    // Still exactly one tick per second: the tick count alone never noticed.
+    expect(loop.stats.fps).toBeLessThanOrEqual(1.05);
+    expect(loop.stats.maxGapMs).toBeLessThanOrEqual(1_000);
+    expect(loop.stats.throttled).toBe(true);
+    loop.stop();
+  });
+
+  it('does not flag a normal loop, even with some timer latency', async () => {
+    const s = new FakeScheduler();
+    s.latency = 30;
+    const loop = new AdaptiveLoop(
+      async (now) => {
+        s.t += 10;
+        return frameCost(now);
+      },
+      new CpuGovernor(),
+      s,
+      s,
+    );
+    loop.start();
+    await s.advance(120_000);
+    expect(loop.stats.throttled).toBe(false);
+    loop.stop();
+  });
+
+  it('never flags a break: idle ticks do not count, even on 1 s-aligned timers', async () => {
+    const s = new AlignedScheduler();
+    const loop = new AdaptiveLoop(async () => null, new CpuGovernor(), s, s);
+    loop.start();
+    await s.advance(120_000);
+    expect(loop.stats.throttled).toBe(false);
+    loop.stop();
+  });
+
+  it('does not flag the duty cap stretching the steps', async () => {
+    const { loop } = await dutyOf(400, 120);
+    expect(loop.stats.throttled).toBe(false);
+    loop.stop();
   });
 });
 

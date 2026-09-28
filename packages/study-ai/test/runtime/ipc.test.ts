@@ -23,7 +23,7 @@ const INBOUND: AnalysisInbound[] = [
     mode: 'camera',
     settings: { doubtAfterMs: 20_000, focusScoreThreshold: 60 },
     profileJson: '{"format":"centrate-study-ai-profile"}',
-    cameraDeviceId: 'abc123',
+    cameraLabel: 'Logitech C920 (046d:082d)',
     context: CONTEXT,
   },
   {
@@ -31,10 +31,11 @@ const INBOUND: AnalysisInbound[] = [
     mode: 'no-camera',
     settings: {},
     profileJson: null,
-    cameraDeviceId: null,
+    cameraLabel: null,
     context: { phase: 'break', foreground: 'unknown', idleMs: null },
   },
   { type: 'context', context: CONTEXT },
+  { type: 'context', context: { ...CONTEXT, visibleDistraction: true } },
   { type: 'settings', settings: { noCameraIdleMs: 300_000 } },
   { type: 'strike_result', ack: { seq: 1, counted: true, reason: null, cooldownLeftMs: 60_000 } },
   {
@@ -45,11 +46,13 @@ const INBOUND: AnalysisInbound[] = [
   { type: 'continue_without_camera' },
   { type: 'resume' },
   { type: 'session_stop' },
-  { type: 'calibration_start', profileJson: null, cameraDeviceId: null },
+  { type: 'calibration_start', profileJson: null, cameraLabel: null },
+  { type: 'calibration_start', profileJson: null, cameraLabel: 'FaceTime HD Camera' },
   { type: 'calibration_record', cls: 'paper' },
   { type: 'calibration_cancel' },
   { type: 'calibration_build' },
   { type: 'calibration_close' },
+  { type: 'list_cameras' },
 ];
 
 const SNAPSHOT: AttentionSnapshot = {
@@ -122,6 +125,8 @@ const OUTBOUND: AnalysisOutbound[] = [
   { type: 'event', event: { type: 'camera', at: 1, status: 'error', error: 'in_use' } },
   { type: 'event', event: { type: 'camera', at: 1, status: 'ok', error: null } },
   { type: 'event', event: { type: 'mode', at: 1, mode: 'no-camera', reason: 'vision_failed' } },
+  { type: 'event', event: { type: 'mode', at: 1, mode: 'camera', reason: 'recovered' } },
+  { type: 'event', event: { type: 'hint', at: 1, code: 'camera_default', active: true } },
   { type: 'report', report: REPORT },
   { type: 'report', report: { ...REPORT, mode: 'no-camera', loop: null } },
   { type: 'feedback_result', outcome: { ok: true, added: 12, doubtCleared: true } },
@@ -183,6 +188,11 @@ const OUTBOUND: AnalysisOutbound[] = [
   },
   { type: 'error', code: 'camera_failed', camera: 'permission_denied' },
   { type: 'error', code: 'busy', camera: null },
+  {
+    type: 'cameras',
+    cameras: [{ label: 'FaceTime HD Camera' }, { label: 'Logitech C920 (046d:082d)' }],
+  },
+  { type: 'cameras', cameras: [] },
 ];
 
 /** Every way to damage one leaf or key of a message. */
@@ -233,7 +243,7 @@ function acceptableAnyway(candidate: unknown, check: (v: unknown) => boolean): b
 describe('isAnalysisInbound', () => {
   it('accepts every inbound message type', () => {
     const types = new Set(INBOUND.map((m) => m.type));
-    expect(types.size).toBe(13);
+    expect(types.size).toBe(14);
     for (const message of INBOUND) expect(isAnalysisInbound(message), message.type).toBe(true);
   });
 
@@ -266,17 +276,59 @@ describe('isAnalysisInbound', () => {
     expect(accepted / (accepted + rejected)).toBeLessThan(0.15);
   });
 
-  it('caps the profile JSON at 512 KB and device ids at 512 characters', () => {
+  it('caps the profile JSON at 512 KB and camera labels at 256 characters', () => {
     const big = 'x'.repeat(512 * 1024 + 1);
     expect(
-      isAnalysisInbound({ type: 'calibration_start', profileJson: big, cameraDeviceId: null }),
+      isAnalysisInbound({ type: 'calibration_start', profileJson: big, cameraLabel: null }),
     ).toBe(false);
     expect(
       isAnalysisInbound({
         type: 'calibration_start',
         profileJson: null,
-        cameraDeviceId: 'd'.repeat(513),
+        cameraLabel: 'd'.repeat(257),
       }),
+    ).toBe(false);
+  });
+
+  it('takes a camera label, never the old raw `cameraDeviceId`', () => {
+    // A deviceId is salted per partition and run: main must never send one (HANDOFF §3).
+    expect(
+      isAnalysisInbound({ type: 'calibration_start', profileJson: null, cameraDeviceId: null }),
+    ).toBe(false);
+    expect(
+      isAnalysisInbound({
+        type: 'calibration_start',
+        profileJson: null,
+        cameraLabel: null,
+        cameraDeviceId: 'abc',
+      }),
+    ).toBe(false);
+    expect(isAnalysisInbound({ type: 'list_cameras', extra: 1 })).toBe(false);
+  });
+
+  it('pairs `recovered` with camera mode only', () => {
+    const mode = (m: string, reason: string) => ({
+      type: 'event',
+      event: { type: 'mode', at: 1, mode: m, reason },
+    });
+    expect(isAnalysisOutbound(mode('camera', 'recovered'))).toBe(true);
+    expect(isAnalysisOutbound(mode('no-camera', 'user'))).toBe(true);
+    expect(isAnalysisOutbound(mode('no-camera', 'recovered'))).toBe(false);
+    expect(isAnalysisOutbound(mode('camera', 'vision_failed'))).toBe(false);
+    expect(isAnalysisOutbound(mode('camera', 'user'))).toBe(false);
+  });
+
+  it('accepts `visibleDistraction` in the context only as a boolean', () => {
+    const context = { phase: 'work', foreground: 'study', idleMs: 0 };
+    expect(isAnalysisInbound({ type: 'context', context })).toBe(true);
+    expect(
+      isAnalysisInbound({ type: 'context', context: { ...context, visibleDistraction: false } }),
+    ).toBe(true);
+    expect(
+      isAnalysisInbound({ type: 'context', context: { ...context, visibleDistraction: 'yes' } }),
+    ).toBe(false);
+    expect(
+      isAnalysisInbound({ type: 'context', context: { ...context, visibleTitle: 'YouTube' } }),
     ).toBe(false);
   });
 
@@ -313,7 +365,7 @@ describe('isAnalysisInbound', () => {
 describe('isAnalysisOutbound', () => {
   it('accepts every outbound message type and event type', () => {
     const types = new Set(OUTBOUND.map((m) => m.type));
-    expect(types.size).toBe(8);
+    expect(types.size).toBe(9);
     for (const message of OUTBOUND) {
       expect(isAnalysisOutbound(message), JSON.stringify(message).slice(0, 80)).toBe(true);
     }

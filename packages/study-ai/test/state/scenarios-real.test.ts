@@ -221,8 +221,38 @@ describe.runIf(ready)('real classifiers', { timeout: HEAVY_MS }, () => {
     expect(rec.strikes()).toEqual([]);
   });
 
+  it('a profile that goes stale mid-session (external monitor at another desk) falls back', () => {
+    // Calibrated on the laptop screen only; the same built-in camera matches at home, where
+    // after 3 min on the laptop the user types nonstop on an external monitor to the side.
+    for (const secondScreenYaw of [25, 40]) {
+      const persona: Persona = { ...PERSONAS.baseline, secondScreenYaw };
+      const ticks = synthesize(
+        [
+          ['typing', 3 * MIN],
+          ['secondMonitor', 10 * MIN],
+        ],
+        { persona, seed: 21 },
+      ).map((t) => (t.now >= 3 * MIN ? { ...t, context: { ...t.context, idleMs: 500 } } : t));
+      const { rec } = cameraEngine(
+        createPersonalClassifier(profileFor(PERSONAS.baseline, 43, false)),
+        { fallback: createGenericClassifier() },
+      );
+      rec.synth(ticks);
+      const label = `${secondScreenYaw}°`;
+      expect(rec.strikes(), label).toEqual([]);
+      expect(rec.engine.snapshot().classifier, label).toBe('generic');
+      expect(
+        rec.of('hint').map((e) => e.code),
+        label,
+      ).toContain('recalibrate');
+      expect(focusShare(rec), label).toBeGreaterThanOrEqual(0.9);
+    }
+  });
+
   it('«¡Estaba estudiando!» teaches an uncalibrated study posture and clears the DUDA', () => {
-    // Calibrated on the main screen only; then studies on the second monitor.
+    // Calibrated on the main screen only; then reads on the second monitor without touching
+    // the keyboard (typing there would make the rolling stale-profile check fall back to the
+    // generic classifier before any DUDA: see the test above).
     let profile = profileFor(PERSONAS.baseline, 41, false);
     const { rec, engine, observer } = cameraEngine(createPersonalClassifier(profile), {
       fallback: createGenericClassifier(),
@@ -233,7 +263,7 @@ describe.runIf(ready)('real classifiers', { timeout: HEAVY_MS }, () => {
         ['secondMonitor', 4 * MIN],
       ],
       { seed: 19 },
-    );
+    ).map((t) => (t.now >= MIN ? { ...t, context: { ...t.context, idleMs: t.now } } : t));
     let clicked = false;
     for (const t of ticks) {
       const out = rec.tick({

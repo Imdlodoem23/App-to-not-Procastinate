@@ -5,21 +5,21 @@ import type { LogrosMessages } from './es';
 
 export const LOGROS_EN: LogrosMessages = {
   title: (achieved: string, total: string): string => `Achievements: ${achieved} of ${total}`,
+  titleLoading: 'Achievements',
   loading: 'Reading your achievements…',
   last: (title: string): string => `Latest: ${title}`,
+  fresh: (title: string): string => `New: ${title}`,
+  freshMany: (count: string): string => `${count} new achievements`,
   rowLabel: 'Your achievements',
-  rowHelp: 'Pick an achievement to see how to get it',
-  status: {
-    achieved: 'Earned',
-    fresh: 'New',
-    pending: 'Not yet',
-    progress: (current: string, threshold: string): string => `${current} of ${threshold}`,
-    hours: (current: string, threshold: string): string => `${current} of ${threshold} h`,
-  },
+  rowHelp: 'Point at an achievement to see how to get it',
+  rowHelpNone: 'None yet: point at one to see how to get it',
   help: {
     achievedOn: (date: string): string => `Earned on ${date}`,
     achieved: 'Earned',
+    freshOn: (date: string): string => `New: earned on ${date}`,
+    fresh: 'New: you just earned it',
     pending: (how: string, progress: string): string => `${how} · ${progress}`,
+    progress: (current: string, threshold: string): string => `${current} of ${threshold}`,
     minutes: (current: string, threshold: string): string => `${current} of ${threshold}`,
   },
   errors: {

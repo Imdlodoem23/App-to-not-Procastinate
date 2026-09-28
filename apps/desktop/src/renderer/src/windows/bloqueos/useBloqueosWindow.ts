@@ -5,6 +5,10 @@
  * at once; «Bloquear…» hands the draft to the main window's confirmation card
  * (`window:confirm-draft`), never to the guardian directly.
  *
+ * Phase 5 adds the schedule editor (`schedule-actions.ts`) and the exam whitelist
+ * (`whitelist-actions.ts`), whose extras come from the guardian's settings: fetched with the
+ * schedules when the window is shown.
+ *
  * Screen readers: results appear in help lines that are not live regions (some mount with the
  * result already in them); `announcement` carries each one to the window's single polite
  * region, which is there from the start. The catalog search reports its result count once the
@@ -42,6 +46,9 @@ import {
 } from './catalog';
 import { parseDurationText, parseUntilText } from './duration';
 import { BLOQUEOS } from './i18n';
+import { createScheduleActions, type ScheduleActions } from './schedule-actions';
+import { createWhitelistActions, type WhitelistActions } from './whitelist-actions';
+import type { SettingsData } from './whitelist';
 import {
   deriveBloqueosView,
   suggestedTemplateName,
@@ -58,9 +65,10 @@ export interface Notice {
   tone: 'muted' | 'red' | 'orange' | 'green';
 }
 
-export type NoticeArea = 'domains' | 'apps' | 'duration' | 'actions' | 'templates' | 'lists';
+export type NoticeArea =
+  'domains' | 'apps' | 'duration' | 'actions' | 'templates' | 'lists' | 'whitelist';
 
-export interface BloqueosActions {
+export interface BloqueosActions extends ScheduleActions, WhitelistActions {
   setSearch(text: string): void;
   /** Enter in the search box: mark the first result and clear the box. */
   pickFirstResult(): void;
@@ -120,6 +128,13 @@ export function useBloqueosWindow(): BloqueosWindowApi {
 
   const [schedules, setSchedules] = useState<SchedulesData>({ status: 'loading' });
   const [pendingSchedules, setPendingSchedules] = useState<Record<string, boolean>>({});
+  const [settings, setSettings] = useState<SettingsData>({ status: 'loading' });
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [whitelistSaving, setWhitelistSaving] = useState(false);
+  /** Latest values for the action factories (they run outside render). */
+  const live = useRef({ schedules, settings, scheduleSaving, whitelistSaving });
+  live.current = { schedules, settings, scheduleSaving, whitelistSaving };
+  const lastCreate = useRef<{ body: string; intentId: string } | null>(null);
   const [processNames, setProcessNames] = useState<readonly string[]>([]);
   const [notices, setNotices] = useState<Partial<Record<NoticeArea, Notice>>>({});
   const { announcement, announce } = useAnnouncer();
@@ -162,6 +177,20 @@ export function useBloqueosWindow(): BloqueosWindowApi {
     );
   }, [bridge]);
 
+  const loadSettings = useCallback(() => {
+    void bridge.invoke('settings:get', null).then(
+      (result) => {
+        if (!mounted.current) return;
+        setSettings(
+          result.ok
+            ? { status: 'ready', value: result.value }
+            : { status: 'error', error: result.error },
+        );
+      },
+      () => undefined,
+    );
+  }, [bridge]);
+
   const loadProcesses = useCallback(() => {
     void bridge.invoke('system:process-names', null).then(
       (result) => {
@@ -175,8 +204,9 @@ export function useBloqueosWindow(): BloqueosWindowApi {
   useEffect(() => {
     if (!env.visible) return;
     loadSchedules();
+    loadSettings();
     loadProcesses();
-  }, [env.visible, env.detail, loadSchedules, loadProcesses]);
+  }, [env.visible, env.detail, loadSchedules, loadSettings, loadProcesses]);
 
   const updateLocal = useCallback(
     (fn: (local: BloqueosLocalState) => BloqueosLocalState) => {
@@ -217,8 +247,24 @@ export function useBloqueosWindow(): BloqueosWindowApi {
         pendingSchedules,
         processNames,
         durationPicked,
+        settings,
+        scheduleSaving,
+        whitelistSaving,
       } satisfies BloqueosData),
-    [api, env, snapshot, detail, nowMs, schedules, pendingSchedules, processNames, durationPicked],
+    [
+      api,
+      env,
+      snapshot,
+      detail,
+      nowMs,
+      schedules,
+      pendingSchedules,
+      processNames,
+      durationPicked,
+      settings,
+      scheduleSaving,
+      whitelistSaving,
+    ],
   );
 
   // The search result count, once the typing stops (never on every keystroke).
@@ -258,7 +304,41 @@ export function useBloqueosWindow(): BloqueosWindowApi {
       notify('actions', { text: E.actions.sent, tone: 'muted' });
     };
 
+    const scheduleActions = createScheduleActions({
+      bridge,
+      getState: () => api.getState(),
+      now,
+      updateLocal,
+      getSchedules: () => live.current.schedules,
+      setSchedules,
+      setSaving: setScheduleSaving,
+      isSaving: () => live.current.scheduleSaving,
+      problem: () => view.schedules.editor?.problem ?? null,
+      notify: (notice) => notify('lists', notice),
+      announce,
+      mounted: () => mounted.current,
+      lastCreate,
+      newIntentId: () => crypto.randomUUID(),
+    });
+
+    const whitelistActions = createWhitelistActions({
+      bridge,
+      local,
+      updateLocal,
+      getSettings: () => live.current.settings,
+      setSettings,
+      loadSettings,
+      platform: () => platform,
+      now,
+      isSaving: () => live.current.whitelistSaving,
+      setSaving: setWhitelistSaving,
+      notify: (notice) => notify('whitelist', notice),
+      mounted: () => mounted.current,
+    });
+
     return {
+      ...scheduleActions,
+      ...whitelistActions,
       setSearch: (text) => updateLocal((l) => (l.search === text ? l : { ...l, search: text })),
       pickFirstResult: () => {
         const search = searchCatalog(local().search, local().form.targets);
@@ -431,7 +511,18 @@ export function useBloqueosWindow(): BloqueosWindowApi {
       openEmergency: () =>
         bridge.send('window:open-detail', { name: 'emergencia', blockIds: null }),
     };
-  }, [api, bridge, notify, updateLocal, updateForm, updateTargets, loadSchedules, view]);
+  }, [
+    api,
+    bridge,
+    notify,
+    announce,
+    updateLocal,
+    updateForm,
+    updateTargets,
+    loadSchedules,
+    loadSettings,
+    view,
+  ]);
 
   return { view, local: detail.bloqueos, nowMs, notices, announcement, actions };
 }

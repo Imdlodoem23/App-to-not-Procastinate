@@ -54,12 +54,43 @@ export const LOOK_DOWN_BLEND = 0.45;
 export const LOOK_DOWN_MAX_YAW = 35;
 /** Without a baseline (generic classifier not ready yet): absolute pitch. */
 export const LOOK_DOWN_ABS_PITCH = -20;
+/**
+ * Up to 60° to the side (a notebook or a textbook next to the laptop), looking down needs the
+ * head clearly down (relative pitch ≤ −20°, or absolute ≤ −25° without a baseline), or
+ * moderately down (≤ −12° / −20°) with the eyes down too: relative to a typing pose (itself
+ * ~15° down) writing at the side is only ~−24°. Writing or reading there is studying; the
+ * generic rule alone would call it «away» (pStudy 0.37 at 40°). Eyes down with a level head
+ * keep the 35° gate. The phone cap still overrides the floor.
+ */
+export const LOOK_DOWN_SIDE_DPITCH = -20;
+export const LOOK_DOWN_SIDE_ABS_PITCH = -25;
+export const LOOK_DOWN_SIDE_MAX_YAW = 60;
 
 // Hidden face: last-pose rule (§7.3)
 /** The last visible pose must be this recent when the face is lost. */
 export const HIDDEN_LOOKBACK_MS = 2_000;
 /** Head down (writing): the study floor for up to this much continuous hidden time. */
 export const HIDDEN_DOWN_MAX_MS = 600_000;
+/**
+ * …but only while the user shows signs of life: keyboard or mouse, or motion where the face
+ * was (`motionNearFace` ≥ `HIDDEN_ACTIVE_MOTION`). After `HIDDEN_STILL_MS` without either,
+ * a head down on the desk is asleep, not writing: its frames become drowsy candidates (not
+ * pushed, timers frozen, `suggest_break{eyes_closed}`, no focus credit), and only after
+ * `HIDDEN_ASLEEP_MAX_MS` of hidden time does the absence path take over.
+ */
+export const HIDDEN_STILL_MS = 90_000;
+export const HIDDEN_ACTIVE_MOTION = 0.01;
+export const HIDDEN_ASLEEP_MAX_MS = 1_200_000;
+/**
+ * A book held up in front of the face (reading while leaning back): E_book whose last box
+ * covers at least `BOOK_OVER_FACE_SHARE` of the last face box keeps the hidden stretch at
+ * the study floor for `HIDDEN_BOOK_MAX_MS`, like head down. The book pose holds
+ * `BOOK_UP_HOLD_MS` through detector misses. A phone in hand or a distraction app in the
+ * foreground turn the rule off.
+ */
+export const HIDDEN_BOOK_MAX_MS = 600_000;
+export const BOOK_OVER_FACE_SHARE = 0.5;
+export const BOOK_UP_HOLD_MS = 10_000;
 export const HIDDEN_TURNED_YAW = 35;
 /** Turned away (and a hidden stretch with a phone or a distraction past its allowance). */
 export const HIDDEN_LOW_VALUE = 0.2;
@@ -84,6 +115,8 @@ export const DISTRACTION_SCREEN_KEEP = 0.1;
  * `BOOK_BONUS`: a textbook lying on the desk must not hide watching TV to the side.
  */
 export const BOOK_READING_MAX_YAW = 35;
+/** …or up to this yaw when the head or the eyes look down toward the desk (a book at the side). */
+export const BOOK_READING_SIDE_MAX_YAW = 60;
 export const BOOK_BONUS = 0.1;
 
 // Eyes (§7.4)
@@ -93,6 +126,13 @@ export const EYES_MAX_LOOK_DOWN = 0.5;
 export const YAWN_JAW = 0.6;
 
 // Stale profile (§7.4)
+/**
+ * Rolling, for the whole session: within any `STALE_WINDOW_MS` of observed work time, among
+ * face frames with keyboard or mouse input and no distraction app, ≥ `STALE_MIN_FRAMES`
+ * frames of which ≥ `STALE_AWAY_SHARE` are «away» for the profile while the fallback (fed
+ * with the same fresh input) calls them study. A profile matched by camera can still be stale
+ * later on: another desk with an external monitor, a camera bumped mid-session.
+ */
 export const STALE_WINDOW_MS = 120_000;
 export const STALE_MIN_FRAMES = 60;
 export const STALE_AWAY_SHARE = 0.7;

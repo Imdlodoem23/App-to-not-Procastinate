@@ -19,6 +19,7 @@ import type { Page } from '@playwright/test';
 import type { RecordedGuardianCall } from '../src/main/contracts';
 import { DISPLAY_PRESETS, type HarnessFixture } from '../src/shared/fixtures';
 import { SHARED_ES } from '../src/shared/i18n/es';
+import { onboardingActive } from '../src/shared/ui-state';
 import { advanceInSteps, launchApp, type LaunchedApp } from './support/app';
 import { bloqueoAnnouncer, settleMain, visibleText } from './support/checks';
 import {
@@ -39,14 +40,18 @@ const FIELD = '¿Qué quieres hacer?';
 // Every fixture: targets, descriptions, shortcuts; focus on show
 // ---------------------------------------------------------------------------------------
 
-type ShowFocus = 'field' | 'confirm' | 'section';
+type ShowFocus = 'field' | 'confirm' | 'section' | 'onboarding';
 
 /**
  * Where `showMain` must leave the focus (docs/DESKTOP.md §7.2 `ui:visibility`): the card's
  * confirm button when a card is open (Enter confirms), the field when it shows, else the
- * Bloqueo section root (a block hides the field).
+ * Bloqueo section root (a block hides the field). The onboarding (§15.2, in place of the
+ * sections) focuses its step's first action, or the field in its last step.
  */
 function expectedShowFocus(fixture: HarnessFixture): ShowFocus {
+  if (onboardingActive(fixture.snapshot)) {
+    return fixture.snapshot.prefs.onboarding.step === 'first-block' ? 'field' : 'onboarding';
+  }
   if (fixture.main.card) return 'confirm';
   const { variant } = fixture.expect;
   if (variant === 'idle' || variant === 'finished' || fixture.main.composer.openWhileActive) {
@@ -63,6 +68,8 @@ function matchesShowFocus(info: FocusInfo, want: ShowFocus): boolean {
       return info.classes.split(/\s+/).includes('c-confirm');
     case 'section':
       return info.isSectionRoot && info.section === 'bloqueo';
+    case 'onboarding':
+      return info.section === 'onboarding' && info.classes.split(/\s+/).includes('c-tile');
   }
 }
 

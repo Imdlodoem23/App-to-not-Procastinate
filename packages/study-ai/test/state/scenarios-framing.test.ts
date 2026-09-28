@@ -1,8 +1,10 @@
 /**
  * Engine scenarios for what the camera cannot judge well (DESIGN.md §7.1–7.3): a textbook
  * lying on the desk while the user looks elsewhere, a face the landmarker loses (framing,
- * light) while someone is clearly there, and a dim room the luma thumbnail reads as covered.
- * With the oracle classifier at 2, 3 and 4 fps, then again through the real classifiers.
+ * light) while someone is clearly there, a dim room the luma thumbnail reads as covered,
+ * landmarker dropouts on a still user, a book held up in front of the face and a nap with the
+ * head on the desk. With the oracle classifier at 2, 3 and 4 fps, then again through the
+ * real classifiers.
  */
 import { describe, expect, it } from 'vitest';
 import { CalibrationRecorder } from '../../src/calibration/recorder';
@@ -13,7 +15,14 @@ import { CALIBRATION_CLASSES } from '../../src/types';
 import type { AttentionClassifier, CalibrationClass, SituationRecording } from '../../src/types';
 import { mulberry32 } from '../../src/util/rng';
 import { implemented } from '../helpers/implemented';
-import { PERSONAS, calibrationFrames, synthesize, type Persona, type SynthTick } from '../synth';
+import {
+  PERSONAS,
+  calibrationFrames,
+  synthesize,
+  type Activity,
+  type Persona,
+  type SynthTick,
+} from '../synth';
 import { cameraEngine, oracleClassifier, type Recorder } from './harness';
 
 const MIN = 60_000;
@@ -68,6 +77,120 @@ function dimRoom(ticks: SynthTick[], fromMs: number): SynthTick[] {
     const dark = { ...luma, mean: 0.06, spatialStd: 0.02, covered: true, lowLight: false };
     return { ...t, frame: { ...t.frame, luma: dark } };
   });
+}
+
+/** The person detector misses the user and a still user barely moves near the face. */
+function noPerson(ticks: SynthTick[]): SynthTick[] {
+  return ticks.map((t) => {
+    if (!t.frame) return t;
+    const { objects, luma } = t.frame;
+    return {
+      ...t,
+      frame: {
+        ...t.frame,
+        objects: objects ? { ...objects, person: null } : objects,
+        luma: luma ? { ...luma, motionNearFace: 0.008 } : luma,
+      },
+    };
+  });
+}
+
+/** From `fromMs` on: a textbook held up in front of the face (face hidden, book on every run). */
+function raisedBook(ticks: SynthTick[], fromMs: number): SynthTick[] {
+  const box = { cx: 0.5, cy: 0.45, w: 0.4, h: 0.35 };
+  return ticks.map((t) => {
+    if (t.now < fromMs || !t.frame) return t;
+    const objects = t.frame.objects;
+    return {
+      ...t,
+      frame: {
+        ...t.frame,
+        face: null,
+        quality: 0.6,
+        objects: objects ? { ...objects, book: { score: 0.85, box } } : objects,
+      },
+      context: { ...t.context, idleMs: t.now - fromMs },
+    };
+  });
+}
+
+/** From `fromMs` on: asleep with the head on the desk (face lost, body in view, no motion). */
+function nap(ticks: SynthTick[], fromMs: number): SynthTick[] {
+  return ticks.map((t) => {
+    if (t.now < fromMs || !t.frame) return t;
+    const luma = t.frame.luma;
+    return {
+      ...t,
+      frame: {
+        ...t.frame,
+        face: null,
+        quality: 0.6,
+        luma: luma ? { ...luma, motionNearFace: 0.003 } : luma,
+      },
+      context: { ...t.context, idleMs: t.now - fromMs },
+    };
+  });
+}
+
+const LOW_LIGHT_03: Persona = { ...PERSONAS.lowLight, faceDrop: 0.3 };
+
+/** 25 min in a dim room: typing (low-light persona missing 30 % of faces) or a notebook. */
+function dimRoomStudy(kind: 'typing' | 'notebook', fps: number, seed: number, person = true) {
+  const persona = kind === 'typing' ? LOW_LIGHT_03 : PERSONAS.baseline;
+  const script: [Activity, number][] =
+    kind === 'typing'
+      ? [['typing', 25 * MIN]]
+      : [
+          ['typing', 30_000],
+          ['notebook', 25 * MIN],
+        ];
+  const ticks = dimRoom(synthesize(script, { persona, fps, seed }), 0);
+  return { persona, ticks: person ? ticks : noPerson(ticks) };
+}
+
+function checkNoStrike(rec: Recorder, label: string): void {
+  expect(rec.strikes(), label).toEqual([]);
+  expect(rec.warnings(), label).toEqual([]);
+  const totals = rec.engine.totals();
+  expect(totals.focusedMs / totals.workMs, label).toBeGreaterThanOrEqual(0.9);
+}
+
+function napScenario(cls: (p: Persona) => Classifiers, seed: number) {
+  const persona = PERSONAS.baseline;
+  const napAt = 90_000;
+  const ticks = nap(
+    synthesize(
+      [
+        ['typing', MIN],
+        ['notebook', 30_000],
+        ['notebook', 25 * MIN],
+      ],
+      { persona, seed },
+    ),
+    napAt,
+  );
+  const { rec } = cameraEngine(cls(persona).classifier, { fallback: cls(persona).fallback });
+  let focusedAtNap = 0;
+  for (const t of ticks) {
+    rec.tick({ now: t.now, phase: t.phase, context: t.context, camera: t.camera, frame: t.frame });
+    if (t.now < napAt) focusedAtNap = rec.engine.totals().focusedMs;
+  }
+  return { rec, napAt, focusedAtNap };
+}
+
+function checkNap(run: ReturnType<typeof napScenario>, label: string): void {
+  const { rec, napAt, focusedAtNap } = run;
+  const [suggest] = rec.of('suggest_break');
+  expect(suggest?.reason, label).toBe('eyes_closed');
+  // 90 s without a sign of life, then ~16 s of «closed» frames.
+  expect((suggest?.at as number) - napAt, label).toBeLessThanOrEqual(120_000);
+  // Asleep time earns no focus: at most the 90 s before it is known.
+  expect(rec.engine.totals().focusedMs - focusedAtNap, label).toBeLessThanOrEqual(110_000);
+  // Never a strike while asleep; only the absence path after 20 min of hidden time.
+  const first = rec.strikes()[0];
+  expect(first?.cause, label).toBe('no_face');
+  expect((first?.at as number) - napAt, label).toBeGreaterThanOrEqual(20 * MIN + 60_000);
+  expect(rec.warnings('doubt'), label).toEqual([]);
 }
 
 const oracle = (persona: Persona): Classifiers => ({
@@ -253,6 +376,65 @@ describe('oracle classifier', { timeout: HEAVY_MS }, () => {
     }
   });
 
+  it.each(['typing', 'notebook'] as const)(
+    '25 min in a dim room read as covered, %s with landmarker dropouts: no strike',
+    (kind) => {
+      for (const fps of FPS) {
+        for (const seed of SEEDS) {
+          const { persona, ticks } = dimRoomStudy(kind, fps, seed);
+          checkNoStrike(runTicks(ticks, oracle(persona)), `${fps} fps seed ${seed}`);
+        }
+      }
+    },
+  );
+
+  it.each(['typing', 'notebook'] as const)(
+    'the same when the person detector misses a still user too (%s)',
+    (kind) => {
+      for (const fps of FPS) {
+        for (const seed of SEEDS) {
+          const { persona, ticks } = dimRoomStudy(kind, fps, seed, false);
+          const rec = runTicks(ticks, oracle(persona));
+          expect(rec.strikes(), `${fps} fps seed ${seed}`).toEqual([]);
+          expect(rec.warnings().length, `${fps} fps seed ${seed}`).toBeLessThanOrEqual(1);
+        }
+      }
+    },
+  );
+
+  it('normal light, 25 % of faces missed, no person detected, still user: no strike', () => {
+    for (const fps of FPS) {
+      for (const seed of SEEDS) {
+        const persona: Persona = { ...PERSONAS.baseline, faceDrop: 0.25 };
+        const ticks = noPerson(synthesize([['typing', 25 * MIN]], { persona, fps, seed }));
+        checkNoStrike(runTicks(ticks, oracle(persona)), `${fps} fps seed ${seed}`);
+      }
+    }
+  });
+
+  it('a textbook held up in front of the face: no «No te veo», no strike', () => {
+    for (const fps of FPS) {
+      for (const seed of SEEDS) {
+        const persona = PERSONAS.baseline;
+        const ticks = raisedBook(
+          synthesize(
+            [
+              ['screen', MIN],
+              ['screen', 10 * MIN],
+            ],
+            { persona, fps, seed },
+          ),
+          MIN,
+        );
+        checkNoStrike(runTicks(ticks, oracle(persona)), `${fps} fps seed ${seed}`);
+      }
+    }
+  });
+
+  it('asleep with the head on the desk: a break suggestion and no focus, not a strike', () => {
+    for (const seed of SEEDS) checkNap(napScenario(oracle, seed), `seed ${seed}`);
+  });
+
   it('covering the lens is still «not there», whatever the dim-room rule', () => {
     const rng = mulberry32(3);
     for (const fps of FPS) {
@@ -314,6 +496,32 @@ describe.runIf(ready)('real classifiers', { timeout: HEAVY_MS }, () => {
 
   it.each(kinds)('%s: face slides out of the frame → no_face, not doubt_timeout', (_name, cls) => {
     for (const seed of SEEDS) checkSlidOut(slidOutOfFrame(cls, 3, seed), `seed ${seed}`);
+  });
+
+  it.each(kinds)('%s: 25 min in a dim room with landmarker dropouts never strike', (_name, cls) => {
+    for (const kind of ['typing', 'notebook'] as const) {
+      const { persona, ticks } = dimRoomStudy(kind, 3, 1);
+      checkNoStrike(runTicks(ticks, cls(persona)), kind);
+    }
+  });
+
+  it.each(kinds)('%s: a textbook held up in front of the face never strikes', (_name, cls) => {
+    const persona = PERSONAS.baseline;
+    const ticks = raisedBook(
+      synthesize(
+        [
+          ['screen', MIN],
+          ['screen', 10 * MIN],
+        ],
+        { persona, seed: 2 },
+      ),
+      MIN,
+    );
+    checkNoStrike(runTicks(ticks, cls(persona)), 'raised book');
+  });
+
+  it.each(kinds)('%s: a nap on the desk suggests a break and earns no focus', (_name, cls) => {
+    checkNap(napScenario(cls, 1), 'nap');
   });
 
   it.each(kinds)('%s: a dim room with a tracked face never strikes', (_name, cls) => {

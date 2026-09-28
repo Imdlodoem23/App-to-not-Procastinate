@@ -9,7 +9,9 @@ import { MASCOT_RULES, mascotStage, type MascotStage } from '@centrate/shared/po
 import type { UiSnapshot } from '../../../../shared/ui-state';
 
 /** The phase to draw, or `null` without any guardian data. */
-export function mascotStageOf(snapshot: Pick<UiSnapshot, 'progress' | 'state'>): MascotStage | null {
+export function mascotStageOf(
+  snapshot: Pick<UiSnapshot, 'progress' | 'state'>,
+): MascotStage | null {
   if (snapshot.progress) return snapshot.progress.mascot;
   const points = snapshot.state?.points;
   if (!points) return null;

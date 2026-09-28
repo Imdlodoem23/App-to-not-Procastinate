@@ -187,6 +187,95 @@ export const BLOQUEOS_ES = {
     everyDay: 'Todos los días',
     range: (a: string, b: string): string => `${a}–${b}`,
     daySeparator: ', ',
+    /** A schedule without days yet (the editor, before the user picks one). */
+    noDays: 'sin días',
+    /** The row being edited below the list. */
+    editing: 'Editando…',
+    listLabel: 'Tus horarios',
+    /** «Horario L–V 18:00–20:00 · Redes sociales»: the group of a row's controls. */
+    rowLabel: (title: string): string => `Horario ${title}`,
+    newSchedule: 'Nuevo horario',
+    newScheduleHelp: 'Un bloqueo que se repite solo: días, horas y qué bloquear',
+    edit: 'Editar',
+    editHelp: 'Cambia los días, las horas o lo que bloquea',
+    switchHelp: 'Apagado, no se aplica',
+
+    editor: {
+      /** «Nuevo horario: L–V 16:00–19:00 · Redes sociales». */
+      titleNew: (summary: string): string => `Nuevo horario: ${summary}`,
+      titleEdit: (summary: string): string => `Editar: ${summary}`,
+      name: 'Nombre',
+      nameLabel: 'Nombre del horario (opcional)',
+      reason: 'Tu motivo',
+      reasonLabel: 'Tu motivo (opcional)',
+      reasonPlaceholder: 'Tardes para estudiar',
+      days: 'Días',
+      dayNames: [
+        'lunes',
+        'martes',
+        'miércoles',
+        'jueves',
+        'viernes',
+        'sábado',
+        'domingo',
+      ] as readonly string[],
+      start: 'Desde',
+      end: 'Hasta',
+      startPlaceholder: '16:00',
+      endPlaceholder: '19:00',
+      /** «Dura 3 h». */
+      window: (duration: string): string => `Dura ${duration}`,
+      windowOvernight: (duration: string): string => `Dura ${duration}: acaba al día siguiente`,
+      timesHelp: 'Escribe la hora así: 16:00',
+      targets: 'Qué bloquear',
+      categoriesLabel: 'Categorías que bloquea',
+      extrasLabel: 'También bloquea',
+      removeTarget: (what: string): string => `Quitar ${what}`,
+      fromForm: 'Añadir lo del formulario de arriba',
+      whitelist: 'Examen: todas las webs y apps salvo tu lista blanca',
+      mode: 'Modo',
+      rowLabel: 'Guardar el horario',
+      save: 'Guardar',
+      saveHelp: 'El guardián lo aplica cada semana, aunque la app esté cerrada',
+      saving: 'Guardando…',
+      remove: 'Borrar',
+      removeHelp: 'Lo borra; si ya empezó, ese bloqueo sigue hasta el final',
+      removeConsequence: (name: string): string =>
+        `Se borra «${name}»; lo que ya empezó sigue hasta el final`,
+      cancel: 'Cancelar',
+      cancelHelp: 'Cierra sin guardar',
+      /** Hardcore and Examen: the in-place «¿Seguro?» of «Guardar», in red. */
+      consequence: {
+        hardcore: 'Cuando empiece, no podrás cancelarlo de ninguna forma hasta que acabe',
+        exam: 'Cuando empiece, solo webs y apps de estudio, sin poder cancelarlo hasta que acabe',
+      },
+      problem: {
+        noDays: 'Elige al menos un día',
+        badStart: 'Escribe la hora de inicio así: 16:00',
+        badEnd: 'Escribe la hora de fin así: 19:00',
+        sameTime: 'El inicio y el fin no pueden ser la misma hora',
+        tooShort: 'Como mínimo 5 min',
+        noTargets: 'Elige qué bloquear',
+        nameLong: (max: number): string => `El nombre, como mucho ${max} letras`,
+        running: 'En curso: podrás cambiarlo cuando acabe',
+        /** 409 `schedule_starting_soon` on an edit: only strengthening goes through. */
+        startingSoon: (time: string): string =>
+          `Empieza a las ${time}: a menos de 10 min solo se puede endurecer`,
+        startingSoonDelete: (time: string): string =>
+          `Empieza a las ${time}: a menos de 10 min ya no se puede borrar`,
+        full: (max: number): string => `Ya tienes ${max} horarios: borra alguno antes`,
+      },
+      errors: {
+        /** 409 `schedule_in_progress`: «En curso hasta las 19:00: …». */
+        inProgress: (until: string): string => `En curso ${until}: podrás cambiarlo cuando acabe`,
+        tooMany: 'Tus horarios ya tienen demasiadas webs propias',
+        timezone: 'La zona horaria del sistema no es válida',
+        notFound: 'Ese horario ya no existe',
+        invalid: 'El guardián no acepta este horario: revisa los días y las horas',
+      },
+      saved: (summary: string): string => `Guardado: ${summary}`,
+      removed: (name: string): string => `Borrado: «${name}»`,
+    },
   },
 
   exam: {
@@ -200,6 +289,61 @@ export const BLOQUEOS_ES = {
     rowHelp: 'Un clic abre la confirmación en la ventana principal',
     customize: 'Personalizar',
     customizeHelp: 'Prepara el examen en el formulario de arriba',
+
+    whitelist: {
+      /** «Tu lista blanca: 3 extras · 1 esperando». */
+      title: (n: number, waiting: number): string =>
+        (n === 0
+          ? 'Tu lista blanca: solo la de estudio'
+          : n === 1
+            ? 'Tu lista blanca: 1 extra'
+            : `Tu lista blanca: ${n} extras`) + (waiting > 0 ? ` · ${waiting} esperando` : ''),
+      loading: 'Tu lista blanca: cargando…',
+      unavailable: 'Tu lista blanca: sin conexión',
+      retry: 'Reintentar',
+      listLabel: 'Webs y apps que añades a la lista blanca',
+      domainsLabel: 'Webs permitidas',
+      domainPlaceholder: 'wikipedia.org',
+      appsLabel: 'Apps permitidas',
+      appPlaceholder: 'WINWORD.EXE',
+      suggestionsLabel: 'Programas abiertos que coinciden',
+      add: 'Permitir',
+      addDomainHelp: 'La añade a tu lista blanca',
+      addAppHelp: 'La añade a tu lista blanca',
+      help: 'Añadir espera 24 h, para no aflojar en caliente; quitar es al momento',
+      /** «geogebra.org · desde mañana 17:10». */
+      pendingChip: (label: string, when: string): string => `${label} · desde ${when}`,
+      remove: (label: string): string => `Quitar ${label}`,
+      removePending: (label: string, when: string): string =>
+        `Quitar ${label} (se permitiría ${when})`,
+      invalidDomain: 'Eso no parece una web: prueba con wikipedia.org',
+      invalidApp: 'Escribe el nombre del programa, por ejemplo WINWORD.EXE',
+      studyDefault: 'Ya está en la lista de estudio',
+      duplicate: 'Ya está en tu lista',
+      coveredBy: (parent: string): string => `Ya la permite ${parent}`,
+      protectedDomain: 'Eso ya se permite siempre: el sistema lo necesita',
+      protectedApp: 'Ese programa ya se permite siempre: el sistema lo necesita',
+      maxDomains: (n: number): string => `Como mucho ${n} webs`,
+      maxApps: (n: number): string => `Como mucho ${n} apps`,
+      invalidList: 'El guardián no acepta la lista: revisa lo que has añadido',
+      /** Why a distraction cannot be allowed (`findAllowDistraction`, 422 `allow_distraction`). */
+      distraction: {
+        serviceDomain: (domain: string, service: string): string =>
+          `${domain} es de ${service}: una distracción no puede ir en la lista blanca`,
+        parentOfService: (domain: string, service: string): string =>
+          `${domain} incluye ${service}: escribe una web más concreta`,
+        publicSuffix: (domain: string): string =>
+          `${domain} es demasiado general: escribe una web concreta`,
+        app: (app: string): string => `${app} es una distracción: no puede ir en la lista blanca`,
+        generic: (value: string): string =>
+          `${value} es una distracción: no puede ir en la lista blanca`,
+      },
+      added: (value: string): string => `Permitida: ${value}`,
+      /** A weakening change waits 24 h. */
+      addedPending: (value: string, when: string): string =>
+        `${value} se permitirá ${when}: lo que afloja espera 24 h`,
+      removed: (value: string): string => `Quitada: ${value}`,
+    },
   },
 
   /** Clock phrases: «hasta las 18:00», «hasta mañana a las 08:00». */

@@ -8,7 +8,7 @@
  *   document and the section column;
  * - no clipped text (`[data-fit]` and every text element that clips its overflow);
  * - 440 DIP wide, 10 DIP from the work area on its anchored corner (plus the 0–3 DIP that put
- *   its edges on device pixels at a fractional scale);
+ *   its edges on device pixels at a fractional scale); centred while the onboarding shows;
  * - on the fixture's own preset, the density the fixture expects;
  * - on 1920×1080 at 100 %: content ≤ 540 DIP at rest and ≤ 600 in any state;
  * - detail fixtures: the detail window is shown beside the main window, inside the work area,
@@ -17,6 +17,7 @@
 import { DISPLAY_PRESETS, SCREEN_INSET, type DisplayPresetId } from '../src/shared/fixtures';
 import type { HarnessFixture } from '../src/shared/fixtures';
 import { pixelSnapSlack } from '../src/main/windows/geometry';
+import { onboardingActive } from '../src/shared/ui-state';
 import type { LaunchedApp } from './support/app';
 import {
   BUDGET_PRESET,
@@ -103,15 +104,35 @@ async function checkLayout(
       SCREEN_INSET + slack,
     );
   };
-  inset(wa.x + wa.width - (outer.x + outer.width), 'right inset');
-  if (EXPECTED_ANCHOR === 'bottom') {
-    inset(wa.y + wa.height - (outer.y + outer.height), 'bottom inset');
+  if (onboardingActive(fixture.snapshot)) {
+    // The onboarding shows the main window centred in the work area (PROMPT §10 «con la
+    // ventana principal centrada», windows/geometry.ts `centredContentRect`): the gaps on
+    // opposite sides match, but for rounding and the pixel snapping above.
+    const band = 2 * (slack + 1) + tolerance;
+    const left = outer.x - wa.x;
+    const right = wa.x + wa.width - (outer.x + outer.width);
+    const top = outer.y - wa.y;
+    const bottom = wa.y + wa.height - (outer.y + outer.height);
+    soft(
+      Math.abs(left - right),
+      `${where}: centred, left ${left} vs right ${right} DIP (±${band})`,
+    ).toBeLessThanOrEqual(band);
+    soft(
+      Math.abs(top - bottom),
+      `${where}: centred, top ${top} vs bottom ${bottom} DIP (±${band})`,
+    ).toBeLessThanOrEqual(band);
+    soft(outer.y, `${where}: top edge inside the work area`).toBeGreaterThanOrEqual(wa.y);
   } else {
-    inset(outer.y - wa.y, 'top inset');
+    inset(wa.x + wa.width - (outer.x + outer.width), 'right inset');
+    if (EXPECTED_ANCHOR === 'bottom') {
+      inset(wa.y + wa.height - (outer.y + outer.height), 'bottom inset');
+    } else {
+      inset(outer.y - wa.y, 'top inset');
+    }
+    soft(outer.y, `${where}: top edge inside the work area`).toBeGreaterThanOrEqual(
+      wa.y + SCREEN_INSET,
+    );
   }
-  soft(outer.y, `${where}: top edge inside the work area`).toBeGreaterThanOrEqual(
-    wa.y + SCREEN_INSET,
-  );
 
   if (presetId === fixture.display) {
     soft(probe.density, `${where}: density`).toBe(fixture.expect.density);

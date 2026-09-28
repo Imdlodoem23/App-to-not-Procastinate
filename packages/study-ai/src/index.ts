@@ -48,6 +48,15 @@ export {
   serializeProfile,
 } from './calibration/profile'; // stub
 export { learnFromFeedback } from './calibration/feedback'; // stub
+// The wizard checklist and the saved clips, for Electron main (never retrains).
+export { calibrationSteps, nextPendingSituation, profileStatus } from './calibration/status';
+export type {
+  CalibrationStep,
+  CalibrationStepState,
+  CalibrationStepsInput,
+  ProfileStatus,
+  RecordedSituation,
+} from './calibration/status';
 
 // DECISION
 export { CameraObserver } from './score/camera-observer'; // stub

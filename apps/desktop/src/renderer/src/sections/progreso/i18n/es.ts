@@ -9,11 +9,14 @@ import type { Widen } from '../../../../../shared/i18n/locale';
 
 export const PROGRESO_ES = {
   /**
-   * Alt + letter of each door. Section 2 takes the first free letter of its labels («Deberes»
-   * d, «Examen» e, «Leer» l, «Más…» m, the card's modes n e h x, «Editar…» d, «Bloquear» b,
-   * the extend row 5 0 h o), section 1 p t i and the footer z a s: these never meet them.
+   * Alt + key of each door. Section 1 takes p t i, the footer z a s, and section 2 picks the
+   * first free letter of its own labels (0 5 b d e h l m n o r x across the fixtures: «Deberes»,
+   * «Examen», «Leer», «Más…», the card's modes, «Editar…», «Bloquear», «Reintentar»,
+   * «Reparar», the extend row). «Estadísticas» keeps its free «c» and «Logros» its «g»;
+   * every letter of «Recompensas» is taken by one of those, so it answers to Alt + W (as
+   * «Rewards» does in English), not underlined.
    */
-  mnemonics: { stats: 'c', rewards: 'r', achievements: 'g' },
+  mnemonics: { stats: 'c', rewards: 'w', achievements: 'g' },
   /** Logros… with the count of `snapshot.progress`: «3 de 8 conseguidos: mira cómo lograr el resto». */
   achievementsCount: (achieved: string, total: string): string =>
     `${achieved} de ${total} conseguidos: mira cómo lograr el resto`,

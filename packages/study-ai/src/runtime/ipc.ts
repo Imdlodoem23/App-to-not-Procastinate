@@ -12,11 +12,7 @@
  * calibration numbers, whatever the renderer sends.
  */
 import { PROFILE_FORMAT, PROFILE_MAX_BYTES, PROFILE_VERSION } from '../calibration/constants';
-import {
-  PROFILE_TRAINER_VERSION,
-  parseProfile,
-  serializeProfile,
-} from '../calibration/profile';
+import { PROFILE_TRAINER_VERSION, parseProfile, serializeProfile } from '../calibration/profile';
 import {
   ATTENTION_STATES,
   CALIBRATION_CLASSES,
@@ -116,7 +112,8 @@ const ANALYSIS_ERROR_CODES = vocabulary<AnalysisErrorCode>()([
 ]);
 
 /** Caps: generous for real data, small enough that a bad message cannot hog memory. */
-const MAX_DEVICE_ID = 512;
+const MAX_CAMERA_LABEL = 256;
+const MAX_CAMERAS = 32;
 const MAX_RUN_ID = 128;
 const MAX_TIMELINE_ITEMS = 20_000;
 const MAX_ISSUES = 64;
@@ -190,7 +187,11 @@ const context: Check = exact({
   phase: oneOf(STUDY_PHASES),
   foreground: oneOf(FOREGROUND_CLASSES),
   idleMs: nullable(duration),
+  visibleDistraction: optional(bool),
 });
+
+/** A camera label (never a `deviceId`: those are salted per partition and run). */
+const cameraLabel = nullable(str(MAX_CAMERA_LABEL));
 
 const strikeAck: Check = exact({
   seq: int(1),
@@ -211,7 +212,7 @@ const inbound: Check = tagged({
     mode: studyMode,
     settings,
     profileJson: nullable(profileJson),
-    cameraDeviceId: nullable(str(MAX_DEVICE_ID)),
+    cameraLabel,
     context,
   }),
   context: exact({ type: literal('context'), context }),
@@ -224,12 +225,13 @@ const inbound: Check = tagged({
   calibration_start: exact({
     type: literal('calibration_start'),
     profileJson: nullable(profileJson),
-    cameraDeviceId: nullable(str(MAX_DEVICE_ID)),
+    cameraLabel,
   }),
   calibration_record: exact({ type: literal('calibration_record'), cls: calibrationClass }),
   calibration_cancel: empty('calibration_cancel'),
   calibration_build: empty('calibration_build'),
   calibration_close: empty('calibration_close'),
+  list_cameras: empty('list_cameras'),
 });
 
 // ---------------------------------------------------------------------------------------
@@ -274,12 +276,16 @@ const sessionEvent: Check = tagged({
     status: cameraStatus,
     error: nullable(cameraError),
   }),
-  mode: exact({
-    type: literal('mode'),
-    at: time,
-    mode: studyMode,
-    reason: literal('user', 'vision_failed'),
-  }),
+  // `recovered` is the way back to camera mode; `user` and `vision_failed` lead away from it.
+  mode: (value) =>
+    exact({
+      type: literal('mode'),
+      at: time,
+      mode: studyMode,
+      reason: literal('user', 'vision_failed', 'recovered'),
+    })(value) &&
+    ((value as { mode: unknown }).mode === 'camera') ===
+      ((value as { reason: unknown }).reason === 'recovered'),
 });
 
 const snapshot: Check = exact({
@@ -407,6 +413,10 @@ const outbound: Check = tagged({
     summary: exact({ cls: calibrationClass, rows: count, faceRatio: ratio, issues }),
   }),
   calibration_built: exact({ type: literal('calibration_built'), outcome: buildOutcome }),
+  cameras: exact({
+    type: literal('cameras'),
+    cameras: array(exact({ label: str(MAX_CAMERA_LABEL) }), MAX_CAMERAS),
+  }),
   error: exact({
     type: literal('error'),
     code: oneOf(ANALYSIS_ERROR_CODES),

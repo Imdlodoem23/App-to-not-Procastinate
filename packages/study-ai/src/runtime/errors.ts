@@ -75,3 +75,22 @@ export function abortError(message: string): Error {
 export function isAbortError(error: unknown): boolean {
   return nameOf(error) === 'AbortError';
 }
+
+/**
+ * A vision failure worth retrying later: a load that failed or timed out, a lost WebGL context,
+ * failing frames, anything unexpected. Not SIMD missing, a rejected asset or a hash mismatch:
+ * those fail the same way every time.
+ */
+export function isRetryableVisionError(error: unknown): boolean {
+  if (!isVisionLoadError(error)) return true;
+  const code = codeOf(error);
+  return code !== 'simd_unsupported' && code !== 'asset_rejected' && code !== 'hash_mismatch';
+}
+
+/**
+ * A camera failure that may go away by itself: another app holds the camera, it is unplugged,
+ * or it did not answer. Not a denied permission, an OS privacy block or a missing API.
+ */
+export function isRetryableCameraError(code: CameraErrorCode): boolean {
+  return code === 'in_use' || code === 'not_found' || code === 'unknown';
+}

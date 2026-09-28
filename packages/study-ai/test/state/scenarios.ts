@@ -78,6 +78,20 @@ export const STUDY_SCRIPTS: Readonly<Record<string, Script>> = Object.freeze({
     ['typing', 30_000],
     ['readBook', 20 * MIN],
   ],
+  /** A notebook or a textbook next to the laptop, 40° to the side (yaw ±40, head down). */
+  sideNotebook: [
+    ['typing', 30_000],
+    ['sideNotebook', 20 * MIN],
+  ],
+  sideBook: [
+    ['typing', 30_000],
+    ['sideBook', 20 * MIN],
+  ],
+  /** Copying from a book at the side into the laptop. */
+  copyFromSideBook: repeat(20, [
+    ['typing', 20_000],
+    ['sideBook', 40_000],
+  ]),
   secondMonitor: repeat(5, [
     ['screen', 2 * MIN],
     ['secondMonitor', 2 * MIN],

@@ -279,6 +279,17 @@ export interface CameraDeviceInfo {
   label: string;
 }
 
+/**
+ * A camera as main may store it: its label. Chromium salts `deviceId`s per session partition
+ * and origin (and the in-memory analysis partition gets a new salt on every launch), so an id
+ * read in another window or an earlier run is never valid in the analysis window; a label is
+ * stable. The analysis window resolves it with `enumerateDevices()` on every open.
+ */
+export interface CameraChoice {
+  /** As `MediaDeviceInfo.label` (empty while the window has no camera permission). */
+  label: string;
+}
+
 export interface OpenCameraOptions {
   deviceId?: string | null;
   /** Ideal capture size; defaults 320×240 at 5 fps (max 10). */
@@ -631,6 +642,12 @@ export interface ContextSignals {
   foreground: ForegroundClass;
   /** `powerMonitor.getSystemIdleTime()` × 1000; `null` when unknown. */
   idleMs: number | null;
+  /**
+   * A catalog service is visible and playing media on some display although it is not in the
+   * foreground (a video on the second monitor). Only the flag leaves main. With the input idle
+   * it counts as a distraction in the foreground (HANDOFF §4). Absent = false.
+   */
+  visibleDistraction?: boolean;
 }
 
 /** What main sends to the analysis window every second. */
@@ -678,6 +695,7 @@ export const HINT_CODES = [
   'over_budget',
   'throttled',
   'vision_failed',
+  'camera_default',
 ] as const;
 /** Conditions the UI explains; codes only (strings live in the desktop i18n). */
 export type HintCode = (typeof HINT_CODES)[number];
@@ -900,6 +918,11 @@ export interface StepCost {
   otherMs: number;
   ranObjects: boolean;
   faceSeen: boolean;
+  /**
+   * A phone (not at rest) was seen in the last 20 s, or the engine is in doubt: the governor
+   * keeps the object detector at ≥ 1 Hz, as without a face. Absent = false.
+   */
+  alert?: boolean;
 }
 
 export interface LoopPlan {
@@ -916,9 +939,14 @@ export interface LoopStats {
   fps: number;
   duty: number;
   processCpuPct: number | null;
+  /** 0–4 (`LOOP_LEVELS`); 5 is the emergency level (2 fps, the detector every 8 s). */
   level: number;
+  /** The fastest levels do not fit the budget: emergency level, or the hard duty cap engaged. */
   overBudget: boolean;
-  /** Under 1 tick/s for 30 s while running (hidden-window throttling). */
+  /**
+   * Timers fire late (median lateness of the analysed frames over 30 s > 250 ms, e.g. a hidden
+   * window aligned to 1 s wake-ups), or under 1 tick/s for 30 s while running.
+   */
   throttled: boolean;
   lastTickAt: MonoMs;
   maxGapMs: number;
@@ -943,7 +971,17 @@ export type SessionEvent =
   /** Main persists `profileJson` atomically (debounced). */
   | { type: 'profile_updated'; at: MonoMs; profileJson: string; reason: 'feedback' | 'migrated' }
   | { type: 'camera'; at: MonoMs; status: CameraStatus; error: CameraErrorCode | null }
-  | { type: 'mode'; at: MonoMs; mode: StudyMode; reason: 'user' | 'vision_failed' };
+  /**
+   * `no-camera`: `user` («Continuar sin cámara») or `vision_failed` (the camera analysis is
+   * unavailable). `camera`: `recovered`, the camera analysis came back after a start-time or
+   * mid-session failure (stricter for the user, never a way out of a strike).
+   */
+  | {
+      type: 'mode';
+      at: MonoMs;
+      mode: StudyMode;
+      reason: 'user' | 'vision_failed' | 'recovered';
+    };
 
 /** Local summary for the «Resumen» timeline (the guardian owns points and the outcome). */
 export interface SessionLocalSummary {
@@ -960,6 +998,8 @@ export interface SessionDeps {
   cpuProbe: (() => number | null) | null;
   nowIso(): IsoUtc;
   randomId(): string;
+  /** Video inputs of this window (`enumerateDevices`), to resolve a `CameraChoice`. */
+  listCameras?: () => Promise<readonly CameraDeviceInfo[]>;
 }
 
 export interface StudySessionOptions {
@@ -968,6 +1008,13 @@ export interface StudySessionOptions {
   profileJson: string | null;
   /** Required in camera mode. */
   assets: VisionAssets | null;
+  /**
+   * The camera to use, by label (`CameraChoice.label`), resolved in this window on every open;
+   * `null` = the default camera. A chosen camera that is missing falls back to the default
+   * one with the `camera_default` hint.
+   */
+  cameraLabel?: string | null;
+  /** A raw `deviceId` of this very window (demo); prefer `cameraLabel`. */
   cameraDeviceId?: string | null;
   initialContext?: ContextInput;
   onEvent(event: SessionEvent): void;
@@ -992,6 +1039,13 @@ export interface StudySessionHandle {
 export interface CalibrationSessionOptions {
   assets: VisionAssets;
   profileJson: string | null;
+  /**
+   * The camera to calibrate, by label (see `StudySessionOptions.cameraLabel`). A chosen camera
+   * that is missing fails the recording with `CameraOpenError('not_found')`: calibrating the
+   * default camera instead would train a profile for the wrong camera.
+   */
+  cameraLabel?: string | null;
+  /** A raw `deviceId` of this very window (demo); prefer `cameraLabel`. */
   cameraDeviceId?: string | null;
   onProgress(progress: CalibrationProgress): void;
   deps?: Partial<SessionDeps>;
@@ -1030,7 +1084,8 @@ export type AnalysisInbound =
       mode: StudyMode;
       settings: Partial<StudyAiSettings>;
       profileJson: string | null;
-      cameraDeviceId: string | null;
+      /** `CameraChoice.label`, or `null` for the default camera. Never a `deviceId`. */
+      cameraLabel: string | null;
       context: ContextInput;
     }
   | { type: 'context'; context: ContextInput }
@@ -1040,11 +1095,13 @@ export type AnalysisInbound =
   | { type: 'continue_without_camera' }
   | { type: 'resume' }
   | { type: 'session_stop' }
-  | { type: 'calibration_start'; profileJson: string | null; cameraDeviceId: string | null }
+  | { type: 'calibration_start'; profileJson: string | null; cameraLabel: string | null }
   | { type: 'calibration_record'; cls: CalibrationClass }
   | { type: 'calibration_cancel' }
   | { type: 'calibration_build' }
-  | { type: 'calibration_close' };
+  | { type: 'calibration_close' }
+  /** Any time, also with no job: answered with `cameras`. Never opens a camera. */
+  | { type: 'list_cameras' };
 
 export type AnalysisErrorCode =
   'busy' | 'not_running' | 'invalid_message' | 'camera_failed' | 'vision_failed';
@@ -1058,6 +1115,8 @@ export type AnalysisOutbound =
   | { type: 'calibration_progress'; progress: CalibrationProgress }
   | { type: 'calibration_recorded'; summary: CalibrationRecordingSummary }
   | { type: 'calibration_built'; outcome: CalibrationBuildOutcome }
+  /** The analysis window's video inputs, in `enumerateDevices()` order. */
+  | { type: 'cameras'; cameras: readonly CameraChoice[] }
   | { type: 'error'; code: AnalysisErrorCode; camera: CameraErrorCode | null };
 
 export interface AnalysisHostOptions {

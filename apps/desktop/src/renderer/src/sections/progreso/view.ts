@@ -14,7 +14,11 @@ import type { AchievementId, MascotStage } from '@centrate/shared/points';
 import { featureEnabled } from '../../../../shared/features';
 import { formatInt, formatPoints } from '../../../../shared/format';
 import { activeLocale } from '../../../../shared/i18n/locale';
-import { defaultDetailRequest, type DetailName, type DetailRequest } from '../../../../shared/ui-state';
+import {
+  defaultDetailRequest,
+  type DetailName,
+  type DetailRequest,
+} from '../../../../shared/ui-state';
 import type { UiSnapshot } from '../../../../shared/ui-state';
 import { mascotStageOf } from '../../components/mascot/stage';
 import { RENDERER } from '../../i18n/messages';

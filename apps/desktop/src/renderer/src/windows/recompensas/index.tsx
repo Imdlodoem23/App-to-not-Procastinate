@@ -6,7 +6,9 @@
  * and, side by side, the mascot in large with its phase and the shop in rows: «15 min de
  * YouTube · 150 pts · Canjear». «Canjear» confirms in place («¿Seguro? Canjear», the price and
  * how long it opens in red on the help line); disabled, the help line says why («Te faltan 40
- * puntos»). With nothing blocked there is nothing to open: an empty state points to Bloqueos.
+ * puntos»). The outcome of a redeem goes on its own line under the shop, and the window's polite
+ * region says it. With nothing blocked there is nothing to open: an empty state points to
+ * Bloqueos.
  *
  * Keyboard: every «Canjear» has its Alt + number (the row's), the arrow keys move between them,
  * and a door puts the focus on the first one that can be redeemed (else the first one).
@@ -23,11 +25,11 @@ import {
   Tile,
   TileRow,
 } from '../../components';
+import { Announcer } from '../bloqueos/announcer';
 import { Mascot } from '../../components/mascot';
 import { useLocaleSwitch } from '../../app/Localized';
 import { useAppStore } from '../../store/context';
 import type { DetailRequest } from '../../../../shared/ui-state';
-import { Announcer } from '../bloqueos/announcer';
 import { RECOMPENSAS } from './i18n';
 import { useRecompensas, type RecompensasApi } from './useRecompensas';
 import {
@@ -181,12 +183,18 @@ export default function RecompensasWindow(): React.JSX.Element {
   else {
     body = (
       <>
-        {view.locked ? (
+        {/* With rows, their help line already says why the shop is closed. */}
+        {view.locked && view.rows.length === 0 ? (
           <p className="rwd-text" data-tone="orange">
             {view.locked}
           </p>
         ) : null}
         <Shop api={api} />
+        {view.result ? (
+          <HelpLine id={RWD_IDS.result} tone={view.result.tone}>
+            {view.result.text}
+          </HelpLine>
+        ) : null}
         {view.hidden ? <p className="rwd-text rwd-muted">{view.hidden}</p> : null}
       </>
     );

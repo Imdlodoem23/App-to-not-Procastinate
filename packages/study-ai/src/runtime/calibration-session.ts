@@ -15,6 +15,15 @@
  * and feedback rows. Recording all five before building is «Recalibrar»: a clean slate that
  * drops the feedback rows. After a successful build the new profile becomes the base for the
  * next one. A different camera between two recordings discards the clips of the first one.
+ *
+ * The camera is the one main chose, by label (`cameraLabel`), resolved in this window on every
+ * recording. When it is missing the recording fails with `CameraOpenError('not_found')`
+ * instead of calibrating the default camera: a profile is only valid for the camera it was
+ * recorded with.
+ *
+ * CPU: the recording loop has the session loop's hard duty cap (15 % of one core). On a laptop
+ * too slow for 4 fps the frames come further apart, so the clip is extended (up to 60 s) until
+ * it holds about 50 rows instead of pegging a core; `remainingMs` follows the planned end.
  */
 import { buildProfile, parseProfile, serializeProfile } from '../calibration/profile';
 import { CalibrationRecorder, issue } from '../calibration/recorder';
@@ -33,7 +42,6 @@ import type {
   FrameSource,
   LoopPlan,
   MonoMs,
-  SessionDeps,
   SituationRecording,
   StepCost,
   VisionPipeline,
@@ -42,7 +50,12 @@ import { abortError, isCameraOpenError, isVisionContextLost } from './errors';
 import { analyseNextFrame, FrameCadence, stepCost } from './frame-step';
 import { CpuGovernor } from './governor';
 import { AdaptiveLoop } from './loop';
-import { createVisionWithin, openCameraWithin, resolveSessionDeps } from './session';
+import {
+  createVisionWithin,
+  openCameraWithin,
+  resolveSessionDeps,
+  type ResolvedSessionDeps,
+} from './session';
 
 /** The one loop level of a recording: 4 fps, objects every 2nd frame (2 Hz). */
 const CALIBRATION_LEVEL = Object.freeze({
@@ -52,6 +65,13 @@ const CALIBRATION_LEVEL = Object.freeze({
 
 /** Same camera: same key and an aspect within 2 % (as `profileMatchesCamera`). */
 const ASPECT_TOLERANCE = 0.02;
+
+/** A clip is extended up to this long when the frames come slowly (duty cap). */
+export const CALIBRATION_MAX_DURATION_MS = 60_000;
+/** Rows an extended clip aims for (LEARNING rejects a clip under 40 as `too_short`). */
+export const CALIBRATION_TARGET_ROWS = 50;
+/** Recorded time needed before the frame rate is trusted to plan an extension. */
+const RATE_SAMPLE_MS = 3_000;
 
 export function startCalibration(
   options: CalibrationSessionOptions,
@@ -67,6 +87,8 @@ interface ActiveRecording {
   recorder: CalibrationRecorder | null;
   loop: AdaptiveLoop | null;
   cadence: FrameCadence;
+  /** When the recording ends (20 s after the start, later when frames come slowly). */
+  endAt: MonoMs;
   resolve(summary: CalibrationRecordingSummary): void;
   reject(error: Error): void;
   done: boolean;
@@ -84,7 +106,7 @@ function asCameraError(error: unknown): Error {
 
 class CalibrationSession implements CalibrationSessionHandle {
   private readonly options: CalibrationSessionOptions;
-  private readonly deps: SessionDeps;
+  private readonly deps: ResolvedSessionDeps;
   /** `null` while a pipeline that lost its WebGL context is being rebuilt. */
   private vision: VisionPipeline | null;
   private rebuilding = false;
@@ -97,7 +119,7 @@ class CalibrationSession implements CalibrationSessionHandle {
 
   private constructor(
     options: CalibrationSessionOptions,
-    deps: SessionDeps,
+    deps: ResolvedSessionDeps,
     vision: VisionPipeline,
   ) {
     this.options = options;
@@ -129,13 +151,18 @@ class CalibrationSession implements CalibrationSessionHandle {
         recorder: null,
         loop: null,
         cadence: new FrameCadence(),
+        endAt: Number.POSITIVE_INFINITY,
         resolve,
         reject,
         done: false,
       };
       this.active = active;
-      openCameraWithin(this.deps, this.options.cameraDeviceId ?? null).then(
-        (source) => void this.cameraReady(active, source),
+      const request = {
+        label: this.options.cameraLabel ?? null,
+        deviceId: this.options.cameraDeviceId ?? null,
+      };
+      openCameraWithin(this.deps, request, true).then(
+        (opened) => void this.cameraReady(active, opened.source),
         (error: unknown) => this.fail(active, asCameraError(error)),
       );
     });
@@ -166,7 +193,12 @@ class CalibrationSession implements CalibrationSessionHandle {
 
   private begin(active: ActiveRecording): void {
     const clock = this.deps.clock;
-    active.recorder = new CalibrationRecorder(active.cls, clock.now());
+    const startedAt = clock.now();
+    // The recorder may run up to 60 s; `endAt` decides when this clip actually ends.
+    active.recorder = new CalibrationRecorder(active.cls, startedAt, {
+      durationMs: CALIBRATION_MAX_DURATION_MS,
+    });
+    active.endAt = startedAt + STUDY_AI_CONSTANTS.calibrationDurationMs;
     if (this.vision?.contextLost === true) this.rebuildVision();
     else this.vision?.reset();
     const governor = new CpuGovernor({}, [CALIBRATION_LEVEL]);
@@ -190,7 +222,7 @@ class CalibrationSession implements CalibrationSessionHandle {
     let cost: StepCost | null = null;
     let progress: CalibrationProgress;
 
-    if (now - recorder.startedAt >= STUDY_AI_CONSTANTS.calibrationDurationMs) {
+    if (now >= active.endAt) {
       this.finish(active, now);
       return null;
     }
@@ -213,10 +245,10 @@ class CalibrationSession implements CalibrationSessionHandle {
     } else {
       progress = recorder.progress(clock.now());
     }
-    this.progress(progress);
     const end = clock.now();
-    if (end - recorder.startedAt >= STUDY_AI_CONSTANTS.calibrationDurationMs)
-      this.finish(active, end);
+    this.extend(active, progress.frames, end);
+    this.progress(this.planned(active, progress, end));
+    if (end >= active.endAt) this.finish(active, end);
     if (outcome.kind === 'failed') {
       // A lost WebGL context (GPU reset): rebuild the pipeline instead of failing every
       // frame; the recording goes on without frames for the second it takes.
@@ -227,6 +259,35 @@ class CalibrationSession implements CalibrationSessionHandle {
       throw outcome.error;
     }
     return cost;
+  }
+
+  /**
+   * Frames come slower than 4 fps (the duty cap on a slow laptop): pushes the end so the clip
+   * still gets about `CALIBRATION_TARGET_ROWS`, never beyond 60 s and never earlier than
+   * planned (the countdown only grows).
+   */
+  private extend(active: ActiveRecording, rows: number, now: MonoMs): void {
+    const recorder = active.recorder;
+    if (recorder === null) return;
+    const settledAt = recorder.startedAt + STUDY_AI_CONSTANTS.calibrationSettleMs;
+    const recorded = now - settledAt;
+    if (recorded < RATE_SAMPLE_MS || rows <= 0) return;
+    const needed =
+      settledAt +
+      (CALIBRATION_TARGET_ROWS * recorded) / rows +
+      STUDY_AI_CONSTANTS.calibrationTailMs;
+    const max = recorder.startedAt + CALIBRATION_MAX_DURATION_MS;
+    active.endAt = Math.min(max, Math.max(active.endAt, needed));
+  }
+
+  /** The recorder's progress with the countdown to this clip's planned end. */
+  private planned(
+    active: ActiveRecording,
+    progress: CalibrationProgress,
+    now: MonoMs,
+  ): CalibrationProgress {
+    if (progress.phase === 'done') return progress;
+    return { ...progress, remainingMs: Math.max(0, active.endAt - now) };
   }
 
   /** Replaces a pipeline whose WebGL context was lost (a failed rebuild leaves no frames). */
