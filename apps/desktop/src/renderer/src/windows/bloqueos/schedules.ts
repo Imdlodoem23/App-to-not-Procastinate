@@ -7,9 +7,9 @@
 import type { IsoWeekday, Schedule } from '@centrate/shared/domain';
 import { GUARDIAN_LIMITS } from '@centrate/shared/guardian-api';
 import { modeLabel, targetsLabel } from '../../../../shared/format';
-import { BLOQUEOS_ES } from './i18n/es';
+import { BLOQUEOS } from './i18n';
 
-const S = BLOQUEOS_ES.schedules;
+const S = BLOQUEOS.schedules;
 
 /** «L–V», «S, D», «L, X, V», «Todos los días» (runs of 3 or more days become a range). */
 export function daysLabel(days: readonly IsoWeekday[]): string {

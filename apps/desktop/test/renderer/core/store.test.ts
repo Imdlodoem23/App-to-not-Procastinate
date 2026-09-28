@@ -449,19 +449,24 @@ describe('route', () => {
       detail: null,
       stateId: 'idle',
       kit: false,
+      lang: null,
     });
     expect(parseRoute('?window=detail')).toEqual({
       window: 'detail',
       detail: null,
       stateId: null,
       kit: false,
+      lang: null,
     });
     expect(parseRoute('?window=ajustes&state=ajustes-pairing&kit')).toEqual({
       window: 'detail',
       detail: 'ajustes',
       stateId: 'ajustes-pairing',
       kit: true,
+      lang: null,
     });
+    expect(parseRoute('?state=idle&lang=en')).toMatchObject({ stateId: 'idle', lang: 'en' });
+    expect(parseRoute('?lang=fr').lang).toBeNull();
     expect(parseRoute('')).toMatchObject({ window: 'main', stateId: null });
     expect(parseRoute('?window=evil&state=../x')).toMatchObject({ window: 'main', stateId: null });
   });

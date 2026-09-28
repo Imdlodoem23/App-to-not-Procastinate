@@ -7,7 +7,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from
 import { DoorTile, Field, Tile, TileRow } from '../../components';
 import type { ChipView } from './chips';
 import { ChipList } from './ChipList';
-import { BLOQUEO_ES } from './i18n/es';
+import { BLOQUEO } from './i18n';
 import { templateIcon } from './icons';
 import type { BloqueoActions, BloqueoRefs } from './useBloqueo';
 import { BLOQUEO_FIELD_ID, BLOQUEO_ROWS, type ComposerView, type FieldLine } from './view';
@@ -80,7 +80,7 @@ function ChipsLine(props: {
         <ChipList
           chips={fit.chips}
           line
-          label={BLOQUEO_ES.field.label}
+          label={BLOQUEO.field.label}
           onPress={(chip) => {
             if (chip.span) actions.selectSpan(chip.span);
           }}
@@ -126,7 +126,7 @@ export function Composer(props: {
         id={BLOQUEO_FIELD_ID}
         ref={refs.field}
         size="main"
-        label={BLOQUEO_ES.field.label}
+        label={BLOQUEO.field.label}
         value={composer.value}
         placeholder={composer.placeholder}
         describedBy={LINE_ID}
@@ -144,7 +144,7 @@ export function Composer(props: {
       </span>
       <TileRow
         id={BLOQUEO_ROWS.templates}
-        label={BLOQUEO_ES.templates.rowLabel}
+        label={BLOQUEO.templates.rowLabel}
         help={composer.templatesHelp}
       >
         {composer.templates.map((t) =>

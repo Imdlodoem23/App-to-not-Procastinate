@@ -18,7 +18,7 @@ import { newIntentId } from '../../app/push';
 import { useAppStore, useAppStoreApi } from '../../store/context';
 import type { EmergenciaLocalState } from '../../../../shared/ui-state';
 import { useAnnouncer, type Announcement } from '../bloqueos/announcer';
-import { EMERGENCIA_ES } from './i18n/es';
+import { EMERGENCIA } from './i18n';
 import {
   deriveEmergenciaView,
   stageAnnouncement,
@@ -154,8 +154,8 @@ export function useEmergencia(): EmergenciaApi {
     const before = spokenPhrase.current;
     spokenPhrase.current = phraseNow;
     if (before === null || before === phraseNow) return;
-    if (phraseNow === 'ok') announce(EMERGENCIA_ES.announce.phraseOk);
-    else if (phraseNow === 'mismatch') announce(EMERGENCIA_ES.announce.phraseMismatch);
+    if (phraseNow === 'ok') announce(EMERGENCIA.announce.phraseOk);
+    else if (phraseNow === 'mismatch') announce(EMERGENCIA.announce.phraseMismatch);
   }, [phraseNow, announce]);
 
   const fail = useCallback(
@@ -181,8 +181,8 @@ export function useEmergencia(): EmergenciaApi {
       updateLocal((l) => ({ ...l, phrase: text }));
     },
     refusePaste: () => {
-      setNotice({ text: EMERGENCIA_ES.phrase.pasted, tone: 'orange' });
-      announce(EMERGENCIA_ES.announce.pasted);
+      setNotice({ text: EMERGENCIA.phrase.pasted, tone: 'orange' });
+      announce(EMERGENCIA.announce.pasted);
     },
     request: () => {
       const req = view.request;
@@ -224,12 +224,12 @@ export function useEmergencia(): EmergenciaApi {
             fail(errorCopy(result.error).text);
             return;
           }
-          setNotice({ text: EMERGENCIA_ES.cancelled, tone: 'green' });
+          setNotice({ text: EMERGENCIA.cancelled, tone: 'green' });
           // Said with the stage it leads to, or now if that stage is already showing.
           if (stage.current === 'counting' || stage.current === 'ready') {
-            pendingNotice.current = EMERGENCIA_ES.cancelled;
+            pendingNotice.current = EMERGENCIA.cancelled;
           } else {
-            announce(EMERGENCIA_ES.cancelled);
+            announce(EMERGENCIA.cancelled);
           }
         },
         () => {

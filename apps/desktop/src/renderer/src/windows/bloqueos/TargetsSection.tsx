@@ -13,12 +13,12 @@ import { ESC_PRIORITY } from '../../hooks/keys';
 import { useEscape } from '../../hooks/useKeys';
 import type { CategoryId } from '@centrate/shared/catalog';
 import type { CatalogGroup, ServiceOption } from './catalog';
-import { BLOQUEOS_ES } from './i18n/es';
+import { BLOQUEOS } from './i18n';
 import { EntryChip, ExpandButton, SuggestionChip, isPlainEnter } from './parts';
 import type { BloqueosActions, Notice } from './useBloqueosWindow';
 import { BLOQUEOS_IDS, BLOQUEOS_KEYS, type TargetsView } from './view';
 
-const T = BLOQUEOS_ES.targets;
+const T = BLOQUEOS.targets;
 
 function ServiceGrid(props: {
   id: string;

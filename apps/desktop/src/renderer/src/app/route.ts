@@ -2,8 +2,9 @@
  * Which window this renderer is, from its URL (docs/DESKTOP.md §7.2). Main loads the one bundle
  * as `index.html?window=main|detail` (plus `&state=<id>` in the harness). The browser harness
  * also accepts a detail view as the window (`?window=bloqueos|emergencia|ajustes&state=…`), which
- * opens the detail window on that view. Pure.
+ * opens the detail window on that view, and `?lang=en` for an English system. Pure.
  */
+import { isLocale, type Locale } from '../../../shared/i18n/locale';
 import { isDetailName, type DetailName, type WindowKind } from '../../../shared/ui-state';
 
 export interface RendererRoute {
@@ -14,6 +15,8 @@ export interface RendererRoute {
   stateId: string | null;
   /** Browser harness only (`?kit`): the UI kit gallery instead of the window. */
   kit: boolean;
+  /** Browser harness only (`?lang=es|en`): the fake OS language. */
+  lang: Locale | null;
 }
 
 const STATE_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -24,7 +27,9 @@ export function parseRoute(search: string): RendererRoute {
   const state = params.get('state');
   const stateId = state !== null && STATE_ID_RE.test(state) ? state : null;
   const kit = params.has('kit');
-  if (window === 'detail') return { window: 'detail', detail: null, stateId, kit };
-  if (isDetailName(window)) return { window: 'detail', detail: window, stateId, kit };
-  return { window: 'main', detail: null, stateId, kit };
+  const langParam = params.get('lang');
+  const lang = isLocale(langParam) ? langParam : null;
+  if (window === 'detail') return { window: 'detail', detail: null, stateId, kit, lang };
+  if (isDetailName(window)) return { window: 'detail', detail: window, stateId, kit, lang };
+  return { window: 'main', detail: null, stateId, kit, lang };
 }

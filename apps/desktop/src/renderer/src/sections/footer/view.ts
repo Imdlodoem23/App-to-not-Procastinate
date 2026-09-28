@@ -8,7 +8,7 @@
 import type { Accent } from '@centrate/shared/design/tokens';
 import { featureEnabled } from '../../../../shared/features';
 import type { UiSnapshot } from '../../../../shared/ui-state';
-import { RENDERER_ES } from '../../i18n/es';
+import { RENDERER } from '../../i18n/messages';
 
 export interface FooterStatus {
   tone: Accent;
@@ -25,7 +25,7 @@ export interface FooterView {
   buttons: FooterButton[];
 }
 
-const F = RENDERER_ES.footer;
+const F = RENDERER.footer;
 
 export function deriveFooterView(snapshot: UiSnapshot): FooterView {
   const { link, state, app } = snapshot;

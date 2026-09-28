@@ -10,11 +10,11 @@ import { LogOut, Settings, Timer } from 'lucide-react';
 import { Fragment, useMemo } from 'react';
 import { StatusDot, TextButton, Tile, TileRow } from '../../components';
 import { useRepair } from '../../hooks/useRepair';
-import { RENDERER_ES } from '../../i18n/es';
+import { RENDERER } from '../../i18n/messages';
 import { useBridge, useSnapshot } from '../../store/context';
 import { deriveFooterView, type FooterButton } from './view';
 
-const F = RENDERER_ES.footer;
+const F = RENDERER.footer;
 
 const ICONS = { miniTimer: Timer, settings: Settings, quit: LogOut } as const;
 
@@ -40,7 +40,7 @@ export function Footer(): React.JSX.Element {
     statusItems.push(
       <TextButton key="repair" tone="blue" onPress={repair.run}>
         {repair.running
-          ? RENDERER_ES.protection.actions.repairing
+          ? RENDERER.protection.actions.repairing
           : view.guardian.action === 'install'
             ? F.install
             : F.repair}

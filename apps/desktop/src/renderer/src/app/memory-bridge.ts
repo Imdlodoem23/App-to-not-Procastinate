@@ -13,6 +13,7 @@ import { DATA_DELETE_CONFIRM_WORDS, emptyAllow } from '@centrate/shared/guardian
 import type { Block } from '@centrate/shared/domain';
 import {
   DISPLAY_PRESETS,
+  fixtureInLocale,
   harnessFixture,
   harnessLoad,
   isHarnessStateId,
@@ -54,7 +55,8 @@ function defaultRequest(name: DetailName): DetailRequest {
 type Handler<C extends InvokeChannel> = (req: InvokeReq<C>) => InvokeRes<C>;
 
 export function createMemoryBridge(route: RendererRoute): CentrateBridge {
-  const fixture = harnessFixture(isHarnessStateId(route.stateId) ? route.stateId : 'idle');
+  const base = harnessFixture(isHarnessStateId(route.stateId) ? route.stateId : 'idle');
+  const fixture = route.lang ? fixtureInLocale(base, route.lang) : base;
   const preset = DISPLAY_PRESETS[fixture.display];
   const listeners = new Map<PushChannel, Set<(payload: never) => void>>();
   let snapshot: UiSnapshot = fixture.snapshot;

@@ -35,8 +35,8 @@ import {
 } from '../../../../shared/ui-state';
 import type { BlockMode } from '@centrate/shared/domain';
 import { durationLabel } from '@centrate/shared/parser';
-import { targetNames } from '../../../../shared/format';
-import { BLOQUEO_ES } from './i18n/es';
+import { intlLocale, targetNames } from '../../../../shared/format';
+import { BLOQUEO } from './i18n';
 import { untilShort } from './time';
 
 const MIN = 60_000;
@@ -96,8 +96,8 @@ export function studyReason(text: string, parse: ParseResult): string {
   if (!task || !parse.task) return '';
   const before = parse.chips.filter((chip) => chip.kind !== 'task' && chip.start < task.end);
   const own = before.length === 0 ? text.slice(0, task.end).trim().replace(/\s+/g, ' ') : '';
-  const reason = own !== '' ? own : BLOQUEO_ES.study.reason(parse.task);
-  const capital = reason.charAt(0).toLocaleUpperCase('es-ES') + reason.slice(1);
+  const reason = own !== '' ? own : BLOQUEO.study.reason(parse.task);
+  const capital = reason.charAt(0).toLocaleUpperCase(intlLocale()) + reason.slice(1);
   return capital.slice(0, GUARDIAN_LIMITS.reasonMaxLength);
 }
 
@@ -313,7 +313,7 @@ export function chipEditText(draft: BlockDraft, field: CardField, nowMs: number)
 export type ChipEditResult = { ok: true; draft: BlockDraft } | { ok: false; message: string };
 
 function notUnderstood(text: string): ChipEditResult {
-  return { ok: false, message: BLOQUEO_ES.field.notUnderstoodAll(text.trim()) };
+  return { ok: false, message: BLOQUEO.field.notUnderstoodAll(text.trim()) };
 }
 
 /**

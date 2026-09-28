@@ -18,7 +18,7 @@ import {
   type HelpTone,
 } from '../../components';
 import { Composer, isEnter } from './Composer';
-import { BLOQUEO_ES } from './i18n/es';
+import { BLOQUEO } from './i18n';
 import { EXTEND_ICONS } from './icons';
 import type { BloqueoActions, BloqueoNotice, BloqueoRefs } from './useBloqueo';
 import { BLOQUEO_ROWS, type ActiveView, type ExtendView } from './view';
@@ -114,7 +114,7 @@ function ExtendRow(props: {
     <>
       <TileRow
         id={BLOQUEO_ROWS.extend}
-        label={BLOQUEO_ES.active.extendLabel}
+        label={BLOQUEO.active.extendLabel}
         help={help.node}
         helpTone={help.tone}
       >
@@ -124,8 +124,8 @@ function ExtendRow(props: {
               <Field
                 ref={refs.otherField}
                 value={other.text}
-                label={BLOQUEO_ES.active.otherLabel}
-                placeholder={BLOQUEO_ES.active.otherPlaceholder}
+                label={BLOQUEO.active.otherLabel}
+                placeholder={BLOQUEO.active.otherPlaceholder}
                 invalid={other.text.trim() !== '' && !other.canApply}
                 describedBy={`${BLOQUEO_ROWS.extend}-help`}
                 inputMode="text"
@@ -140,7 +140,7 @@ function ExtendRow(props: {
             </div>
             <Tile
               id="apply"
-              label={BLOQUEO_ES.active.otherApply}
+              label={BLOQUEO.active.otherApply}
               icon={EXTEND_ICONS['apply']}
               disabled={!other.canApply}
               disabledReason={other.line.text}
@@ -210,7 +210,7 @@ export function ActiveBlock(props: {
             </span>
           ) : active.reason ? (
             <span className="bq-reason" data-fit="">
-              <span className="sr-only">{BLOQUEO_ES.active.reasonLabel}: </span>
+              <span className="sr-only">{BLOQUEO.active.reasonLabel}: </span>
               {active.reason}
             </span>
           ) : null}

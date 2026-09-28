@@ -26,6 +26,7 @@ import {
   activePunishment,
   isBootHold,
   maxExtendMinutes,
+  templateLabel,
   primaryBlock,
   type UiSnapshot,
 } from '../../shared/ui-state';
@@ -312,7 +313,7 @@ export function trayMenu(snapshot: UiSnapshot, nowMs: number): TrayMenuItemModel
     items.push(
       item(TRAY_ITEM.quick, TRAY.menu.quick, {
         type: 'submenu',
-        submenu: snapshot.templates.map((t) => item(TRAY_ITEM.template(t.id), t.label)),
+        submenu: snapshot.templates.map((t) => item(TRAY_ITEM.template(t.id), templateLabel(t))),
       }),
     );
   }

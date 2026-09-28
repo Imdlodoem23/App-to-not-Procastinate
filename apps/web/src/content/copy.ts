@@ -1154,18 +1154,26 @@ export const es = {
   },
 } as const;
 
-/** Keys whose values are identifiers shared by every language, never translated. */
+/** Keys that may hold identifiers shared by every language (a footnote, a window state). */
 type FixedKey = 'note' | 'leadNote' | 'visual';
+type FixedValue = FootnoteId | AppWindowState;
 
 /**
  * The shape of a translation: the Spanish copy with every string widened to `string`, except
- * the identifiers of `FixedKey`. Arrays keep their length (they are tuples), so a translation
- * has exactly the same keys, items and footnote references as the Spanish original.
+ * footnote ids and window states under `FixedKey` (`note: 'admin'`). Arrays keep their length
+ * (they are tuples), so a translation has exactly the same keys, items and footnote references
+ * as the Spanish original.
  */
 export type Localized<T> = T extends string
   ? string
   : T extends object
-    ? { readonly [K in keyof T]: K extends FixedKey ? T[K] : Localized<T[K]> }
+    ? {
+        readonly [K in keyof T]: K extends FixedKey
+          ? T[K] extends FixedValue
+            ? T[K]
+            : Localized<T[K]>
+          : Localized<T[K]>;
+      }
     : T;
 
 export type Copy = Localized<typeof es>;

@@ -3,7 +3,8 @@
  * the «Extra» of G-Helper; docs/DESKTOP.md §7.7), pure. Four groups of 48 px rows (title and
  * description on the left, the control on the right), everything applied at once:
  *
- * - General: theme Sistema | Claro | Oscuro, language, autostart, daily goal;
+ * - General: theme Sistema | Claro | Oscuro, language Sistema | Español | English, autostart,
+ *   daily goal;
  * - Bloqueo: default mode (and the guardian's own settings when the app can read them);
  * - Sistema: guardian status and «Reparar», each paired extension, the pairing code at 32 px,
  *   the per-browser guides (incognito included) and «Copiar diagnóstico»;
@@ -34,30 +35,59 @@ import {
   type UiSnapshot,
   type UiState,
 } from '../../../../shared/ui-state';
-import { RENDERER_ES } from '../../i18n/es';
+import {
+  LANGUAGE_PREFERENCES,
+  localized,
+  type LanguagePreference,
+} from '../../../../shared/i18n/locale';
+import { RENDERER } from '../../i18n/messages';
 import { allocateMnemonics } from '../bloqueos/mnemonics';
-import { AJUSTES_ES } from './i18n/es';
+import { AJUSTES } from './i18n';
 
-const A = AJUSTES_ES;
+const A = AJUSTES;
 
 /**
  * Alt + letter of the window's fixed tiles (the letter is in the label). The per-browser guides
  * and each extension row's «Guía…» get the free ones (`allocateMnemonics`).
  */
-export const AJUSTES_KEYS = {
-  theme: { system: 's', light: 'c', dark: 'o' } satisfies Record<ThemePreference, string>,
-  mode: { normal: 'n', strict: 'e', hardcore: 'h' } satisfies Record<DefaultBlockMode, string>,
+interface AjustesKeys {
+  theme: Record<ThemePreference, string>;
+  language: Record<LanguagePreference, string>;
+  mode: Record<DefaultBlockMode, string>;
   /** «Reparar» or «Instalar». */
-  repair: 'r',
-  pairingNew: 'u',
-  diagnostics: 'p',
-  delete: 'b',
-} as const;
+  repair: string;
+  pairingNew: string;
+  diagnostics: string;
+  delete: string;
+}
+
+/** Per language, so each letter is in its label (read at call time, like the copy). */
+export const AJUSTES_KEYS: AjustesKeys = localized<AjustesKeys>({
+  es: {
+    theme: { system: 's', light: 'c', dark: 'o' },
+    language: { system: 't', es: 'l', en: 'g' },
+    mode: { normal: 'n', strict: 'e', hardcore: 'h' },
+    repair: 'r',
+    pairingNew: 'u',
+    diagnostics: 'p',
+    delete: 'b',
+  },
+  en: {
+    theme: { system: 's', light: 'l', dark: 'k' },
+    language: { system: 'y', es: 'p', en: 'e' },
+    mode: { normal: 'n', strict: 't', hardcore: 'h' },
+    repair: 'r',
+    pairingNew: 'w',
+    diagnostics: 'c',
+    delete: 'd',
+  },
+});
 
 function fixedAjustesKeys(): string[] {
   const k = AJUSTES_KEYS;
   return [
     ...Object.values(k.theme),
+    ...Object.values(k.language),
     ...Object.values(k.mode),
     k.repair,
     k.pairingNew,
@@ -73,12 +103,14 @@ export const AJUSTES_IDS = {
   datos: 'aj-datos',
   rows: {
     theme: 'aj-theme',
+    language: 'aj-language',
     defaultMode: 'aj-default-mode',
     guides: 'aj-guides',
   },
 } as const;
 
 export const THEME_OPTIONS: readonly ThemePreference[] = ['system', 'light', 'dark'];
+export const LANGUAGE_OPTIONS: readonly LanguagePreference[] = LANGUAGE_PREFERENCES;
 export const DEFAULT_MODE_OPTIONS: readonly DefaultBlockMode[] = ['normal', 'strict', 'hardcore'];
 export const GUIDES: readonly GuideId[] = [
   'extension-chromium',
@@ -193,6 +225,13 @@ export interface AjustesView {
     title: string;
     theme: ThemePreference;
     themeOptions: { value: ThemePreference; label: string; help: string; mnemonic: string }[];
+    language: LanguagePreference;
+    languageOptions: {
+      value: LanguagePreference;
+      label: string;
+      help: string;
+      mnemonic: string;
+    }[];
     autostart: boolean;
     /** `null` while the guardian has not answered. */
     dailyGoal: { value: string; note: string | null } | null;
@@ -301,7 +340,7 @@ function guardianRow(
 
 function extensionRow(ext: ExtensionStatus): ExtensionRowView {
   const S = A.sistema;
-  const browser = RENDERER_ES.protection.browsers[ext.browser];
+  const browser = RENDERER.protection.browsers[ext.browser];
   const base = { id: ext.id, title: S.extension(browser) };
   if (!ext.connected) {
     return {
@@ -403,7 +442,7 @@ export function deriveAjustesView(
   const missing = [...new Set(guardianState?.protection.browsersWithoutExtension ?? [])].map(
     (browser) => ({
       id: browser,
-      title: A.sistema.browserMissing(RENDERER_ES.protection.browsers[browser]),
+      title: A.sistema.browserMissing(RENDERER.protection.browsers[browser]),
     }),
   );
   const extensionTrouble = extensions.some((e) => e.tone !== 'green') || missing.length > 0;
@@ -426,6 +465,13 @@ export function deriveAjustesView(
         label: A.general.themes[value],
         help: A.general.themeHelp[value],
         mnemonic: AJUSTES_KEYS.theme[value],
+      })),
+      language: snapshot.prefs.language,
+      languageOptions: LANGUAGE_OPTIONS.map((value) => ({
+        value,
+        label: A.general.languages[value],
+        help: A.general.languageHelp[value],
+        mnemonic: AJUSTES_KEYS.language[value],
       })),
       autostart: snapshot.prefs.autostart,
       dailyGoal:

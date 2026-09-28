@@ -1,13 +1,12 @@
 /**
  * Clock phrases of section 2 that `src/shared/format.ts` does not cover: day-relative end
  * times («a las 23:42», «mañana a las 08:00», «el jue a las 08:00») and the next schedule
- * («18:00», «mañana 16:00»). Local time zone, 24 h. Pure: no DOM, Node or Electron imports.
+ * («18:00», «mañana 16:00»). Local time zone, the active locale's clock. Pure: no DOM, Node or Electron imports.
  */
 import { untilLabel } from '@centrate/shared/parser';
-import { LOCALE, formatClock } from '../../../../shared/format';
-import { BLOQUEO_ES } from './i18n/es';
-
-const weekdayFormat = new Intl.DateTimeFormat(LOCALE, { weekday: 'short' });
+import { activeLocale } from '../../../../shared/i18n/locale';
+import { formatClock, formatWeekday } from '../../../../shared/format';
+import { BLOQUEO } from './i18n';
 
 /** Local calendar days from `fromMs` to `toMs` (0 today, 1 tomorrow…). */
 export function calendarDaysBetween(fromMs: number, toMs: number): number {
@@ -31,7 +30,7 @@ function dayKind(ms: number, nowMs: number): DayKind {
 }
 
 function weekday(ms: number): string {
-  return weekdayFormat.format(new Date(ms)).replace(/\.$/, '');
+  return formatWeekday(ms);
 }
 
 /** «18:00», «mañana 16:00», «jue 16:00» (header «Próximo horario: …»). */
@@ -41,9 +40,9 @@ export function whenLabel(ms: number, nowMs: number): string {
     case 'today':
       return time;
     case 'tomorrow':
-      return BLOQUEO_ES.when.tomorrow(time);
+      return BLOQUEO.when.tomorrow(time);
     case 'weekday':
-      return BLOQUEO_ES.when.weekday(weekday(ms), time);
+      return BLOQUEO.when.weekday(weekday(ms), time);
   }
 }
 
@@ -52,11 +51,11 @@ export function endsPhrase(ms: number, nowMs: number): string {
   const time = formatClock(ms);
   switch (dayKind(ms, nowMs)) {
     case 'today':
-      return BLOQUEO_ES.ends.today(time);
+      return BLOQUEO.ends.today(time);
     case 'tomorrow':
-      return BLOQUEO_ES.ends.tomorrow(time);
+      return BLOQUEO.ends.tomorrow(time);
     case 'weekday':
-      return BLOQUEO_ES.ends.weekday(weekday(ms), time);
+      return BLOQUEO.ends.weekday(weekday(ms), time);
   }
 }
 
@@ -65,15 +64,28 @@ export function untilPhrase(ms: number, nowMs: number): string {
   const time = formatClock(ms);
   switch (dayKind(ms, nowMs)) {
     case 'today':
-      return BLOQUEO_ES.untilLong.today(time);
+      return BLOQUEO.untilLong.today(time);
     case 'tomorrow':
-      return BLOQUEO_ES.untilLong.tomorrow(time);
+      return BLOQUEO.untilLong.tomorrow(time);
     case 'weekday':
-      return BLOQUEO_ES.untilLong.weekday(weekday(ms), time);
+      return BLOQUEO.untilLong.weekday(weekday(ms), time);
   }
 }
 
-/** «hasta 17:42», «hasta mañana 08:00» (header datum, chips, «Bloquear hasta 17:42»). */
+/**
+ * «hasta 17:42», «hasta mañana 08:00» (header datum, chips, «Bloquear hasta 17:42»): the
+ * parser's own `untilLabel` in Spanish; «until 5:42 PM», «until tomorrow 8:00 AM» in English.
+ */
 export function untilShort(ms: number, nowMs: number): string {
-  return untilLabel(new Date(ms), new Date(nowMs));
+  if (activeLocale() === 'es') return untilLabel(new Date(ms), new Date(nowMs));
+  const time = formatClock(ms);
+  const end = new Date(ms);
+  switch (dayKind(ms, nowMs)) {
+    case 'today':
+      return BLOQUEO.untilShort.today(time);
+    case 'tomorrow':
+      return BLOQUEO.untilShort.tomorrow(time);
+    case 'weekday':
+      return BLOQUEO.untilShort.date(`${end.getMonth() + 1}/${end.getDate()}`, time);
+  }
 }

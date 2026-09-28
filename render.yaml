@@ -62,6 +62,19 @@ services:
       - type: rewrite
         source: /privacidad
         destination: /privacidad/index.html
+      # English pages (Spanish is the default at /).
+      - type: rewrite
+        source: /en
+        destination: /en/index.html
+      - type: rewrite
+        source: /en/download
+        destination: /en/download/index.html
+      - type: rewrite
+        source: /en/changelog
+        destination: /en/changelog/index.html
+      - type: rewrite
+        source: /en/privacy
+        destination: /en/privacy/index.html
       - type: rewrite
         source: /sitemap.xml
         destination: /sitemap-index.xml

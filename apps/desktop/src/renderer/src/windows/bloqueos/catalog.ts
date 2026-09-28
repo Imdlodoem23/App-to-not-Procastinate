@@ -14,7 +14,6 @@ import {
   findAppByProcessName,
   findServiceByDomain,
   getApp,
-  getCategory,
   isAlwaysAllowedHost,
   isProtectedDomain,
   isProtectedProcessName,
@@ -28,10 +27,11 @@ import {
 } from '@centrate/shared/catalog';
 import type { TargetSpec } from '@centrate/shared/domain';
 import { GUARDIAN_LIMITS } from '@centrate/shared/guardian-api';
+import { categoryName } from '../../../../shared/format';
 import type { Platform } from '../../../../shared/ui-state';
-import { BLOQUEOS_ES } from './i18n/es';
+import { BLOQUEOS } from './i18n';
 
-const T = BLOQUEOS_ES.targets;
+const T = BLOQUEOS.targets;
 
 /** `process.platform` style → the catalog's process-name platform. */
 export function toCatalogPlatform(platform: Platform): CatalogPlatform {
@@ -83,7 +83,7 @@ export interface CatalogGroup {
 
 function serviceOption(service: Service, targets: TargetSpec): ServiceOption {
   const covering = service.categories.find((c) => targets.categoryIds.includes(c));
-  const includedBy = covering ? (getCategory(covering)?.name ?? covering) : null;
+  const includedBy = covering ? categoryName(covering) : null;
   return {
     id: service.id,
     name: service.name,
@@ -115,7 +115,7 @@ export function catalogGroups(targets: TargetSpec): CatalogGroup[] {
   const groups = CATEGORIES.map((category) =>
     groupOf(
       category.id,
-      category.name,
+      categoryName(category.id),
       category.id,
       SERVICES.filter((s) => s.categories.includes(category.id)),
       targets,
@@ -153,13 +153,16 @@ export function searchCatalog(
 ): CatalogSearch | null {
   const q = fold(query);
   if (q === '') return null;
-  const categories = CATEGORIES.map((c) => ({ c, r: rank([c.name, ...c.aliases], q) }))
+  const categories = CATEGORIES.map((c) => ({
+    c,
+    r: rank([categoryName(c.id), c.name, ...c.aliases], q),
+  }))
     .filter((x) => Number.isFinite(x.r))
     .sort((a, b) => a.r - b.r)
     .map(({ c }) =>
       groupOf(
         c.id,
-        c.name,
+        categoryName(c.id),
         c.id,
         SERVICES.filter((s) => s.categories.includes(c.id)),
         targets,

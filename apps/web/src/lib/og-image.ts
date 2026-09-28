@@ -1,16 +1,15 @@
 /**
- * /og.svg: the Open Graph placeholder (1200 × 630), built from copy.ts so no text is written
- * twice. It echoes the hero: the name, the headline, and the Céntrate window with YouTube
+ * The Open Graph image (1200 × 630) as SVG, built from the copy of one language so no text is
+ * written twice (served as /og.svg and /en/og.svg by src/pages). It echoes the hero: the name, the headline, and the Céntrate window with YouTube
  * blocked and the countdown (copy.meta.ogImageAlt), entering from the bottom edge.
  *
- * Most social networks do not render SVG previews, so site.ogImage points to public/og.png,
- * drawn from this SVG by scripts/render-og.mjs (`npm run og -w apps/web` after a build; the
+ * Most social networks do not render SVG previews, so site.ogImage points to public/og.png and
+ * public/og-en.png, drawn from these SVGs by scripts/render-og.mjs (`npm run og -w apps/web` after a build; the
  * marketing-assets workflow may regenerate it later). The colors below are copies of
  * src/styles/tokens.css (--palette-* and the --aw-* dark theme): a standalone image cannot read
  * CSS variables.
  */
-import type { APIRoute } from 'astro';
-import { copy } from '../content/copy';
+import type { Copy } from '../content/copy';
 
 const color = {
   page: '#ffffff',
@@ -45,7 +44,7 @@ function text(
   return `<text x="${x}" y="${y}"${rendered}>${esc(value)}</text>`;
 }
 
-function buildSvg(): string {
+export function buildOgSvg(copy: Copy): string {
   const aw = copy.appWindow;
   const [ext1, ext2, ext3, extOther] = aw.block.extend;
   const tileW = (416 - 3 * 4) / 4;
@@ -102,8 +101,3 @@ function buildSvg(): string {
 </svg>
 `;
 }
-
-export const GET: APIRoute = () =>
-  new Response(buildSvg(), {
-    headers: { 'Content-Type': 'image/svg+xml; charset=utf-8' },
-  });

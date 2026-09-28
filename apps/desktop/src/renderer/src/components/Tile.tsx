@@ -19,7 +19,7 @@ import type { LucideIcon } from 'lucide-react';
 import { useCallback, useLayoutEffect, useRef, type Ref } from 'react';
 import type { Accent } from '@centrate/shared/design/tokens';
 import { useMnemonic } from '../hooks/useKeys';
-import { RENDERER_ES } from '../i18n/es';
+import { RENDERER } from '../i18n/messages';
 import { Icon } from './Icon';
 import { splitMnemonic } from './mnemonic';
 import { tileDescription, tileHelpText, tileVisual } from './tile-style';
@@ -143,8 +143,8 @@ export function Tile(props: TileProps): React.JSX.Element {
     return active.dataset['rowTile'] === row.rowId ? (active.dataset['tileId'] ?? null) : null;
   };
 
-  let text = door ? RENDERER_ES.kit.door(label) : label;
-  if (armed) text = RENDERER_ES.kit.armed(text);
+  let text = door ? RENDERER.kit.door(label) : label;
+  if (armed) text = RENDERER.kit.armed(text);
   const radio = row?.kind === 'radiogroup';
 
   return (

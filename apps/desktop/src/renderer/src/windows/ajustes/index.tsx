@@ -37,17 +37,18 @@ import {
   type SegmentedOption,
 } from '../../components';
 import type { ThemePreference } from '@centrate/shared/design/tokens';
+import type { LanguagePreference } from '../../../../shared/i18n/locale';
 import { useHelp } from '../../hooks/useHelp';
 import { useRepair } from '../../hooks/useRepair';
-import { RENDERER_ES } from '../../i18n/es';
+import { RENDERER } from '../../i18n/messages';
 import { useAppStore } from '../../store/context';
 import type { DefaultBlockMode } from '../../../../shared/ui-state';
-import { AJUSTES_ES } from './i18n/es';
+import { AJUSTES } from './i18n';
 import { useAjustes, type AjustesApi, type AjustesNotice } from './useAjustes';
 import { AJUSTES_IDS, AJUSTES_KEYS, type AjustesView } from './view';
 import './ajustes.css';
 
-const A = AJUSTES_ES;
+const A = AJUSTES;
 
 /**
  * A group's result line: a polite region that is always mounted (zero height while empty), so
@@ -121,13 +122,15 @@ function GeneralGroup(props: { view: AjustesView['general']; api: AjustesApi }):
           options={view.themeOptions.map((o) => ({ ...o, tone: 'neutral' as const }))}
           onChange={api.setTheme}
         />
-        <SettingsRow
-          id="aj-language"
+        <ChoiceRow<LanguagePreference>
+          id="aj-language-row"
+          rowId={AJUSTES_IDS.rows.language}
           title={A.general.language}
           description={A.general.languageDesc}
-        >
-          <span className="aj-value">{A.general.languageValue}</span>
-        </SettingsRow>
+          value={view.language}
+          options={view.languageOptions.map((o) => ({ ...o, tone: 'neutral' as const }))}
+          onChange={api.setLanguage}
+        />
         <SettingsRow
           id="aj-autostart"
           title={A.general.autostart}
@@ -183,7 +186,7 @@ function BloqueoGroup(props: { view: AjustesView['bloqueo']; api: AjustesApi }):
             description={row.note ? <span data-tone="orange">{row.note}</span> : row.description}
           >
             <span className="aj-value">
-              {row.value ? RENDERER_ES.kit.toggleOn : RENDERER_ES.kit.toggleOff}
+              {row.value ? RENDERER.kit.toggleOn : RENDERER.kit.toggleOff}
             </span>
           </SettingsRow>
         ))}

@@ -21,6 +21,7 @@ import type {
   EmergencyPreviewResponse,
   GuardianStateResponse,
 } from '@centrate/shared/guardian-api';
+import { activeLocale, localized } from '../../../../shared/i18n/locale';
 import {
   EMERGENCY_RULES,
   emergencyCountdownMinutes,
@@ -29,16 +30,16 @@ import {
   normalizePhrase,
 } from '@centrate/shared/points';
 import {
-  LOCALE,
   formatClock,
   formatPoints,
+  formatWeekday,
   modeLabel,
   targetsLabel,
 } from '../../../../shared/format';
 import { modeAccent, type UiState } from '../../../../shared/ui-state';
-import { EMERGENCIA_ES } from './i18n/es';
+import { EMERGENCIA } from './i18n';
 
-const E = EMERGENCIA_ES;
+const E = EMERGENCIA;
 
 export const EMERGENCIA_IDS = {
   section: 'emg',
@@ -51,16 +52,15 @@ export const EMERGENCIA_IDS = {
 export const UNLOCK_ARM_ID = 'emergency-unlock';
 
 /**
- * Alt + letter of every tile (unique in the window; the letter is in the label). Alt + D only
- * arms «Desbloquear», like a first click: a second press within 3 s confirms.
+ * Alt + letter of every tile, per language (unique in the window; the letter is in the label).
+ * Alt + D only arms «Desbloquear», like a first click: a second press within 3 s confirms.
  */
-export const EMERGENCIA_KEYS = {
-  stay: 's',
-  request: 'e',
-  cancel: 'c',
-  unlock: 'd',
-  close: 'r',
-} as const;
+export const EMERGENCIA_KEYS: Readonly<
+  Record<'stay' | 'request' | 'cancel' | 'unlock' | 'close', string>
+> = localized({
+  es: { stay: 's', request: 'e', cancel: 'c', unlock: 'd', close: 'r' },
+  en: { stay: 's', request: 'w', cancel: 'c', unlock: 'u', close: 'l' },
+});
 
 /** Row item ids, so a stage can focus its recommended control. */
 export const EMERGENCIA_TILES = {
@@ -157,10 +157,7 @@ export function untilPhrase(ms: number, nowMs: number): string {
   const days = Math.round(day(ms) - day(nowMs));
   if (days <= 0) return E.until.today(time);
   if (days === 1) return E.until.tomorrow(time);
-  const date = new Intl.DateTimeFormat(LOCALE, { weekday: 'short' })
-    .format(new Date(ms))
-    .replace(/\.$/, '');
-  return E.until.later(date, time);
+  return E.until.later(formatWeekday(ms), time);
 }
 
 /** How the typed phrase compares with the commitment phrase (shared normalization). */
@@ -365,7 +362,7 @@ export function deriveEmergenciaView(
     datumTone: 'muted',
     loss: lossText(preview.penaltyPoints, preview.streakDays),
     rows: rowsFor(guardian, preview.blockIds, nowMs),
-    phrase: { target: preview.phrases.es, status, ...phraseHelp[status] },
+    phrase: { target: preview.phrases[activeLocale()], status, ...phraseHelp[status] },
     request: {
       label: E.actions.request(minutes),
       blockIds: [...preview.blockIds],

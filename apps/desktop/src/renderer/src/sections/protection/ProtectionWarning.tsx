@@ -8,11 +8,11 @@ import { ShieldOff, TriangleAlert } from 'lucide-react';
 import { useMemo } from 'react';
 import { Section, Tile, TileRow } from '../../components';
 import { useRepair } from '../../hooks/useRepair';
-import { RENDERER_ES } from '../../i18n/es';
+import { RENDERER } from '../../i18n/messages';
 import { useBridge, useSnapshot } from '../../store/context';
 import { deriveProtectionView, type ProtectionAction } from './view';
 
-const P = RENDERER_ES.protection;
+const P = RENDERER.protection;
 
 export function ProtectionWarning(): React.JSX.Element {
   const snapshot = useSnapshot();

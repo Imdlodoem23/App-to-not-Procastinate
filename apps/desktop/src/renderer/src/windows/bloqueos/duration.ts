@@ -15,9 +15,9 @@ import {
   type BlockDraft,
   type DraftEnd,
 } from '../../../../shared/ui-state';
-import { BLOQUEOS_ES } from './i18n/es';
+import { BLOQUEOS } from './i18n';
 
-const D = BLOQUEOS_ES.duration;
+const D = BLOQUEOS.duration;
 const MIN = 60_000;
 
 /** Preset tiles: 30 min | 1 h | 2 h | 3 h. */

@@ -22,7 +22,7 @@ import {
 } from '../../components';
 import { errorCopy } from '../../i18n/errors';
 import { useArmedState } from '../../store/context';
-import { BLOQUEOS_ES } from './i18n/es';
+import { BLOQUEOS } from './i18n';
 import type { BloqueosActions, Notice } from './useBloqueosWindow';
 import {
   BLOQUEOS_IDS,
@@ -32,7 +32,7 @@ import {
   type SchedulesView,
 } from './view';
 
-const E = BLOQUEOS_ES;
+const E = BLOQUEOS;
 
 export function ActiveSection(props: {
   view: BloqueosView['active'];

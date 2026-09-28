@@ -13,7 +13,7 @@ import { ESC_PRIORITY } from '../../hooks/keys';
 import { useEscape } from '../../hooks/useKeys';
 import { GUARDIAN_LIMITS } from '@centrate/shared/guardian-api';
 import type { BlockMode } from '@centrate/shared/domain';
-import { BLOQUEOS_ES } from './i18n/es';
+import { BLOQUEOS } from './i18n';
 import { CommitField, isPlainEnter } from './parts';
 import type { BloqueosActions, Notice } from './useBloqueosWindow';
 import {
@@ -24,7 +24,7 @@ import {
   type ModeView,
 } from './view';
 
-const E = BLOQUEOS_ES;
+const E = BLOQUEOS;
 
 export function DurationSection(props: {
   view: DurationView;

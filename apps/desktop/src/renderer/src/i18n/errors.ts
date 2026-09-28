@@ -7,7 +7,7 @@
  * «Algo ha fallado en el guardián» with «Detalles…». Pure.
  */
 import type { UiError } from '../../../shared/ui-state';
-import { RENDERER_ES } from './es';
+import { RENDERER, type RendererMessages } from './messages';
 
 export type ErrorAction = 'retry' | 'repair' | 'details' | 'edit' | null;
 
@@ -19,25 +19,29 @@ export interface ErrorCopy {
   repair: boolean;
 }
 
-const E = RENDERER_ES.errors;
+const E = RENDERER.errors;
 
-/** Copy of guardian rejections (`kind: 'rejected'`), by error code. */
-const BY_CODE: Readonly<Record<string, { text: string; action: ErrorAction }>> = {
-  extension_exceeds_max: { text: E.extensionExceedsMax, action: 'edit' },
-  block_not_active: { text: E.blockNotActive, action: null },
-  not_extendable: { text: E.notExtendable, action: null },
-  duration_out_of_range: { text: E.durationOutOfRange, action: 'edit' },
-  too_many_targets: { text: E.tooManyTargets, action: 'edit' },
-  protected_target: { text: E.protectedTarget, action: 'edit' },
-  unknown_id: { text: E.unknownId, action: 'repair' },
-  phrase_mismatch: { text: E.phraseMismatch, action: 'edit' },
-  confirm_word_mismatch: { text: E.confirmWordMismatch, action: 'edit' },
-  emergency_not_ready: { text: E.emergencyNotReady, action: null },
-  emergency_expired: { text: E.emergencyExpired, action: null },
-  emergency_in_progress: { text: E.emergencyInProgress, action: null },
-  emergency_not_available: { text: E.emergencyNotAvailable, action: null },
-  emergency_moot: { text: E.emergencyMoot, action: null },
-  rate_limited: { text: E.rateLimited, action: 'retry' },
+type RejectionKey = {
+  [K in keyof RendererMessages['errors']]: RendererMessages['errors'][K] extends string ? K : never;
+}[keyof RendererMessages['errors']];
+
+/** Copy of guardian rejections (`kind: 'rejected'`), by error code (read at call time). */
+const BY_CODE: Readonly<Record<string, { text: RejectionKey; action: ErrorAction }>> = {
+  extension_exceeds_max: { text: 'extensionExceedsMax', action: 'edit' },
+  block_not_active: { text: 'blockNotActive', action: null },
+  not_extendable: { text: 'notExtendable', action: null },
+  duration_out_of_range: { text: 'durationOutOfRange', action: 'edit' },
+  too_many_targets: { text: 'tooManyTargets', action: 'edit' },
+  protected_target: { text: 'protectedTarget', action: 'edit' },
+  unknown_id: { text: 'unknownId', action: 'repair' },
+  phrase_mismatch: { text: 'phraseMismatch', action: 'edit' },
+  confirm_word_mismatch: { text: 'confirmWordMismatch', action: 'edit' },
+  emergency_not_ready: { text: 'emergencyNotReady', action: null },
+  emergency_expired: { text: 'emergencyExpired', action: null },
+  emergency_in_progress: { text: 'emergencyInProgress', action: null },
+  emergency_not_available: { text: 'emergencyNotAvailable', action: null },
+  emergency_moot: { text: 'emergencyMoot', action: null },
+  rate_limited: { text: 'rateLimited', action: 'retry' },
 };
 
 function copy(text: string, action: ErrorAction, repair = false): ErrorCopy {
@@ -66,7 +70,7 @@ export function errorCopy(error: UiError): ErrorCopy {
   }
   if (error.kind === 'rejected') {
     const known = BY_CODE[error.code];
-    if (known) return copy(known.text, known.action);
+    if (known) return copy(E[known.text], known.action);
   }
   return copy(E.generic, 'details');
 }

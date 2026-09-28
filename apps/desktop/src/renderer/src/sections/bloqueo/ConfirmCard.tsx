@@ -12,7 +12,7 @@ import { ConfirmButton, Field, HelpLine, Tile, TileRow, type HelpTone } from '..
 import { useHelp } from '../../hooks/useHelp';
 import { useRepair } from '../../hooks/useRepair';
 import { errorCopy } from '../../i18n/errors';
-import { RENDERER_ES } from '../../i18n/es';
+import { RENDERER } from '../../i18n/messages';
 import { useAppStore } from '../../store/context';
 import type { BlockMode } from '@centrate/shared/domain';
 import { chipEditText } from './draft';
@@ -20,7 +20,7 @@ import type { CardField } from '../../../../shared/ui-state';
 import { snapshotNow } from '../../../../shared/ui-state';
 import { ChipList } from './ChipList';
 import { isEnter } from './Composer';
-import { BLOQUEO_ES } from './i18n/es';
+import { BLOQUEO } from './i18n';
 import { ACTION_ICONS, MODE_ICONS } from './icons';
 import type { BloqueoActions, BloqueoNotice, BloqueoRefs } from './useBloqueo';
 import { BLOQUEO_FIELD_ID, BLOQUEO_ROWS, type CardActionView, type CardView } from './view';
@@ -31,17 +31,33 @@ const SUMMARY_ID = 'bloqueo-card-summary';
 const REASON_ID = 'bloqueo-reason';
 
 const EDITOR_LABEL: Readonly<Record<CardField, string>> = {
-  targets: BLOQUEO_ES.card.targetsLabel,
-  duration: BLOQUEO_ES.card.durationChip,
-  end: BLOQUEO_ES.card.endChip,
-  mode: BLOQUEO_ES.card.modesLabel,
-  reason: BLOQUEO_ES.card.reasonLabel,
+  get targets() {
+    return BLOQUEO.card.targetsLabel;
+  },
+  get duration() {
+    return BLOQUEO.card.durationChip;
+  },
+  get end() {
+    return BLOQUEO.card.endChip;
+  },
+  get mode() {
+    return BLOQUEO.card.modesLabel;
+  },
+  get reason() {
+    return BLOQUEO.card.reasonLabel;
+  },
 };
 
 const EDITOR_PLACEHOLDER: Readonly<Partial<Record<CardField, string>>> = {
-  targets: BLOQUEO_ES.card.editTargetsPlaceholder,
-  duration: BLOQUEO_ES.card.editDurationPlaceholder,
-  end: BLOQUEO_ES.card.editEndPlaceholder,
+  get targets() {
+    return BLOQUEO.card.editTargetsPlaceholder;
+  },
+  get duration() {
+    return BLOQUEO.card.editDurationPlaceholder;
+  },
+  get end() {
+    return BLOQUEO.card.editEndPlaceholder;
+  },
 };
 
 /** In-place editor of one chip: Enter applies, Esc (the window cascade) leaves it as it was. */
@@ -205,12 +221,12 @@ export function ConfirmCard(props: {
       <div key="secondary" className={`bq-span-${a.span}`} {...hover}>
         <Tile
           id={a.id}
-          label={repairing ? RENDERER_ES.protection.actions.repairing : a.label}
+          label={repairing ? RENDERER.protection.actions.repairing : a.label}
           icon={a.id === 'repair' ? ACTION_ICONS.repair : undefined}
           size="door"
           door={a.id === 'edit'}
           disabled={a.disabled || repairing}
-          disabledReason={a.disabled ? BLOQUEO_ES.card.pendingHelp : undefined}
+          disabledReason={a.disabled ? BLOQUEO.card.pendingHelp : undefined}
           mnemonic={a.mnemonic ?? undefined}
           onPress={a.id === 'repair' ? repair.run : actions.editInBloqueos}
         />
@@ -219,13 +235,13 @@ export function ConfirmCard(props: {
   };
 
   return (
-    <div className="bq-body" role="group" aria-label={BLOQUEO_ES.card.label} onKeyDown={onKeyDown}>
+    <div className="bq-body" role="group" aria-label={BLOQUEO.card.label} onKeyDown={onKeyDown}>
       {card.composer ? (
         <Field
           id={BLOQUEO_FIELD_ID}
           ref={refs.field}
           size="main"
-          label={BLOQUEO_ES.field.label}
+          label={BLOQUEO.field.label}
           value={card.composer.value}
           readOnly={!card.editable}
           maxLength={500}
@@ -251,7 +267,7 @@ export function ConfirmCard(props: {
       ) : (
         <ChipList
           chips={card.chips}
-          label={BLOQUEO_ES.card.targetsLabel}
+          label={BLOQUEO.card.targetsLabel}
           describedBy={HELP_ID}
           onPress={card.editable ? (chip) => chip.field && actions.startEdit(chip.field) : null}
           pressable={(chip) => chip.field !== null}
@@ -260,7 +276,7 @@ export function ConfirmCard(props: {
 
       <TileRow
         id={BLOQUEO_ROWS.modes}
-        label={BLOQUEO_ES.card.modesLabel}
+        label={BLOQUEO.card.modesLabel}
         kind="radiogroup"
         help={card.modeHelp}
       >
@@ -283,13 +299,13 @@ export function ConfirmCard(props: {
 
       <div className="bq-reason-row">
         <label className="bq-reason-label" htmlFor={REASON_ID}>
-          {BLOQUEO_ES.card.reasonLabel}
+          {BLOQUEO.card.reasonLabel}
         </label>
         <Field
           id={REASON_ID}
           value={card.reason}
-          label={BLOQUEO_ES.card.reasonLabel}
-          placeholder={BLOQUEO_ES.card.reasonPlaceholder}
+          label={BLOQUEO.card.reasonLabel}
+          placeholder={BLOQUEO.card.reasonPlaceholder}
           readOnly={!card.editable}
           maxLength={140}
           onChange={actions.setReason}

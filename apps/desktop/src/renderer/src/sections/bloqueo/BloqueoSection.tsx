@@ -11,7 +11,7 @@ import { ActiveBlock } from './ActiveBlock';
 import { Composer } from './Composer';
 import { useFitText } from './FitText';
 import { ConfirmCard } from './ConfirmCard';
-import { BLOQUEO_ES } from './i18n/es';
+import { BLOQUEO } from './i18n';
 import { SECTION_ICON } from './icons';
 import { useBloqueo } from './useBloqueo';
 import { BLOQUEO_SECTION_ID } from './view';
@@ -41,8 +41,8 @@ export function BloqueoSection(): React.JSX.Element {
       pill={
         header.newPill ? (
           <Pill tone="blue" onPress={actions.openNew}>
-            <span aria-hidden="true">{BLOQUEO_ES.header.newPill}</span>
-            <span className="sr-only">{BLOQUEO_ES.header.newPillLabel}</span>
+            <span aria-hidden="true">{BLOQUEO.header.newPill}</span>
+            <span className="sr-only">{BLOQUEO.header.newPillLabel}</span>
           </Pill>
         ) : undefined
       }

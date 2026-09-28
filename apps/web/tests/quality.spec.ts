@@ -2,8 +2,11 @@
  * Acceptance checks of the brief (§ 11) on the built site, served by `astro preview`:
  * - axe-core: 0 violations on every page at 375 and 1280 px, with and without reduced motion.
  * - Layout: no horizontal scroll at 320, 375 and 768 px.
- * - SEO: canonical and og:url match the sitemap, the Open Graph image is a 1200 × 630 PNG, and
- *   robots.txt and the sitemap point to the same origin.
+ * - SEO: canonical and og:url match the sitemap, hreflang links join each page with its
+ *   translation, the Open Graph images are 1200 × 630 PNGs, and robots.txt and the sitemap
+ *   point to the same origin.
+ * - Languages: Spanish at /, English under /en. The browser runs in es-ES (playwright.config.ts)
+ *   so the English hint stays out of the screenshots; its own tests switch to en-US.
  * - Weight (the budgets of § 11; Render's free plan has little egress): the first view of every
  *   page, loaded at 375 and 1440 px without scrolling, transfers ≤ 1.5 MB, and every image and
  *   video in dist/ fits its own budget: images ≤ 120 KB (AVIF, and WebP, the posters' format),
@@ -38,6 +41,18 @@ const PAGES = [
   { name: 'novedades', path: '/novedades' },
   { name: 'privacidad', path: '/privacidad' },
   { name: '404', path: '/esta-pagina-no-existe' },
+  { name: 'en-home', path: '/en' },
+  { name: 'en-download', path: '/en/download' },
+  { name: 'en-changelog', path: '/en/changelog' },
+  { name: 'en-privacy', path: '/en/privacy' },
+  { name: 'en-404', path: '/en/this-page-does-not-exist' },
+] as const;
+/** Each page and its translation (the language switch and the hreflang links join them). */
+const TRANSLATIONS = [
+  ['/', '/en'],
+  ['/descargar', '/en/download'],
+  ['/novedades', '/en/changelog'],
+  ['/privacidad', '/en/privacy'],
 ] as const;
 const MOTIONS: readonly Motion[] = ['reduce', 'no-preference'];
 /** Width → a typical viewport height for it. */
@@ -228,6 +243,9 @@ const RELEASE_PAGES = [
   { name: 'home', path: '/', ready: '[data-version-loaded]' },
   { name: 'descargar', path: '/descargar', ready: '[data-sums]:not([hidden])' },
   { name: 'novedades', path: '/novedades', ready: null },
+  { name: 'en-home', path: '/en', ready: '[data-version-loaded]' },
+  { name: 'en-download', path: '/en/download', ready: '[data-sums]:not([hidden])' },
+  { name: 'en-changelog', path: '/en/changelog', ready: null },
 ] as const;
 
 async function openWithRelease(
@@ -313,22 +331,36 @@ test('seo: canonical URLs, sitemap, robots.txt and the Open Graph image agree', 
   const origin = new URL(locs[0] ?? 'invalid:').origin;
 
   const canonicals: string[] = [];
-  for (const { path } of PAGES.filter((p) => p.name !== '404')) {
+  for (const { path } of PAGES.filter((p) => !p.name.endsWith('404'))) {
     await page.goto(path);
+    const english = path.startsWith('/en');
+    await expect(page.locator('html')).toHaveAttribute('lang', english ? 'en' : 'es');
     const canonical = await page.locator('link[rel="canonical"]').getAttribute('href');
     const ogUrl = await page.locator('meta[property="og:url"]').getAttribute('content');
     const ogImage = await page.locator('meta[property="og:image"]').getAttribute('content');
     expect(ogUrl, `og:url of ${path}`).toBe(canonical);
     expect(new URL(ogImage ?? '').origin, `og:image of ${path}`).toBe(origin);
-    expect(new URL(ogImage ?? '').pathname).toBe('/og.png');
+    expect(new URL(ogImage ?? '').pathname).toBe(english ? '/og-en.png' : '/og.png');
+    // hreflang: both languages and x-default (the Spanish page), all absolute on the origin.
+    const pair = TRANSLATIONS.find((t) => (t as readonly string[]).includes(path));
+    expect(pair, `translation of ${path}`).toBeDefined();
+    const alternate = (lang: string) =>
+      page.locator(`link[rel="alternate"][hreflang="${lang}"]`).getAttribute('href');
+    expect(await alternate('es')).toBe(new URL(pair?.[0] ?? '', origin).href);
+    expect(await alternate('en')).toBe(new URL(pair?.[1] ?? '', origin).href);
+    expect(await alternate('x-default')).toBe(new URL(pair?.[0] ?? '', origin).href);
     canonicals.push(canonical ?? '');
   }
   expect(canonicals.sort()).toEqual([...locs].sort());
+  // The sitemap lists the translations of every page.
+  expect(sitemap.match(/hreflang="en"/g) ?? []).toHaveLength(locs.length);
 
   // 1200 × 630 PNG: width and height are the big-endian integers at bytes 16 and 20.
-  const png = await (await request.get('/og.png')).body();
-  expect(png.subarray(1, 4).toString('latin1')).toBe('PNG');
-  expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([1200, 630]);
+  for (const image of ['/og.png', '/og-en.png']) {
+    const png = await (await request.get(image)).body();
+    expect(png.subarray(1, 4).toString('latin1'), image).toBe('PNG');
+    expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([1200, 630]);
+  }
 
   const robots = await (await request.get('/robots.txt')).text();
   expect(robots).toContain(`Sitemap: ${origin}/sitemap-index.xml`);
@@ -336,6 +368,63 @@ test('seo: canonical URLs, sitemap, robots.txt and the Open Graph image agree', 
   await page.goto('/esta-pagina-no-existe');
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/);
   await expect(page.locator('link[rel="canonical"]')).toHaveCount(0);
+});
+
+test('i18n: the language switch opens the same page in the other language', async ({ page }) => {
+  for (const [es, en] of TRANSLATIONS) {
+    await page.goto(es);
+    const toEnglish = page.locator('footer [data-lang-switch="en"]');
+    await expect(toEnglish).toHaveText('English');
+    await expect(toEnglish).toHaveAttribute('href', en);
+    await page.goto(en);
+    const toSpanish = page.locator('footer [data-lang-switch="es"]');
+    await expect(toSpanish).toHaveText('Español');
+    await expect(toSpanish).toHaveAttribute('href', es);
+  }
+});
+
+test.describe('i18n: English hint for an English browser', () => {
+  test.use({ locale: 'en-US' });
+
+  test('shows on Spanish pages until dismissed, never redirects', async ({ page }) => {
+    await page.goto('/descargar');
+    const hint = page.locator('[data-lang-hint]');
+    await expect(hint).toBeVisible();
+    await expect(hint.getByRole('link')).toHaveAttribute('href', '/en/download');
+    expect(new URL(page.url()).pathname).toBe('/descargar');
+    const { violations } = await new AxeBuilder({ page }).include('[data-lang-hint]').analyze();
+    expect(violations.map((v) => v.id)).toEqual([]);
+
+    await hint.getByRole('button').click();
+    await expect(hint).toBeHidden();
+    await page.goto('/privacidad');
+    await expect(page.locator('[data-lang-hint]')).toBeHidden();
+  });
+
+  test('choosing a language with the switch counts as a choice', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('footer [data-lang-switch="en"]').click();
+    await expect(page).toHaveURL(/\/en$/);
+    await page.goto('/novedades');
+    await expect(page.locator('[data-lang-hint]')).toBeHidden();
+  });
+
+  test('stays hidden on English pages', async ({ page }) => {
+    await page.goto('/en/privacy');
+    await expect(page.locator('[data-lang-hint]')).toBeHidden();
+  });
+
+  test('the 404 under /en is in English', async ({ page }) => {
+    await page.goto('/en/this-page-does-not-exist');
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    await expect(page.locator('h1')).toHaveText('This page doesn’t exist.');
+    await expect(page.locator('[data-lang-hint]')).toBeHidden();
+  });
+});
+
+test('i18n: no hint for a Spanish browser', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('[data-lang-hint]')).toBeHidden();
 });
 
 for (const width of SHOT_WIDTHS) {

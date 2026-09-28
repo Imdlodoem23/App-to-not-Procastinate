@@ -14,7 +14,7 @@ import { BLOQUEO_ES } from '../../../src/renderer/src/sections/bloqueo/i18n/es';
 import { estimateTextWidth } from '../../../src/renderer/src/sections/bloqueo/chips';
 import {
   CONTENT_WIDTH,
-  RESERVED_MNEMONICS,
+  reservedMnemonics,
   assignMnemonics,
   blockTitles,
   deriveBloqueoView,
@@ -785,7 +785,7 @@ describe('Alt + letter', () => {
     }
     const used = letters.filter((l): l is string => l !== null);
     expect(new Set(used).size).toBe(used.length);
-    for (const l of used) expect(RESERVED_MNEMONICS).not.toContain(l);
+    for (const l of used) expect(reservedMnemonics()).not.toContain(l);
   });
 
   it('keeps the extend letters free for templates under an active block', () => {

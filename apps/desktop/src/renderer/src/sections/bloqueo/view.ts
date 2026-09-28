@@ -12,14 +12,14 @@ import type { GuardianStateResponse } from '@centrate/shared/guardian-api';
 import { durationLabel } from '@centrate/shared/parser';
 import { POINT_RULES } from '@centrate/shared/points';
 import {
-  LOCALE,
+  formatList,
   formatPoints,
   modeLabel,
   splitCountdown,
   targetNames,
   targetsLabel,
 } from '../../../../shared/format';
-import { SHARED_ES } from '../../../../shared/i18n/es';
+import { SHARED } from '../../../../shared/i18n';
 import {
   EXTEND_PRESETS,
   activePunishment,
@@ -44,10 +44,12 @@ import {
   type HelpFocus,
   type MainLocalState,
   type UiError,
+  templateLabel,
   type UiPrefs,
   type UiSnapshot,
   type UiState,
 } from '../../../../shared/ui-state';
+import { RENDERER } from '../../i18n/messages';
 import { chipCandidates, draftChips, estimateTextWidth, typingChips, type ChipView } from './chips';
 import {
   consequenceUnlockAt,
@@ -60,7 +62,7 @@ import {
   visibleTemplates,
   type FieldEnter,
 } from './draft';
-import { BLOQUEO_ES } from './i18n/es';
+import { BLOQUEO } from './i18n';
 import { endsPhrase, untilPhrase, untilShort, whenLabel } from './time';
 
 // ---------------------------------------------------------------------------------------
@@ -73,11 +75,17 @@ export const BLOQUEO_SECTION_ID = 'bloqueo';
 export const BLOQUEO_FIELD_ID = 'bloqueo-field';
 
 /**
- * Alt + letter already used by RENDERER-CORE in the same window: section 1 (Reparar «p»,
- * Detalles… «t», Instalar… «i») and the footer (Ajustes… «a», Salir «s», Mini temporizador
- * «z»). Section 2 never takes them, so mnemonics stay unique among visible tiles.
+ * Alt + letter already used by RENDERER-CORE in the same window, in the active language:
+ * section 1 (Reparar «p», Detalles… «t», Instalar… «i») and the footer (Ajustes… «a», Salir
+ * «s», Mini temporizador «z»). Section 2 never takes them, so mnemonics stay unique among
+ * visible tiles.
  */
-export const RESERVED_MNEMONICS: readonly string[] = ['p', 't', 'i', 'a', 's', 'z'];
+export function reservedMnemonics(): string[] {
+  return [
+    ...Object.values(RENDERER.protection.mnemonics),
+    ...Object.values(RENDERER.footer.mnemonics),
+  ];
+}
 
 /** Help rows of the section (`HelpFocus.row`). */
 export const BLOQUEO_ROWS = {
@@ -341,10 +349,10 @@ export function assignMnemonics(
 
 /** Header names of what a block blocks, with categories shortened («Redes», «Vídeo»). */
 function shortTargetNames(block: Block): string[] {
-  if (block.whitelistOnly) return [BLOQUEO_ES.header.whitelistShort];
+  if (block.whitelistOnly) return [BLOQUEO.header.whitelistShort];
   const short = { ...block.targets, categoryIds: [] };
   const categories = block.targets.categoryIds.map(
-    (id) => BLOQUEO_ES.header.categoryShort[id] ?? id,
+    (id) => BLOQUEO.header.categoryShort[id] ?? id,
   );
   // `targetNames` order: services, categories, apps, custom domains, custom processes.
   const names = targetNames(short, false);
@@ -354,8 +362,8 @@ function shortTargetNames(block: Block): string[] {
 
 /** «YouTube +2» from a list of names (one name shown). */
 function firstPlus(names: readonly string[]): string {
-  const [first = SHARED_ES.targets.none, ...rest] = names;
-  return rest.length > 0 ? `${first} ${SHARED_ES.targets.more(rest.length)}` : first;
+  const [first = SHARED.targets.none, ...rest] = names;
+  return rest.length > 0 ? `${first} ${SHARED.targets.more(rest.length)}` : first;
 }
 
 /**
@@ -367,20 +375,20 @@ function firstPlus(names: readonly string[]): string {
  */
 export function blockTitles(block: Block, punishment: Punishment | null): string[] {
   if (punishment) {
-    const level = BLOQUEO_ES.punishment.level[punishment.level];
+    const level = BLOQUEO.punishment.level[punishment.level];
     return [
-      BLOQUEO_ES.header.punishment(level, punishment.minutes),
-      BLOQUEO_ES.header.punishmentShort(level),
-      BLOQUEO_ES.header.punishmentShort(`${punishment.minutes} min`),
+      BLOQUEO.header.punishment(level, punishment.minutes),
+      BLOQUEO.header.punishmentShort(level),
+      BLOQUEO.header.punishmentShort(`${punishment.minutes} min`),
     ];
   }
   const mode = modeLabel(block.mode);
   const count = targetNames(block.targets, block.whitelistOnly).length;
   const titles = [
-    BLOQUEO_ES.header.active(targetsLabel(block.targets, block.whitelistOnly, 2), mode),
-    BLOQUEO_ES.header.active(targetsLabel(block.targets, block.whitelistOnly, 1), mode),
-    BLOQUEO_ES.header.active(firstPlus(shortTargetNames(block)), mode),
-    count > 1 ? BLOQUEO_ES.header.activeCount(count, mode) : BLOQUEO_ES.header.activeMode(mode),
+    BLOQUEO.header.active(targetsLabel(block.targets, block.whitelistOnly, 2), mode),
+    BLOQUEO.header.active(targetsLabel(block.targets, block.whitelistOnly, 1), mode),
+    BLOQUEO.header.active(firstPlus(shortTargetNames(block)), mode),
+    count > 1 ? BLOQUEO.header.activeCount(count, mode) : BLOQUEO.header.activeMode(mode),
   ];
   return [...new Set(titles)];
 }
@@ -433,22 +441,22 @@ function deriveHeader(
     const notice = finishedNotice(state, nowMs);
     const points = notice?.pointsDelta ?? 0;
     return {
-      title: BLOQUEO_ES.header.finished,
-      titles: [BLOQUEO_ES.header.finished],
+      title: BLOQUEO.header.finished,
+      titles: [BLOQUEO.header.finished],
       datum:
         points !== 0
-          ? BLOQUEO_ES.header.finishedPoints(formatPoints(points, { signed: true }))
-          : BLOQUEO_ES.header.finishedNoPoints,
+          ? BLOQUEO.header.finishedPoints(formatPoints(points, { signed: true }))
+          : BLOQUEO.header.finishedNoPoints,
       datumTone: points >= 0 ? 'green' : 'default',
       newPill: false,
     };
   }
   const next = state?.nextSchedule ?? null;
   return {
-    title: BLOQUEO_ES.header.none,
-    titles: [BLOQUEO_ES.header.none],
+    title: BLOQUEO.header.none,
+    titles: [BLOQUEO.header.none],
     datum: next
-      ? BLOQUEO_ES.header.nextSchedule(whenLabel(Date.parse(next.startsAt), nowMs))
+      ? BLOQUEO.header.nextSchedule(whenLabel(Date.parse(next.startsAt), nowMs))
       : null,
     datumTone: 'default',
     newPill: false,
@@ -461,7 +469,7 @@ function deriveHeader(
 
 /** The example phrase shown while the field is empty (`floor(now / 4 s)`: deterministic). */
 export function examplePhrase(nowMs: number, rotateMs: number = 4_000): string {
-  const list = BLOQUEO_ES.field.examples;
+  const list = BLOQUEO.field.examples;
   const index = Math.floor(nowMs / rotateMs) % list.length;
   return list[index] ?? list[0] ?? '';
 }
@@ -471,29 +479,29 @@ function truncate(text: string, max: number): string {
 }
 
 function fieldLine(text: string, nowMs: number, enter: FieldEnter['kind']): FieldLine {
-  if (text.trim() === '') return { kind: 'hint', text: BLOQUEO_ES.field.hint };
+  if (text.trim() === '') return { kind: 'hint', text: BLOQUEO.field.hint };
   const parse = parsePhrase(text, nowMs);
   const chips = typingChips(parse, nowMs);
   let note: LineView | null = null;
   if (parse.unparsed.length > 0) {
     note = {
       tone: 'muted',
-      text: BLOQUEO_ES.field.notUnderstood(parse.unparsed.map((f) => truncate(f, 28))),
+      text: BLOQUEO.field.notUnderstood(parse.unparsed.map((f) => truncate(f, 28))),
     };
   } else if (chips.length === 0) {
-    note = { tone: 'muted', text: BLOQUEO_ES.field.notUnderstoodAll(truncate(text.trim(), 40)) };
+    note = { tone: 'muted', text: BLOQUEO.field.notUnderstoodAll(truncate(text.trim(), 40)) };
   } else if (enter === 'bloqueos') {
     const hasTargets = chips.some(
       (c) => c.kind !== 'duration' && c.kind !== 'until' && c.kind !== 'task',
     );
     const hasTime = chips.some((c) => c.kind === 'duration' || c.kind === 'until');
     note = !hasTargets
-      ? { tone: 'muted', text: BLOQUEO_ES.field.missingTargets }
+      ? { tone: 'muted', text: BLOQUEO.field.missingTargets }
       : !hasTime
-        ? { tone: 'muted', text: BLOQUEO_ES.field.missingDuration }
+        ? { tone: 'muted', text: BLOQUEO.field.missingDuration }
         : null;
   }
-  const understood = chips.length > 0 ? BLOQUEO_ES.field.understood(chips.map((c) => c.label)) : '';
+  const understood = chips.length > 0 ? BLOQUEO.field.understood(chips.map((c) => c.label)) : '';
   const announce = [understood, note?.text ?? ''].filter((t) => t !== '').join('. ');
   return { kind: 'chips', chips, candidates: chipCandidates(chips), note, announce };
 }
@@ -502,10 +510,10 @@ function templateHelp(template: BlockTemplate, prefs: UiPrefs): string {
   const mode = template.mode ?? prefs.defaultMode;
   const modeText =
     template.mode === null
-      ? BLOQUEO_ES.templates.modeFromSettings(modeLabel(mode))
+      ? BLOQUEO.templates.modeFromSettings(modeLabel(mode))
       : modeLabel(mode);
   for (const names of [2, 1]) {
-    const text = BLOQUEO_ES.templates.help(
+    const text = BLOQUEO.templates.help(
       targetsLabel(template.targets, template.whitelistOnly || mode === 'exam', names),
       durationLabel(template.durationMinutes),
       modeText,
@@ -524,13 +532,13 @@ function templateTiles(
   help: string;
 } {
   const shown = visibleTemplates(snapshot.templates);
-  const labels = [...shown.map((t) => t.label), BLOQUEO_ES.templates.more];
-  const mnemonics = assignMnemonics(labels, [...RESERVED_MNEMONICS, ...taken]);
+  const labels = [...shown.map((t) => templateLabel(t)), BLOQUEO.templates.more];
+  const mnemonics = assignMnemonics(labels, [...reservedMnemonics(), ...taken]);
   const tiles: TemplateTileView[] = [
     ...shown.map((t, i) => ({
       ...tile({
         id: t.id,
-        label: t.label,
+        label: templateLabel(t),
         help: templateHelp(t, snapshot.prefs),
         mnemonic: mnemonics[i] ?? null,
       }),
@@ -539,8 +547,8 @@ function templateTiles(
     {
       ...tile({
         id: 'more',
-        label: BLOQUEO_ES.templates.more,
-        help: BLOQUEO_ES.templates.moreHelp,
+        label: BLOQUEO.templates.more,
+        help: BLOQUEO.templates.moreHelp,
         door: true,
         mnemonic: mnemonics[shown.length] ?? null,
       }),
@@ -549,7 +557,7 @@ function templateTiles(
   ];
   return {
     tiles,
-    help: rowHelp(help, BLOQUEO_ROWS.templates, tiles, BLOQUEO_ES.templates.rowHelp),
+    help: rowHelp(help, BLOQUEO_ROWS.templates, tiles, BLOQUEO.templates.rowHelp),
   };
 }
 
@@ -564,7 +572,7 @@ function composerView(
   const templates = templateTiles(snapshot, main.help, taken);
   return {
     value: text,
-    placeholder: examplePhrase(nowMs),
+    placeholder: BLOQUEO.field.placeholder(examplePhrase(nowMs)),
     line: fieldLine(text, nowMs, enter),
     enter,
     templates: templates.tiles,
@@ -578,19 +586,18 @@ function composerView(
 
 const MODE_ORDER: readonly BlockMode[] = BLOCK_MODES;
 
-const listFormat = new Intl.ListFormat(LOCALE, { style: 'long', type: 'conjunction' });
 
 /** «Bloquea YouTube e Instagram durante 1 hora, hasta las 18:00, modo Estricto». */
 function cardSummary(draft: BlockDraft, minutes: number, endsAtMs: number, nowMs: number): string {
   const names = draft.whitelistOnly
-    ? [BLOQUEO_ES.card.summaryWhitelist]
+    ? [BLOQUEO.card.summaryWhitelist]
     : targetNames(draft.targets, false);
-  const duration = BLOQUEO_ES.card.durationWords(Math.floor(minutes / 60), minutes % 60);
+  const duration = BLOQUEO.card.durationWords(Math.floor(minutes / 60), minutes % 60);
   const until = untilPhrase(endsAtMs, nowMs);
   const mode = modeLabel(draft.mode);
   return names.length === 0
-    ? BLOQUEO_ES.card.summaryNoTargets(duration, until, mode)
-    : BLOQUEO_ES.card.summary(listFormat.format(names), duration, until, mode);
+    ? BLOQUEO.card.summaryNoTargets(duration, until, mode)
+    : BLOQUEO.card.summary(formatList(names), duration, until, mode);
 }
 
 function cardView(
@@ -629,24 +636,24 @@ function cardView(
     tile({
       id: mode,
       label: modeLabel(mode),
-      help: BLOQUEO_ES.card.modeHelp[mode],
+      help: BLOQUEO.card.modeHelp[mode],
       selected: draft.mode === mode,
       accent: modeAccent(mode),
       disabled: !editable,
-      disabledReason: !editable ? BLOQUEO_ES.card.pendingHelp : null,
+      disabledReason: !editable ? BLOQUEO.card.pendingHelp : null,
     }),
   );
   const modeHelp = rowHelp(
     main.help,
     BLOQUEO_ROWS.modes,
     modes,
-    BLOQUEO_ES.card.modeHelp[draft.mode],
+    BLOQUEO.card.modeHelp[draft.mode],
   );
 
   const edit: CardActionView = {
     id: 'edit',
-    label: BLOQUEO_ES.card.edit,
-    help: BLOQUEO_ES.card.editHelp2,
+    label: BLOQUEO.card.edit,
+    help: BLOQUEO.card.editHelp2,
     primary: false,
     disabled: !editable,
     locked: false,
@@ -659,8 +666,8 @@ function cardView(
       edit,
       {
         id: 'confirm',
-        label: BLOQUEO_ES.card.pending,
-        help: BLOQUEO_ES.card.pendingHelp,
+        label: BLOQUEO.card.pending,
+        help: BLOQUEO.card.pendingHelp,
         primary: true,
         disabled: true,
         locked: false,
@@ -672,8 +679,8 @@ function cardView(
     actions = [
       {
         id: 'repair',
-        label: BLOQUEO_ES.card.repair,
-        help: BLOQUEO_ES.card.repairHelp,
+        label: BLOQUEO.card.repair,
+        help: BLOQUEO.card.repairHelp,
         primary: false,
         disabled: false,
         locked: false,
@@ -682,8 +689,8 @@ function cardView(
       },
       {
         id: 'retry',
-        label: BLOQUEO_ES.card.retry,
-        help: BLOQUEO_ES.card.retryHelp,
+        label: BLOQUEO.card.retry,
+        help: BLOQUEO.card.retryHelp,
         primary: true,
         disabled: false,
         locked: false,
@@ -699,9 +706,9 @@ function cardView(
       {
         id: 'confirm',
         label: consequence
-          ? BLOQUEO_ES.card.confirmAgain(durationLabel(minutes))
-          : BLOQUEO_ES.card.confirm(untilShort(endsAtMs, nowMs)),
-        help: consequence ? BLOQUEO_ES.card.confirmAgainHelp : BLOQUEO_ES.card.confirmHelp,
+          ? BLOQUEO.card.confirmAgain(durationLabel(minutes))
+          : BLOQUEO.card.confirm(untilShort(endsAtMs, nowMs)),
+        help: consequence ? BLOQUEO.card.confirmAgainHelp : BLOQUEO.card.confirmHelp,
         primary: true,
         disabled: problem !== null || !editable,
         locked,
@@ -714,7 +721,7 @@ function cardView(
   // Alt + letter, unique among the card's tiles (modes first, then the actions).
   const letters = assignMnemonics(
     [...modes.map((m) => m.label), ...actions.map((a) => a.label)],
-    RESERVED_MNEMONICS,
+    reservedMnemonics(),
   );
   modes.forEach((m, i) => {
     m.mnemonic = letters[i] ?? null;
@@ -725,17 +732,17 @@ function cardView(
   if (failedError) {
     actionsHelp = { kind: 'error', error: failedError };
   } else if (card?.editing) {
-    actionsHelp = { kind: 'text', tone: 'muted', text: BLOQUEO_ES.card.editHelp };
+    actionsHelp = { kind: 'text', tone: 'muted', text: BLOQUEO.card.editHelp };
   } else if (problem && status !== 'pending') {
-    actionsHelp = { kind: 'text', tone: 'orange', text: BLOQUEO_ES.card.problem[problem] };
+    actionsHelp = { kind: 'text', tone: 'orange', text: BLOQUEO.card.problem[problem] };
   } else if (status === 'consequence') {
     const noEmergency = draft.mode === 'hardcore' || draft.mode === 'exam';
     actionsHelp = {
       kind: 'text',
       tone: 'red',
       text: noEmergency
-        ? BLOQUEO_ES.card.consequenceNoEmergency(untilPhrase(endsAtMs, nowMs))
-        : BLOQUEO_ES.card.consequenceLong(durationLabel(minutes), endsPhrase(endsAtMs, nowMs)),
+        ? BLOQUEO.card.consequenceNoEmergency(untilPhrase(endsAtMs, nowMs))
+        : BLOQUEO.card.consequenceLong(durationLabel(minutes), endsPhrase(endsAtMs, nowMs)),
     };
   } else {
     const hovered =
@@ -745,7 +752,7 @@ function cardView(
     actionsHelp = {
       kind: 'text',
       tone: 'muted',
-      text: hovered && status !== 'pending' ? hovered.help : BLOQUEO_ES.card.reminder,
+      text: hovered && status !== 'pending' ? hovered.help : BLOQUEO.card.reminder,
     };
   }
 
@@ -780,7 +787,7 @@ function elapsedFraction(block: Block, nowMs: number): number {
 }
 
 function plusLabel(minutes: number): string {
-  return BLOQUEO_ES.active.plus(durationLabel(minutes));
+  return BLOQUEO.active.plus(durationLabel(minutes));
 }
 
 function undoView(entries: readonly ExtendEntry[], nowMs: number): UndoView | null {
@@ -797,10 +804,10 @@ function undoView(entries: readonly ExtendEntry[], nowMs: number): UndoView | nu
       return {
         kind: 'waiting',
         entryId: pick.id,
-        text: BLOQUEO_ES.active.undoLine(plus, ends),
-        button: BLOQUEO_ES.active.undo(seconds),
-        buttonLabel: BLOQUEO_ES.active.undoLabel(plus),
-        announce: BLOQUEO_ES.active.undoAnnounce(
+        text: BLOQUEO.active.undoLine(plus, ends),
+        button: BLOQUEO.active.undo(seconds),
+        buttonLabel: BLOQUEO.active.undoLabel(plus),
+        announce: BLOQUEO.active.undoAnnounce(
           plus,
           ends,
           Math.round(UI_TIMINGS.extendUndoMs / 1000),
@@ -811,16 +818,16 @@ function undoView(entries: readonly ExtendEntry[], nowMs: number): UndoView | nu
       return {
         kind: 'sending',
         entryId: pick.id,
-        text: BLOQUEO_ES.active.sending(plus),
+        text: BLOQUEO.active.sending(plus),
         announce: null,
       };
     case 'failed':
       return {
         kind: 'failed',
         entryId: pick.id,
-        text: BLOQUEO_ES.active.failed,
-        button: BLOQUEO_ES.card.retry,
-        announce: BLOQUEO_ES.active.failedAnnounce,
+        text: BLOQUEO.active.failed,
+        button: BLOQUEO.card.retry,
+        announce: BLOQUEO.active.failedAnnounce,
       };
   }
 }
@@ -839,19 +846,19 @@ function extendView(
     return tile({
       id: `+${minutes}`,
       label: plus,
-      help: BLOQUEO_ES.active.extendTileHelp(plus, endsPhrase(projectedEnd(base, minutes), nowMs)),
+      help: BLOQUEO.active.extendTileHelp(plus, endsPhrase(projectedEnd(base, minutes), nowMs)),
       disabled: minutes > max,
-      disabledReason: minutes > max ? BLOQUEO_ES.active.maxReached : null,
+      disabledReason: minutes > max ? BLOQUEO.active.maxReached : null,
     });
   });
   tiles.push(
     tile({
       id: 'other',
-      label: BLOQUEO_ES.active.other,
-      help: BLOQUEO_ES.active.otherHelp,
+      label: BLOQUEO.active.other,
+      help: BLOQUEO.active.otherHelp,
       door: true,
       disabled: max < 1,
-      disabledReason: max < 1 ? BLOQUEO_ES.active.maxReached : null,
+      disabledReason: max < 1 ? BLOQUEO.active.maxReached : null,
     }),
   );
   EXTEND_MNEMONICS.forEach((key, i) => {
@@ -862,17 +869,17 @@ function extendView(
   const text = main.extendOther.text;
   const minutes = parseExtendMinutes(text, nowMs);
   let line: LineView;
-  if (text.trim() === '') line = { tone: 'muted', text: BLOQUEO_ES.active.otherHelpLabel };
-  else if (minutes === null) line = { tone: 'orange', text: BLOQUEO_ES.active.otherInvalid };
+  if (text.trim() === '') line = { tone: 'muted', text: BLOQUEO.active.otherHelpLabel };
+  else if (minutes === null) line = { tone: 'orange', text: BLOQUEO.active.otherInvalid };
   else if (minutes > max) {
     line = {
       tone: 'orange',
-      text: BLOQUEO_ES.active.otherTooMuch(durationLabel(Math.max(0, max))),
+      text: BLOQUEO.active.otherTooMuch(durationLabel(Math.max(0, max))),
     };
   } else {
     line = {
       tone: 'muted',
-      text: BLOQUEO_ES.active.undoLine(
+      text: BLOQUEO.active.undoLine(
         plusLabel(minutes),
         endsPhrase(projectedEnd(base, minutes), nowMs),
       ),
@@ -882,7 +889,7 @@ function extendView(
   return {
     blockId: block.id,
     tiles,
-    help: rowHelp(main.help, BLOQUEO_ROWS.extend, tiles, BLOQUEO_ES.active.extendHelp),
+    help: rowHelp(main.help, BLOQUEO_ROWS.extend, tiles, BLOQUEO.active.extendHelp),
     undo: undoView(
       snapshot.ops.extendQueue.filter((e) => e.blockId === block.id),
       nowMs,
@@ -909,8 +916,8 @@ const ROW_COUNTDOWN_WIDTH = 64 + 12; // «2:10:05» at 13 px tabular + gap.
 function rowView(state: GuardianStateResponse, block: Block): RowView {
   const punishment = block.kind === 'punishment' ? punishmentOf(state, block) : null;
   const mode = punishment
-    ? BLOQUEO_ES.header.punishment(
-        BLOQUEO_ES.punishment.level[punishment.level],
+    ? BLOQUEO.header.punishment(
+        BLOQUEO.punishment.level[punishment.level],
         punishment.minutes,
       )
     : null;
@@ -918,7 +925,7 @@ function rowView(state: GuardianStateResponse, block: Block): RowView {
   if (!mode) {
     const budget = CONTENT_WIDTH - ROW_COUNTDOWN_WIDTH - 12;
     for (const names of [2, 1]) {
-      label = BLOQUEO_ES.active.row(
+      label = BLOQUEO.active.row(
         targetsLabel(block.targets, block.whitelistOnly, names),
         modeLabel(block.mode),
       );
@@ -945,24 +952,24 @@ function emergencyView(
       kind: 'link',
       label:
         emergency.status === 'ready'
-          ? BLOQUEO_ES.active.emergencyReady
-          : BLOQUEO_ES.active.emergencyCounting(
+          ? BLOQUEO.active.emergencyReady
+          : BLOQUEO.active.emergencyCounting(
               splitCountdown(Date.parse(emergency.readyAt) - nowMs).text,
             ),
-      help: BLOQUEO_ES.active.emergencyHelp,
+      help: BLOQUEO.active.emergencyHelp,
       request,
     };
   }
   if (block.emergencyEligible) {
     return {
       kind: 'link',
-      label: BLOQUEO_ES.active.emergency,
-      help: BLOQUEO_ES.active.emergencyHelp,
+      label: BLOQUEO.active.emergency,
+      help: BLOQUEO.active.emergencyHelp,
       request,
     };
   }
   if (block.mode === 'hardcore' || block.mode === 'exam') {
-    return { kind: 'text', label: BLOQUEO_ES.active.noEmergency[block.mode] };
+    return { kind: 'text', label: BLOQUEO.active.noEmergency[block.mode] };
   }
   return null;
 }
@@ -999,7 +1006,7 @@ function activeView(
     kind: 'active',
     blockId: block.id,
     endsAt: bootHold ? null : block.endsAt,
-    bootHold: bootHold ? BLOQUEO_ES.active.bootHold : null,
+    bootHold: bootHold ? BLOQUEO.active.bootHold : null,
     bar: {
       accent: punishment ? 'red' : modeAccent(block.mode),
       // Boot hold: the time is unknown, so the bar stays an empty track (never "full").
@@ -1008,7 +1015,7 @@ function activeView(
     reason: !punishment ? fitReason(block.reason, emergency) : null,
     punishment: punishment
       ? {
-          cause: BLOQUEO_ES.punishment.cause(punishment.cause, punishment.task),
+          cause: BLOQUEO.punishment.cause(punishment.cause, punishment.task),
           points: formatPoints(-POINT_RULES.punishmentPenalty, { signed: true }),
         }
       : null,
@@ -1021,8 +1028,8 @@ function activeView(
       others.length > 2
         ? {
             count: others.length - 2,
-            label: BLOQUEO_ES.active.more(others.length - 2),
-            help: BLOQUEO_ES.active.moreHelp,
+            label: BLOQUEO.active.more(others.length - 2),
+            help: BLOQUEO.active.moreHelp,
             request: { name: 'bloqueos', seed: null, focus: 'active' },
           }
         : null,

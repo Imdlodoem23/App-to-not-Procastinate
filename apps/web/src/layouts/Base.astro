@@ -58,7 +58,7 @@ const siteUrl = Astro.site ?? new URL(Astro.url.origin);
 // Canonical URLs never end in a slash (except the home page), like every internal link.
 const path = Astro.url.pathname.replace(/\/(index)?(\.html)?$/, '') || '/';
 const canonical = new URL(path, siteUrl).href;
-const ogImage = new URL(site.ogImage.path, siteUrl).href;
+const ogImage = new URL(site.ogImage.paths[lang], siteUrl).href;
 const alternates = langs.map((l) => ({
   hreflang: l,
   href: new URL(pathFor(page, l), siteUrl).href,

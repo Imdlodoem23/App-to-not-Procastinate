@@ -25,7 +25,16 @@ async function get(path) {
 /** @param {string} html @param {RegExp} pattern */
 const attr = (html, pattern) => html.match(pattern)?.[1] ?? '';
 
-const pages = ['/', '/descargar', '/novedades', '/privacidad'];
+const pages = [
+  '/',
+  '/descargar',
+  '/novedades',
+  '/privacidad',
+  '/en',
+  '/en/download',
+  '/en/changelog',
+  '/en/privacy',
+];
 const canonicals = [];
 for (const path of pages) {
   const html = await (await get(path)).text();

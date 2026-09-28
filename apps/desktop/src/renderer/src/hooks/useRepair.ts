@@ -5,7 +5,7 @@
  * the outcome becomes one line of help. The warning itself disappears on the next good poll.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RENDERER_ES } from '../i18n/es';
+import { RENDERER } from '../i18n/messages';
 import { errorCopy } from '../i18n/errors';
 import { useBridge } from '../store/context';
 
@@ -41,13 +41,13 @@ export function useRepair(): RepairApi {
           setMessage({ text: errorCopy(result.error).text, tone: 'red' });
           return;
         }
-        const text = RENDERER_ES.repair[result.value.outcome];
+        const text = RENDERER.repair[result.value.outcome];
         setMessage({ text, tone: result.value.outcome === 'started' ? 'muted' : 'red' });
       },
       () => {
         if (!mounted.current) return;
         setRunning(false);
-        setMessage({ text: RENDERER_ES.errors.generic, tone: 'red' });
+        setMessage({ text: RENDERER.errors.generic, tone: 'red' });
       },
     );
   }, [bridge, running]);

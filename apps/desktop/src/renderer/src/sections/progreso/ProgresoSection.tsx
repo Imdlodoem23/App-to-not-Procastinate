@@ -8,11 +8,11 @@ import type { LucideIcon } from 'lucide-react';
 import { ChartColumn, Gift, Leaf, Shrub, Sprout, TreeDeciduous, Trophy } from 'lucide-react';
 import { useMemo } from 'react';
 import { Bar, DoorTile, Pill, Section, TileRow } from '../../components';
-import { RENDERER_ES } from '../../i18n/es';
+import { RENDERER } from '../../i18n/messages';
 import { useSnapshot } from '../../store/context';
 import { deriveProgresoView, type MascotPhase, type ProgresoDoor } from './view';
 
-const G = RENDERER_ES.progreso;
+const G = RENDERER.progreso;
 const DOOR_ICONS: Record<ProgresoDoor, LucideIcon> = {
   stats: ChartColumn,
   rewards: Gift,

@@ -14,7 +14,7 @@
 import type { BrowserFamily } from '@centrate/shared/domain';
 import type { GuideId } from '../../../../shared/ipc';
 import type { UiSnapshot } from '../../../../shared/ui-state';
-import { RENDERER_ES } from '../../i18n/es';
+import { RENDERER } from '../../i18n/messages';
 
 export type ProtectionActionKind = 'repair' | 'install-guardian' | 'details' | 'guide';
 
@@ -35,26 +35,38 @@ export interface ProtectionView {
   actions: ProtectionAction[];
 }
 
-const P = RENDERER_ES.protection;
+const P = RENDERER.protection;
 
 const REPAIR: ProtectionAction = {
   id: 'repair',
-  label: P.actions.repair,
-  help: P.help.repair,
+  get label() {
+    return P.actions.repair;
+  },
+  get help() {
+    return P.help.repair;
+  },
   door: false,
   guide: null,
 };
 const DETAILS: ProtectionAction = {
   id: 'details',
-  label: P.actions.details,
-  help: P.help.details,
+  get label() {
+    return P.actions.details;
+  },
+  get help() {
+    return P.help.details;
+  },
   door: true,
   guide: null,
 };
 const INSTALL_GUARDIAN: ProtectionAction = {
   id: 'install-guardian',
-  label: P.actions.install,
-  help: P.help.installGuardian,
+  get label() {
+    return P.actions.install;
+  },
+  get help() {
+    return P.help.installGuardian;
+  },
   door: true,
   guide: null,
 };

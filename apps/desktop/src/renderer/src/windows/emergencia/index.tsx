@@ -30,7 +30,7 @@ import {
 import { GUARDIAN_LIMITS } from '@centrate/shared/guardian-api';
 import { useAppStore } from '../../store/context';
 import { Announcer } from '../bloqueos/announcer';
-import { EMERGENCIA_ES } from './i18n/es';
+import { EMERGENCIA } from './i18n';
 import { useEmergencia, type EmergenciaApi } from './useEmergencia';
 import {
   EMERGENCIA_IDS,
@@ -42,11 +42,21 @@ import {
 } from './view';
 import './emergencia.css';
 
-const E = EMERGENCIA_ES;
+const E = EMERGENCIA;
 
 /** The wait speaks as it gets close («Podrás desbloquear en 5 minutos»), never «terminado». */
-const WAIT_ANNOUNCE = { mark: E.waitMark, end: E.waitEnd };
-const DECIDE_ANNOUNCE = { mark: E.decideMark, end: E.decideEnd };
+const WAIT_ANNOUNCE = {
+  mark: (minutes: number): string => E.waitMark(minutes),
+  get end(): string {
+    return E.waitEnd;
+  },
+};
+const DECIDE_ANNOUNCE = {
+  mark: (minutes: number): string => E.decideMark(minutes),
+  get end(): string {
+    return E.decideEnd;
+  },
+};
 
 function focusTile(item: string): void {
   document

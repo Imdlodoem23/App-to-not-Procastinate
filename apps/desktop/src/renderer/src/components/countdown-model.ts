@@ -10,7 +10,7 @@ import {
   splitCountdown,
   type CountdownParts,
 } from '../../../shared/format';
-import { SHARED_ES } from '../../../shared/i18n/es';
+import { SHARED } from '../../../shared/i18n';
 
 export interface CountdownModel {
   remainingMs: number;
@@ -44,8 +44,10 @@ export type CountdownAnnounce = false | { mark(minutes: number): string; end: st
 
 /** A block's countdown: «Quedan 15 minutos», «Queda 1 minuto», «Bloqueo terminado». */
 export const BLOCK_COUNTDOWN_ANNOUNCE: Exclude<CountdownAnnounce, false> = {
-  mark: SHARED_ES.remaining.announce,
-  end: SHARED_ES.remaining.ended,
+  mark: (minutes: number): string => SHARED.remaining.announce(minutes),
+  get end(): string {
+    return SHARED.remaining.ended;
+  },
 };
 
 /** The minutes a countdown announces as it crosses them. */

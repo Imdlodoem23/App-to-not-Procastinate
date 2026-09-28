@@ -9,7 +9,7 @@ import type { LucideIcon } from 'lucide-react';
 import { Check } from 'lucide-react';
 import type { ReactNode, Ref } from 'react';
 import type { Accent } from '@centrate/shared/design/tokens';
-import { RENDERER_ES } from '../i18n/es';
+import { RENDERER } from '../i18n/messages';
 import { Icon } from './Icon';
 import { Tile, type TileSize } from './Tile';
 import { TileRow } from './TileRow';
@@ -129,7 +129,7 @@ export function Toggle(props: {
       }}
     >
       <span className="c-toggle-text" aria-hidden="true">
-        {checked ? RENDERER_ES.kit.toggleOn : RENDERER_ES.kit.toggleOff}
+        {checked ? RENDERER.kit.toggleOn : RENDERER.kit.toggleOff}
       </span>
       <span className="c-toggle-track" aria-hidden="true">
         <span className="c-toggle-knob" />

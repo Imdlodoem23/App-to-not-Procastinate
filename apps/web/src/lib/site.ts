@@ -39,11 +39,16 @@ export const site = {
     releases: `${apiUrl}/releases`,
   },
   /**
-   * Open Graph image (1200 × 630). A PNG, because most social networks do not show SVG
-   * previews: scripts/render-og.mjs draws public/og.png from /og.svg (src/pages/og.svg.ts, built
-   * from copy.ts). Re-run `npm run og -w apps/web` after a build when the hero copy changes.
+   * Open Graph image (1200 × 630) of each language. A PNG, because most social networks do not
+   * show SVG previews: scripts/render-og.mjs draws public/og.png and public/og-en.png from
+   * /og.svg and /en/og.svg (src/lib/og-image.ts, built from the copy). Re-run `npm run og -w apps/web` after a build when the hero copy changes.
    */
-  ogImage: { path: '/og.png', type: 'image/png', width: 1200, height: 630 },
+  ogImage: {
+    paths: { es: '/og.png', en: '/og-en.png' },
+    type: 'image/png',
+    width: 1200,
+    height: 630,
+  },
   /**
    * Browser UI color (<meta name="theme-color">). Same value as --palette-white in
    * src/styles/tokens.css: the page is light, with no automatic dark mode.

@@ -1,12 +1,10 @@
 /**
  * Clock phrases of the Bloqueos window that `src/shared/format.ts` does not cover: day-relative
  * ends («hasta las 18:00», «hasta mañana a las 08:00») and starts («18:00», «mañana 16:00»).
- * Local time zone, 24 h. Pure: no DOM, Node or Electron imports.
+ * Local time zone, the active locale's clock. Pure: no DOM, Node or Electron imports.
  */
-import { LOCALE, formatClock } from '../../../../shared/format';
-import { BLOQUEOS_ES } from './i18n/es';
-
-const weekdayFormat = new Intl.DateTimeFormat(LOCALE, { weekday: 'short' });
+import { formatClock, formatWeekday } from '../../../../shared/format';
+import { BLOQUEOS } from './i18n';
 
 /** Local calendar days from `fromMs` to `toMs` (0 today, 1 tomorrow…). */
 export function calendarDaysBetween(fromMs: number, toMs: number): number {
@@ -30,7 +28,7 @@ function dayKind(ms: number, nowMs: number): DayKind {
 }
 
 function weekday(ms: number): string {
-  return weekdayFormat.format(new Date(ms)).replace(/\.$/, '');
+  return formatWeekday(ms);
 }
 
 /** «hasta las 18:00», «hasta mañana a las 08:00», «hasta el jue a las 08:00». */
@@ -38,11 +36,11 @@ export function untilPhrase(ms: number, nowMs: number): string {
   const time = formatClock(ms);
   switch (dayKind(ms, nowMs)) {
     case 'today':
-      return BLOQUEOS_ES.until.today(time);
+      return BLOQUEOS.until.today(time);
     case 'tomorrow':
-      return BLOQUEOS_ES.until.tomorrow(time);
+      return BLOQUEOS.until.tomorrow(time);
     case 'weekday':
-      return BLOQUEOS_ES.until.weekday(weekday(ms), time);
+      return BLOQUEOS.until.weekday(weekday(ms), time);
   }
 }
 
@@ -53,8 +51,8 @@ export function whenLabel(ms: number, nowMs: number): string {
     case 'today':
       return time;
     case 'tomorrow':
-      return BLOQUEOS_ES.when.tomorrow(time);
+      return BLOQUEOS.when.tomorrow(time);
     case 'weekday':
-      return BLOQUEOS_ES.when.weekday(weekday(ms), time);
+      return BLOQUEOS.when.weekday(weekday(ms), time);
   }
 }

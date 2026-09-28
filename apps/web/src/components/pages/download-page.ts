@@ -16,6 +16,7 @@ import {
   type LatestRelease,
   type ReleaseAsset,
 } from '../../lib/downloads';
+import { documentLang, intlLocale } from '../../lib/i18n';
 
 interface PrimaryOption {
   label: string;
@@ -23,23 +24,25 @@ interface PrimaryOption {
 }
 
 const MIB = 1024 * 1024;
-const megabytes = new Intl.NumberFormat('es-ES', {
+/** The page's locale (es-ES or en-US), from <html lang>. */
+const locale = intlLocale[documentLang()];
+const megabytes = new Intl.NumberFormat(locale, {
   style: 'unit',
   unit: 'megabyte',
   maximumFractionDigits: 1,
 });
-const kilobytes = new Intl.NumberFormat('es-ES', {
+const kilobytes = new Intl.NumberFormat(locale, {
   style: 'unit',
   unit: 'kilobyte',
   maximumFractionDigits: 0,
 });
-const longDate = new Intl.DateTimeFormat('es-ES', {
+const longDate = new Intl.DateTimeFormat(locale, {
   day: 'numeric',
   month: 'long',
   year: 'numeric',
 });
 
-/** «84,2 MB», «312 kB» (binary units, like GitHub shows them). */
+/** «84,2 MB» or «84.2 MB», «312 kB» (binary units, like GitHub shows them). */
 export function formatSize(bytes: number): string {
   return bytes >= MIB
     ? megabytes.format(bytes / MIB)

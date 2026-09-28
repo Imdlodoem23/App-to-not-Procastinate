@@ -9,7 +9,7 @@
 import { Suspense, useEffect, useLayoutEffect, useRef } from 'react';
 import { Info } from 'lucide-react';
 import { EmptyState } from '../components';
-import { RENDERER_ES } from '../i18n/es';
+import { RENDERER } from '../i18n/messages';
 import { useAppStore } from '../store/context';
 import { DETAIL_NAMES } from '../../../shared/ui-state';
 import { detailView, preloadDetailViews } from './slots';
@@ -42,7 +42,7 @@ function useScrollbarGutter(ref: React.RefObject<HTMLDivElement | null>): void {
 export function DetailWindow(): React.JSX.Element {
   const name = useAppStore((s) => s.env.detail?.name ?? null);
   const View = name ? detailView(name) : null;
-  const title = name ? RENDERER_ES.shell.detailTitles[name] : RENDERER_ES.shell.appName;
+  const title = name ? RENDERER.shell.detailTitles[name] : RENDERER.shell.appName;
   const shellRef = useRef<HTMLDivElement>(null);
   useScrollbarGutter(shellRef);
 
@@ -58,7 +58,7 @@ export function DetailWindow(): React.JSX.Element {
           {View ? (
             <View key={name} />
           ) : name ? (
-            <EmptyState icon={Info} text={RENDERER_ES.shell.bloqueoUnavailable} />
+            <EmptyState icon={Info} text={RENDERER.shell.bloqueoUnavailable} />
           ) : null}
           <ReadyProbe />
         </Suspense>

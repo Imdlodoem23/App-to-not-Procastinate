@@ -8,10 +8,11 @@
 import type { CategoryId } from '@centrate/shared/catalog';
 import { getApp, getCategory, getService } from '@centrate/shared/catalog';
 import { durationLabel, type ParseResult } from '@centrate/shared/parser';
-import { SHARED_ES } from '../../../../shared/i18n/es';
+import { categoryName } from '../../../../shared/format';
+import { SHARED } from '../../../../shared/i18n';
 import type { BlockDraft, CardField } from '../../../../shared/ui-state';
 import { draftEndLabels } from './draft';
-import { BLOQUEO_ES } from './i18n/es';
+import { BLOQUEO } from './i18n';
 import { untilShort } from './time';
 
 export type ChipKind =
@@ -73,7 +74,7 @@ export function typingChips(parse: ParseResult, nowMs: number): ChipView[] {
           chip({
             key: `category:${c.value}`,
             kind: 'category',
-            label: c.label,
+            label: categoryName(c.value),
             categoryId: getCategory(c.value)?.id ?? null,
             span,
           }),
@@ -124,7 +125,7 @@ export function draftChips(draft: BlockDraft, nowMs: number): ChipView[] {
       chip({
         key: 'whitelist',
         kind: 'whitelist',
-        label: SHARED_ES.targets.whitelistOnly,
+        label: SHARED.targets.whitelistOnly,
         field: 'targets',
       }),
     );
@@ -147,7 +148,7 @@ export function draftChips(draft: BlockDraft, nowMs: number): ChipView[] {
         chip({
           key: `category:${id}`,
           kind: 'category',
-          label: getCategory(id)?.name ?? id,
+          label: categoryName(id),
           categoryId: id,
           field: 'targets',
         }),
@@ -207,8 +208,8 @@ function isFixed(c: ChipView): boolean {
 function moreChip(hidden: readonly ChipView[], shown: number): ChipView {
   const label =
     shown > 0
-      ? BLOQUEO_ES.field.moreChips(hidden.length)
-      : BLOQUEO_ES.field.hiddenTargets(
+      ? BLOQUEO.field.moreChips(hidden.length)
+      : BLOQUEO.field.hiddenTargets(
           hidden.length,
           hidden.every((c) => c.kind === 'category')
             ? 'category'

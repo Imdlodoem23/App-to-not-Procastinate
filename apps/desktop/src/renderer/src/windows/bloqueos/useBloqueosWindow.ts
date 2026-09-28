@@ -41,7 +41,7 @@ import {
   type EntryView,
 } from './catalog';
 import { parseDurationText, parseUntilText } from './duration';
-import { BLOQUEOS_ES } from './i18n/es';
+import { BLOQUEOS } from './i18n';
 import {
   deriveBloqueosView,
   suggestedTemplateName,
@@ -51,7 +51,7 @@ import {
   type SchedulesData,
 } from './view';
 
-const E = BLOQUEOS_ES;
+const E = BLOQUEOS;
 
 export interface Notice {
   text: string;

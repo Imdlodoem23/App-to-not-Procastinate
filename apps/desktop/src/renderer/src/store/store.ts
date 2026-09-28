@@ -21,6 +21,8 @@ import type {
   UiSnapshot,
   UiState,
 } from '../../../shared/ui-state';
+import { setActiveLocale } from '../../../shared/i18n/locale';
+import { snapshotLocale } from '../../../shared/ui-state';
 import { applyHarnessLoad, applySnapshotTo } from './reducers';
 
 export interface AppStore extends UiState {
@@ -67,7 +69,10 @@ export function createAppStore(
 
     applySnapshot(snapshot) {
       const next = applySnapshotTo(get(), snapshot);
-      if (next) set(next);
+      if (!next) return;
+      // Copy is read in the active locale at render time: switch it before anyone renders.
+      setActiveLocale(snapshotLocale(next.snapshot));
+      set(next);
     },
 
     updateMain(fn) {

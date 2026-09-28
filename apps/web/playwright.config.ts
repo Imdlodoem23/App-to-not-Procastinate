@@ -23,6 +23,8 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${port}`,
     browserName: 'chromium',
+    // A Spanish browser: the English hint (Base.astro) only shows in the tests that ask for it.
+    locale: 'es-ES',
     launchOptions: { executablePath: process.env.PW_CHROMIUM_PATH || undefined },
   },
   webServer: {

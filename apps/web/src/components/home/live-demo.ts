@@ -71,12 +71,7 @@ type EndsTemplates = Pick<
  * today counts as today), tomorrow («mañana 08:00») or another day («el 30/9 08:00»).
  * `kind` picks the chip form («hasta 17:42») or the field form («17:42»).
  */
-function whenLabel(
-  endsAt: Date,
-  now: Date,
-  strings: DemoStrings,
-  kind: 'until' | 'ends',
-): string {
+function whenLabel(endsAt: Date, now: Date, strings: DemoStrings, kind: 'until' | 'ends'): string {
   const t: EndsTemplates = strings.result;
   const time = formatTime(endsAt, strings.lang);
   const days = calendarDays(now, endsAt);

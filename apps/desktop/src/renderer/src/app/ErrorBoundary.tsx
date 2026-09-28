@@ -5,7 +5,7 @@
  */
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import type { CentrateBridge } from '../../../shared/ipc';
-import { RENDERER_ES } from '../i18n/es';
+import { RENDERER } from '../i18n/messages';
 import { reportError } from './errors';
 
 interface Props {
@@ -30,7 +30,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   override render(): ReactNode {
     if (!this.state.failed) return this.props.children;
-    return <FatalMessage title={RENDERER_ES.shell.crashed} help={RENDERER_ES.shell.crashedHelp} />;
+    return <FatalMessage title={RENDERER.shell.crashed} help={RENDERER.shell.crashedHelp} />;
   }
 }
 
@@ -52,7 +52,7 @@ export function FatalMessage(props: { title: string; help?: string }): React.JSX
           data-hover=""
           onClick={() => window.location.reload()}
         >
-          <span className="c-tile-label">{RENDERER_ES.shell.reload}</span>
+          <span className="c-tile-label">{RENDERER.shell.reload}</span>
         </button>
       </div>
     </main>

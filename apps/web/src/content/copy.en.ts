@@ -654,7 +654,8 @@ export const en: Copy = {
       headline: 'Download Céntrate.',
       lead: 'Free, no account and open source. Pick your system and follow the steps: it takes a few minutes.',
       versionFallback: 'Latest version available on GitHub.',
-      mobileNote: 'Céntrate is for computers. Open this page on your Windows, macOS or Linux machine.',
+      mobileNote:
+        'Céntrate is for computers. Open this page on your Windows, macOS or Linux machine.',
       tocLabel: 'On this page',
       windows: {
         id: 'windows',
@@ -787,7 +788,8 @@ export const en: Copy = {
           { label: 'Linux', command: 'sha256sum Centrate.deb' },
         ],
         sumsLink: 'Download SHA256SUMS.txt',
-        mismatch: 'If they don’t match, don’t open it: delete it and download it again from this page.',
+        mismatch:
+          'If they don’t match, don’t open it: delete it and download it again from this page.',
       },
       antivirus: {
         id: 'antivirus',
@@ -1076,7 +1078,7 @@ export const en: Copy = {
   meta: {
     siteName: 'Céntrate',
     locale: 'en_US',
-    ogImageAlt: 'The Céntrate window with YouTube blocked until 17:42 and a countdown.',
+    ogImageAlt: 'The Céntrate window with YouTube blocked until 5:42 PM and a countdown.',
     home: {
       title: 'Céntrate: the free app to stop procrastinating',
       ogTitle: 'Céntrate. Type it. Forget it.',

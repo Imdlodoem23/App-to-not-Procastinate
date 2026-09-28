@@ -24,6 +24,7 @@ import {
   draftProblem,
   modeAccent,
   type BlockDraft,
+  templateLabel,
   type DraftProblem,
   type UiError,
   type UiState,
@@ -41,12 +42,13 @@ import {
   type EntryView,
 } from './catalog';
 import { DURATION_PRESETS, durationFields, selectedPreset, type DurationFields } from './duration';
-import { BLOQUEOS_ES } from './i18n/es';
+import { localized } from '../../../../shared/i18n/locale';
+import { BLOQUEOS } from './i18n';
 import { allocateMnemonics } from './mnemonics';
 import { scheduleRow, type ScheduleRowView } from './schedules';
 import { untilPhrase, whenLabel } from './time';
 
-const E = BLOQUEOS_ES;
+const E = BLOQUEOS;
 
 /** Ids of the window's sections (scroll targets of `DetailRequest.focus`) and rows. */
 export const BLOQUEOS_IDS = {
@@ -72,19 +74,45 @@ export const BLOQUEOS_IDS = {
  * Alt + letter of the window's fixed tiles (the letter sits in the label, so it is underlined
  * while Alt is held). Exam presets and template rows get the free ones (`allocateMnemonics`).
  */
-export const BLOQUEOS_KEYS = {
-  addDomain: 'd',
-  addApp: 'a',
+interface BloqueosKeys {
+  addDomain: string;
+  addApp: string;
   /** «30 min | 1 h | 2 h | 3 h». */
-  presets: { 30: 'm', 60: '1', 120: '2', 180: '3' } as Readonly<Record<number, string>>,
-  modes: { normal: 'n', strict: 'e', hardcore: 'h', exam: 'x' } satisfies Record<BlockMode, string>,
-  save: 'g',
-  block: 'b',
+  presets: Readonly<Record<number, string>>;
+  modes: Readonly<Record<BlockMode, string>>;
+  save: string;
+  block: string;
   /** The naming row replaces «Guardar como plantilla | Bloquear…»: «Guardar | Cancelar». */
-  saveName: 'g',
-  cancelName: 'c',
-  customize: 'p',
-} as const;
+  saveName: string;
+  cancelName: string;
+  customize: string;
+}
+
+/** Per language, read at call time like the copy. */
+export const BLOQUEOS_KEYS: BloqueosKeys = localized<BloqueosKeys>({
+  es: {
+    addDomain: 'd',
+    addApp: 'a',
+    presets: { 30: 'm', 60: '1', 120: '2', 180: '3' },
+    modes: { normal: 'n', strict: 'e', hardcore: 'h', exam: 'x' },
+    save: 'g',
+    block: 'b',
+    saveName: 'g',
+    cancelName: 'c',
+    customize: 'p',
+  },
+  en: {
+    addDomain: 'd',
+    addApp: 'a',
+    presets: { 30: 'm', 60: '1', 120: '2', 180: '3' },
+    modes: { normal: 'n', strict: 't', hardcore: 'h', exam: 'x' },
+    save: 'v',
+    block: 'b',
+    saveName: 'v',
+    cancelName: 'c',
+    customize: 'u',
+  },
+});
 
 /** Every fixed key, so list tiles never take one of them. */
 export function fixedBloqueosKeys(): string[] {
@@ -365,7 +393,7 @@ function templatesView(
     title: E.templates.title(templates.length),
     rows: templates.map((t, i) => ({
       id: t.id,
-      label: t.label,
+      label: templateLabel(t),
       description: E.templates.desc(
         targetsLabel(t.targets, t.whitelistOnly || t.mode === 'exam', 2),
         durationLabel(t.durationMinutes),

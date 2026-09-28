@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ThemePreference } from '@centrate/shared/design/tokens';
+import type { LanguagePreference } from '../../../../shared/i18n/locale';
 import { newIntentId } from '../../app/push';
 import { useNow } from '../../hooks/useNow';
 import { errorCopy } from '../../i18n/errors';
@@ -21,7 +22,7 @@ import type {
   DefaultBlockMode,
   UiPrefsPatch,
 } from '../../../../shared/ui-state';
-import { AJUSTES_ES } from './i18n/es';
+import { AJUSTES } from './i18n';
 import { deleteWordOk, deriveAjustesView, type AjustesView } from './view';
 
 export interface AjustesNotice {
@@ -43,6 +44,7 @@ export interface AjustesApi {
   busy: ReadonlySet<AjustesArea>;
   notices: Partial<Record<AjustesArea, AjustesNotice>>;
   setTheme(theme: ThemePreference): void;
+  setLanguage(language: LanguagePreference): void;
   setAutostart(on: boolean): void;
   setDefaultMode(mode: DefaultBlockMode): void;
   newPairingCode(): void;
@@ -118,9 +120,9 @@ export function useAjustes(): AjustesApi {
       notify(area, null);
       void bridge.invoke('prefs:set', patch).then(
         (result) => {
-          if (!result.ok) notify(area, { text: AJUSTES_ES.saveFailed, tone: 'red' });
+          if (!result.ok) notify(area, { text: AJUSTES.saveFailed, tone: 'red' });
         },
-        () => notify(area, { text: AJUSTES_ES.saveFailed, tone: 'red' }),
+        () => notify(area, { text: AJUSTES.saveFailed, tone: 'red' }),
       );
     },
     [bridge, notify],
@@ -133,6 +135,9 @@ export function useAjustes(): AjustesApi {
     notices,
     setTheme: (theme) => {
       if (theme !== snapshot.prefs.theme) setPrefs('general', { theme });
+    },
+    setLanguage: (language) => {
+      if (language !== snapshot.prefs.language) setPrefs('general', { language });
     },
     setAutostart: (autostart) => setPrefs('general', { autostart }),
     setDefaultMode: (defaultMode) => {
@@ -155,7 +160,7 @@ export function useAjustes(): AjustesApi {
             Math.round((Date.parse(result.value.expiresAt) - nowMs) / 60_000),
           );
           notify('pairing', {
-            text: AJUSTES_ES.sistema.pairingSpoken(result.value.code.split('').join(' '), minutes),
+            text: AJUSTES.sistema.pairingSpoken(result.value.code.split('').join(' '), minutes),
             tone: 'muted',
             spokenOnly: true,
           });
@@ -176,7 +181,7 @@ export function useAjustes(): AjustesApi {
           }
           updateLocal((l) => ({ ...l, diagnostics: result.value.source }));
           notify('diagnostics', {
-            text: AJUSTES_ES.sistema.diagnosticsSpoken[result.value.source],
+            text: AJUSTES.sistema.diagnosticsSpoken[result.value.source],
             tone: 'muted',
             spokenOnly: true,
           });
@@ -206,7 +211,7 @@ export function useAjustes(): AjustesApi {
           updateLocal((l) => ({ ...l, deleteWord: '' }));
           const kept = result.value.keptBlockIds.length;
           notify('datos', {
-            text: kept > 0 ? AJUSTES_ES.datos.deletedKept(kept) : AJUSTES_ES.datos.deleted,
+            text: kept > 0 ? AJUSTES.datos.deletedKept(kept) : AJUSTES.datos.deleted,
             tone: 'green',
           });
         },

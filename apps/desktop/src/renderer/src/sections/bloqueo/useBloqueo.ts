@@ -41,7 +41,7 @@ import {
   cardWithReason,
   parseExtendMinutes,
 } from './draft';
-import { BLOQUEO_ES } from './i18n/es';
+import { BLOQUEO } from './i18n';
 import {
   cardCreateState,
   enterBloqueo,
@@ -408,7 +408,7 @@ export function useBloqueo(): {
           setNotice({
             scope: 'extend',
             intentId: null,
-            text: r === 'too_late' ? BLOQUEO_ES.active.tooLate : BLOQUEO_ES.active.undone,
+            text: r === 'too_late' ? BLOQUEO.active.tooLate : BLOQUEO.active.undone,
             tone: 'muted',
           });
         });

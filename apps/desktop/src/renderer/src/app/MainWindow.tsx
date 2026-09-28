@@ -11,7 +11,7 @@ import { Lock } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { HelpLine, Section } from '../components';
 import { useAutoLayout } from '../hooks/useAutoLayout';
-import { RENDERER_ES } from '../i18n/es';
+import { RENDERER } from '../i18n/messages';
 import { Footer } from '../sections/footer/Footer';
 import { ProgresoSection } from '../sections/progreso/ProgresoSection';
 import { ProtectionWarning } from '../sections/protection/ProtectionWarning';
@@ -23,8 +23,8 @@ import { useReadySignal } from './useReadySignal';
 /** Development stand-in while BLOQUEO's module is not in the bundle. */
 function BloqueoStandIn(): React.JSX.Element {
   return (
-    <Section id="bloqueo" icon={Lock} title={RENDERER_ES.shell.bloqueoTitle}>
-      <HelpLine>{RENDERER_ES.shell.bloqueoUnavailable}</HelpLine>
+    <Section id="bloqueo" icon={Lock} title={RENDERER.shell.bloqueoTitle}>
+      <HelpLine>{RENDERER.shell.bloqueoUnavailable}</HelpLine>
     </Section>
   );
 }
@@ -82,7 +82,7 @@ export function MainWindow(): React.JSX.Element {
     <div ref={rootRef} className="main-shell">
       <main className="main-column" aria-labelledby="app-title" data-scroll-root="">
         <h1 id="app-title" className="sr-only">
-          {RENDERER_ES.shell.appName}
+          {RENDERER.shell.appName}
         </h1>
         <div className="main-sections" data-measure="">
           <ProtectionWarning />

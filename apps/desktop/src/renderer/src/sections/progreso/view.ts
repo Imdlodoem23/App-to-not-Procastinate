@@ -11,7 +11,7 @@ import type { PointsSummary } from '@centrate/shared/domain';
 import { featureEnabled } from '../../../../shared/features';
 import { formatInt, formatPoints } from '../../../../shared/format';
 import type { UiSnapshot } from '../../../../shared/ui-state';
-import { RENDERER_ES } from '../../i18n/es';
+import { RENDERER } from '../../i18n/messages';
 
 /** The mascot's phase (placeholder icons until the rewards flag brings the real mascot). */
 export type MascotPhase = 'sprout' | 'plant' | 'tree' | 'wilted';
@@ -41,7 +41,7 @@ export interface ProgresoView {
 
 const DOORS: readonly ProgresoDoor[] = ['stats', 'rewards', 'achievements'];
 
-const G = RENDERER_ES.progreso;
+const G = RENDERER.progreso;
 
 /**
  * Wilted in «números rojos» (you gave up more than you earned); otherwise it grows with the
