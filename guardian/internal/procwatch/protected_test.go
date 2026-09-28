@@ -107,15 +107,16 @@ func TestProcessProtected(t *testing.T) {
 	}
 }
 
-// withProtectedDirs runs the test with only dirs protected by ProtectDir.
-func withProtectedDirs(t *testing.T, dirs ...string) {
+// withProtectedDirs runs the test with only dirs protected, written the way
+// goos writes paths and added the way ProtectDir adds them on goos.
+func withProtectedDirs(t *testing.T, goos string, dirs ...string) {
 	t.Helper()
 	old := protectedDirs.Load()
 	protectedDirs.Store(nil)
 	t.Cleanup(func() { protectedDirs.Store(old) })
 	for _, d := range dirs {
-		if err := ProtectDir(d); err != nil {
-			t.Fatalf("ProtectDir(%q) = %v", d, err)
+		if err := protectDir(goos, d); err != nil {
+			t.Fatalf("protectDir(%s, %q) = %v", goos, d, err)
 		}
 	}
 }
@@ -128,7 +129,10 @@ func TestProtectDir(t *testing.T) {
 	default:
 		app, other = "/Applications/Focus Tools.app", "/Applications/Discord.app"
 	}
-	withProtectedDirs(t, app+string(filepath.Separator))
+	withProtectedDirs(t, runtime.GOOS)
+	if err := ProtectDir(app + string(filepath.Separator)); err != nil {
+		t.Fatalf("ProtectDir(%q) = %v", app+string(filepath.Separator), err)
+	}
 
 	helper := filepath.Join(app, "Contents", "Frameworks", "chrome_crashpad_handler")
 	if !processProtected(runtime.GOOS, Process{PID: 10, Name: "chrome_crashpad_handler", Path: helper}) {
@@ -168,7 +172,7 @@ func TestProtectDir(t *testing.T) {
 }
 
 func TestProtectDirRejects(t *testing.T) {
-	withProtectedDirs(t)
+	withProtectedDirs(t, runtime.GOOS)
 	for _, d := range []string{"", "relative/dir", ".", string(filepath.Separator), filepath.VolumeName(os.TempDir()) + string(filepath.Separator)} {
 		if err := ProtectDir(d); !errors.Is(err, ErrInvalid) {
 			t.Errorf("ProtectDir(%q) = %v, want ErrInvalid", d, err)
@@ -176,6 +180,62 @@ func TestProtectDirRejects(t *testing.T) {
 	}
 	if protectedDirs.Load() != nil {
 		t.Error("rejected directories were stored")
+	}
+}
+
+// TestProtectDirFor checks how each OS's directories are accepted and
+// cleaned, whatever OS runs the test: on Windows a directory needs a drive or
+// a UNC share, elsewhere a leading slash.
+func TestProtectDirFor(t *testing.T) {
+	tests := []struct {
+		goos, dir, want string // want "" means ErrInvalid
+	}{
+		{"linux", "/opt/Céntrate", "/opt/Céntrate"},
+		{"linux", "/opt//Céntrate/./", "/opt/Céntrate"},
+		{"linux", "/opt/x/../Céntrate", "/opt/Céntrate"},
+		{"darwin", "/Applications/Céntrate.app/", "/Applications/Céntrate.app"},
+		{"linux", "", ""},
+		{"linux", "/", ""},
+		{"linux", "//", ""},
+		{"linux", "/..", ""},
+		{"linux", "opt/Céntrate", ""},
+		{"linux", `C:\Program Files\Céntrate`, ""},
+		{"darwin", `\\server\share\Céntrate`, ""},
+		{"windows", `C:\Program Files\Céntrate`, `C:\Program Files\Céntrate`},
+		{"windows", `C:\Program Files\Céntrate\`, `C:\Program Files\Céntrate`},
+		{"windows", `c:/Program Files//Céntrate/.`, `c:\Program Files\Céntrate`},
+		{"windows", `C:\Program Files\x\..\Céntrate`, `C:\Program Files\Céntrate`},
+		{"windows", `\\server\share\Céntrate`, `\\server\share\Céntrate`},
+		{"windows", `//server/share/Céntrate/`, `\\server\share\Céntrate`},
+		{"windows", `\\server\share\..\Céntrate`, `\\server\share\Céntrate`},
+		{"windows", "", ""},
+		{"windows", `C:`, ""},
+		{"windows", `C:\`, ""},
+		{"windows", `C:/..`, ""},
+		{"windows", `C:Program Files\Céntrate`, ""},
+		{"windows", `\Program Files\Céntrate`, ""},
+		{"windows", "/opt/Céntrate", ""},
+		{"windows", `\\server\share`, ""},
+		{"windows", `\\server\share\`, ""},
+		{"windows", `\\server`, ""},
+		{"windows", `\\\server\share\x`, ""},
+		{"windows", `\\?\C:\Program Files\Céntrate`, ""},
+		{"windows", `\\.\C:\Program Files\Céntrate`, ""},
+		{"windows", `1:\Program Files\Céntrate`, ""},
+	}
+	for _, tc := range tests {
+		withProtectedDirs(t, tc.goos)
+		err := protectDir(tc.goos, tc.dir)
+		var stored []string
+		if dirs := protectedDirs.Load(); dirs != nil {
+			stored = *dirs
+		}
+		switch {
+		case tc.want == "" && (!errors.Is(err, ErrInvalid) || stored != nil):
+			t.Errorf("protectDir(%s, %q) = %v, stored %q; want ErrInvalid", tc.goos, tc.dir, err, stored)
+		case tc.want != "" && (err != nil || len(stored) != 1 || stored[0] != tc.want):
+			t.Errorf("protectDir(%s, %q) = %v, stored %q; want %q", tc.goos, tc.dir, err, stored, tc.want)
+		}
 	}
 }
 

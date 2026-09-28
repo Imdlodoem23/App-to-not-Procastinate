@@ -2,7 +2,8 @@ package procwatch
 
 import (
 	"os"
-	"path/filepath"
+	"path"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -171,13 +172,18 @@ var (
 // /Applications/Céntrate.app), so that helpers without a «Céntrate» name
 // (chrome_crashpad_handler, ShipIt) stay protected. Only pass directories a
 // standard user cannot write to or rename: the protection is as strong as
-// that. Paths are compared the way file names are on the current OS, and a
-// process path with a ".." element is never considered inside dir.
+// that. Paths are written and compared the way the current OS writes and
+// compares file names (see cleanDir), and a process path with a ".." element
+// is never considered inside dir.
 //
 // It returns ErrInvalid for relative paths and file system roots.
-func ProtectDir(dir string) error {
-	d := filepath.Clean(dir)
-	if dir == "" || !filepath.IsAbs(d) || filepath.Dir(d) == d {
+func ProtectDir(dir string) error { return protectDir(runtime.GOOS, dir) }
+
+// protectDir is ProtectDir for a directory written the way goos writes paths,
+// whatever OS the code runs on, so that tests can simulate every OS.
+func protectDir(goos, dir string) error {
+	d, ok := cleanDir(goos, dir)
+	if !ok {
 		return ErrInvalid
 	}
 	protectedDirsMu.Lock()
@@ -189,6 +195,53 @@ func ProtectDir(dir string) error {
 	dirs = append(dirs, d)
 	protectedDirs.Store(&dirs)
 	return nil
+}
+
+// cleanDir cleans dir the way goos cleans paths, lexically (like
+// filepath.Clean on goos, but on any OS), and reports whether it is an
+// absolute directory other than a file system root.
+//
+// On Windows that is a drive path (C:\Program Files\Céntrate) or a UNC path
+// (\\server\share\Céntrate), with backslashes or slashes; the result uses
+// backslashes. A path without a drive (\Program Files, /opt/Céntrate) is
+// relative to the current drive there, and device paths (\\?\C:\…, \\.\…)
+// are refused: process paths never use them, so they would protect nothing.
+// Everywhere else an absolute path starts with a slash.
+func cleanDir(goos, dir string) (string, bool) {
+	if goos != "windows" {
+		if !strings.HasPrefix(dir, "/") {
+			return "", false
+		}
+		d := path.Clean(dir)
+		return d, d != "/"
+	}
+	s := strings.ReplaceAll(dir, `\`, "/")
+	vol := windowsVolume(s)
+	rest := s[len(vol):]
+	if vol == "" || !strings.HasPrefix(rest, "/") {
+		return "", false
+	}
+	if rest = path.Clean(rest); rest == "/" {
+		return "", false
+	}
+	return strings.ReplaceAll(vol+rest, "/", `\`), true
+}
+
+// windowsVolume returns the volume that starts p, a Windows path written with
+// slashes: a drive letter and its colon ("C:"), a UNC share
+// ("//server/share"), or "" when p starts with neither.
+func windowsVolume(p string) string {
+	if len(p) >= 2 && p[1] == ':' && ('a' <= p[0] && p[0] <= 'z' || 'A' <= p[0] && p[0] <= 'Z') {
+		return p[:2]
+	}
+	if !strings.HasPrefix(p, "//") {
+		return ""
+	}
+	parts := strings.SplitN(p[2:], "/", 3)
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" || parts[0] == "?" || parts[0] == "." {
+		return ""
+	}
+	return "//" + parts[0] + "/" + parts[1]
 }
 
 // inProtectedDir reports whether path is inside a directory given to
