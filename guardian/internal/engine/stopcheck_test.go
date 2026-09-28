@@ -188,36 +188,40 @@ func TestStopPricedInSafeMode(t *testing.T) {
 // reboot); a clean stop without it was a manual one, also when the clean-shutdown
 // marker is deleted afterwards (run/clock.json seals the clean stop). A crash before a
 // reboot and macOS (no shutdown notice) are not priced.
+//
+// Every case names the platform and the service manager it simulates. They used to
+// leave both to the defaults, i.e. the host's platform, so the cases that price the stop
+// failed on a Mac.
 func TestStopThenRebootIsPriced(t *testing.T) {
+	manualStop := func(env *testEnv) {
+		if err := env.e.Stop(); err != nil {
+			env.t.Fatal(err)
+		}
+	}
 	cases := []struct {
 		name     string
 		platform catalog.Platform
+		manager  string
 		stop     func(env *testEnv)
 		penalty  bool
 	}{
-		{"manual stop", "", func(env *testEnv) {
-			if err := env.e.Stop(); err != nil {
-				env.t.Fatal(err)
-			}
-		}, true},
-		{"manual stop, clean marker deleted", "", func(env *testEnv) {
-			if err := env.e.Stop(); err != nil {
-				env.t.Fatal(err)
-			}
+		{"manual stop", catalog.PlatformWin, "windows-service", manualStop, true},
+		{"manual stop under systemd", catalog.PlatformLinux, "linux-systemd", manualStop, true},
+		{"manual stop, unnamed manager", catalog.PlatformLinux, "", manualStop, true},
+		{"manual stop, clean marker deleted", catalog.PlatformWin, "windows-service", func(env *testEnv) {
+			manualStop(env)
 			removeFiles(env.t, env.dir, "run/clean-shutdown")
 		}, true},
-		{"OS shutdown", "", func(env *testEnv) { env.shutdown() }, false},
-		{"crash", "", func(env *testEnv) { env.e.crash() }, false},
-		{"manual stop on macOS", catalog.PlatformMac, func(env *testEnv) {
-			if err := env.e.Stop(); err != nil {
-				env.t.Fatal(err)
-			}
-		}, false},
+		{"OS shutdown", catalog.PlatformWin, "windows-service", func(env *testEnv) { env.shutdown() }, false},
+		{"crash", catalog.PlatformLinux, "linux-systemd", func(env *testEnv) { env.e.crash() }, false},
+		{"manual stop on macOS", catalog.PlatformMac, "darwin-launchd", manualStop, false},
+		{"manual stop on macOS, unnamed manager", catalog.PlatformMac, "", manualStop, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			env := newTestEnv(t)
 			env.platform = c.platform
+			env.serviceManager = c.manager
 			e := env.open()
 			earnSome(env)
 			env.create(durationReq(ModeStrict, 60, "youtube"))
@@ -233,6 +237,36 @@ func TestStopThenRebootIsPriced(t *testing.T) {
 				wantNoTamper(t, env)
 			}
 		})
+	}
+}
+
+// The named service manager decides whether OS shutdowns are noticed; only an unnamed
+// one falls back to the platform. The platform used to be checked first, so a test
+// simulating systemd or the Windows service on a Mac host (the default platform is the
+// host's) got launchd's answer.
+func TestShutdownNoticedFollowsTheManager(t *testing.T) {
+	for _, c := range []struct {
+		platform catalog.Platform
+		manager  string
+		want     bool
+	}{
+		{catalog.PlatformWin, "windows-service", true},
+		{catalog.PlatformLinux, "linux-systemd", true},
+		{catalog.PlatformMac, "linux-systemd", true},
+		{catalog.PlatformMac, "windows-service", true},
+		{catalog.PlatformLinux, "unix-systemv", false},
+		{catalog.PlatformLinux, "linux-openrc", false},
+		{catalog.PlatformLinux, "linux-upstart", false},
+		{catalog.PlatformMac, "darwin-launchd", false},
+		{catalog.PlatformWin, "interactive", false},
+		{catalog.PlatformWin, "", true},
+		{catalog.PlatformLinux, "", true},
+		{catalog.PlatformMac, "", false},
+	} {
+		e := &Engine{o: Options{ServiceManager: c.manager}, platform: c.platform}
+		if got := e.shutdownNoticed(); got != c.want {
+			t.Errorf("platform %s, manager %q: shutdownNoticed %v, want %v", c.platform, c.manager, got, c.want)
+		}
 	}
 }
 

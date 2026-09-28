@@ -26,9 +26,10 @@ type testEnv struct {
 	dns    *FakeDNS
 	net    *FakeNetworkTime
 	anchor *store.MemAnchor
-	fs     store.FS
-	procs  *FakeProcesses
-	logon  func() (time.Duration, bool)
+	// fs is the store's file system (default newTestFS()).
+	fs    store.FS
+	procs *FakeProcesses
+	logon func() (time.Duration, bool)
 	// platform overrides the catalog platform (default: this OS); netTime the network
 	// time source (default net).
 	platform catalog.Platform
@@ -57,10 +58,48 @@ func newTestEnv(t *testing.T) *testEnv {
 		dns:    &FakeDNS{},
 		net:    NewFakeNetworkTime(clk.Real),
 		anchor: store.NewMemAnchor(),
+		fs:     newTestFS(),
 		procs:  &FakeProcesses{},
 	}
 	return env
 }
+
+// testFS is the store's file system in the engine tests: the real files, created,
+// opened, renamed over and removed like store.OSFS does, without its durability
+// barriers (File.Sync, the POSIX directory fsync and MOVEFILE_WRITE_THROUGH on Windows).
+//
+// The engine tests never cut the power: a crash (Engine.crash) or a restart reopens the
+// directory in the same process, which reads every write whether or not it reached the
+// disk, so the barriers decide nothing these tests check. They do cost: with fake time
+// running hours per test, the suite replaces state.json, state.prev.json and
+// run/clock.json about 40 000 times (every 30 s of fake time and at every commit) and
+// syncs about 42 000 files. On Windows each FlushFileBuffers and each write-through
+// MoveFileEx waits milliseconds for the disk, which took the package past CI's 10-minute
+// test timeout with no test stuck (the goroutine dumps stopped in MoveFileEx, in a
+// different test each run); macOS pays F_FULLFSYNC on every Sync. What the barriers
+// guarantee is tested where they are implemented: the store package (writeAtomic, the
+// log) and the guardian e2e smoke test of the real binary.
+type testFS struct{ store.FS }
+
+func newTestFS() store.FS { return testFS{store.OSFS()} }
+
+func (f testFS) OpenFile(name string, flag int, perm fs.FileMode) (store.File, error) {
+	file, err := f.FS.OpenFile(name, flag, perm)
+	if err != nil {
+		return nil, err
+	}
+	return noSyncFile{file}, nil
+}
+
+// Rename replaces newpath atomically, like store.OSFS (renameNoFlush: testfs_*_test.go).
+func (testFS) Rename(oldpath, newpath string) error { return renameNoFlush(oldpath, newpath) }
+
+func (testFS) SyncDir(string) error { return nil }
+
+// noSyncFile is a store.File whose Sync returns at once (see testFS).
+type noSyncFile struct{ store.File }
+
+func (noSyncFile) Sync() error { return nil }
 
 func (env *testEnv) options() Options {
 	pl := env.platform
@@ -250,7 +289,7 @@ func (f *faultFS) setFailSnapshots(v bool) {
 	f.failState, f.failClock = v, v
 }
 
-func newFaultFS() *faultFS { return &faultFS{FS: store.OSFS()} }
+func newFaultFS() *faultFS { return &faultFS{FS: newTestFS()} }
 
 func (f *faultFS) setFailAppend(v bool) {
 	f.mu.Lock()
