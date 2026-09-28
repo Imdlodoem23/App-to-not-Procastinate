@@ -108,8 +108,11 @@ export interface LayoutProbe {
     scrollHeight: number;
     clientHeight: number;
   };
-  /** The main window's section column (`[data-scroll-root]`); `null` in a detail window. */
-  column: { scrollHeight: number; clientHeight: number } | null;
+  /**
+   * The main window's section column (`[data-scroll-root]`); `null` in a detail window.
+   * `geometry`: the unrounded sizes behind the two integers, for failure messages.
+   */
+  column: { scrollHeight: number; clientHeight: number; geometry: string } | null;
   clipped: ClippedElement[];
 }
 
@@ -209,7 +212,26 @@ export async function probeLayout(page: Page): Promise<LayoutProbe> {
         clientHeight: scroller.clientHeight,
       },
       column: column
-        ? { scrollHeight: column.scrollHeight, clientHeight: column.clientHeight }
+        ? {
+            scrollHeight: column.scrollHeight,
+            clientHeight: column.clientHeight,
+            geometry: (() => {
+              // Fractional CSS px: the column box, how far its content reaches below its top
+              // (plus the 6 px bottom padding) and the viewport, at the device pixel ratio.
+              const box = column.getBoundingClientRect();
+              let bottom = box.top;
+              for (const child of column.children) {
+                bottom = Math.max(bottom, child.getBoundingClientRect().bottom);
+              }
+              const pad = parseFloat(getComputedStyle(column).paddingBottom) || 0;
+              const f = (v: number): string => String(Math.round(v * 1000) / 1000);
+              return (
+                `column ${f(box.height)}, content ${f(bottom - box.top + pad)}, ` +
+                `viewport ${f(html.getBoundingClientRect().height)} (inner ${window.innerHeight}), ` +
+                `dpr ${window.devicePixelRatio}`
+              );
+            })(),
+          }
         : null,
       clipped,
     };
