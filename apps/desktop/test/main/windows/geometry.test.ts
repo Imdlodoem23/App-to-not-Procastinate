@@ -12,6 +12,7 @@ import {
   SCREEN_INSET,
   ZERO_FRAME,
   anchorFor,
+  centredContentRect,
   chooseDisplay,
   clampContentHeight,
   contentFromOuter,
@@ -424,6 +425,14 @@ describe('device-pixel grid', () => {
         expect(bottom, `${where}: bottom inset`).toBeGreaterThanOrEqual(SCREEN_INSET);
         expect(bottom, `${where}: bottom inset`).toBeLessThanOrEqual(SCREEN_INSET + slack);
         expect(outer.y, `${where}: top edge`).toBeGreaterThanOrEqual(wa.y + SCREEN_INSET - slack);
+        // The free (top) edge grows 0–slack DIP onto the grid, so the height is whole pixels,
+        // unless that would cross the work area's inset line.
+        const asked = Math.min(height, maxContentHeight(wa, preset.frame));
+        expect(rect.height, `${where}: height`).toBeGreaterThanOrEqual(asked);
+        expect(rect.height, `${where}: height`).toBeLessThanOrEqual(asked + slack);
+        if (rectBottom(rect) - asked - slack >= wa.y + SCREEN_INSET + preset.frame.top) {
+          expect(onGridY(rect.y), `${where}: free top edge`).toBe(true);
+        }
 
         // Resizing from there keeps the anchored edge, the width and the grid.
         const grown = resizeAnchored(rect, height + 113, 'bottom', wa, preset.frame, grid);
@@ -467,8 +476,9 @@ describe('device-pixel grid', () => {
       height: 349,
       grid: pixelGrid(display(1, at125.bounds, at125.workArea, 1.25)),
     });
-    // 642 DIP = 802.5 px before; 640 DIP = 800 px, 440 DIP = 550 px.
-    expect(r125).toEqual({ x: 640, y: 552 - 349, width: 440, height: 349 });
+    // 642 DIP = 802.5 px before; 640 DIP = 800 px, 440 DIP = 550 px. The top edge grows from
+    // 203 (253.75 px) to 200 (250 px): 352 DIP = 440 px tall.
+    expect(r125).toEqual({ x: 640, y: 200, width: 440, height: 352 });
     const at150 = DISPLAY_PRESETS['1920x1080@150'];
     const r150 = mainContentRect({
       workArea: at150.workArea,
@@ -477,8 +487,9 @@ describe('device-pixel grid', () => {
       height: 349,
       grid: pixelGrid(display(1, at150.bounds, at150.workArea, 1.5)),
     });
-    // 829 DIP = 1243.5 px before; 828 DIP = 1242 px.
-    expect(r150).toEqual({ x: 828, y: 660 - 349, width: 440, height: 349 });
+    // 829 DIP = 1243.5 px before; 828 DIP = 1242 px. 349 DIP would be 523.5 px tall (Windows
+    // gave such a window one DIP less than asked): the top edge grows to 310, 350 DIP = 525 px.
+    expect(r150).toEqual({ x: 828, y: 310, width: 440, height: 350 });
   });
 
   it('snaps the top edge downwards when anchored on top (macOS, Linux top panel)', () => {
@@ -495,6 +506,31 @@ describe('device-pixel grid', () => {
     expect(isOnPixelGrid(rect.x, 0, 1.25)).toBe(true);
     const grown = resizeAnchored(rect, 520, 'top', wa, ZERO_FRAME, grid);
     expect(grown.y).toBe(rect.y);
+    // The free (bottom) edge grows onto the grid: 401 DIP from 40 ends at 441 (551.25 px), so
+    // the window is 404 DIP (505 px) tall, at the corner and when resized.
+    const odd = mainContentRect({
+      workArea: wa,
+      frame: ZERO_FRAME,
+      anchor: 'top',
+      height: 401,
+      grid,
+    });
+    expect(odd).toEqual({ ...rect, height: 404 });
+    expect(resizeAnchored(grown, 401, 'top', wa, ZERO_FRAME, grid)).toEqual(odd);
+  });
+
+  it('grows the free edge onto the grid when centred (onboarding)', () => {
+    const wa: Rect = { x: 0, y: 0, width: 1280, height: 672 };
+    const grid: PixelGrid = { origin: { x: 0, y: 0 }, scaleFactor: 1.5 };
+    const r = centredContentRect({
+      workArea: wa,
+      frame: ZERO_FRAME,
+      anchor: 'bottom',
+      height: 431,
+      grid,
+    });
+    expect(isOnPixelGrid(r.y, 0, 1.5) && isOnPixelGrid(rectBottom(r), 0, 1.5)).toBe(true);
+    expect(r.height).toBe(432);
   });
 
   it('snaps a rect the user moved, on a display with negative coordinates', () => {

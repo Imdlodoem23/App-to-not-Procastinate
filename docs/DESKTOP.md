@@ -925,7 +925,11 @@ Hidden windows still receive snapshots, so the handshake only measures.
   fixed: `y = anchorBottom − frame.bottom − height` on Windows and Linux-bottom, `y`
   unchanged on macOS and Linux-top. Never use `setContentSize`, which grows the window
   downwards and off screen.
-- All values are rounded to whole DIP.
+- All values are rounded to whole DIP. At a fractional scale the left and anchored edges are
+  also moved 0–3 DIP inward onto device pixels, and the free edge 0–3 DIP outward onto them
+  (never past the work area's 10 DIP inset), so the content height is whole pixels: the
+  Windows runner gave a 431 DIP window at 150 % (646.5 px) 430 DIP of client area, and its
+  section column scrolled by one pixel.
 - Frame insets are measured once per window as `getBounds()` minus `getContentBounds()`. Under
   xvfb (no window manager, insets 0) the fake display's `frame` is used instead.
 - The detail window follows every height change.
