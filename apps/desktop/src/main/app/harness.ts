@@ -32,7 +32,11 @@ import {
 } from '../../shared/ui-state';
 import type { PlatformHost } from '../platform';
 import type { TrayController } from '../tray/controller';
-import { fakeDisplaySource, type FakeDisplaySource } from '../windows/fake-display';
+import {
+  fakeDisplaySource,
+  type FakeDisplaySource,
+  type HostScreen,
+} from '../windows/fake-display';
 import type { WindowShell } from '../windows/shell';
 import { HARNESS_READY_TIMEOUT_MS } from './constants';
 import type { HarnessLaunch } from './launch-options';
@@ -51,8 +55,15 @@ function isDisplayPresetId(value: string): value is DisplayPresetId {
   return (DISPLAY_PRESET_IDS as readonly string[]).includes(value);
 }
 
-/** Checks the launch switches against the fixtures and builds the fixture and fake display. */
-export function resolveHarness(launch: HarnessLaunch): ResolvedHarness {
+/**
+ * Checks the launch switches against the fixtures and builds the fixture and fake display.
+ * `host`: the real screen, which the fake display is moved onto when it does not fit
+ * (`fake-display.ts`); read on every use, after `ready`.
+ */
+export function resolveHarness(
+  launch: HarnessLaunch,
+  host?: () => HostScreen | null,
+): ResolvedHarness {
   const problems: string[] = [];
   let stateId: HarnessStateId = 'idle';
   if (isHarnessStateId(launch.stateId)) stateId = launch.stateId;
@@ -66,7 +77,7 @@ export function resolveHarness(launch: HarnessLaunch): ResolvedHarness {
   }
   return {
     fixture,
-    displays: fakeDisplaySource({ preset, workArea: launch.fakeWorkArea }),
+    displays: fakeDisplaySource({ preset, workArea: launch.fakeWorkArea }, host),
     customWorkArea: launch.fakeWorkArea !== null,
     lang: launch.lang,
     problems,

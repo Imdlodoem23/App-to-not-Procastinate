@@ -7,7 +7,8 @@
  *   from the fixture, runs the fake guardian on a frozen clock and installs
  *   `globalThis.__centrateHarness` (`HarnessApi`), which `harness` below drives.
  * - Mock mode (`state: null`): the production bootstrap with `CENTRATE_MOCK_GUARDIAN=1` (the
- *   in-memory guardian on the real clock), no fixtures and no harness API.
+ *   in-memory guardian on the real clock), no fixtures and no harness API; `prefs.json` is
+ *   seeded with «Idioma» = Español (`language`), since only Linux fakes the OS language.
  * - Every launch gets its own `userData` (`CENTRATE_USER_DATA`), removed on `close()`.
  * - `--force-device-scale-factor` is process-wide, so a scale change means a new launch; the
  *   fake display (work area, frame) switches in-process with `harness.load(id, { display })`.
@@ -36,8 +37,15 @@ import {
   type HarnessStateId,
   type Rect,
 } from '../../src/shared/fixtures';
+import type { LanguagePreference } from '../../src/shared/i18n/locale';
 import type { WindowKind } from '../../src/shared/ui-state';
 import { LAUNCH_ENV } from '../../src/main/app/launch-options';
+import {
+  prefsPath,
+  sanitizePrefs,
+  sanitizeTemplates,
+  writeStoredPrefs,
+} from '../../src/main/db/prefs-store';
 import { fontPlan, type FontPlan } from './fonts';
 
 export const APP_DIR = resolve(__dirname, '..', '..');
@@ -73,6 +81,14 @@ export interface LaunchOptions {
    */
   guardian?: 'mock' | 'http';
   sysDir?: string;
+  /**
+   * Without a harness state: «Ajustes › Idioma», written to `prefs.json` before the start.
+   * Default `es`. The suite models a Spanish system, but only Linux takes the OS language
+   * from `LANG` / `LANGUAGE`: Windows and macOS read the user's display languages
+   * (`app.getPreferredSystemLanguages()`), `en-US` on the CI runners, so «Sistema» would
+   * start those runs in English. Harness launches get the language from the fixture.
+   */
+  language?: LanguagePreference;
   /** Extra environment and arguments. */
   env?: Record<string, string>;
   args?: string[];
@@ -220,7 +236,12 @@ export async function launchApp(options: LaunchOptions): Promise<LaunchedApp> {
   };
   if (options.guardian !== 'http') env[MOCK_GUARDIAN_ENV] = '1';
   if (options.sysDir) env[HARNESS_ENV.sysDir] = options.sysDir;
-  if (options.state !== null) {
+  if (options.state === null) {
+    writeStoredPrefs(prefsPath(userDataDir), {
+      prefs: sanitizePrefs({ language: options.language ?? 'es' }),
+      templates: sanitizeTemplates([]),
+    });
+  } else {
     env[LAUNCH_ENV.harness] = '1';
     env[LAUNCH_ENV.harnessState] = options.state;
     args.push(`${HARNESS_ARGS.state}=${options.state}`);

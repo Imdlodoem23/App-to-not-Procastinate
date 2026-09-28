@@ -949,6 +949,12 @@ on every show.
 - In harness mode a fake display source replaces `screen`, from `DISPLAY_PRESETS` and
   `--harness-display`. `fixtures.layoutForDisplay` must equal `geometry.maxContentHeight`; a
   test checks it.
+- The windows the fake display places still go on the real screen. When the primary display
+  is smaller than the preset (the Windows CI runner has 1024×768 px), the fake display moves
+  by whole device pixels so its anchored right corner lies on the real work area
+  (`fake-display.ts`, `hostOffset`). A window that intersects no monitor gets no frame on
+  Windows (Chromium's `WM_NCCALCSIZE`), so its content grows by the frame width until its size
+  changes.
 
 ### 8.5 Detail window
 
@@ -1157,7 +1163,8 @@ from memory. Invokes answer from `fixture.fake`; writes just log.
   - `layout`: for every state × preset,
     - `scrollHeight <= clientHeight` on the main window;
     - no `[data-fit]` element with `scrollWidth > clientWidth + 1`;
-    - the bounds sit 10 DIP from the fake work area on the anchored edge;
+    - the bounds sit 10 DIP from the fake work area on the anchored edge (10–13 DIP at 125 %
+      and 10–11 at 150 %, where the edges move inward onto device pixels);
     - density equals `fixture.expect.density`;
     - at 1920×1080 at 100 %, content is ≤ 540 at rest and ≤ 600 in any state.
   - `a11y`: inject `axe-core` with `page.evaluate` and run `axe.run()` for every state in both
