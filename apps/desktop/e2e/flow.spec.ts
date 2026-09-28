@@ -194,10 +194,27 @@ test('raising a covered window under a block keeps the Bloqueo layout (tray clic
   const before = await height();
   expect(before).toBeTruthy();
 
+  // Another window opens over the app and takes the focus. Not `blur()`: on Windows that only
+  // activates the next visible window in z-order, and on a quiet CI desktop there may be none,
+  // so the main window kept the focus and the tray click hid it (flaky on the Windows runner).
+  const outer = (await app.harness.bounds()).main?.outer;
+  expect(outer).toBeTruthy();
   const cover = async (): Promise<void> => {
-    await app!.electron.evaluate(({ BrowserWindow }) => {
-      for (const w of BrowserWindow.getAllWindows()) w.blur();
-    });
+    await app!.electron.evaluate(({ BrowserWindow }, bounds) => {
+      const g = globalThis as unknown as { __cover?: InstanceType<typeof BrowserWindow> };
+      if (!g.__cover || g.__cover.isDestroyed()) {
+        g.__cover = new BrowserWindow({ ...bounds, show: false, skipTaskbar: true });
+      }
+      g.__cover.show();
+      g.__cover.focus();
+    }, outer!);
+    await expect
+      .poll(() =>
+        app!.electron.evaluate(() =>
+          (globalThis as unknown as { __cover?: Electron.BrowserWindow }).__cover?.isFocused(),
+        ),
+      )
+      .toBe(true);
     // Past the tray's blur grace, so the click reads as «covered», not «just blurred».
     await main.waitForTimeout(UI_TIMINGS.trayBlurGraceMs + 350);
   };
