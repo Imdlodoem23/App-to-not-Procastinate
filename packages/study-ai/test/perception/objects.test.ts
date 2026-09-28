@@ -210,9 +210,21 @@ describe('PhoneTracker', () => {
   it('moving: a clear move since its spot and its previous sighting', () => {
     const tracker = new PhoneTracker();
     tracker.update([phone(IN_HAND)], 0, FACE, W, H);
-    const moved = tracker.update([phone({ ...IN_HAND, cx: IN_HAND.cx + 0.06 })], 1_000, FACE, W, H)!;
+    const moved = tracker.update(
+      [phone({ ...IN_HAND, cx: IN_HAND.cx + 0.06 })],
+      1_000,
+      FACE,
+      W,
+      H,
+    )!;
     expect(moved.moving).toBe(true);
-    const again = tracker.update([phone({ ...IN_HAND, cx: IN_HAND.cx - 0.05 })], 2_000, FACE, W, H)!;
+    const again = tracker.update(
+      [phone({ ...IN_HAND, cx: IN_HAND.cx - 0.05 })],
+      2_000,
+      FACE,
+      W,
+      H,
+    )!;
     expect(again.moving).toBe(true);
     expect(again.stillMs).toBe(0); // moved on twice: a new spot
     const stays = tracker.update(
@@ -240,7 +252,10 @@ describe('PhoneTracker', () => {
       const seen = play(tracker, 600, () => (rng() < 0.5 ? jitterBox(rng, DESK_NEAR, sd) : null));
       const hits = seen.filter((p): p is PhoneDetection => p !== null);
       expect(hits.length).toBeGreaterThan(250);
-      expect(hits.some((p) => p.moving), `${sd} px`).toBe(false);
+      expect(
+        hits.some((p) => p.moving),
+        `${sd} px`,
+      ).toBe(false);
       // Near the face only in the first 20 s, before it counts as resting.
       const first = seen.findIndex((p) => p !== null);
       hits.forEach((p, i) => {
@@ -271,9 +286,8 @@ describe('PhoneTracker', () => {
     const tracker = new PhoneTracker();
     play(tracker, 30, () => DESK_NEAR);
     const glitch = tracker.update([phone({ ...DESK_NEAR, w: 0.2, h: 0.2 })], 30_000, FACE, W, H)!;
-    expect(glitch.moving).toBe(true);
-    expect(glitch.stillMs).toBeGreaterThanOrEqual(20_000); // one stray sighting
-    const back = tracker.update([phone(DESK_NEAR)], 31_000, FACE, W, H)!;
+    expect(glitch).toMatchObject({ moving: true, stillMs: 0 }); // one stray sighting…
+    const back = tracker.update([phone(DESK_NEAR)], 31_000, FACE, W, H)!; // …then back
     expect(back).toMatchObject({ moving: false, stillMs: 31_000, nearFace: false });
     // Picked up: two clear moves in a row.
     tracker.update([phone(IN_HAND)], 32_000, FACE, W, H);
@@ -308,7 +322,11 @@ describe('PhoneTracker', () => {
     const tracker = new PhoneTracker();
     const seen = play(tracker, 300, () => {
       const r = rng();
-      return r < 0.35 ? jitterBox(rng, DESK_NEAR, 1) : r < 0.7 ? jitterBox(rng, ON_DESK_FAR, 1) : null;
+      return r < 0.35
+        ? jitterBox(rng, DESK_NEAR, 1)
+        : r < 0.7
+          ? jitterBox(rng, ON_DESK_FAR, 1)
+          : null;
     });
     // Telling the two apart costs at most a couple of moving sightings at the start.
     expect(seen.filter((p) => p?.moving).length).toBeLessThanOrEqual(2);
@@ -321,13 +339,7 @@ describe('PhoneTracker', () => {
   it('reports the phone in the hand over a better-scored one on a stand', () => {
     const tracker = new PhoneTracker();
     play(tracker, 30, () => DESK_NEAR);
-    const both = tracker.update(
-      [phone(DESK_NEAR, 0.9), phone(IN_HAND, 0.6)],
-      30_000,
-      FACE,
-      W,
-      H,
-    )!;
+    const both = tracker.update([phone(DESK_NEAR, 0.9), phone(IN_HAND, 0.6)], 30_000, FACE, W, H)!;
     expect(both).toMatchObject({ score: 0.6, nearFace: true });
     // Alone, the resting one is reported as it is.
     expect(tracker.update([phone(DESK_NEAR, 0.9)], 31_000, FACE, W, H)).toMatchObject({

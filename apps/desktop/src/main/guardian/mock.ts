@@ -28,8 +28,10 @@ import type {
   ExtensionId,
   GuardianEvent,
   GuardianSettings,
+  PendingSettingChange,
   PointsSummary,
   Punishment,
+  RewardAllowance,
   RewardsLockReason,
   Schedule,
   ScheduleId,
@@ -78,10 +80,15 @@ import {
   type ListBlocksQuery,
   type ListBlocksResponse,
   type ListSchedulesResponse,
+  type NuclearHeartbeatRequest,
+  type NuclearHeartbeatResponse,
   type PairedExtension,
   type PairedExtensionsResponse,
   type PairingCodeResponse,
   type PointsResponse,
+  type RedeemRewardRequest,
+  type RedeemRewardResponse,
+  type RewardsResponse,
   type ScheduleInput,
   type ScheduleResponse,
   type SettingsResponse,
@@ -92,6 +99,7 @@ import {
 import {
   EMERGENCY_RULES,
   RULES_VERSION,
+  allowanceRefund,
   attemptPenalty,
   blockCompletionPoints,
   emergencyCountdownMinutes,
@@ -102,6 +110,8 @@ import {
   xpForLevel,
 } from '@centrate/shared/points';
 import type { Clock, TimerHandle } from '../contracts';
+import { checkRedeem, rewardsShop } from './mock-rewards';
+import { applyDuePending, applySettingsPut } from './mock-settings';
 
 const MIN = 60_000;
 
@@ -126,6 +136,8 @@ export interface MockSeed {
   extensions?: PairedExtension[];
   /** Served for `emergencyPreview()` while nothing changed since the seed. */
   emergencyPreview?: EmergencyPreviewResponse;
+  /** Served for `listRewards()` while nothing changed since the seed (Phase 5). */
+  rewards?: RewardsResponse;
 }
 
 export interface MockGuardianOptions {
@@ -230,6 +242,9 @@ export class MockGuardian implements GuardianClient {
   private health0: HealthResponse;
   private seedPairing: PairingCodeResponse | null;
   private seedPreview: EmergencyPreviewResponse | null;
+  private seedRewards: RewardsResponse | null;
+  private allowances: RewardAllowance[];
+  private pendingSettings: PendingSettingChange[];
   private readonly idempotency = new Map<string, IdempotencyRecord>();
   private waiters: Waiter[] = [];
   private escalation: { lastCountedAtMs: number | null; index: number } = {
@@ -261,6 +276,9 @@ export class MockGuardian implements GuardianClient {
     this.extensions = clone(seed?.extensions ?? []);
     this.seedPairing = seed?.pairingCode ? clone(seed.pairingCode) : null;
     this.seedPreview = seed?.emergencyPreview ? clone(seed.emergencyPreview) : null;
+    this.seedRewards = seed?.rewards ? clone(seed.rewards) : null;
+    this.allowances = clone(state?.allowances ?? []);
+    this.pendingSettings = clone(seed?.settings?.pending ?? state?.pendingSettings ?? []);
     this.health0 = clone(seed?.health ?? this.defaultHealth(now));
     this.base = clone(state ?? this.emptyState(now));
     if (!state) {
@@ -491,6 +509,32 @@ export class MockGuardian implements GuardianClient {
         this.finishEmergency('expired', 'expired');
       }
     }
+    // Reward allowances end on time.
+    const expired = this.allowances.filter(
+      (a) => a.status === 'active' && Date.parse(a.endsAt) <= now,
+    );
+    for (const a of expired) {
+      dirty = true;
+      this.allowances = this.allowances.filter((x) => x.id !== a.id);
+      this.emit('reward_ended', {
+        allowanceId: a.id,
+        serviceId: a.serviceId,
+        reason: 'expired',
+        revokedByBlockId: null,
+        cost: a.cost,
+        totalMs: Date.parse(a.endsAt) - Date.parse(a.startedAt),
+        remainingMs: 0,
+        refund: 0,
+      });
+    }
+    // Weakening settings changes whose 24 h passed.
+    const due = applyDuePending(this.settings, this.pendingSettings, now);
+    if (due) {
+      dirty = true;
+      this.settings = due.settings;
+      this.pendingSettings = due.pending;
+      this.emit('settings_changed', { settings: clone(this.settings), pending: clone(due.pending) });
+    }
     // «Hecho» notices live 2 min.
     const keep = this.ended.filter(
       (n) => now - Date.parse(n.endedAt) < GUARDIAN_LIMITS.recentEndedBlocksMs,
@@ -509,6 +553,42 @@ export class MockGuardian implements GuardianClient {
       dirty = true;
     }
     if (dirty) this.changed();
+  }
+
+  /** Nuclear punishments running (the overlay covers the screens). */
+  private nuclearActive(): boolean {
+    if (this.version === this.seedVersion) return this.base.nuclearActive;
+    return this.punishments.some((p) => p.level === 'nuclear' && p.status === 'active');
+  }
+
+  /**
+   * A hardcore or exam block (or a punishment) revokes every active allowance in the same batch,
+   * refunding the unused part (ARCHITECTURE §10.7).
+   */
+  private revokeAllowances(blockId: BlockId): void {
+    const now = this.clock.now();
+    const active = this.allowances.filter((a) => a.status === 'active');
+    active.forEach((a, i) => {
+      const totalMs = Date.parse(a.endsAt) - Date.parse(a.startedAt);
+      const remainingMs = Math.max(0, Date.parse(a.endsAt) - now);
+      const refund = allowanceRefund(a.cost, totalMs, remainingMs);
+      this.addPoints(refund);
+      this.emit(
+        'reward_ended',
+        {
+          allowanceId: a.id,
+          serviceId: a.serviceId,
+          reason: 'revoked',
+          revokedByBlockId: blockId,
+          cost: a.cost,
+          totalMs,
+          remainingMs,
+          refund,
+        },
+        { points: refund, txEnd: i === active.length - 1 },
+      );
+    });
+    this.allowances = this.allowances.filter((a) => a.status !== 'active');
   }
 
   /** Why the reward shop is locked right now (PROMPT §7). */
@@ -597,6 +677,11 @@ export class MockGuardian implements GuardianClient {
       ),
       emergency: this.emergency,
       rewardsLock: this.rewardsLock,
+      nuclearActive: this.nuclearActive(),
+      // A seeded state is served exactly as the fixture wrote it until something changes.
+      allowances: this.version === this.seedVersion ? this.base.allowances : this.allowances,
+      pendingSettings:
+        this.version === this.seedVersion ? this.base.pendingSettings : this.pendingSettings,
       points: this.points,
       recent: { endedBlocks: this.ended, endedStudy: null },
     });
@@ -737,7 +822,15 @@ export class MockGuardian implements GuardianClient {
       };
       this.blocks = sortBlocks([...this.blocks, block]);
       this.rewardsLock = this.currentLock();
-      this.emit('block_created', { block, source: 'user' }, { key: options?.idempotencyKey ?? null });
+      const revokes =
+        (body.mode === 'hardcore' || body.mode === 'exam') &&
+        this.allowances.some((a) => a.status === 'active');
+      this.emit(
+        'block_created',
+        { block, source: 'user' },
+        { key: options?.idempotencyKey ?? null, txEnd: !revokes },
+      );
+      if (revokes) this.revokeAllowances(block.id);
       this.changed();
       return { block: clone(block), stateVersion: this.version };
     });
@@ -914,6 +1007,24 @@ export class MockGuardian implements GuardianClient {
     );
     const top = covering[0] ?? null;
     const nextPenalty = attemptPenalty(nextEscalationIndex(this.escalation, now));
+    const opened =
+      serviceId !== null &&
+      this.allowances.some((a) => a.serviceId === serviceId && a.status === 'active');
+    if (top && opened) {
+      return {
+        blocked: false,
+        counted: false,
+        merged: false,
+        attemptId: null,
+        pointsDelta: 0,
+        episodePointsDelta: 0,
+        escalationIndex: null,
+        nextPenalty,
+        serviceId,
+        block: null,
+        reason: 'allowance_active',
+      };
+    }
     if (!top) {
       return {
         blocked: false,
@@ -1200,35 +1311,104 @@ export class MockGuardian implements GuardianClient {
     });
   }
 
-  async listRewards(): Promise<never> {
-    throw apiError('not_found', 'rewards are not simulated');
+  private shopInput(): Parameters<typeof rewardsShop>[0] {
+    return {
+      balance: this.points.balance,
+      blocks: this.blocks,
+      allowances: this.allowances,
+      lock: this.rewardsLock,
+    };
   }
 
-  async redeemReward(): Promise<never> {
-    throw apiError('not_found', 'rewards are not simulated');
+  async listRewards(): Promise<RewardsResponse> {
+    this.step();
+    if (this.seedRewards && this.version === this.seedVersion) return clone(this.seedRewards);
+    return clone(rewardsShop(this.shopInput()));
+  }
+
+  async redeemReward(
+    body: RedeemRewardRequest,
+    options?: WriteOptions,
+  ): Promise<RedeemRewardResponse> {
+    this.step();
+    return this.idem('POST /v1/rewards/redeem', options?.idempotencyKey, body, () => {
+      this.writable();
+      const offerId = typeof body?.offerId === 'string' ? body.offerId : '';
+      const check = checkRedeem(offerId, this.shopInput());
+      if (!check.ok) throw apiError(check.code, `redeem refused: ${check.code}`, check.details);
+      const now = this.clock.now();
+      const { offer, extend } = check;
+      const allowance: RewardAllowance = extend
+        ? {
+            ...extend,
+            minutes: extend.minutes + offer.minutes,
+            cost: extend.cost + offer.cost,
+            endsAt: iso(Date.parse(extend.endsAt) + offer.minutes * MIN),
+          }
+        : {
+            id: this.newId('alw') as RewardAllowance['id'],
+            offerId: offer.id,
+            serviceId: offer.serviceId,
+            minutes: offer.minutes,
+            cost: offer.cost,
+            startedAt: iso(now),
+            endsAt: iso(now + offer.minutes * MIN),
+            status: 'active',
+            endedAt: null,
+            refund: 0,
+          };
+      this.allowances = [...this.allowances.filter((a) => a.id !== allowance.id), allowance];
+      this.addPoints(-offer.cost);
+      this.emit(
+        'reward_redeemed',
+        {
+          allowanceId: allowance.id,
+          offerId: offer.id,
+          serviceId: offer.serviceId,
+          offerMinutes: offer.minutes,
+          offerCost: offer.cost,
+          allowanceMinutes: allowance.minutes,
+          allowanceCost: allowance.cost,
+          endsAt: allowance.endsAt,
+          extendedExisting: extend !== null,
+        },
+        { points: -offer.cost, key: options?.idempotencyKey ?? null },
+      );
+      this.changed();
+      return {
+        allowance: clone(allowance),
+        pointsDelta: -offer.cost,
+        balanceAfter: this.points.balance,
+      };
+    });
   }
 
   async getSettings(): Promise<SettingsResponse> {
     this.step();
-    return { settings: clone(this.settings), pending: [] };
+    return { settings: clone(this.settings), pending: clone(this.pendingSettings) };
   }
 
   async updateSettings(body: GuardianSettings): Promise<SettingsResponse> {
     this.step();
     this.writable();
     if (!isSettingsRequest(body)) throw apiError('validation_failed', 'invalid settings');
-    this.settings = clone(body);
+    const result = applySettingsPut(this.settings, this.pendingSettings, body, this.clock.now());
+    this.settings = result.settings;
+    this.pendingSettings = result.pending;
     this.points = {
       ...this.points,
       today: {
         ...this.points.today,
-        goalMinutes: body.dailyGoalMinutes,
-        goalMet: this.points.today.focusMinutes >= body.dailyGoalMinutes,
+        goalMinutes: this.settings.dailyGoalMinutes,
+        goalMet: this.points.today.focusMinutes >= this.settings.dailyGoalMinutes,
       },
     };
-    this.emit('settings_changed', { settings: clone(body), pending: [] });
+    this.emit('settings_changed', {
+      settings: clone(this.settings),
+      pending: clone(this.pendingSettings),
+    });
     this.changed();
-    return { settings: clone(this.settings), pending: [] };
+    return { settings: clone(this.settings), pending: clone(this.pendingSettings) };
   }
 
   async createPairingCode(): Promise<PairingCodeResponse> {
@@ -1270,8 +1450,25 @@ export class MockGuardian implements GuardianClient {
     throw apiError('insufficient_scope', 'extension heartbeats need an extension token');
   }
 
-  async nuclearHeartbeat(): Promise<never> {
-    throw apiError('insufficient_scope', 'nuclear heartbeats are not simulated');
+  /** The overlay's liveness (the mock has no supervisor: it only answers). */
+  async nuclearHeartbeat(body: NuclearHeartbeatRequest): Promise<NuclearHeartbeatResponse> {
+    this.step();
+    if (
+      typeof body?.overlayShown !== 'boolean' ||
+      !Number.isInteger(body.displays) ||
+      body.displays < 1 ||
+      body.displays > 16
+    ) {
+      throw apiError('validation_failed', 'invalid heartbeat');
+    }
+    const nuclear = this.punishments.filter((p) => p.level === 'nuclear' && p.status === 'active');
+    const active = this.nuclearActive();
+    const ends = nuclear.map((p) => Date.parse(p.endsAt));
+    return {
+      nuclearActive: active,
+      endsAt: active && ends.length > 0 ? iso(Math.max(...ends)) : null,
+      serverNow: iso(this.clock.now()),
+    };
   }
 
   async deleteData(body: DeleteDataRequest, options?: WriteOptions): Promise<DeleteDataResponse> {

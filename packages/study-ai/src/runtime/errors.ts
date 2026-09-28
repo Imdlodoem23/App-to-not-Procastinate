@@ -46,6 +46,19 @@ export function isVisionLoadError(error: unknown): boolean {
   );
 }
 
+/**
+ * A `VisionLoadError` raised because the WebGL context MediaPipe runs through was lost (GPU
+ * reset, resume from sleep): the pipeline must be rebuilt, the frames were not analysed.
+ */
+export function isVisionContextLost(error: unknown): boolean {
+  return (
+    isVisionLoadError(error) &&
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { contextLost?: unknown }).contextLost === true
+  );
+}
+
 /** The camera error code of any error (`unknown` when it has none). */
 export function cameraErrorCodeOf(error: unknown): CameraErrorCode {
   const code = codeOf(error);

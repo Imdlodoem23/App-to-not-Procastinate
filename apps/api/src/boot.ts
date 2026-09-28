@@ -11,6 +11,7 @@
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from './app';
 import type { BuildAppOptions } from './app';
+import { ENDPOINTS as COACH_ENDPOINTS, SETTLE_MARGIN_MS } from './coach/service';
 import type { Config } from './config';
 import { connectPostgres } from './db/client';
 import { ensureServerEpoch } from './db/meta';
@@ -20,6 +21,17 @@ import type { JanitorHandle } from './jobs/janitor';
 import { isDatabaseUnavailable } from './lib/errors';
 
 export const DB_RETRY_MS = 60_000;
+
+/**
+ * How long a graceful shutdown (SIGTERM on every deploy or restart) waits for requests in flight
+ * before the process exits anyway: the longest coach call (its deadline) plus the margin its
+ * quota reservation allows to settle, plus 5 s. Cutting a coach call short would leave its
+ * worst-case reservation held (docs/API.md §10.2). Render must wait at least this long before
+ * it kills the process: `maxShutdownDelaySeconds` in render.yaml (its default is 30 s).
+ * Requests that are already done exit at once; this is only the upper bound.
+ */
+export const SHUTDOWN_TIMEOUT_MS =
+  Math.max(...Object.values(COACH_ENDPOINTS).map((e) => e.deadlineMs)) + SETTLE_MARGIN_MS + 5_000;
 
 export interface StartOptions {
   config: Config;

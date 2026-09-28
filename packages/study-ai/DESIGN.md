@@ -175,7 +175,13 @@ mirrors `MODEL_MANIFEST` (`src/assets.ts`):
 1. Check `isAllowedAssetUrl` for every URL. Only `centrate-ai://assets/…` and loopback http(s) (dev, demo) are allowed; anything else → `VisionLoadError('asset_rejected')`.
 2. If `FilesetResolver.isSimdSupported()` is false → `simd_unsupported`.
 3. `fetch` each model URL (or take `{bytes}`), check SHA-256 against `MODEL_MANIFEST` with `crypto.subtle` (`hash_mismatch` on failure), then pass it as `modelAssetBuffer`.
-4. `delegate: 'CPU'` for both tasks. No GPU in v1: it is flaky in hidden windows.
+4. `delegate: 'CPU'` for both tasks (the models run on the CPU). **WebGL2 is still required:**
+   MediaPipe 1.0.1 uploads every frame as a texture on the task's WebGL context and reads it
+   back for the CPU graph. Each task gets its own 1×1 `OffscreenCanvas` (`canvas` option) so the
+   pipeline can watch that context: after a GPU reset (`webglcontextlost` or
+   `isContextLost()`) MediaPipe keeps returning empty results, so `process` throws
+   `VisionLoadError{code: 'process_failed', contextLost: true}` before running a model, and
+   the session rebuilds the pipeline (§8.3). Never disable hardware acceleration (HANDOFF §1.0).
 
 The desktop serves the fixed URLs of `ANALYSIS_ASSETS` through the privileged `centrate-ai` scheme.
 
@@ -257,12 +263,14 @@ adds a host. The demo sets the same `connect-src` in a CSP meta tag.
 
 It runs only on the frames the loop asks for (`objects: true`, about 1 Hz).
 
-- **Per run:** keep the best `cell phone` with area ≥ 0.4 % of the frame, the best `book`, and the best `person` with area ≥ 5 %. Boxes are normalised from pixels.
+- **Per run:** keep every `cell phone` with area ≥ 0.4 % of the frame (for the tracker), the best `book`, and the best `person` with area ≥ 5 %. Boxes are normalised from pixels. The reported `phone` is the best one that looks in hand (near the face or moving), else the best one, so a phone on a stand never hides the one in the hand.
 - **Hold:** between runs the last values are returned with `fresh:false` and a growing `ageMs`. `objects` becomes `null` after `objectHoldMs` (4 s) or after `reset()`.
-- **Phone tracker** (across runs):
-  - `nearFace`: the box centre is within `fcx ± 2.5·fw` and `fcy − 0.5·fh … fcy + 3·fh` of the user's face box, or the box overlaps it. Use the last face box if it was seen ≤ 10 s ago.
-  - `moving`: the centre moved more than 0.25 × the box diagonal since the previous run, or the area changed by more than 30 %.
-  - `stillMs`: grows while IoU ≥ 0.8 with the previous run's box, and resets otherwise.
+- **Phone tracker** (across runs, up to 4 objects: a phone on a stand, a calculator, the phone in hand). All tests are in pixels, because a detector box of an object that does not move jitters by 1–3 px per edge at 320×240 (an IoU test on a 32×19 px desk box failed on almost every run):
+  - **Spot:** where the phone stopped, the mean of its first 4 sightings. A sighting is _still_ at it when the centre is within max(4 px, 0.15 × diagonal) and the area within 30 % (+ 3 px of edge jitter per side).
+  - `stillMs`: time since the phone arrived at its spot. A phone missed by the detector is remembered by its spot for 60 s, so flicker never restarts it. Stray sightings (jitter, one glitch) keep it; 4 strays among the last 8 sightings (a hand wobbling around one place) or two clear moves in a row start a new spot. 0 while moving.
+  - `moving`: the sighting is clearly away (centre > max(4 px, 0.25 × diagonal) or area > 50 %) from its spot and from the previous sighting (≤ 5 s ago).
+  - `nearFace`: the box overlaps the user's face box, or its centre is within `fcx ± 1.2·fw` and between the top of the face and 1.5·fh below the chin. Not for a box touching the bottom edge (the desk) unless it moves, and never for a phone at rest (still ≥ 20 s). Uses the last face box if it was seen ≤ 10 s ago.
+  - A phone at rest (still ≥ 20 s, `isResting`) is no phone evidence anywhere: DECISION's E_phone, the generic classifier and the classifier rows (LEARNING) all leave it out.
 
 ### 5.5 Luma (1 Hz)
 
@@ -529,7 +537,7 @@ A null frame while the camera is `ok` keeps the previous presence, with `study: 
 
 The observer keeps the detector runs of the last 6 s (fresh frames only).
 
-- **`phone`** (E_phone): phone ≥ `thresholds.phone` ∧ (nearFace ∨ moving) ∧ stillMs < 20 s, in ≥ 60 % of the runs of the last max(5 s, 2 runs).
+- **`phone`** (E_phone): phone ≥ `thresholds.phone` ∧ (nearFace ∨ moving) ∧ stillMs < 20 s ∧ _in use_ (moving ∨ lookingDown ∨ the box overlaps the face ∨ no face in view), in ≥ 60 % of the runs of the last max(5 s, 2 runs). A phone that does not move near a user who visibly looks at the screen is a timer on a stand, not a phone in hand.
 - **`book`** (E_book): book ≥ 0.35 in ≥ 50 % of the runs of the last max(6 s, 2 runs).
 - **`lookingDown`:** visible ∧ (rel.dpitch ≤ −12° ∨ lookDown ≥ 0.45) ∧ |rel.dyaw| ≤ 35°. Without `rel` (generic not ready), absolute pitch ≤ −20° is used.
 - **`distractionApp`** (F_dist): foreground `distraction` continuously for ≥ 5 s.
@@ -754,7 +762,7 @@ a fake clock.
 
 **Engine scenarios** (`test/synth` + oracle, then again with the real classifiers behind `implemented()`), at 2, 3 and 4 fps with 3 seeds.
 
-_False positives (the core):_ every persona × {screen, notebook 20 min, readBook 20 min, secondMonitor, typing, coffeeSip, phoneOnDesk, stretch} must give 0 strikes, ≤ 1 warning per 20 min and ≥ 90 % focused time. A seeded fuzz of 50 random 30-min study-only scripts must give 0 strikes.
+_False positives (the core):_ every persona × {screen, notebook 20 min, readBook 20 min, secondMonitor, typing, coffeeSip, phoneOnDesk, phoneOnStand, stretch} must give 0 strikes, ≤ 1 warning per 20 min and ≥ 90 % focused time. A seeded fuzz of 50 random 30-min study-only scripts must give 0 strikes.
 
 _True positives:_
 
@@ -846,6 +854,7 @@ In phases other than work, and in no-camera mode, the step only ticks the engine
   - Allowed only while the camera is not `ok`; returns false otherwise. This prevents covering the lens and switching to dodge a `no_face` strike.
   - It stops the camera, swaps in the `NoCameraObserver` (`engine.setObserver`) and emits `mode{user}`.
 - **Vision failures:** 5 `process` failures in a row switch to no-camera mode (`mode{vision_failed}`).
+- **Lost WebGL context** (`VisionLoadError.contextLost`, or `vision.contextLost` on `resume()`): not a failure. The pipeline is rebuilt at once with `deps.createVision` (about 1 s); meanwhile the loop ticks without frames, so nothing is counted as absent. A rebuild that fails or takes over 8 s (under `cameraLostMs`), or a second loss within 60 s, switches to no-camera mode (`mode{vision_failed}`).
 
 **Other operations:**
 
@@ -857,7 +866,7 @@ In phases other than work, and in no-camera mode, the step only ticks the engine
   5. `engine.applyFeedback(now, id)`.
   6. Emit the events and `profile_updated{feedback, serializeProfile(newProfile)}`.
   7. Return `{ok, added, doubtCleared}`.
-- **`strikeResult`** → the engine. **`resume()`** → `engine.resume(now)`, `vision.reset()`, camera re-check.
+- **`strikeResult`** → the engine. **`resume()`** → `engine.resume(now)`, `vision.reset()` (or a rebuild when its WebGL context was lost), camera re-check.
 - **`stop()`:** stops the loop, the camera and vision, and returns `{totals, timeline}`.
 - **Report:** `{runId, at, mode, camera, cameraOn, snapshot (merged hints), totals, loop}`.
 
@@ -1051,6 +1060,8 @@ It must cover:
 ## 11. Known limitations
 
 - A phone held below the camera's view looks like reading or writing. It is not punished, by design.
+- A phone held perfectly still in the hand (its centre within about 15 % of its diagonal for 20 s) reads as a phone at rest. Real hands wobble more; the classifier's `phone` posture still applies.
+- A phone that appears already at rest near the chest (a stand in view when the session starts) counts as in hand for its first 20 s: at most one «¿Sigues ahí?», never a strike.
 - A calculator held and moved near the face can read as a phone. The doubt period and the personal `thresholds.phone` soften this.
 - With glasses glare (`eyes.reliable = false`) drowsiness detection is off; no strike is lost, since drowsiness never strikes.
 - A camera change without recalibrating falls back to the generic classifier. It is less precise, but it never punishes looking down.

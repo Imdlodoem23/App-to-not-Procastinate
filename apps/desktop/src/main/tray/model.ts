@@ -7,7 +7,8 @@
  *   Nothing is enforced while the guardian is down, so the icon says so by going idle.
  * - Tooltip: «Céntrate · YouTube · quedan 43 min · 1.240 pts».
  * - Title: «Céntrate», «Céntrate · quedan 42 min», «Céntrate · castigo 38 min».
- * - Menu: the tiles again (status, Ampliar ▸, Bloqueo rápido ▸, Abrir, Salir).
+ * - Menu: the tiles again (status, Ampliar ▸, Bloqueo rápido ▸, the «Mini temporizador»
+ *   checkbox with its flag, Abrir, Salir).
  *
  * Remaining minutes round **up**, like everywhere else (decision 10).
  */
@@ -61,6 +62,7 @@ export const TRAY_ITEM = {
   extendBy: (minutes: number): string => `extend:${minutes}`,
   quick: 'quick',
   template: (id: string): string => `template:${id}`,
+  miniTimer: 'mini-timer',
   open: 'open',
   quit: 'quit',
 } as const;
@@ -68,6 +70,8 @@ export const TRAY_ITEM = {
 export type TrayAction =
   | { type: 'extend'; minutes: number }
   | { type: 'template'; templateId: string }
+  /** The «Mini temporizador» checkbox: show or hide it. */
+  | { type: 'mini-timer' }
   | { type: 'open' }
   | { type: 'quit' };
 
@@ -75,6 +79,7 @@ export type TrayAction =
 export function trayActionForItem(id: string): TrayAction | null {
   if (id === TRAY_ITEM.open) return { type: 'open' };
   if (id === TRAY_ITEM.quit) return { type: 'quit' };
+  if (id === TRAY_ITEM.miniTimer) return { type: 'mini-timer' };
   const extend = /^extend:(\d{1,4})$/.exec(id);
   if (extend?.[1]) return { type: 'extend', minutes: Number(extend[1]) };
   if (id.startsWith('template:') && id.length > 'template:'.length) {
@@ -317,7 +322,15 @@ export function trayMenu(snapshot: UiSnapshot, nowMs: number): TrayMenuItemModel
       }),
     );
   }
-  // Study Mode ▸ and the «Mini temporizador» checkbox join here with their flags.
+  // Study Mode ▸ joins here with its flag.
+  if (featureEnabled(snapshot.features, 'miniTimer', snapshot.health?.capabilities ?? null)) {
+    items.push(
+      item(TRAY_ITEM.miniTimer, TRAY.menu.miniTimer, {
+        type: 'checkbox',
+        checked: snapshot.prefs.miniTimer.visible,
+      }),
+    );
+  }
 
   items.push(
     separator('sep-actions'),

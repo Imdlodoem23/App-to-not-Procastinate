@@ -12,6 +12,13 @@
  *
  * Inference is synchronous. Only numbers (`FrameFeatures`) leave `process`; the frame,
  * landmarks and blendshapes stay in its scope.
+ *
+ * WebGL: even on the CPU delegate, MediaPipe 1.0.1 uploads every frame as a WebGL texture and
+ * reads it back, on a WebGL2 context of the task's canvas. Each task gets its own canvas
+ * from here, so the pipeline can see that context being lost (GPU process crash or reset,
+ * resume from sleep, a hybrid-GPU switch). MediaPipe does not notice: it keeps returning
+ * empty results, which would read as «nobody there». `process` throws `contextLost` instead,
+ * and the session rebuilds the pipeline.
  */
 import type { FaceLandmarkerOptions, ObjectDetectorOptions } from '@mediapipe/tasks-vision';
 import { isAllowedAssetUrl, MEDIAPIPE_WASM_FILES, MODEL_MANIFEST } from '../assets';
@@ -38,10 +45,13 @@ import { FeatureExtractor } from './extractor';
 
 export class VisionLoadError extends Error {
   readonly code: VisionErrorCode;
-  constructor(code: VisionErrorCode, message?: string) {
+  /** The WebGL context MediaPipe runs through was lost: rebuild the pipeline. */
+  readonly contextLost: boolean;
+  constructor(code: VisionErrorCode, message?: string, options: { contextLost?: boolean } = {}) {
     super(message ?? code);
     this.name = 'VisionLoadError';
     this.code = code;
+    this.contextLost = options.contextLost === true;
   }
 }
 
@@ -83,6 +93,11 @@ export interface VisionRuntime {
   sha256Hex(bytes: Uint8Array): Promise<string>;
   now(): number;
   createCanvas(): FrameCanvas | null;
+  /**
+   * A 1×1 canvas for one MediaPipe task's WebGL context (the task creates the context on it),
+   * or `null` to let MediaPipe create its own (then context loss cannot be seen).
+   */
+  createTaskCanvas(): OffscreenCanvas | null;
 }
 
 const BROWSER_RUNTIME: VisionRuntime = {
@@ -103,6 +118,8 @@ const BROWSER_RUNTIME: VisionRuntime = {
   sha256Hex,
   now: () => performance.now(),
   createCanvas: createFrameCanvas,
+  createTaskCanvas: () =>
+    typeof OffscreenCanvas === 'undefined' ? null : new OffscreenCanvas(1, 1),
 };
 
 // ---------------------------------------------------------------------------------------
@@ -200,24 +217,35 @@ export async function createVisionPipelineWith(
 
   let face: FaceTask | null = null;
   let objects: ObjectTask | null = null;
+  const faceGl = new GlWatch(runtime.createTaskCanvas());
+  const objectGl = new GlWatch(runtime.createTaskCanvas());
   try {
     face = await tasks.FaceLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetBuffer: faceBytes, delegate: 'CPU' },
       ...FACE_LANDMARKER_OPTIONS,
       numFaces: options.numFaces === 1 ? 1 : 2,
+      ...faceGl.option,
     });
     objects = await tasks.ObjectDetector.createFromOptions(fileset, {
       baseOptions: { modelAssetBuffer: objectBytes, delegate: 'CPU' },
       ...OBJECT_DETECTOR_OPTIONS,
       categoryAllowlist: [...OBJECT_CATEGORIES],
+      ...objectGl.option,
     });
   } catch (error) {
     safeClose(face);
     safeClose(objects);
+    faceGl.release();
+    objectGl.release();
     throw new VisionLoadError('load_failed', `MediaPipe tasks: ${message(error)}`);
   }
 
-  return new MediaPipeVision(face, objects, runtime, options.lowLightBoost !== false);
+  return new MediaPipeVision(
+    { task: face, gl: faceGl },
+    { task: objects, gl: objectGl },
+    runtime,
+    options.lowLightBoost !== false,
+  );
 }
 
 function safeClose(task: { close(): void } | null): void {
@@ -227,6 +255,68 @@ function safeClose(task: { close(): void } | null): void {
     // already closed or never started
   }
 }
+
+// ---------------------------------------------------------------------------------------
+// WebGL context loss
+// ---------------------------------------------------------------------------------------
+
+interface GlContextLike {
+  isContextLost(): boolean;
+}
+
+/**
+ * Watches the WebGL context of one task's canvas: the `webglcontextlost` event, and
+ * `isContextLost()` of the context the task created. The context is only looked up after the
+ * task has run once, so this never creates one or changes its attributes.
+ */
+class GlWatch {
+  private context: GlContextLike | null = null;
+  private lostEvent = false;
+  private readonly onLost = (): void => {
+    this.lostEvent = true;
+  };
+
+  constructor(private readonly canvas: OffscreenCanvas | null) {
+    canvas?.addEventListener('webglcontextlost', this.onLost);
+  }
+
+  /** The `canvas` task option (empty without a canvas: MediaPipe makes its own). */
+  get option(): { canvas?: OffscreenCanvas } {
+    return this.canvas === null ? {} : { canvas: this.canvas };
+  }
+
+  /** Takes the context the task created on its canvas (after the task's first run). */
+  attach(): void {
+    if (this.canvas === null || this.context !== null) return;
+    try {
+      this.context = this.canvas.getContext('webgl2') ?? this.canvas.getContext('webgl');
+    } catch {
+      this.context = null;
+    }
+  }
+
+  get lost(): boolean {
+    if (this.lostEvent) return true;
+    try {
+      return this.context?.isContextLost() === true;
+    } catch {
+      return true;
+    }
+  }
+
+  release(): void {
+    this.canvas?.removeEventListener('webglcontextlost', this.onLost);
+    this.context = null;
+  }
+}
+
+interface WatchedTask<T> {
+  task: T;
+  gl: GlWatch;
+}
+
+const contextLostError = (): VisionLoadError =>
+  new VisionLoadError('process_failed', 'webgl context lost', { contextLost: true });
 
 // ---------------------------------------------------------------------------------------
 // Inference
@@ -240,16 +330,22 @@ class MediaPipeVision implements VisionPipeline {
   private closed = false;
 
   constructor(
-    private readonly face: FaceTask,
-    private readonly objects: ObjectTask,
+    private readonly face: WatchedTask<FaceTask>,
+    private readonly objects: WatchedTask<ObjectTask>,
     private readonly runtime: VisionRuntime,
     private readonly lowLightBoost: boolean,
   ) {
     this.canvas = runtime.createCanvas();
   }
 
+  get contextLost(): boolean {
+    return this.face.gl.lost || this.objects.gl.lost;
+  }
+
   process(frame: AnalysisFrame, options: VisionFrameOptions): VisionResult {
     if (this.closed) throw new VisionLoadError('process_failed', 'vision pipeline closed');
+    // A lost context gives empty results, not errors: never run the models on it.
+    if (this.contextLost) throw contextLostError();
     const start = this.runtime.now();
     const t = Number.isFinite(frame.t) ? frame.t : start;
     const cost: VisionCost = { faceMs: 0, objectMs: 0, lumaMs: 0, totalMs: 0 };
@@ -258,8 +354,11 @@ class MediaPipeVision implements VisionPipeline {
       raw = this.infer(frame, t, options, cost);
     } catch (error) {
       this.canvas?.clearBoost();
+      if (this.contextLost) throw contextLostError();
       throw new VisionLoadError('process_failed', message(error));
     }
+    // Lost during this frame: its results are not trustworthy either.
+    if (this.contextLost) throw contextLostError();
     const features = this.extractor.extract({
       t,
       width: frame.width,
@@ -287,14 +386,16 @@ class MediaPipeVision implements VisionPipeline {
 
     const faceStart = now();
     this.lastFaceTs = Math.max(this.lastFaceTs + 1, Math.round(t));
-    const face = this.face.detectForVideo(input, this.lastFaceTs);
+    const face = this.face.task.detectForVideo(input, this.lastFaceTs);
+    this.face.gl.attach();
     cost.faceMs = now() - faceStart;
 
     let objects: DetectionResultLike | null = null;
     if (options.objects) {
       const objectStart = now();
       this.lastObjectTs = Math.max(this.lastObjectTs + 1, Math.round(t));
-      objects = this.objects.detectForVideo(input, this.lastObjectTs);
+      objects = this.objects.task.detectForVideo(input, this.lastObjectTs);
+      this.objects.gl.attach();
       cost.objectMs = now() - objectStart;
     }
 
@@ -318,8 +419,10 @@ class MediaPipeVision implements VisionPipeline {
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    safeClose(this.face);
-    safeClose(this.objects);
+    safeClose(this.face.task);
+    safeClose(this.objects.task);
+    this.face.gl.release();
+    this.objects.gl.release();
     this.canvas?.release();
     this.extractor.reset();
   }

@@ -1,6 +1,7 @@
 import type { BetaMessage } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import Anthropic from '@anthropic-ai/sdk';
 import type { StudyPlanRequest } from '@centrate/shared/cloud-api';
+import { CLOUD_LIMITS } from '@centrate/shared/cloud-api';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
@@ -269,15 +270,24 @@ describe('study-plan: days and minutes the user has', () => {
     expect(isoWeekday('2026-10-04')).toBe(7);
     expect(studyDays(body)).toEqual({
       days: ['2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03'],
+      // The eve of the exam, even when it is a day off.
+      coversUntil: '2026-10-04',
       truncated: false,
     });
-    // Four weeks per plan, whatever the exam date.
+    // Four weeks per plan, whatever the exam date: the limit the app reads too.
+    expect(CLOUD_LIMITS.studyPlanMaxDays).toBe(28);
     const far = studyDays({ ...body, examDate: '2027-03-01', daysOff: [] });
     expect(far.days).toHaveLength(28);
     expect(far.days.at(-1)).toBe('2026-10-25');
-    expect(far.truncated).toBe(true);
+    expect(far).toMatchObject({ coversUntil: '2026-10-25', truncated: true });
     expect(studyPlanUserMessage(body, far.days, true)).toContain('más de 28 días');
     expect(studyDays({ ...body, examDate: '2026-10-26', daysOff: [] })).toMatchObject({
+      coversUntil: '2026-10-25',
+      truncated: false,
+    });
+    expect(studyDays({ ...body, examDate: '2026-09-29' })).toEqual({
+      days: ['2026-09-28'],
+      coversUntil: '2026-09-28',
       truncated: false,
     });
     const message = studyPlanUserMessage(body, studyDays(body).days, false);
@@ -287,7 +297,7 @@ describe('study-plan: days and minutes the user has', () => {
   });
 
   it('drops foreign and repeated days and scales each day down', () => {
-    const { days } = studyDays(body);
+    const planWindow = studyDays(body);
     const answer = studyPlanAnswer(
       {
         days: [
@@ -307,9 +317,10 @@ describe('study-plan: days and minutes the user has', () => {
         advice: ['Duerme bien.', '', 'a', 'b', 'c', 'd', 'e'],
       },
       body,
-      days,
+      planWindow,
     );
     expect(answer?.days.map((d) => d.day)).toEqual(['2026-09-28', '2026-09-29']);
+    expect(answer).toMatchObject({ coversUntil: '2026-10-04', truncated: false });
     expect(answer?.days[0]?.items).toEqual([{ topic: 'Límites', kind: 'review', minutes: 30 }]);
     const total = answer?.days[1]?.items.reduce((sum, i) => sum + i.minutes, 0) ?? 0;
     expect(total).toBeLessThanOrEqual(60);
@@ -333,13 +344,13 @@ describe('study-plan: days and minutes the user has', () => {
         advice: [],
       },
       { ...body, dailyMinutes: 15 },
-      ['2026-09-28'],
+      { days: ['2026-09-28'], coversUntil: '2026-09-28', truncated: false },
     );
     expect(answer?.days[0]?.items.reduce((sum, i) => sum + i.minutes, 0)).toBeLessThanOrEqual(15);
   });
 
   it('gives up when no usable day is left', () => {
-    expect(studyPlanAnswer({ days: [], advice: ['x'] }, body, studyDays(body).days)).toBeNull();
+    expect(studyPlanAnswer({ days: [], advice: ['x'] }, body, studyDays(body))).toBeNull();
   });
 });
 

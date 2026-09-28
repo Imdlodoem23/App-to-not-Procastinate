@@ -8,6 +8,11 @@
  * - Messages for a job that is still starting are queued and replayed once it runs (or
  *   answered with `error{not_running}` if it fails to start).
  * - Messages for no job → `error{not_running}`.
+ * - A study session starts even when the camera or MediaPipe cannot: it runs without camera
+ *   and says why (`camera{error}` / `mode{no-camera}` events), so reports and main's
+ *   heartbeats never stop because of a camera problem.
+ * - Calibration opens the camera per recording: its failure answers `calibration_record`
+ *   with `error{camera_failed, camera}`.
  * - Only numbers, enums and the profile JSON cross IPC; never a frame.
  */
 import type {
@@ -186,6 +191,9 @@ class Host implements AnalysisHost {
         this.replay(queue, true);
       },
       (error: unknown) => {
+        // Camera and vision problems do not land here (the session starts without camera
+        // and says why); only an unexpected failure does. Main must then restart the job in
+        // no-camera mode or end the guardian session (HANDOFF §3).
         if (this.disposed) return;
         this.job = { kind: 'idle' };
         if (isVisionLoadError(error) && !isCameraOpenError(error)) {
@@ -271,8 +279,12 @@ class Host implements AnalysisHost {
         handle.record(message.cls).then(
           (summary) => this.post({ type: 'calibration_recorded', summary }),
           (error: unknown) => {
-            // A cancelled recording is the caller's own doing; anything else is a clash.
-            if (!isAbortError(error)) this.error('busy');
+            // A cancelled recording is the caller's own doing. The camera is opened per
+            // recording, so its failure (in use, blocked, no answer in 15 s) shows up here;
+            // anything else is a clash with a recording already running.
+            if (isAbortError(error)) return;
+            if (isCameraOpenError(error)) this.error('camera_failed', cameraErrorCodeOf(error));
+            else this.error('busy');
           },
         );
         return;

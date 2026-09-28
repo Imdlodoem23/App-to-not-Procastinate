@@ -8,7 +8,7 @@
     "build": "node build.mjs",
     "start": "node dist/server.mjs",
     "dev": "node build.mjs && node --enable-source-maps --watch dist/server.mjs",
-    "db:generate": "drizzle-kit generate",
+    "db:generate": "drizzle-kit generate && prettier --write drizzle/meta",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },

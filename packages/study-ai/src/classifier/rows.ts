@@ -5,6 +5,7 @@
  * quantised at record time (angles 0.1°, the rest 0.001), so a profile's JSON round trip is
  * exact and a reloaded profile retrains to the very same model.
  */
+import { isResting } from '../perception/objects';
 import { FEATURE_ROW_COLUMNS } from '../types';
 import type { FeatureRow, FeatureRowColumn, FrameFeatures } from '../types';
 import { clamp, finiteOr, quantize } from '../util/math';
@@ -61,7 +62,10 @@ export function frameToRow(frame: FrameFeatures): FeatureRow {
   }
   const objects = frame.objects;
   const phone = objects?.phone ?? null;
-  if (phone) {
+  // A phone lying still for 20 s (on the desk, a timer on a stand) is not a phone in view for
+  // the classifier: calibration never shows one (its clips are 20 s), so it would read as
+  // «phone» whatever the pose.
+  if (phone && !isResting(phone)) {
     row[COL.phone] = unit(phone.score);
     row[COL.phoneNear] = phone.nearFace ? 1 : 0;
     row[COL.phoneMoving] = phone.moving ? 1 : 0;

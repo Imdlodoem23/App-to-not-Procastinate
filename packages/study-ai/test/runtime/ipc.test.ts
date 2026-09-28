@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { serializeProfile } from '../../src/calibration/profile';
 import { isAnalysisInbound, isAnalysisOutbound } from '../../src/runtime/ipc';
 import type {
   AnalysisInbound,
@@ -9,6 +10,10 @@ import type {
   SessionReport,
 } from '../../src/types';
 import { mulberry32 } from '../../src/util/rng';
+import { profileFor } from '../calibration/fixtures';
+
+/** A genuine profile, as the analysis window serialises it. */
+const PROFILE_JSON = serializeProfile(profileFor('baseline'));
 
 const CONTEXT = { phase: 'work', foreground: 'study', idleMs: 1_200 } as const;
 
@@ -112,7 +117,7 @@ const OUTBOUND: AnalysisOutbound[] = [
   { type: 'event', event: { type: 'hint', at: 1, code: 'camera_covered', active: true } },
   {
     type: 'event',
-    event: { type: 'profile_updated', at: 1, profileJson: '{}', reason: 'feedback' },
+    event: { type: 'profile_updated', at: 1, profileJson: PROFILE_JSON, reason: 'feedback' },
   },
   { type: 'event', event: { type: 'camera', at: 1, status: 'error', error: 'in_use' } },
   { type: 'event', event: { type: 'camera', at: 1, status: 'ok', error: null } },
@@ -160,7 +165,7 @@ const OUTBOUND: AnalysisOutbound[] = [
     type: 'calibration_built',
     outcome: {
       ok: true,
-      profileJson: '{}',
+      profileJson: PROFILE_JSON,
       report: {
         cvBinaryBalancedAccuracy: 0.97,
         recall: { screen: 1, paper: 0.95, phone: 0.9, away: null, absent: 1 },

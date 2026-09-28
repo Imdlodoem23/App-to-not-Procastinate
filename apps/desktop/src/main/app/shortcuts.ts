@@ -1,12 +1,13 @@
 /**
- * Global shortcut hook. Phase 1 registers nothing: Ajustes › General «Atajo global» and the
- * OSD come later. The registry is wired in the bootstrap so that feature only adds bindings.
+ * Electron's `globalShortcut` behind a small registry (Ajustes › General «Atajo global»). The
+ * shortcuts controller (`src/main/shortcuts/`) decides what to register from the prefs; this
+ * module only registers, and reports the accelerators the OS refused (taken by another app).
  */
 import { globalShortcut } from 'electron';
 import type { AppLog } from './log';
 
 export interface ShortcutBinding {
-  /** Electron accelerator, e.g. `CommandOrControl+Shift+Space`. */
+  /** Electron accelerator, e.g. `CommandOrControl+Alt+C`. */
   accelerator: string;
   action: () => void;
 }
@@ -20,7 +21,13 @@ export interface ShortcutRegistry {
 export function createShortcutRegistry(log: AppLog): ShortcutRegistry {
   let active: string[] = [];
   const clear = (): void => {
-    for (const accelerator of active) globalShortcut.unregister(accelerator);
+    for (const accelerator of active) {
+      try {
+        globalShortcut.unregister(accelerator);
+      } catch {
+        // already gone
+      }
+    }
     active = [];
   };
   return {
@@ -38,8 +45,14 @@ export function createShortcutRegistry(log: AppLog): ShortcutRegistry {
   };
 }
 
+/** A registry that registers nothing (harness runs: the test machine's shortcuts stay free). */
+export function createNullShortcutRegistry(): ShortcutRegistry {
+  return { apply: () => [], clear: () => undefined };
+}
+
 function tryRegister(binding: ShortcutBinding): boolean {
   try {
+    // `register` also answers false when another app holds it.
     return globalShortcut.register(binding.accelerator, binding.action);
   } catch {
     return false;

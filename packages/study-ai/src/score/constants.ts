@@ -61,15 +61,30 @@ export const HIDDEN_LOOKBACK_MS = 2_000;
 /** Head down (writing): the study floor for up to this much continuous hidden time. */
 export const HIDDEN_DOWN_MAX_MS = 600_000;
 export const HIDDEN_TURNED_YAW = 35;
-/** Turned away, or any hidden stretch past its allowance. */
+/** Turned away (and a hidden stretch with a phone or a distraction past its allowance). */
 export const HIDDEN_LOW_VALUE = 0.2;
-/** Unknown last pose: (θ + margin)/100 for this long, then `HIDDEN_LOW_VALUE`. */
+/**
+ * Unknown last pose: (θ + margin)/100 for this long. After that the stretch is not
+ * observable (leaning back out of the frame, a hand over the face, a light the landmarker
+ * cannot work with): nothing is pushed and the observer reports `absent`, so the absence
+ * path (warning at half, strike at `noFaceStrikeMs`) takes over instead of a DUDA that
+ * blames attention. In low light the value holds while keyboard or mouse were used within
+ * `noCameraIdleMs` (judged like the no-camera mode).
+ */
 export const HIDDEN_UNKNOWN_MS = 20_000;
 export const HIDDEN_UNKNOWN_MARGIN = 5;
 
 // Fusion (§7.3)
 /** A distraction in the foreground keeps this share of the «looking at the screen» mass. */
 export const DISTRACTION_SCREEN_KEEP = 0.1;
+/**
+ * A book is a positive signal, not an override: it lifts the value to the study floor only
+ * when the head could be reading it (looking down, or facing the desk within this yaw
+ * without the model saying «away»; hidden with the head down). Otherwise it adds at most
+ * `BOOK_BONUS`: a textbook lying on the desk must not hide watching TV to the side.
+ */
+export const BOOK_READING_MAX_YAW = 35;
+export const BOOK_BONUS = 0.1;
 
 // Eyes (§7.4)
 export const EYES_MIN_QUALITY = 0.5;
@@ -83,8 +98,32 @@ export const STALE_MIN_FRAMES = 60;
 export const STALE_AWAY_SHARE = 0.7;
 
 // Hints (§7.3)
+/** Any hidden stretch this long raises `camera_cant_see_you`. */
 export const CANT_SEE_HIDDEN_MS = 60_000;
+/** …and one with an unknown last pose already after this long (before the absence path). */
+export const CANT_SEE_UNKNOWN_MS = 5_000;
+/** A face cut this much by the frame edge (also just before the face was lost). */
 export const CANT_SEE_TRUNCATED = 0.3;
+
+// «¡Estaba estudiando!» for a phone lying on the desk (desk-phone.ts)
+/** A phone episode names a spot only with this many detector sightings… */
+export const DESK_SPOT_MIN_SIGHTINGS = 3;
+/** …of which at least this share were at the spot (the median box). */
+export const DESK_SPOT_SHARE = 0.8;
+/**
+ * At the spot: centre within max(4 px, 0.15 × the spot's diagonal)… (PERCEPTION's «still»
+ * tolerance: detector jitter on a phone lying down stays inside, a phone in a hand drifts
+ * out and counts again).
+ */
+export const DESK_SPOT_MIN_PX = 4;
+export const DESK_SPOT_DIAG = 0.15;
+/** …and area within 30 %, plus 3 px of edge jitter on every side. */
+export const DESK_SPOT_AREA = 0.3;
+export const DESK_SPOT_EDGE_PX = 3;
+/** A spot the phone was not seen at for this much observed time is forgotten (it left). */
+export const DESK_SPOT_FORGET_MS = 60_000;
+/** At most this many vouched spots (a phone and a calculator, say); the oldest goes. */
+export const DESK_SPOT_MAX = 2;
 
 /** Observer time steps are capped at this (a frame never represents more than 1 s). */
 export const OBSERVE_MAX_STEP_MS = 1_000;

@@ -100,9 +100,7 @@ function hourStart(ms: number): number {
 /** A local date-time for files and exports: «2026-09-28 17:42:05». */
 export function localDateTime(ms: number): string {
   const d = new Date(ms);
-  return (
-    `${localDayOf(ms)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-  );
+  return `${localDayOf(ms)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 /** The ISO string of a display instant (what `EventLogEntry.at` carries). */
@@ -131,7 +129,12 @@ export function spreadMinutes(endMs: number, minutes: number): MinuteChunk[] {
     const start = hourStart(cursor - 1);
     const available = Math.max(1, Math.round((cursor - start) / MIN));
     const take = Math.min(remaining, available);
-    out.push({ hourStartMs: start, day: localDayOf(start), hour: localHourOf(start), minutes: take });
+    out.push({
+      hourStartMs: start,
+      day: localDayOf(start),
+      hour: localHourOf(start),
+      minutes: take,
+    });
     remaining -= take;
     cursor = start;
   }
@@ -153,7 +156,8 @@ export function livedMinutes(rows: readonly StoredEvent[]): LivedChunk[] {
     const e = knownEvent(row);
     if (!e) continue;
     if (e.type === 'focus_minutes') {
-      for (const c of spreadMinutes(displayMs(row), e.data.minutes)) out.push({ ...c, kind: 'focus' });
+      for (const c of spreadMinutes(displayMs(row), e.data.minutes))
+        out.push({ ...c, kind: 'focus' });
     } else if (
       e.type === 'block_completed' &&
       POINT_RULES.earningBlockKinds.includes(e.data.kind)
@@ -167,7 +171,9 @@ export function livedMinutes(rows: readonly StoredEvent[]): LivedChunk[] {
 }
 
 /** Focus and block minutes per local day. */
-export function minutesByDay(rows: readonly StoredEvent[]): Map<LocalDay, { focus: number; block: number }> {
+export function minutesByDay(
+  rows: readonly StoredEvent[],
+): Map<LocalDay, { focus: number; block: number }> {
   const out = new Map<LocalDay, { focus: number; block: number }>();
   for (const c of livedMinutes(rows)) {
     const day = out.get(c.day) ?? { focus: 0, block: 0 };
@@ -239,8 +245,7 @@ export function topTargetOf(targetKey: string): Pick<TopTarget, 'kind' | 'id'> |
   const m = /^(svc|dom|app|proc):(.+)$/.exec(targetKey);
   if (!m?.[1] || !m[2]) return null;
   const kind = { svc: 'service', dom: 'domain', app: 'app', proc: 'process' }[m[1]] as
-    | TopTarget['kind']
-    | undefined;
+    TopTarget['kind'] | undefined;
   return kind ? { kind, id: m[2] } : null;
 }
 
@@ -313,7 +318,10 @@ export function computeOverview(input: OverviewInput): StatsOverview {
         t.pointsLost += Math.max(0, -row.points);
         targets.set(key, t);
       }
-    } else if (e.type === 'block_completed' && POINT_RULES.earningBlockKinds.includes(e.data.kind)) {
+    } else if (
+      e.type === 'block_completed' &&
+      POINT_RULES.earningBlockKinds.includes(e.data.kind)
+    ) {
       totals.completedBlocks += 1;
     } else if (e.type === 'study_ended' && e.data.outcome === 'completed') {
       totals.completedStudySessions += 1;
@@ -322,7 +330,9 @@ export function computeOverview(input: OverviewInput): StatsOverview {
   for (const day of input.metDays) if (inPeriod(day)) totals.goalDaysMet += 1;
 
   const topTargets = [...targets.values()]
-    .sort((a, b) => b.attempts - a.attempts || b.pointsLost - a.pointsLost || a.id.localeCompare(b.id))
+    .sort(
+      (a, b) => b.attempts - a.attempts || b.pointsLost - a.pointsLost || a.id.localeCompare(b.id),
+    )
     .slice(0, STATS_LIMITS.topTargets);
 
   return {
@@ -338,7 +348,10 @@ export function computeOverview(input: OverviewInput): StatsOverview {
 }
 
 /** The envelope days to read for a period (2 days of margin: time zones and spreads). */
-export function overviewDayRange(query: StatsQuery, today: LocalDay): { from: LocalDay; to: LocalDay } {
+export function overviewDayRange(
+  query: StatsQuery,
+  today: LocalDay,
+): { from: LocalDay; to: LocalDay } {
   const { from, to } = statsPeriod(query.range, query.anchor ?? today);
   return { from: addDays(from, -2), to: addDays(to, 2) };
 }
@@ -427,7 +440,10 @@ export function logLookups(rows: readonly StoredEvent[]): LogLookups {
 }
 
 /** Whether a row belongs to a log filter (the same rules as the SQL in `db/stats.ts`). */
-export function matchesLogFilter(row: Pick<StoredEvent, 'type' | 'points'>, filter: EventLogFilter): boolean {
+export function matchesLogFilter(
+  row: Pick<StoredEvent, 'type' | 'points'>,
+  filter: EventLogFilter,
+): boolean {
   switch (filter) {
     case 'all':
       return true;
@@ -468,7 +484,12 @@ export function logEntry(row: StoredEvent, lookups: LogLookups): EventLogEntry {
     }
     case 'block_extended': {
       const info = block(e.data.blockId);
-      return { ...base, target: info?.target ?? null, minutes: e.data.addMinutes, mode: info?.mode ?? null };
+      return {
+        ...base,
+        target: info?.target ?? null,
+        minutes: e.data.addMinutes,
+        mode: info?.mode ?? null,
+      };
     }
     case 'block_completed': {
       const info = block(e.data.blockId);
@@ -612,7 +633,10 @@ export function computeAchievements(rows: readonly StoredEvent[]): AchievementSt
 }
 
 /** The events of the current epoch only (achievements and the mascot restart with it). */
-export function currentEpochRows(rows: readonly StoredEvent[], epoch: string | null): StoredEvent[] {
+export function currentEpochRows(
+  rows: readonly StoredEvent[],
+  epoch: string | null,
+): StoredEvent[] {
   return epoch === null ? [...rows] : rows.filter((r) => r.epoch === epoch);
 }
 
@@ -635,7 +659,14 @@ export function dayRows(rows: readonly StoredEvent[], metDays: ReadonlySet<Local
   const get = (day: LocalDay): DayRow => {
     let row = byDay.get(day);
     if (!row) {
-      row = { day, focusMinutes: 0, blockMinutes: 0, attempts: 0, points: 0, goalMet: metDays.has(day) };
+      row = {
+        day,
+        focusMinutes: 0,
+        blockMinutes: 0,
+        attempts: 0,
+        points: 0,
+        goalMet: metDays.has(day),
+      };
       byDay.set(day, row);
     }
     return row;

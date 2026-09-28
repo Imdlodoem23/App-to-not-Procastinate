@@ -7,6 +7,9 @@
  * - Weakening takes 24 hours (owner removes an active link, owner turns approval off);
  *   strengthening is immediate (adding a partner, approval on, undoing a pending removal).
  * - Events carry a kind and a time only: never a reason, domain, task or note from the owner.
+ *   One that no partner hears about is not stored at all.
+ * - The owner's computer clock may be off: its instants only count relative to `sentAt` (its
+ *   clock when sending), placed on the server's clock at the time the request arrives.
  */
 import type {
   AccountabilityEventResponse,
@@ -52,8 +55,13 @@ import {
 
 const eventLimit = { rateLimit: { max: 30, timeWindow: '1 hour' } };
 
+/** How long before its sending an event may have happened (both on the app's clock). */
 const OCCURRED_PAST_MS = 7 * 86_400_000;
+/** `occurredAt` a little after `sentAt`: the app's clock stepped back in between. */
 const OCCURRED_FUTURE_MS = 5 * 60_000;
+const APPROVAL_MIN_MS = CLOUD_LIMITS.approvalMinSeconds * 1000;
+const APPROVAL_MAX_MS = CLOUD_LIMITS.approvalMaxMinutes * 60_000;
+const APPROVAL_MARGIN_MS = CLOUD_LIMITS.approvalMarginSeconds * 1000;
 const RETENTION_MS = CLOUD_LIMITS.accountabilityRetentionDays * 86_400_000;
 const INBOX_MAX = 100;
 
@@ -77,6 +85,7 @@ const EventSchema = z
     kind: z.enum(ACCOUNTABILITY_KINDS),
     occurredAt: isoInstant,
     countdownEndsAt: isoInstant.nullable(),
+    sentAt: isoInstant,
   })
   .strict() satisfies z.ZodType<PostAccountabilityEventRequest>;
 
@@ -352,15 +361,18 @@ export const accountabilityRoutes: FastifyPluginAsync = async (app) => {
       const db = requireDb(ctx);
       const body = parseBody(EventSchema, request);
       const now = ctx.now();
-      const occurredAt = new Date(body.occurredAt);
-      if (
-        occurredAt.getTime() < now.getTime() - OCCURRED_PAST_MS ||
-        occurredAt.getTime() > now.getTime() + OCCURRED_FUTURE_MS
-      ) {
+      // Clock-independent: how long ago it happened and how much countdown is left, both
+      // measured on the app's clock at `sentAt`, then placed on ours.
+      const sentAt = Date.parse(body.sentAt);
+      const ageMs = sentAt - Date.parse(body.occurredAt);
+      if (ageMs > OCCURRED_PAST_MS || ageMs < -OCCURRED_FUTURE_MS) {
         throw validationFailed([
-          { path: 'body.occurredAt', message: 'Must be within the last 7 days' },
+          { path: 'body.occurredAt', message: 'Must be within the 7 days before sentAt' },
         ]);
       }
+      const occurredAt = new Date(now.getTime() - Math.max(0, ageMs));
+      const countdownLeftMs =
+        body.countdownEndsAt === null ? null : Date.parse(body.countdownEndsAt) - sentAt;
 
       // Replay of a queued event: answer with what is stored (200), change nothing.
       const stored = async (): Promise<AccountabilityEventRow | undefined> =>
@@ -393,22 +405,25 @@ export const accountabilityRoutes: FastifyPluginAsync = async (app) => {
           ),
         );
 
-      // Approval: only for an emergency request whose local countdown leaves at least a
-      // minute, when some partner requires it. The deadline never passes the countdown.
+      // Nobody hears about it: keep nothing (a replay stays harmless, since a partner who
+      // accepts later never hears about an earlier event).
+      if (listeners.length === 0) return { eventId: null, approval: null };
+
+      // Approval: only for an emergency request whose local countdown leaves the partner at
+      // least a minute, when some partner requires it. The deadline ends a margin before the
+      // countdown (travel time, one poll) and at most 30 minutes from now.
       let deadline: Date | null = null;
-      const countdownEndsAt = body.countdownEndsAt ? new Date(body.countdownEndsAt) : null;
+      const approvalMs =
+        countdownLeftMs === null
+          ? null
+          : Math.min(countdownLeftMs - APPROVAL_MARGIN_MS, APPROVAL_MAX_MS);
       if (
         body.kind === 'emergency_requested' &&
-        countdownEndsAt &&
-        countdownEndsAt.getTime() >= now.getTime() + CLOUD_LIMITS.approvalMinSeconds * 1000 &&
+        approvalMs !== null &&
+        approvalMs >= APPROVAL_MIN_MS &&
         listeners.some((l) => effectiveRequireApproval(l.link, now))
       ) {
-        deadline = new Date(
-          Math.min(
-            countdownEndsAt.getTime(),
-            now.getTime() + CLOUD_LIMITS.approvalMaxMinutes * 60_000,
-          ),
-        );
+        deadline = new Date(now.getTime() + approvalMs);
       }
 
       const [inserted] = await db

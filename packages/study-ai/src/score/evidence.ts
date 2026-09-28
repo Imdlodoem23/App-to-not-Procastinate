@@ -46,7 +46,11 @@ export function phoneInHandOn(frame: FrameFeatures, threshold: number): boolean 
  * A phone that does not move near a user who visibly looks at the screen is a timer on a
  * stand or a phone on the desk: no E_phone (the classifier still judges the pose).
  */
-export function phoneInUseOn(frame: FrameFeatures, threshold: number, lookingDown: boolean): boolean {
+export function phoneInUseOn(
+  frame: FrameFeatures,
+  threshold: number,
+  lookingDown: boolean,
+): boolean {
   if (!phoneInHandOn(frame, threshold)) return false;
   const phone = frame.objects?.phone;
   const face = frame.luma?.covered ? null : frame.face;
@@ -133,6 +137,15 @@ export class DetectorEvidence {
     let hits = 0;
     for (let k = start; k < n; k += 1) if (match(this.runs[k] as DetectorRun)) hits += 1;
     return { runs: n - start, hits };
+  }
+
+  /**
+   * Forgets the phone hits of the stored runs and turns E_phone off (the user vouched for a
+   * phone lying on the desk). A phone in hand elsewhere turns it on again within two runs.
+   */
+  dropPhone(): void {
+    for (const run of this.runs) run.phone = false;
+    this.phoneOn = false;
   }
 
   reset(): void {

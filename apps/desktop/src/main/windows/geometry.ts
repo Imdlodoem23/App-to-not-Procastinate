@@ -369,6 +369,29 @@ export function mainContentRect(input: MainPlacementInput): Rect {
 }
 
 /**
+ * Content rect of the main window centred in the work area: the onboarding (PROMPT §10 «con la
+ * ventana principal centrada»). The height follows the renderer like at the corner; every
+ * height change centres it again. With a grid, the left and top edges are pixel edges.
+ */
+export function centredContentRect(input: MainPlacementInput): Rect {
+  const { workArea: wa, frame, grid } = input;
+  const width = Math.round(input.width ?? MAIN_CONTENT_WIDTH);
+  const height = clampContentHeight(input.height, maxContentHeight(wa, frame));
+  const outerWidth = width + frame.left + frame.right;
+  const outerHeight = height + frame.top + frame.bottom;
+  const minX = Math.round(wa.x + frame.left);
+  const minY = Math.round(wa.y + frame.top);
+  const x0 = Math.max(minX, Math.round(wa.x + (wa.width - outerWidth) / 2 + frame.left));
+  const y0 = Math.max(minY, Math.round(wa.y + (wa.height - outerHeight) / 2 + frame.top));
+  return {
+    x: snapX(x0, grid, 1, { min: minX }),
+    y: snapY(y0, grid, 1, { min: minY }),
+    width,
+    height,
+  };
+}
+
+/**
  * New content rect when the height changes while the window is shown: the anchored edge of
  * `current` stays where it is (bottom: `y = bottom − height`; top: `y` unchanged), then the
  * window is kept inside the work area. With a grid, the left and anchored edges go to the

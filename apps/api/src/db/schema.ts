@@ -461,7 +461,7 @@ export const aiUsage = pgTable(
     reservedMicroUsd: bigint('reserved_micro_usd', { mode: 'number' }).notNull().default(0),
     /**
      * When the call in flight must have settled (one per user and feature); null when none.
-     * A past value is a call whose process died: its amounts stay held until the day ends.
+     * A past value is a call whose process died: the janitor frees its amounts (jobs/janitor.ts).
      */
     reservedUntil: tstz('reserved_until'),
   },

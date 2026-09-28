@@ -409,6 +409,17 @@ describe('coach routes', () => {
       });
       expect(model.calls[0]?.user).toContain('2026-10-03 (sábado)');
       expect(model.calls[0]?.user).not.toContain('2026-10-04');
+      expect(plan).toMatchObject({ coversUntil: '2026-10-04', truncated: false });
+
+      // A later exam gets the first four weeks, and the app learns it must ask for the rest.
+      const far = await post(u, '/v1/coach/study-plan', { ...planBody, examDate: '2026-12-20' });
+      expect(far.statusCode).toBe(200);
+      expect(far.json<StudyPlanResponse>()).toMatchObject({
+        coversUntil: '2026-10-25',
+        truncated: true,
+      });
+      expect(model.calls[1]?.user).toContain('2026-10-24 (sábado)');
+      expect(model.calls[1]?.user).not.toContain('2026-10-26');
     });
 
     it('validates dates before spending anything', async () => {

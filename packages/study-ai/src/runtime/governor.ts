@@ -3,13 +3,20 @@
  * the budget; never below 2 fps. DESIGN.md §8.2.
  *
  * - Costs are tracked as EMAs (α = 0.2) of the face/luma work, the object detector run and
- *   the rest of the step (engine tick). One step slower than `outlierMs` is ignored; two in
- *   a row are real and count.
+ *   the rest of the step (engine tick).
+ * - Outliers (a GC pause, a page fault) are judged per kind of step: frame-only steps and
+ *   steps that ran the detector are compared with their own typical cost. A step is ignored
+ *   only when it is slower than both `outlierMs` and 3 × the typical cost of its kind (or it
+ *   is the first slow one of its kind: warm-up), and never twice in a row for the same kind.
+ *   A detector that is slow on every run (a cheap laptop on battery saver) therefore counts
+ *   from its second run on, even though fast frame-only steps come in between.
  * - Predicted duty of a level = (vision + other + object / objectEvery) / interval.
  * - Slows down at once when the current level no longer fits; speeds up one level at a time
  *   only after the faster level has fitted 0.75 × target for `upHoldMs`.
  * - A measured process CPU above the limit forces one level slower and blocks speed-ups for
- *   `upHoldMs`.
+ *   `upHoldMs`. Its unit is **% of one core** (100 = one core busy), like the duty target.
+ *   Electron's `percentCPUUsage` is a share of the whole machine (divided by the number of
+ *   logical cores): the probe must convert it (HANDOFF §1.3).
  * - With no face visible the detector runs at ≥ 1 Hz anyway (it decides hidden vs absent).
  */
 import { STUDY_AI_CONSTANTS } from '../config';
@@ -35,6 +42,8 @@ export const DEFAULT_CPU_BUDGET: Readonly<CpuBudget> = Object.freeze({
 
 /** EMA weight of a new cost sample. */
 const EMA_ALPHA = 0.2;
+/** A step over `outlierMs` is an outlier only when it is also over this × its kind's typical cost. */
+const OUTLIER_FACTOR = 3;
 /** Speed up only when the faster level's predicted duty is ≤ this share of the target. */
 const UP_MARGIN = 0.75;
 /** Minimum time between two slow-downs forced by the measured process CPU. */
@@ -54,6 +63,9 @@ function emaPush(ema: Ema, sample: number): void {
   ema.value = ema.samples === 0 ? sample : ema.value + EMA_ALPHA * (sample - ema.value);
   ema.samples += 1;
 }
+
+/** Frame-only steps and steps that also ran the object detector. */
+type StepKind = 'frame' | 'objects';
 
 const finiteNonNegative = (value: number): number =>
   Number.isFinite(value) && value > 0 ? value : 0;
@@ -93,8 +105,8 @@ export class CpuGovernor {
   private readonly vision: Ema = { value: 0, samples: 0 };
   private readonly object: Ema = { value: 0, samples: 0 };
   private readonly other: Ema = { value: 0, samples: 0 };
-  /** The previous step was an outlier (a second one in a row is real). */
-  private lastWasOutlier = false;
+  /** The previous step of each kind was skipped as an outlier (a second one is real). */
+  private readonly skippedLast: Record<StepKind, boolean> = { frame: false, objects: false };
   /** Since when the next faster level has fitted the up margin, or `null`. */
   private fitsFasterSince: MonoMs | null = null;
   /** Speed-ups are blocked until this time (measured CPU over the limit). */
@@ -110,23 +122,27 @@ export class CpuGovernor {
     this.current = Math.min(START_LEVEL, this.levels.length - 1);
   }
 
-  /** Feeds one step's measured cost (EMA α = 0.2; outliers ignored). */
+  /** Feeds one step's measured cost (EMA α = 0.2; outliers ignored, see the header). */
   record(cost: StepCost): void {
     const visionMs = finiteNonNegative(cost.visionMs);
     const objectMs = cost.ranObjects ? finiteNonNegative(cost.objectMs) : 0;
     const otherMs = finiteNonNegative(cost.otherMs);
-    if (visionMs + objectMs + otherMs > this.budget.outlierMs && !this.lastWasOutlier) {
-      this.lastWasOutlier = true;
+    const kind: StepKind = cost.ranObjects ? 'objects' : 'frame';
+    if (this.isOutlier(kind, visionMs + objectMs + otherMs)) {
+      this.skippedLast[kind] = true;
       return;
     }
-    this.lastWasOutlier = false;
+    this.skippedLast[kind] = false;
     emaPush(this.vision, visionMs);
     emaPush(this.other, otherMs);
     if (cost.ranObjects) emaPush(this.object, objectMs);
     this.faceVisible = cost.faceSeen;
   }
 
-  /** Optional measured process CPU (% of one core); above the limit forces one level slower. */
+  /**
+   * Measured process CPU in **% of one core** (100 = one full core, 400 = four); above the
+   * limit it forces one level slower. Not Electron's raw `percentCPUUsage` (see the header).
+   */
   reportProcessCpu(pct: number, at: MonoMs): void {
     if (!Number.isFinite(pct) || pct < 0 || !Number.isFinite(at)) return;
     this.lastCpuPct = pct;
@@ -170,9 +186,24 @@ export class CpuGovernor {
     return this.current;
   }
 
-  /** Last measured process CPU (% of one core), or `null` when never measured. */
+  /** Last measured process CPU (% of one core, as reported), or `null` when never measured. */
   get processCpuPct(): number | null {
     return this.lastCpuPct;
+  }
+
+  /** Typical total cost of a step of this kind, or `null` while it is unknown. */
+  private typical(kind: StepKind): number | null {
+    if (this.vision.samples === 0) return null;
+    const base = this.vision.value + this.other.value;
+    if (kind === 'frame') return base;
+    return this.object.samples === 0 ? null : base + this.object.value;
+  }
+
+  private isOutlier(kind: StepKind, totalMs: number): boolean {
+    if (totalMs <= this.budget.outlierMs || this.skippedLast[kind]) return false;
+    const typical = this.typical(kind);
+    // The first slow step of a kind is skipped once (warm-up); the next one counts.
+    return typical === null || totalMs > OUTLIER_FACTOR * typical;
   }
 
   private objectEvery(level: Readonly<LoopLevel>, faceVisible: boolean): number {

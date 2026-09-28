@@ -36,6 +36,23 @@ describe('frameToRow', () => {
     expect(row[COL.quality]).toBe(0.95);
   });
 
+  it('leaves out a phone lying still for 20 s (on the desk or a stand)', () => {
+    const resting = frameToRow(
+      frame({ phone: { score: 0.9, nearFace: false, moving: false, stillMs: 20_000 } }),
+    );
+    expect([resting[COL.phone], resting[COL.phoneNear], resting[COL.phoneMoving]]).toEqual([
+      0, 0, 0,
+    ]);
+    const settling = frameToRow(
+      frame({ phone: { score: 0.9, nearFace: false, moving: false, stillMs: 19_999 } }),
+    );
+    expect(settling[COL.phone]).toBe(0.9);
+    const moved = frameToRow(
+      frame({ phone: { score: 0.9, nearFace: false, moving: true, stillMs: 25_000 } }),
+    );
+    expect(moved[COL.phone]).toBe(0.9);
+  });
+
   it('round-trips exactly through JSON', () => {
     const row = frameToRow(frame({ face: face({ yaw: 1 / 3, pitch: -2 / 3, gazeX: -0.1234567 }) }));
     expect(JSON.parse(JSON.stringify(row))).toEqual(row);

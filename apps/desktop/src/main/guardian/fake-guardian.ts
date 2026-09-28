@@ -66,6 +66,7 @@ export function createFakeGuardian(fixture: HarnessFixture, clock: Clock): FakeG
       pairingCode: fake.pairingCode,
       extensions: fake.extensions,
       emergencyPreview: fake.emergencyPreview,
+      rewards: fake.rewards,
     },
   });
   const recorded: RecordedGuardianCall[] = [];

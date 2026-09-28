@@ -63,10 +63,13 @@ export const CLOUD_LIMITS = Object.freeze({
   /** Weakening an accountability setup (removing a partner, approval off) waits this long. */
   partnerCoolingOffHours: 24,
   noteMax: 140,
-  /** An approval deadline is clamped to [now + 1 min, now + 30 min] and never after the
-   *  local emergency countdown. */
+  /** An approval deadline is clamped to [now + 1 min, now + 30 min] and ends at least
+   *  `approvalMarginSeconds` before the local emergency countdown. */
   approvalMinSeconds: 60,
   approvalMaxMinutes: 30,
+  /** Room between the approval deadline and the end of the local countdown: the request's
+   *  travel time plus one approval poll, so the app sees the last answer before it ends. */
+  approvalMarginSeconds: 30,
   approvalPollSeconds: 15,
   /** Accountability events and partner-inbox items are kept this long. */
   accountabilityRetentionDays: 30,
@@ -85,7 +88,11 @@ export const CLOUD_LIMITS = Object.freeze({
   studySubjectMax: 80,
   studyTopicsMax: 30,
   studyTopicMax: 80,
-  studyPlanMaxDays: 60,
+  /**
+   * Calendar days one study plan covers, from `today`. A later exam gets a plan for the first
+   * four weeks (`StudyPlanResponse.truncated`); the app asks again when it runs out.
+   */
+  studyPlanMaxDays: 28,
   studyDailyMinMinutes: 15,
   studyDailyMaxMinutes: 600,
 });
@@ -220,6 +227,10 @@ export interface HealthResponse {
    * choices, stats and social data. The app's token no longer works; it keeps its local data,
    * shows «La nube se ha reiniciado: vuelve a conectar» and, after a new login, re-applies the
    * sharing choices the user confirms and re-uploads (`daysToReupload`). docs/API.md §7.
+   *
+   * `null` means «unknown», never «changed»: the database is unconfigured, down or did not
+   * answer the probe (a free database in its grace period, a brief outage). The app then keeps
+   * its token, device id and outbox. Compare with `cloudWasReset`, never with `!==`.
    */
   serverEpoch: string | null;
   capabilities: CloudCapabilities;
@@ -308,6 +319,39 @@ export interface DevicesResponse {
 
 export interface PatchDeviceRequest {
   name: string;
+}
+
+/**
+ * A browser (cookie) session: 14 days from sign-in, never extended. Desktop sessions are the
+ * devices (`GET /v1/devices`). No IP address or browser name is stored, so there is none to show.
+ */
+export interface CloudBrowserSession {
+  createdAt: IsoUtc;
+  expiresAt: IsoUtc;
+  /** True for the session making the request. */
+  current: boolean;
+}
+
+/** GET /v1/sessions. */
+export interface SessionsResponse {
+  /** Newest first. */
+  browser: CloudBrowserSession[];
+}
+
+/**
+ * POST /v1/sessions/revoke-others: signs out every other browser, and with `includeDevices`
+ * every other connected computer too (their devices and uploaded stats stay; each one must
+ * sign in again). The calling session always stays. `includeDevices: true` needs a session
+ * younger than `CLOUD_LIMITS.freshSessionMinutes` (403 `reauth_required`).
+ */
+export interface RevokeOtherSessionsRequest {
+  includeDevices?: boolean;
+}
+
+export interface RevokeOtherSessionsResponse {
+  /** Sessions ended, by kind. */
+  browser: number;
+  devices: number;
 }
 
 /**
@@ -558,13 +602,24 @@ export const ACCOUNTABILITY_KINDS = [
 ] as const;
 export type AccountabilityKind = (typeof ACCOUNTABILITY_KINDS)[number];
 
-/** POST /v1/accountability/events. Idempotent on `clientRef` (queued offline by the app). */
-export interface PostAccountabilityEventRequest {
+/** An accountability event as the app records it (and the outbox keeps it). Times are on the
+ *  app's own clock, which may be wrong: the server reads them relative to `sentAt`. */
+export interface AccountabilityEventInput {
   clientRef: string;
   kind: AccountabilityKind;
   occurredAt: IsoUtc;
   /** For `emergency_requested`: when the local countdown ends. */
   countdownEndsAt: IsoUtc | null;
+}
+
+/**
+ * POST /v1/accountability/events. Idempotent on `clientRef` (queued offline by the app).
+ * `sentAt` is the app's clock when sending (the client sets it on every attempt): the server
+ * only uses `occurredAt − sentAt` and `countdownEndsAt − sentAt`, so a computer clock that is
+ * minutes or hours off shifts nothing (docs/API.md §9).
+ */
+export interface PostAccountabilityEventRequest extends AccountabilityEventInput {
+  sentAt: IsoUtc;
 }
 
 /**
@@ -575,6 +630,8 @@ export type ApprovalStatus = 'pending' | 'approved' | 'denied' | 'expired';
 
 export interface ApprovalState {
   status: ApprovalStatus;
+  /** On the server's clock, for showing partners until when they can answer. The owner's app
+   *  never compares it with its own clock: `approvalOutcome` uses the local countdown. */
   deadline: IsoUtc;
   /** Optional note from the partner. */
   note: string | null;
@@ -582,7 +639,9 @@ export interface ApprovalState {
 }
 
 export interface PostAccountabilityEventResponse {
-  eventId: string;
+  /** Null when no partner hears about the event (none, or none accepted before it): the
+   *  server kept nothing (200). The outbox drops it like any success. */
+  eventId: string | null;
   /** Present only for an `emergency_requested` that needs a partner's approval. */
   approval: ApprovalState | null;
 }
@@ -660,9 +719,24 @@ export interface StudyPlanDay {
 }
 
 export interface StudyPlanResponse {
-  /** Between `today` and the day before the exam; each day within `dailyMinutes`. */
+  /**
+   * Study days from `today` to `coversUntil` (at most `CLOUD_LIMITS.studyPlanMaxDays`
+   * calendar days, never the exam day), ascending, each within `dailyMinutes`. Days off and
+   * days the model left empty are missing.
+   */
   days: StudyPlanDay[];
   advice: string[];
+  /**
+   * Last calendar day the plan was made for: the day before the exam, or `today +
+   * studyPlanMaxDays − 1` when the exam is further away.
+   */
+  coversUntil: LocalDay;
+  /**
+   * True when the plan stops before the day before the exam (the exam is more than
+   * `studyPlanMaxDays` days away). The app says «Este plan llega hasta el …; pide el resto más
+   * adelante» and asks again, with a later `today`, when the plan runs out.
+   */
+  truncated: boolean;
 }
 
 /**
@@ -987,15 +1061,20 @@ export interface CloudCallOptions {
 }
 
 /**
- * Options of the coach calls that run the model. When the server has not answered this client
- * for `CLOUD_TIMEOUTS.awakeMs`, the call first wakes it with `GET /health` (interactive
- * timeout, same `signal`) and only then sends the coach request, with `timeoutMs` (default
- * `coachMs`). A failed wake-up rejects with `operation: 'health'`: nothing was billed.
+ * Options of the calls that wake a sleeping server first: the coach calls that run the model
+ * and `postAccountabilityEvent`. When the server has not answered this client for
+ * `CLOUD_TIMEOUTS.awakeMs`, the call first wakes it with `GET /health` (interactive timeout,
+ * same `signal`) and only then sends its request, with `timeoutMs` (default: the call's own
+ * class, `coachMs` for the coach). A failed wake-up rejects with `operation: 'health'`:
+ * nothing was sent, billed or stored.
  */
-export interface CoachCallOptions extends CloudCallOptions {
+export interface WakeCallOptions extends CloudCallOptions {
   /** Called just before a wake-up: show «Despertando el servidor…». */
   onWaking?: () => void;
 }
+
+/** Options of the coach calls that run the model (see `WakeCallOptions`). */
+export type CoachCallOptions = WakeCallOptions;
 
 /** What the client needs from `fetch`. The global `fetch` and Electron's `net.fetch` fit. */
 export type CloudFetch = (
@@ -1025,7 +1104,8 @@ export interface CloudClientOptions {
   timeouts?: Partial<Record<keyof typeof CLOUD_TIMEOUTS, number>>;
   /** Called when the server answers 401 to a signed-in call: sign out, keep local data. */
   onUnauthorized?: () => void;
-  /** Clock for `Retry-After` dates, `resetsAt` and the wake-up rule (tests pass a fake one). */
+  /** Clock for `Retry-After` dates, `resetsAt`, the wake-up rule and an event's `sentAt`
+   *  (tests pass a fake one). */
   now?: () => Date;
 }
 
@@ -1091,10 +1171,20 @@ export interface CloudClient {
   ): Promise<PartnerLink>;
   /** DELETE /v1/partners/:id: null when removed now, the link when it ends in 24 h. */
   removePartner(linkId: string, options?: CloudCallOptions): Promise<PartnerLink | null>;
-  /** POST /v1/accountability/events. Use the outbox; a replayed `clientRef` is harmless. */
+  /**
+   * POST /v1/accountability/events: the answer carries the `eventId` and `approval` the app
+   * polls. Wakes a server that has not answered lately first (`WakeCallOptions`), so a cold
+   * start never eats into the request's own timeout (background 10 s), then sets `sentAt` from
+   * `now()`, on every call, so the server reads the times against the moment it really left.
+   * A replayed `clientRef` is harmless: the server answers the stored event (200).
+   *
+   * Do not call it directly for app events: send an `emergency_requested` with
+   * `sendAccountabilityEvent` (it falls back to the outbox) and queue the other kinds with
+   * `CloudOutbox.addEvent`.
+   */
   postAccountabilityEvent(
-    body: PostAccountabilityEventRequest,
-    options?: CloudCallOptions,
+    body: AccountabilityEventInput,
+    options?: WakeCallOptions,
   ): Promise<PostAccountabilityEventResponse>;
   /** The owner polls it every 15 s while an approval is pending (never queue it). */
   getAccountabilityEvent(
@@ -1214,8 +1304,9 @@ function retryAfterOf(
 /**
  * The typed client of the Céntrate API (docs/API.md §5 and §14). One method per endpoint; each
  * uses the timeout of its class (background 10 s, interactive 60 s, coach 100 s) unless the
- * call passes `timeoutMs`. Coach model calls first wake a server that has not answered for
- * 10 minutes. It never retries by itself: background work goes through the outbox.
+ * call passes `timeoutMs`. Coach model calls and `postAccountabilityEvent` first wake a server
+ * that has not answered for 10 minutes. It never retries by itself: background work goes
+ * through the outbox.
  */
 export function createCloudClient(options: CloudClientOptions): CloudClient {
   const baseUrl = normalizeBaseUrl(options.baseUrl);
@@ -1373,21 +1464,26 @@ export function createCloudClient(options: CloudClientOptions): CloudClient {
   };
 
   /**
-   * A coach model call: wakes a server that has not answered lately (so the cold start never
-   * eats into the coach timeout), then sends the request with the coach timeout.
+   * Wakes a server that has not answered lately with `GET /health` (interactive timeout), so a
+   * cold start never eats into the timeout of the request that follows.
    */
-  async function coach<T>(spec: CallSpec, callOptions: CoachCallOptions = {}): Promise<T> {
-    const { onWaking, timeoutMs, signal } = callOptions;
-    if (!isAwake()) {
-      if (onWaking && !signal?.aborted) {
-        try {
-          onWaking();
-        } catch {
-          // A UI callback must not fail the call.
-        }
+  async function wakeIfAsleep(callOptions: WakeCallOptions): Promise<void> {
+    const { onWaking, signal } = callOptions;
+    if (isAwake()) return;
+    if (onWaking && !signal?.aborted) {
+      try {
+        onWaking();
+      } catch {
+        // A UI callback must not fail the call.
       }
-      await json<HealthResponse>(healthSpec, { timeoutMs: timeouts.interactive, signal });
     }
+    await json<HealthResponse>(healthSpec, { timeoutMs: timeouts.interactive, signal });
+  }
+
+  /** A coach model call: wakes the server if needed, then sends with the coach timeout. */
+  async function coach<T>(spec: CallSpec, callOptions: CoachCallOptions = {}): Promise<T> {
+    const { timeoutMs, signal } = callOptions;
+    await wakeIfAsleep(callOptions);
     return json<T>(spec, { timeoutMs, signal });
   }
 
@@ -1522,11 +1618,22 @@ export function createCloudClient(options: CloudClientOptions): CloudClient {
       );
       return data === null ? null : (data as PartnerLink);
     },
-    postAccountabilityEvent: (body, o) =>
-      json(
-        send('postAccountabilityEvent', 'POST', '/v1/accountability/events', body, 'background'),
-        o,
-      ),
+    postAccountabilityEvent: async (body, o = {}) => {
+      const { timeoutMs, signal } = o;
+      await wakeIfAsleep(o);
+      // Stamped after the wake-up: `countdownEndsAt − sentAt` is what is really left.
+      const request: PostAccountabilityEventRequest = {
+        clientRef: body.clientRef,
+        kind: body.kind,
+        occurredAt: body.occurredAt,
+        countdownEndsAt: body.countdownEndsAt,
+        sentAt: now().toISOString(),
+      };
+      return json(
+        send('postAccountabilityEvent', 'POST', '/v1/accountability/events', request, 'background'),
+        { timeoutMs, signal },
+      );
+    },
     getAccountabilityEvent: (eventId, o) =>
       json(
         get('getAccountabilityEvent', `/v1/accountability/events/${seg(eventId)}`, 'background'),
@@ -1563,30 +1670,66 @@ export function createCloudClient(options: CloudClientOptions): CloudClient {
 
 /**
  * What the app does with an emergency request's approval (docs/API.md §9):
- * - `wait` while a partner can still answer (the guardian's countdown keeps running anyway);
+ * - `wait` while the last answer is `pending` and the local countdown runs (the guardian's
+ *   countdown keeps running anyway);
  * - `denied` only after an explicit «no»: the app cancels this request, the block stays;
  * - `approved` for everything else: approved, no approval needed (`null`), or the deadline
- *   passed without an answer. The flow fails open: when polling fails (offline, timeout, 5xx)
- *   the app keeps the last state it knew, and because the deadline never runs past the local
- *   countdown, a `pending` state turns into `approved` by the time the countdown ends.
+ *   passed without an answer (`expired`).
+ *
+ * `countdownEndsAt` is the one sent with the request, on the app's clock like `now`; the
+ * server's `approval.deadline` is on another clock and is never compared with `now`. The
+ * server ends its deadline `approvalMarginSeconds` before that countdown, so an app polling
+ * every 15 s reads the last answer before its countdown ends, whatever either clock says.
+ * The flow fails open: when polling fails (offline, timeout, 5xx) the app keeps the last state
+ * it knew, and a `pending` state turns into `approved` when the local countdown ends.
  */
 export function approvalOutcome(
   approval: ApprovalState | null,
   now: Date,
+  countdownEndsAt: Date | IsoUtc,
 ): 'wait' | 'approved' | 'denied' {
   if (approval === null) return 'approved';
   if (approval.status === 'denied') return 'denied';
   if (approval.status !== 'pending') return 'approved';
-  const deadline = Date.parse(approval.deadline);
-  return Number.isNaN(deadline) || deadline <= now.getTime() ? 'approved' : 'wait';
+  const end =
+    countdownEndsAt instanceof Date ? countdownEndsAt.getTime() : Date.parse(countdownEndsAt);
+  return Number.isNaN(end) || end <= now.getTime() ? 'approved' : 'wait';
 }
 
 /**
- * The local days the server is missing or holds at a lower `rev`: what to re-upload on first
- * sign-in, or after the database was replaced (`serverEpoch` changed). A replaced database has
- * no accounts either: the old token gets 401, so the app first logs in again (a new account and
- * device, every sharing switch off), re-applies the sharing choices the user confirms (at least
- * `syncStats`), then passes `GET /v1/sync/state` for the new device. docs/API.md §7.
+ * Whether `/health` proves the cloud was reset since the app last saw it: only when the
+ * database answers (`db: 'up'`) with an epoch that differs from the remembered one. A `null`
+ * epoch (database unconfigured, down, or its probe failed: a free database in its grace
+ * period, a brief outage) or nothing remembered yet means «unknown»: keep the token, the
+ * device id and the outbox. The app remembers `health.serverEpoch` whenever it is a string and
+ * never overwrites it with `null`. docs/API.md §7.
+ */
+export function cloudWasReset(
+  rememberedEpoch: string | null,
+  health: Pick<HealthResponse, 'db' | 'serverEpoch'>,
+): boolean {
+  return (
+    health.db === 'up' &&
+    typeof rememberedEpoch === 'string' &&
+    rememberedEpoch !== '' &&
+    typeof health.serverEpoch === 'string' &&
+    health.serverEpoch !== '' &&
+    health.serverEpoch !== rememberedEpoch
+  );
+}
+
+/**
+ * The local days to send again after a sign-in: those the server is missing or holds at the
+ * same or a lower `rev`. An equal `rev` goes too: a running block grows a day's minutes without
+ * a new guardian event, so the server may hold older numbers under the same `rev` (the outbox
+ * was cleared by a sign-out or a 401 before the last snapshot went out), and it lets an equal
+ * `rev` overwrite. Cheap: the whole accepted window (`syncPastDays`) is a few requests of 100.
+ *
+ * Use it on every sign-in with a device id (`GET /v1/sync/state` for it), and after the
+ * database was replaced (`cloudWasReset`). A replaced database has no accounts either: the old
+ * token gets 401, so the app first logs in again (a new account and device, every sharing
+ * switch off), re-applies the sharing choices the user confirms (at least `syncStats`), then
+ * passes `GET /v1/sync/state` for the new device. docs/API.md §7.
  */
 export function daysToReupload(
   local: readonly CloudDayStats[],
@@ -1595,7 +1738,7 @@ export function daysToReupload(
   const revs = new Map(server.revs.map((r) => [r.day, r.rev]));
   return local.filter((d) => {
     const rev = revs.get(d.day);
-    return rev === undefined || rev < d.rev;
+    return rev === undefined || rev <= d.rev;
   });
 }
 
@@ -1634,7 +1777,7 @@ export interface OutboxDayItem {
 /** An accountability event, kept with its `clientRef` until the server has it. */
 export interface OutboxEventItem {
   type: 'event';
-  event: PostAccountabilityEventRequest;
+  event: AccountabilityEventInput;
 }
 
 export type OutboxItem = OutboxDayItem | OutboxEventItem;
@@ -1696,7 +1839,7 @@ const DAY_NUMBER_KEYS = [
   'pointsLost',
 ] as const satisfies ReadonlyArray<keyof CloudDayStats>;
 
-function isEvent(value: unknown): value is PostAccountabilityEventRequest {
+function isEvent(value: unknown): value is AccountabilityEventInput {
   if (typeof value !== 'object' || value === null) return false;
   const e = value as Record<string, unknown>;
   return (
@@ -1795,8 +1938,12 @@ export interface OutboxFlushResult {
 export interface CloudOutbox {
   /** Queues absolute day totals (a newer `rev` of a queued day replaces it). */
   addDays(deviceId: string, days: readonly CloudDayStats[]): Promise<void>;
-  /** Queues an accountability event (create its `clientRef` with `newClientRef`). */
-  addEvent(event: PostAccountabilityEventRequest): Promise<void>;
+  /**
+   * Queues an accountability event (create its `clientRef` with `newClientRef`). The server's
+   * answer arrives through `OutboxOptions.onEventSent`. An `emergency_requested` goes through
+   * `sendAccountabilityEvent` instead, which queues it here only when it cannot go out now.
+   */
+  addEvent(event: AccountabilityEventInput): Promise<void>;
   /**
    * Sends what is queued: events one by one, then days in batches of 100 per device. Runs
    * one at a time (a second call joins the running one). `force` ignores the backoff (the user
@@ -1815,6 +1962,17 @@ export interface OutboxOptions {
   client: Pick<CloudClient, 'putDays' | 'postAccountabilityEvent'>;
   now?: () => Date;
   random?: () => number;
+  /**
+   * Called once the server has a queued event (201, or 200 for a replay of one it already
+   * stored), with its answer, after the event left the queue. This is how the app learns the
+   * `eventId` and `approval` of an `emergency_requested` that could not go out directly: when
+   * `approval` is `pending` and the local countdown still runs, it starts polling
+   * `getAccountabilityEvent` every 15 s. Not awaited; whatever it throws is ignored.
+   */
+  onEventSent?: (
+    event: AccountabilityEventInput,
+    response: PostAccountabilityEventResponse,
+  ) => void | Promise<void>;
 }
 
 /** An in-memory `OutboxStorage` (tests, or before the app's database is open). */
@@ -1855,15 +2013,29 @@ function isPermanent(error: CloudError): boolean {
 /**
  * The offline outbox (docs/API.md §14). What must eventually reach the server waits here,
  * persisted through `storage`, and survives restarts: day totals (collapsed per device and
- * day) and accountability events (never merged away, idempotent on `clientRef`). Presence
- * heartbeats and approval polls are never queued: an old one means nothing.
+ * day) and accountability events (never merged away, idempotent on `clientRef`; the server's
+ * answer goes to `onEventSent`). Presence heartbeats and approval polls are never queued: an
+ * old one means nothing.
  */
 export function createOutbox(options: OutboxOptions): CloudOutbox {
-  const { storage, client } = options;
+  const { storage, client, onEventSent } = options;
   const now = options.now ?? (() => new Date());
   const random = options.random ?? Math.random;
   let lock: Promise<unknown> = Promise.resolve();
   let running: Promise<OutboxFlushResult> | null = null;
+
+  /** Hands the server's answer to the app; its handler can never break a flush. */
+  function reportSent(
+    event: AccountabilityEventInput,
+    response: PostAccountabilityEventResponse,
+  ): void {
+    if (!onEventSent) return;
+    try {
+      Promise.resolve(onEventSent(event, response)).catch(() => undefined);
+    } catch {
+      // The app's handler threw synchronously: the event is still sent.
+    }
+  }
 
   /** Runs `fn` on the saved state under a lock and saves what it leaves. */
   function mutate<T>(fn: (state: OutboxState) => T): Promise<T> {
@@ -1932,7 +2104,7 @@ export function createOutbox(options: OutboxOptions): CloudOutbox {
             .slice(0, CLOUD_LIMITS.syncBatchMax);
       try {
         if (event) {
-          await client.postAccountabilityEvent(event.event);
+          const answer = await client.postAccountabilityEvent(event.event);
           state = await mutate((s) => {
             s.items = s.items.filter(
               (i) => i.type !== 'event' || i.event.clientRef !== event.event.clientRef,
@@ -1940,6 +2112,7 @@ export function createOutbox(options: OutboxOptions): CloudOutbox {
             sent += 1;
             return s;
           });
+          reportSent(event.event, answer);
         } else {
           const answer = await client.putDays({
             deviceId: deviceId ?? '',
@@ -2016,7 +2189,8 @@ export function createOutbox(options: OutboxOptions): CloudOutbox {
     addEvent: async (event) => {
       if (!isEvent(event)) throw new RangeError('addEvent: malformed accountability event');
       await mutate((s) => {
-        s.items.push({ type: 'event', event: { ...event } });
+        const { clientRef, kind, occurredAt, countdownEndsAt } = event;
+        s.items.push({ type: 'event', event: { clientRef, kind, occurredAt, countdownEndsAt } });
       });
     },
     flush: (flushOptions) => {
@@ -2072,4 +2246,54 @@ function sameItem(item: OutboxItem, other: OutboxItem): boolean {
     );
   }
   return sameDeviceDay(item, other) && sameSnapshot(item.stats, other.stats);
+}
+
+// ---------------------------------------------------------------------------------------
+// Sending an accountability event now
+// ---------------------------------------------------------------------------------------
+
+export interface SendEventResult {
+  /**
+   * - `sent`: the server has it; `response` carries `eventId` and `approval` (poll it every
+   *   15 s while `pending`, see `approvalOutcome`).
+   * - `queued`: it could not go out now (offline, a timeout, a server waking up or failing,
+   *   the feature off, the call aborted) and waits in the outbox, which replays the same
+   *   `clientRef` and reports the answer through `OutboxOptions.onEventSent`. Until then the
+   *   app has no approval to wait for: the flow fails open.
+   * - `dropped`: the server refused it for good (400, 404…): nothing to wait for.
+   * - `signed_out`: 401. The client's `onUnauthorized` hook ran; nothing was queued.
+   */
+  status: 'sent' | 'queued' | 'dropped' | 'signed_out';
+  response: PostAccountabilityEventResponse | null;
+  error: CloudError | null;
+}
+
+/**
+ * Sends an accountability event straight away and falls back to the outbox. This is the path
+ * for `emergency_requested`, whose answer the app needs at once: the outbox keeps no answers
+ * but hands them to `onEventSent`, and its first POST to a sleeping server would time out.
+ * `postAccountabilityEvent` wakes the server first (`options.onWaking`: «Despertando el
+ * servidor…»), so the event arrives with an accurate `sentAt`. Only a failure that resending can
+ * fix queues it; the outbox then replays the same `clientRef`, and a replay of an event the
+ * server already stored answers that event (200), so the `eventId` is never lost. The other
+ * kinds can go straight to `CloudOutbox.addEvent`. docs/API.md §9 and §14.
+ */
+export async function sendAccountabilityEvent(
+  client: Pick<CloudClient, 'postAccountabilityEvent'>,
+  outbox: Pick<CloudOutbox, 'addEvent'>,
+  event: AccountabilityEventInput,
+  options: WakeCallOptions = {},
+): Promise<SendEventResult> {
+  if (!isEvent(event)) throw new RangeError('sendAccountabilityEvent: malformed event');
+  try {
+    const response = await client.postAccountabilityEvent(event, options);
+    return { status: 'sent', response, error: null };
+  } catch (error) {
+    if (!isCloudError(error)) throw error;
+    if (error.status === 401) return { status: 'signed_out', response: null, error };
+    if (isPermanent(error)) return { status: 'dropped', response: null, error };
+    const { clientRef, kind, occurredAt, countdownEndsAt } = event;
+    await outbox.addEvent({ clientRef, kind, occurredAt, countdownEndsAt });
+    return { status: 'queued', response: null, error };
+  }
 }

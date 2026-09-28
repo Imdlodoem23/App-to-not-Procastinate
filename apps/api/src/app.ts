@@ -39,6 +39,7 @@ import { healthRoutes } from './routes/health';
 import { meRoutes } from './routes/me';
 import { presenceRoutes } from './routes/presence';
 import { rankingRoutes } from './routes/ranking';
+import { sessionsRoutes } from './routes/sessions';
 import { syncRoutes } from './routes/sync';
 
 export interface BuildAppOptions {
@@ -258,18 +259,22 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       }),
   });
 
-  // --- HTML forms (the connect page posts urlencoded; everything else is JSON).
-  app.addContentTypeParser(
-    'application/x-www-form-urlencoded',
-    { parseAs: 'string', bodyLimit: 4096 },
-    (_request, body, done) => {
-      done(null, Object.fromEntries(new URLSearchParams(String(body))));
-    },
-  );
+  // Bodies are JSON everywhere. The one HTML form (the «Conectar» button) has its urlencoded
+  // parser on its own route only (routes/app-auth.ts): a form elsewhere gets 415 → 400.
+
+  // --- Shutting down (boot.ts): requests in flight finish, a coach call included (its quota
+  // reservation settles), but their keep-alive connections must not hold the server open
+  // afterwards (Fastify keeps idle ones for 72 s), so each answer sent while closing ends its
+  // connection.
+  let draining = false;
+  app.addHook('preClose', async () => {
+    draining = true;
+  });
 
   // --- No caching of API answers anywhere (they carry personal data).
   app.addHook('onSend', async (request, reply, payload) => {
     if (!reply.hasHeader('cache-control')) reply.header('cache-control', 'no-store');
+    if (draining) reply.header('connection', 'close');
     return payload;
   });
 
@@ -304,6 +309,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       });
       await v1.register(appAuthRoutes);
       await v1.register(meRoutes);
+      await v1.register(sessionsRoutes);
       await v1.register(syncRoutes);
       await v1.register(friendsRoutes);
       await v1.register(rankingRoutes);

@@ -3,9 +3,12 @@
  * instances only one sweeps at a time (`pg_try_advisory_xact_lock`, released at commit). Reads
  * never depend on it: every route filters by time on its own, so the janitor only keeps the
  * database small and personal data short-lived.
+ *
+ * It also frees AI quota holds left by a coach call whose process died before settling
+ * (`releaseDeadAiHolds`, docs/API.md §10.2).
  */
 import { addDays } from '@centrate/shared/cloud-api';
-import { and, isNotNull, lt, lte, ne, or, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { META_KEYS } from '../db/meta';
 import {
@@ -30,6 +33,12 @@ const DAY_MS = 86_400_000;
 const JANITOR_LOCK_ID = 4_726_002;
 export const JANITOR_INTERVAL_MS = 3_600_000;
 
+/**
+ * A live coach call settles before its `reserved_until` (its deadline plus a 30 s margin); a hold
+ * still there this long after it belongs to a call whose process died.
+ */
+export const DEAD_AI_HOLD_AFTER_MS = 10 * 60_000;
+
 /** How long each kind of data is kept (docs/API.md §6). */
 export const RETENTION = Object.freeze({
   invitesAfterExpiryDays: 30,
@@ -52,12 +61,80 @@ export type JanitorReport = Record<
   | 'rateCounters'
   | 'aiUsage'
   | 'aiGlobalDaily'
+  | 'aiDeadHolds'
   | 'dailyStats'
   | 'userNames',
   number
 >;
 
 const utcDay = (at: Date): string => at.toISOString().slice(0, 10);
+
+type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+
+/**
+ * Frees the quota holds of coach calls that never settled (the process died mid-call: a crash,
+ * an out-of-memory kill, a shutdown that could not wait). Without this a user would keep the
+ * worst case of that call held until 00:00 UTC, which with the default caps blocks every coach
+ * endpoint for the rest of the day.
+ *
+ * A hold is dead when its row still holds tokens or cost and either `reserved_until` passed
+ * more than `DEAD_AI_HOLD_AFTER_MS` ago, or it is null (a later call on the same row settled and
+ * cleared it, so what is left can only be a dead call's).
+ *
+ * - The user's row gives the hold back. The request stays counted. The per-user cap exists so
+ *   that one account cannot drain the shared budget, and a call our own process lost is not the
+ *   user's spending.
+ * - The global budget books the whole hold as spent. We cannot know what the provider billed
+ *   before the process died, so the money side keeps the conservative upper bound.
+ */
+async function releaseDeadAiHolds(tx: Tx, now: Date): Promise<number> {
+  const cutoff = new Date(now.getTime() - DEAD_AI_HOLD_AFTER_MS);
+  const dead = and(
+    or(gt(aiUsage.reservedTokens, 0), gt(aiUsage.reservedMicroUsd, 0)),
+    or(isNull(aiUsage.reservedUntil), lt(aiUsage.reservedUntil, cutoff)),
+  );
+  // Locks in the order a reservation takes them (the day's budget row, then the user row), so
+  // a user calling again right now waits for this sweep or the other way round, never both. A
+  // row that a new reservation took meanwhile no longer matches once re-read.
+  await tx
+    .select({ day: aiGlobalDaily.day })
+    .from(aiGlobalDaily)
+    .where(
+      inArray(aiGlobalDaily.day, tx.selectDistinct({ day: aiUsage.day }).from(aiUsage).where(dead)),
+    )
+    .orderBy(aiGlobalDaily.day)
+    .for('update');
+  const rows = await tx
+    .select({
+      userId: aiUsage.userId,
+      day: aiUsage.day,
+      feature: aiUsage.feature,
+      heldMicroUsd: aiUsage.reservedMicroUsd,
+    })
+    .from(aiUsage)
+    .where(dead)
+    .for('update');
+  const perDay = new Map<string, number>();
+  for (const r of rows) {
+    await tx
+      .update(aiUsage)
+      .set({ reservedTokens: 0, reservedMicroUsd: 0, reservedUntil: null })
+      .where(
+        and(eq(aiUsage.userId, r.userId), eq(aiUsage.day, r.day), eq(aiUsage.feature, r.feature)),
+      );
+    perDay.set(r.day, (perDay.get(r.day) ?? 0) + Number(r.heldMicroUsd));
+  }
+  for (const [day, held] of perDay) {
+    await tx
+      .update(aiGlobalDaily)
+      .set({
+        reservedMicroUsd: sql`GREATEST(${aiGlobalDaily.reservedMicroUsd} - ${held}, 0)`,
+        costMicroUsd: sql`${aiGlobalDaily.costMicroUsd} + ${held}`,
+      })
+      .where(eq(aiGlobalDaily.day, day));
+  }
+  return rows.length;
+}
 
 /**
  * One sweep. Returns what it deleted or changed, or null when another instance holds the lock.
@@ -152,6 +229,7 @@ export async function runJanitor(db: Db, now: Date): Promise<JanitorReport | nul
           .where(lt(aiGlobalDaily.day, addDays(today, -RETENTION.aiUsageDays)))
           .returning({ k: aiGlobalDaily.day }),
       ),
+      aiDeadHolds: await releaseDeadAiHolds(tx, now),
       dailyStats: await n(
         tx
           .delete(dailyStats)

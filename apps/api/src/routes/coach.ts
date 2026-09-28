@@ -120,8 +120,8 @@ export const coachRoutes: FastifyPluginAsync = async (app) => {
           { path: 'body.examDate', message: 'Must be after today and within a year' },
         ]);
       }
-      const { days, truncated } = studyDays(body);
-      if (days.length === 0) {
+      const planWindow = studyDays(body);
+      if (planWindow.days.length === 0) {
         throw validationFailed([
           { path: 'body.daysOff', message: 'No study day left before the exam' },
         ]);
@@ -129,10 +129,10 @@ export const coachRoutes: FastifyPluginAsync = async (app) => {
       const output = await callCoach(ctx, request.log, me, gate.model, {
         endpoint: 'study-plan',
         system: STUDY_PLAN_SYSTEM,
-        user: studyPlanUserMessage(body, days, truncated),
+        user: studyPlanUserMessage(body, planWindow.days, planWindow.truncated),
         schema: StudyPlanOutput,
       });
-      return studyPlanAnswer(output, body, days) ?? incompleteAnswer();
+      return studyPlanAnswer(output, body, planWindow) ?? incompleteAnswer();
     },
   );
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { FrameCadence } from '../../src/runtime/frame-step';
 import { CpuGovernor, LOOP_LEVELS, START_LEVEL } from '../../src/runtime/governor';
 import type { StepCost } from '../../src/types';
 
@@ -161,6 +162,62 @@ describe('CpuGovernor', () => {
     g.record(cost(2_666, 900, 0, false));
     g.record(cost(3_000, 900, 0, false));
     expect(g.plan(3_333, true).level).toBe(4);
+  });
+
+  it('counts a detector that is slow on every run (420 ms, fast frames in between): L4, over budget', () => {
+    // A cheap laptop on battery saver: face 30 ms, EfficientDet 420 ms on WASM. The detector
+    // steps are never consecutive, so a filter that only lets «two slow steps in a row»
+    // through would drop every one of them and believe the duty is 6 %.
+    const g = new CpuGovernor();
+    const cadence = new FrameCadence();
+    let t = 0;
+    let objectRuns = 0;
+    for (let i = 0; i < 120; i += 1) {
+      const plan = g.plan(t, true);
+      const options = cadence.options(t, plan);
+      cadence.done(t, options);
+      if (options.objects) objectRuns += 1;
+      g.record({
+        at: t,
+        visionMs: 30,
+        objectMs: options.objects ? 420 : 0,
+        otherMs: 0.5,
+        ranObjects: options.objects,
+        faceSeen: true,
+      });
+      t += plan.intervalMs;
+    }
+    expect(objectRuns).toBeGreaterThan(5);
+    const plan = g.plan(t, true);
+    expect(plan.level).toBe(LOOP_LEVELS.length - 1);
+    expect(plan.overBudget).toBe(true);
+    // The real duty at L4: (30.5 + 420 / 8) / 500 ≈ 0.166 of one core.
+    expect(g.duty).toBeCloseTo((30.5 + 420 / 8) / 500, 2);
+  });
+
+  it('skips the first slow step of a kind (warm-up) and counts the next one', () => {
+    const g = new CpuGovernor();
+    g.plan(0, true);
+    g.record(cost(0, 30, 0, false)); // frame steps known: 30.5 ms
+    g.record(cost(333, 30, 420, true)); // first detector run: skipped as warm-up
+    expect(g.plan(666, true).level).toBe(2); // 30.5 / 333 = 0.092 → L2 (0.061)
+    g.record(cost(666, 30, 0, false));
+    g.record(cost(1_000, 30, 420, true)); // the second slow run is real
+    expect(g.plan(1_500, true).level).toBe(4);
+  });
+
+  it('still ignores a single slow detector run among normal ones (GC pause)', () => {
+    const g = new CpuGovernor();
+    drive(g, 0, 5, { visionMs: 10, objectMs: 35 });
+    expect(g.plan(5_000, true).level).toBe(1);
+    g.record(cost(5_000, 10, 900, true)); // 910 ms > max(400, 3 × 45.5): an outlier
+    expect(g.plan(5_333, true).level).toBe(1);
+    // Frame-only steps in between do not make a second slow detector run «the first again»…
+    g.record(cost(5_333, 10, 0, false));
+    g.record(cost(5_666, 10, 0, false));
+    g.record(cost(6_000, 10, 900, true));
+    // …it is the second in a row for the detector, so it counts.
+    expect(g.plan(6_333, true).level).toBe(4);
   });
 
   it('ignores non-finite costs and CPU readings', () => {

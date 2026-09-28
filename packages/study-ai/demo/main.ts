@@ -54,6 +54,8 @@ interface DemoProbe {
   /** Inference cost of the last frame (ms). */
   lastCost: VisionCost | null;
   events: string[];
+  /** Vision pipelines built (a lost WebGL context makes the session build another). */
+  visionBuilds: number;
   /** URLs the page's CSP refused (nothing may leave this machine). */
   blocked: string[];
   error: string | null;
@@ -70,6 +72,7 @@ const probe: DemoProbe = {
   lastCost: null,
   frameTimes: [],
   events: [],
+  visionBuilds: 0,
   blocked: [],
   error: null,
   start: (mode) => startSession(mode),
@@ -208,6 +211,8 @@ async function instrumentedVision(
   options?: VisionPipelineOptions,
 ): Promise<VisionPipeline> {
   const inner = await createVisionPipeline(assets, options);
+  probe.visionBuilds += 1;
+  if (probe.visionBuilds > 1) log('Visión reconstruida (se perdió el contexto WebGL)');
   return {
     process(frame, frameOptions) {
       const result = inner.process(frame, frameOptions);
@@ -216,6 +221,9 @@ async function instrumentedVision(
     },
     reset: () => inner.reset(),
     close: () => inner.close(),
+    get contextLost() {
+      return inner.contextLost;
+    },
   };
 }
 

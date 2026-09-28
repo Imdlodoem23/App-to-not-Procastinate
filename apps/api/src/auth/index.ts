@@ -2,7 +2,8 @@
  * Authentication (owner: CORE). better-auth 1.7 with the drizzle adapter, Google (when
  * configured), email one-time codes through Resend (`emailOTP`, the email also carries a
  * sign-in link) and `bearer`. Only the endpoints our pages use are reachable under
- * /api/auth/*; everything else better-auth offers answers 404. See docs/API.md §4.
+ * /api/auth/*; everything else better-auth offers answers 404. Every POST there must be JSON
+ * from our own pages, cookie or not (login CSRF, csrf.ts). See docs/API.md §4.
  *
  * Privacy: no telemetry, no IP or user agent stored, no Google picture, and the Google tokens
  * are dropped before they reach the database (we never call Google APIs). The profile row
@@ -25,14 +26,10 @@ import type { AppContext, Mailer, SessionResolver } from '../context';
 import { authSchema } from '../db/schema';
 import { ApiError } from '../lib/errors';
 import { ensureProfile, firstNameOnly } from '../lib/profile';
+import { assertSignInRequest } from './csrf';
 import { SIGN_IN_CODE_MINUTES, signInCodeEmail } from './email';
 import { reserveSignInEmail } from './email-limits';
-import {
-  COOKIE_PREFIX,
-  SESSION_TTL_SECONDS,
-  SESSION_UPDATE_AGE_SECONDS,
-  createSessionResolver,
-} from './session';
+import { BROWSER_SESSION_TTL_SECONDS, COOKIE_PREFIX, createSessionResolver } from './session';
 
 export interface AuthModule {
   resolveSession: SessionResolver;
@@ -68,8 +65,11 @@ export function createAuth(ctx: AppContext, log?: AuthLog): AuthModule | null {
     rateLimit: { enabled: false },
     emailAndPassword: { enabled: false },
     session: {
-      expiresIn: SESSION_TTL_SECONDS,
-      updateAge: SESSION_UPDATE_AGE_SECONDS,
+      // Browser sessions last 14 days from sign-in and never slide (a session left on a shared
+      // computer ends on its own); desktop sessions are ours (session.ts: 60 days, sliding).
+      // No refresh also keeps get-session from rewriting a desktop session's expiry.
+      expiresIn: BROWSER_SESSION_TTL_SECONDS,
+      disableSessionRefresh: true,
       // No cookie cache: revoking a session takes effect on the next request.
       cookieCache: { enabled: false },
     },
@@ -150,6 +150,11 @@ export function createAuth(ctx: AppContext, log?: AuthLog): AuthModule | null {
     forwardToAuth(auth.handler, authConfig.url, request, reply);
 
   const routes: FastifyPluginAsync = async (app) => {
+    // Login CSRF: every POST here must be JSON from our own pages, cookie or not (csrf.ts).
+    // onRequest runs before the body is read, the limits are counted and better-auth is called.
+    app.addHook('onRequest', async (request) => {
+      assertSignInRequest(request, config);
+    });
     app.get('/api/auth/get-session', forward);
     app.post('/api/auth/sign-out', forward);
     if (config.google) {

@@ -20,8 +20,9 @@ import {
   user,
   verification,
 } from '../src/db/schema';
-import { runJanitor, startJanitor } from '../src/jobs/janitor';
-import { createTestUser } from './helpers/app';
+import { DEAD_AI_HOLD_AFTER_MS, runJanitor, startJanitor } from '../src/jobs/janitor';
+import { reserve } from '../src/coach/quota';
+import { createTestUser, testConfig } from './helpers/app';
 import type { TestUser } from './helpers/app';
 import { createTestDb, resetDb, type TestDb } from './helpers/db';
 
@@ -174,6 +175,7 @@ describe('runJanitor', () => {
       rateCounters: 1,
       aiUsage: 1,
       aiGlobalDaily: 1,
+      aiDeadHolds: 0,
       dailyStats: 1,
       userNames: 1,
     });
@@ -207,6 +209,101 @@ describe('runJanitor', () => {
     expect(names.find((u) => u.id === 'no-profile-user')?.name).toBe('Luis');
     // Live sessions stay.
     expect(await db.select().from(session).where(eq(session.id, a.sessionId))).toHaveLength(1);
+  });
+
+  it('frees the quota holds of coach calls whose process died, and only those', async () => {
+    const db = t.db;
+    const c = await createTestUser(db, { now: NOW });
+    const d = await createTestUser(db, { now: NOW });
+    const today = '2026-09-28';
+    const minutes = (m: number) => new Date(NOW.getTime() + m * 60_000);
+    const held = (
+      userId: string,
+      feature: 'coach' | 'interpret',
+      micro: number,
+      until: Date | null,
+    ) => ({
+      userId,
+      day: today,
+      feature,
+      requests: 2,
+      inputTokens: 1000,
+      outputTokens: 500,
+      costMicroUsd: 50_000,
+      reservedTokens: 20_000,
+      reservedMicroUsd: micro,
+      reservedUntil: until,
+    });
+    await db.insert(aiUsage).values([
+      // Dead: its deadline passed long ago (the process died mid-call).
+      held(a.userId, 'coach', 400_000, minutes(-11)),
+      // Dead: a later call on the same row settled and cleared `reserved_until`.
+      held(b.userId, 'coach', 250_000, null),
+      // In flight, or only just past its hold: left alone.
+      held(c.userId, 'coach', 300_000, minutes(1)),
+      held(d.userId, 'interpret', 10_000, minutes(-5)),
+      // Settled rows: nothing held.
+      { ...held(d.userId, 'coach', 0, null), reservedTokens: 0 },
+    ]);
+    await db.insert(aiGlobalDaily).values({
+      day: today,
+      requests: 8,
+      costMicroUsd: 200_000,
+      reservedMicroUsd: 960_000,
+    });
+
+    // Before the sweep the dead hold blocks the user for the rest of the day.
+    const config = testConfig({ ANTHROPIC_API_KEY: 'test-key' });
+    const call = (userId: string) =>
+      reserve(db, config, {
+        userId,
+        feature: 'coach',
+        now: NOW,
+        tokens: 30_000,
+        costMicroUsd: 250_000,
+        holdMs: 60_000,
+      });
+    expect(await call(a.userId)).toMatchObject({ ok: false, reason: 'quota' });
+
+    const report = await runJanitor(db, NOW);
+    expect(report?.aiDeadHolds).toBe(2);
+
+    const rows = await db.select().from(aiUsage);
+    const row = (userId: string, feature = 'coach') =>
+      rows.find((r) => r.userId === userId && r.feature === feature);
+    for (const freed of [row(a.userId), row(b.userId)]) {
+      // The hold is given back; the request, the tokens and the cost already booked stay.
+      expect(freed).toMatchObject({
+        requests: 2,
+        inputTokens: 1000,
+        outputTokens: 500,
+        costMicroUsd: 50_000,
+        reservedTokens: 0,
+        reservedMicroUsd: 0,
+        reservedUntil: null,
+      });
+    }
+    expect(row(c.userId)).toMatchObject({ reservedMicroUsd: 300_000, reservedUntil: minutes(1) });
+    expect(row(d.userId, 'interpret')).toMatchObject({
+      reservedMicroUsd: 10_000,
+      reservedUntil: minutes(-5),
+    });
+    // The global budget books the dead holds as spent (what the provider billed is unknown).
+    const [global] = await db.select().from(aiGlobalDaily);
+    expect(global).toMatchObject({
+      requests: 8,
+      costMicroUsd: 200_000 + 400_000 + 250_000,
+      reservedMicroUsd: 960_000 - 400_000 - 250_000,
+    });
+
+    // The user whose call died can use the coach again the same day; a call in flight still
+    // blocks a second one.
+    expect((await call(a.userId)).ok).toBe(true);
+    expect(await call(c.userId)).toMatchObject({ ok: false, reason: 'busy' });
+
+    // A second sweep finds nothing more to free (the new reservation is in flight).
+    expect((await runJanitor(db, NOW))?.aiDeadHolds).toBe(0);
+    expect(DEAD_AI_HOLD_AFTER_MS).toBeGreaterThanOrEqual(5 * 60_000);
   });
 
   it('runs at start and on demand without throwing', async () => {

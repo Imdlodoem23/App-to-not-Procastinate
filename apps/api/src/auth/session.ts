@@ -8,18 +8,27 @@
  *   signed `token.signature` form better-auth's `bearer` plugin hands out.
  * - Cookie: better-auth's signed session cookie (`centrate.session_token`, `__Secure-` prefixed
  *   over https). When a bearer header is present the cookie is ignored.
+ *
+ * Two kinds of session, told apart by the `devices` row that points at a desktop one:
+ * - desktop (bearer, written by the loopback login): 60 days, sliding, so a computer in daily
+ *   use stays connected;
+ * - browser (cookie, written by better-auth): 14 days from sign-in, never extended, so a
+ *   session left on a shared or lost computer ends on its own. `POST /v1/sessions/revoke-others`
+ *   ends them sooner.
  */
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
-import { eq } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, ne } from 'drizzle-orm';
 import type { AuthedUser, SessionResolver } from '../context';
 import type { Db } from '../db/client';
 import { devices, session } from '../db/schema';
 
-/** Sessions last 60 days and slide: used once a day or more, they never expire. */
-export const SESSION_TTL_SECONDS = 60 * 86_400;
-/** A session's expiry is pushed forward at most once per this period. */
+/** Desktop sessions last 60 days and slide: used once a day or more, they never expire. */
+export const DESKTOP_SESSION_TTL_SECONDS = 60 * 86_400;
+/** A desktop session's expiry is pushed forward at most once per this period. */
 export const SESSION_UPDATE_AGE_SECONDS = 86_400;
+/** Browser sessions last 14 days from sign-in and are never extended. */
+export const BROWSER_SESSION_TTL_SECONDS = 14 * 86_400;
 
 export const COOKIE_PREFIX = 'centrate';
 export const SESSION_COOKIE = `${COOKIE_PREFIX}.session_token`;
@@ -103,7 +112,10 @@ export function sessionTokenFrom(headers: IncomingHttpHeaders, secret: string): 
   return null;
 }
 
-/** Reads the session behind a request from the database, sliding its expiry once a day. */
+/**
+ * Reads the session behind a request from the database. A desktop session's expiry slides at
+ * most once a day; a browser session's never does.
+ */
 export function createSessionResolver(db: Db, secret: string, now: () => Date): SessionResolver {
   return async (headers): Promise<AuthedUser | null> => {
     const token = sessionTokenFrom(headers, secret);
@@ -123,11 +135,14 @@ export function createSessionResolver(db: Db, secret: string, now: () => Date): 
     const row = rows[0];
     const at = now();
     if (!row || row.expiresAt.getTime() <= at.getTime()) return null;
-    const refreshBelowMs = (SESSION_TTL_SECONDS - SESSION_UPDATE_AGE_SECONDS) * 1000;
-    if (row.expiresAt.getTime() - at.getTime() < refreshBelowMs) {
+    const refreshBelowMs = (DESKTOP_SESSION_TTL_SECONDS - SESSION_UPDATE_AGE_SECONDS) * 1000;
+    if (row.deviceId && row.expiresAt.getTime() - at.getTime() < refreshBelowMs) {
       await db
         .update(session)
-        .set({ expiresAt: new Date(at.getTime() + SESSION_TTL_SECONDS * 1000), updatedAt: at })
+        .set({
+          expiresAt: new Date(at.getTime() + DESKTOP_SESSION_TTL_SECONDS * 1000),
+          updatedAt: at,
+        })
         .where(eq(session.id, row.id));
     }
     return {
@@ -155,7 +170,7 @@ export async function createSessionRow(db: Db, userId: string, at: Date): Promis
     id: randomAlphanumeric(32),
     token: randomAlphanumeric(32),
     createdAt: at,
-    expiresAt: new Date(at.getTime() + SESSION_TTL_SECONDS * 1000),
+    expiresAt: new Date(at.getTime() + DESKTOP_SESSION_TTL_SECONDS * 1000),
   };
   await db.insert(session).values({
     ...row,
@@ -165,4 +180,64 @@ export async function createSessionRow(db: Db, userId: string, at: Date): Promis
     userAgent: null,
   });
   return row;
+}
+
+export interface BrowserSessionRow {
+  id: string;
+  createdAt: Date;
+  expiresAt: Date;
+}
+
+/** The user's live browser sessions (no device points at them), newest first. */
+export async function listBrowserSessions(
+  db: Db,
+  userId: string,
+  now: Date,
+): Promise<BrowserSessionRow[]> {
+  return db
+    .select({ id: session.id, createdAt: session.createdAt, expiresAt: session.expiresAt })
+    .from(session)
+    .leftJoin(devices, eq(devices.sessionId, session.id))
+    .where(and(eq(session.userId, userId), gt(session.expiresAt, now), isNull(devices.id)))
+    .orderBy(desc(session.createdAt), desc(session.id));
+}
+
+/**
+ * Ends every live session of the user except the calling one: browser sessions always, desktop
+ * sessions too with `includeDevices` (their device rows and stats stay; `session_id` goes
+ * null). Returns how many of each kind ended.
+ */
+export async function revokeOtherSessions(
+  db: Db,
+  caller: Pick<AuthedUser, 'userId' | 'sessionId'>,
+  includeDevices: boolean,
+  now: Date,
+): Promise<{ browser: number; devices: number }> {
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select({ id: session.id, deviceId: devices.id })
+      .from(session)
+      .leftJoin(devices, eq(devices.sessionId, session.id))
+      .where(
+        and(
+          eq(session.userId, caller.userId),
+          ne(session.id, caller.sessionId),
+          gt(session.expiresAt, now),
+        ),
+      );
+    const ending = rows.filter((r) => includeDevices || r.deviceId === null);
+    if (ending.length > 0) {
+      await tx.delete(session).where(
+        and(
+          eq(session.userId, caller.userId),
+          inArray(
+            session.id,
+            ending.map((r) => r.id),
+          ),
+        ),
+      );
+    }
+    const desktop = ending.filter((r) => r.deviceId !== null).length;
+    return { browser: ending.length - desktop, devices: desktop };
+  });
 }

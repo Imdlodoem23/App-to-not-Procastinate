@@ -50,8 +50,7 @@ export const ESTADISTICAS_EN: EstadisticasMessages = {
     yesterday: 'yesterday',
     dayShort: (weekday: string, day: number, month: string): string =>
       `${weekday}, ${month} ${day}`,
-    dayLong: (weekday: string, day: number, month: string): string =>
-      `${weekday}, ${month} ${day}`,
+    dayLong: (weekday: string, day: number, month: string): string => `${weekday}, ${month} ${day}`,
     weekSameMonth: (from: number, to: number, month: string): string => `${month} ${from}–${to}`,
     weekTwoMonths: (from: number, fromMonth: string, to: number, toMonth: string): string =>
       `${fromMonth} ${from} – ${toMonth} ${to}`,

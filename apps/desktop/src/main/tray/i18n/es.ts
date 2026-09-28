@@ -44,6 +44,7 @@ export const TRAY_ES = {
     /** «+15 min», «+1 h». */
     extendItem: (label: string): string => `+${label}`,
     quick: 'Bloqueo rápido',
+    miniTimer: 'Mini temporizador',
     open: 'Abrir Céntrate',
     quit: 'Salir (los bloqueos siguen activos)',
   },

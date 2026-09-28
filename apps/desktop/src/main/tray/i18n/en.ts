@@ -34,6 +34,7 @@ export const TRAY_EN: TrayMessages = {
     extend: 'Extend',
     extendItem: (label: string): string => `+${label}`,
     quick: 'Quick block',
+    miniTimer: 'Mini timer',
     open: 'Open Céntrate',
     quit: 'Quit (blocks stay active)',
   },

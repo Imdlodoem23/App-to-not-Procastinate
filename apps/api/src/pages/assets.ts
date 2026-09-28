@@ -215,11 +215,13 @@ code {
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0.08em;
 }
-.steps {
+.steps,
+.sessions {
   margin: 0 0 var(--space-3);
   padding-left: 1.4em;
 }
-.steps li {
+.steps li,
+.sessions li {
   margin-bottom: var(--space-1);
 }
 `;
@@ -390,6 +392,33 @@ export const ACCOUNT_JS = `'use strict';
         String(otpInput.value || '').replace(/\\D/g, ''),
         linkForm.querySelector('button[type=submit]'),
         recall()
+      );
+    });
+  }
+
+  // /cuenta: end every other browser session (this one stays), then show the new list.
+  var revokeOthers = document.getElementById('revoke-others');
+  if (revokeOthers) {
+    revokeOthers.addEventListener('click', function () {
+      busy(revokeOthers, true);
+      say('Cerrando las demás sesiones…');
+      post('/v1/sessions/revoke-others', {}).then(
+        function (r) {
+          if (r.ok) {
+            location.reload();
+            return;
+          }
+          busy(revokeOthers, false);
+          say(
+            r.status === 401
+              ? 'Tu sesión ha caducado. Recarga la página y vuelve a entrar.'
+              : r.status === 429
+                ? 'Demasiados intentos. Espera unos minutos.'
+                : 'No se han podido cerrar las demás sesiones. Inténtalo de nuevo.',
+            'error'
+          );
+        },
+        function () { busy(revokeOthers, false); say(OFFLINE, 'error'); }
       );
     });
   }

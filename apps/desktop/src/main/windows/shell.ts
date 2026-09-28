@@ -25,11 +25,15 @@ import type {
 } from '../../shared/ipc';
 import {
   UI_TIMINGS,
+  isSurfaceKind,
+  onboardingActive,
   snapshotNow,
   type DetailRequest,
   type LayoutReport,
   type Platform,
+  type SurfaceKind,
   type UiSnapshot,
+  type UiWindow,
   type WindowKind,
   type WindowLayout,
 } from '../../shared/ui-state';
@@ -40,6 +44,7 @@ import type { DisplaySource } from './display-source';
 import {
   MAIN_DEFAULT_CONTENT_HEIGHT,
   ZERO_FRAME,
+  centredContentRect,
   chooseDisplay,
   detailPlacement,
   displayMatching,
@@ -121,7 +126,11 @@ export class WindowShell implements WindowHost, CoreHost {
   private attached: ShellAttachments | null = null;
   private main: BrowserWindow | null = null;
   private detail: BrowserWindow | null = null;
-  private readonly registry = new Map<number, WindowKind>();
+  private readonly registry = new Map<number, UiWindow>();
+  /** Phase 5 surfaces (mini timer, OSD, Nuclear overlay): PLATFORM registers its windows. */
+  private readonly surfaces = new Map<number, { kind: SurfaceKind; win: BrowserWindow }>();
+  /** The main window is centred while the onboarding shows (PROMPT §10). */
+  private onboarding = false;
   private readonly frames = new Map<WindowKind, FrameInsets>();
   private readonly showAck: ShowAckWaiter<LayoutReport>;
   /** The detail window's own `ui:prepare-show` answers (separate from main's show). */
@@ -168,6 +177,7 @@ export class WindowShell implements WindowHost, CoreHost {
 
   attach(attachments: ShellAttachments): void {
     this.attached = attachments;
+    this.onboarding = onboardingActive(attachments.core.getSnapshot());
     attachments.displays.onChanged(() => this.refreshPlacement());
     attachments.theme.onChange(() => this.setBackground(attachments.theme.backgroundColor()));
   }
@@ -321,6 +331,7 @@ export class WindowShell implements WindowHost, CoreHost {
   /** Every `rev` change goes to both windows, visible or not. */
   pushSnapshot(snapshot: UiSnapshot): void {
     this.pushAll('ui:snapshot', snapshot);
+    this.syncOnboarding(snapshot);
   }
 
   /** `ui:command` to the main window (tray «Bloqueo rápido ▸», Bloqueos «Bloquear…»). */
@@ -478,21 +489,33 @@ export class WindowShell implements WindowHost, CoreHost {
     }, MOVE_FOLLOW_MS);
   }
 
-  /** Main window at its corner with the last measured height (or 540 before any). */
+  /**
+   * Main window at its corner with the last measured height (or 540 before any); centred in the
+   * work area while the onboarding shows.
+   */
   private placeMainAtCorner(placement: Placement): void {
     const height = this.lastReport?.height ?? MAIN_DEFAULT_CONTENT_HEIGHT;
     const grid = this.gridOf(placement.display);
-    this.setMainContent(
-      mainContentRect({
-        workArea: placement.display.workArea,
-        frame: placement.frame,
-        anchor: placement.layout.anchor,
-        height,
-        grid,
-      }),
+    const input = {
+      workArea: placement.display.workArea,
+      frame: placement.frame,
+      anchor: placement.layout.anchor,
+      height,
       grid,
-    );
+    };
+    this.setMainContent(this.onboarding ? centredContentRect(input) : mainContentRect(input), grid);
     this.mainTrack.clearMoved();
+  }
+
+  /** Onboarding started or ended: the main window moves between the centre and its corner. */
+  private syncOnboarding(snapshot: UiSnapshot): void {
+    const active = onboardingActive(snapshot);
+    if (active === this.onboarding) return;
+    this.onboarding = active;
+    const main = this.window('main');
+    if (!main?.isVisible() || !this.attached) return;
+    if (!this.syncMainPosition(main) || active) this.placeMainAtCorner(this.computePlacement());
+    if (this.window('detail')?.isVisible()) this.placeDetail();
   }
 
   /** Display metrics changed (or the fake display switched): new budget, re-place. */
@@ -523,6 +546,21 @@ export class WindowShell implements WindowHost, CoreHost {
     const display =
       moved || !intended ? displayMatching(this.attached.displays.all(), from) : placement.display;
     const grid = this.gridOf(display);
+    if (this.onboarding && !moved) {
+      // Centred: every height change centres it again.
+      this.setMainContent(
+        centredContentRect({
+          workArea: display.workArea,
+          frame: placement.frame,
+          anchor: placement.layout.anchor,
+          height: report.height,
+          grid,
+        }),
+        grid,
+      );
+      if (this.window('detail')?.isVisible()) this.placeDetail();
+      return;
+    }
     this.setMainContent(
       resizeAnchored(
         from,
@@ -894,7 +932,7 @@ export class WindowShell implements WindowHost, CoreHost {
   // WindowHost
   // -------------------------------------------------------------------------------------
 
-  windowOf(sender: IpcSenderInfo): WindowKind | null {
+  windowOf(sender: IpcSenderInfo): UiWindow | null {
     const kind = this.registry.get(sender.webContentsId);
     if (!kind) return null;
     return isTrustedFrameUrl(sender.frameUrl, this.options.renderer, this.options.platform)
@@ -902,11 +940,23 @@ export class WindowShell implements WindowHost, CoreHost {
       : null;
   }
 
-  initPayload(kind: WindowKind): Omit<InitPayload, 'snapshot'> {
-    const win = this.window(kind);
+  initPayload(kind: UiWindow): Omit<InitPayload, 'snapshot'> {
     const layout = this.attached
       ? this.currentPlacement().layout
       : { maxContentHeight: MAIN_DEFAULT_CONTENT_HEIGHT, anchor: 'bottom' as const };
+    if (isSurfaceKind(kind)) {
+      return {
+        window: kind,
+        platform: this.options.platform,
+        layout,
+        detail: null,
+        visible: [...this.surfaces.values()].some(
+          (s) => s.kind === kind && !s.win.isDestroyed() && s.win.isVisible(),
+        ),
+        harness: this.harnessLoad,
+      };
+    }
+    const win = this.window(kind);
     this.pushedLayout.set(kind, JSON.stringify(layout));
     return {
       window: kind,
@@ -916,6 +966,25 @@ export class WindowShell implements WindowHost, CoreHost {
       visible: win?.isVisible() ?? false,
       harness: this.harnessLoad,
     };
+  }
+
+  /**
+   * A Phase 5 surface window (PLATFORM's): its renderer may talk to main (`windowOf`) and gets
+   * its `app:init` from here. Unregistered when it closes.
+   */
+  registerSurface(win: BrowserWindow, kind: SurfaceKind): void {
+    const id = win.webContents.id;
+    this.registry.set(id, kind);
+    this.surfaces.set(id, { kind, win });
+    win.on('closed', () => {
+      this.registry.delete(id);
+      this.surfaces.delete(id);
+    });
+  }
+
+  /** The harness load renderers get in `app:init` (surfaces created after a load need it). */
+  currentHarnessLoad(): HarnessLoad | null {
+    return this.harnessLoad;
   }
 
   // -------------------------------------------------------------------------------------

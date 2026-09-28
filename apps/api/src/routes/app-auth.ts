@@ -10,7 +10,7 @@
 import type { AppTokenRequest, AppTokenResponse, CloudPlatform } from '@centrate/shared/cloud-api';
 import { CLOUD_LIMITS, CLOUD_PLATFORMS } from '@centrate/shared/cloud-api';
 import { and, count, eq } from 'drizzle-orm';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { createSessionRow, hasBearer } from '../auth/session';
@@ -98,43 +98,61 @@ export function loopbackCallback(port: number, code: string, state: string): str
 const invalidCode = () =>
   validationFailed([{ path: 'body.code', message: 'invalid or expired code' }], 'Invalid code');
 
+/**
+ * The only urlencoded body the API reads: the «Conectar» button's form, 4 KB at most. It is
+ * registered on the authorize route alone (an encapsulated plugin), so no other route, and in
+ * particular no sign-in route under /api/auth, can be reached by a cross-site HTML form.
+ */
+function acceptFormBodies(app: FastifyInstance): void {
+  app.addContentTypeParser(
+    'application/x-www-form-urlencoded',
+    { parseAs: 'string', bodyLimit: 4096 },
+    (_request, body, done) => {
+      done(null, Object.fromEntries(new URLSearchParams(String(body))));
+    },
+  );
+}
+
 export const appAuthRoutes: FastifyPluginAsync = async (app) => {
   const { ctx } = app;
   const limit = { rateLimit: { max: 20, timeWindow: '1 hour' } };
 
   // Cookie session + Origin check (app.ts); 303 to http://127.0.0.1:<port>/callback?code&state.
-  app.post<{ Body: AuthorizeForm }>(
-    '/app-auth/authorize',
-    { config: limit },
-    async (request, reply) => {
-      const db = requireDb(ctx);
-      const form = parseBody(AuthorizeFormSchema, request);
-      if (!request.user) {
-        // The browser session ended between the page and the click: sign in and come back.
-        const back = new URLSearchParams({
+  await app.register(async (scope) => {
+    acceptFormBodies(scope);
+    scope.post<{ Body: AuthorizeForm }>(
+      '/app-auth/authorize',
+      { config: limit },
+      async (request, reply) => {
+        const db = requireDb(ctx);
+        const form = parseBody(AuthorizeFormSchema, request);
+        if (!request.user) {
+          // The browser session ended between the page and the click: sign in and come back.
+          const back = new URLSearchParams({
+            challenge: form.challenge,
+            state: form.state,
+            port: String(form.port),
+            ...(form.device ? { device: form.device } : {}),
+          });
+          const volver = `/cuenta/conectar?${back.toString()}`;
+          return reply.redirect(`/cuenta?${new URLSearchParams({ volver }).toString()}`, 303);
+        }
+        // Only a browser session may link a computer, never another computer's bearer token.
+        if (hasBearer(request.headers)) throw forbidden('Use the browser to connect a computer');
+        const code = randomBytes(32).toString('base64url');
+        const now = ctx.now();
+        await db.insert(appAuthCodes).values({
+          codeHash: sha256Hex(code),
+          userId: request.user.userId,
           challenge: form.challenge,
-          state: form.state,
-          port: String(form.port),
-          ...(form.device ? { device: form.device } : {}),
+          port: form.port,
+          createdAt: now,
+          expiresAt: new Date(now.getTime() + CLOUD_LIMITS.appAuthCodeTtlSeconds * 1000),
         });
-        const volver = `/cuenta/conectar?${back.toString()}`;
-        return reply.redirect(`/cuenta?${new URLSearchParams({ volver }).toString()}`, 303);
-      }
-      // Only a browser session may link a computer, never another computer's bearer token.
-      if (hasBearer(request.headers)) throw forbidden('Use the browser to connect a computer');
-      const code = randomBytes(32).toString('base64url');
-      const now = ctx.now();
-      await db.insert(appAuthCodes).values({
-        codeHash: sha256Hex(code),
-        userId: request.user.userId,
-        challenge: form.challenge,
-        port: form.port,
-        createdAt: now,
-        expiresAt: new Date(now.getTime() + CLOUD_LIMITS.appAuthCodeTtlSeconds * 1000),
-      });
-      return reply.redirect(loopbackCallback(form.port, code, form.state), 303);
-    },
-  );
+        return reply.redirect(loopbackCallback(form.port, code, form.state), 303);
+      },
+    );
+  });
 
   app.post<{ Body: AppTokenRequest; Reply: AppTokenResponse }>(
     '/app-auth/token',

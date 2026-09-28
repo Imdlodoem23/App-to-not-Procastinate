@@ -1,0 +1,133 @@
+/*
+ * Recompensas window (PROMPT §10 «Ventanas de detalle › Recompensas»): one section, the mascot
+ * in large on the left and the shop rows on the right («15 min de YouTube · 150 pts ·
+ * Canjear»). No cards, no separators; colors only from tokens.css.
+ */
+
+@layer components {
+  .rwd {
+    display: flex;
+    flex-direction: column;
+    gap: var(--section-gap);
+    min-width: 0;
+  }
+
+  /* The mascot's column (128 px + air) and the shop, as wide as the main window's column. */
+  .rwd-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+    align-items: start;
+    min-width: 0;
+  }
+
+  .rwd-body[data-mascot] {
+    grid-template-columns: 144px minmax(0, 1fr);
+  }
+
+  .rwd-mascot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0;
+    padding-top: var(--space-1);
+  }
+
+  .rwd-mascot-caption {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    max-width: 100%;
+    text-align: center;
+  }
+
+  .rwd-mascot-name {
+    font-size: var(--font-size-13);
+    line-height: var(--line-height-13);
+    font-weight: var(--font-weight-semibold);
+  }
+
+  .rwd-mascot-text {
+    color: var(--fg-muted);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+    overflow-wrap: anywhere;
+  }
+
+  .rwd-main {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .rwd-text {
+    margin: 0;
+    font-size: var(--font-size-13);
+    line-height: var(--line-height-13);
+  }
+
+  .rwd-muted {
+    color: var(--fg-muted);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+
+  /* The shop: one offer per line; every «Canjear» shares the help line under the list. */
+  .rwd-shop .c-tilegrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rwd-offer {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    min-height: var(--size-tile-text);
+  }
+
+  .rwd-monogram {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: var(--radius-sm);
+    background: var(--tile-2);
+    color: var(--fg);
+    font-size: var(--font-size-11);
+    line-height: var(--line-height-11);
+    font-weight: var(--font-weight-semibold);
+    object-fit: contain;
+  }
+
+  .rwd-offer-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: var(--font-size-13);
+    line-height: var(--line-height-13);
+    white-space: nowrap;
+  }
+
+  .rwd-offer-price {
+    flex: none;
+    color: var(--fg-muted);
+    font-size: var(--font-size-13);
+    line-height: var(--line-height-13);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* Wide enough for «¿Seguro? Canjear» at 13 px. */
+  .rwd-offer .rwd-redeem {
+    flex: none;
+    width: 136px;
+  }
+
+  .rwd-empty {
+    align-items: stretch;
+  }
+}

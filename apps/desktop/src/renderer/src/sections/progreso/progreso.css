@@ -1,0 +1,13 @@
+/*
+ * Progreso's doors (PROMPT §10 «Tiles de 40 px Estadísticas… | Recompensas… | Logros…»): three
+ * 136 px tiles in the 416 px column, the 20 px icon left of the label. The kit's 8 px padding
+ * and gap leave «Recompensas…» 3 px short at 13 px; 6 px on both still keeps the icon clear of
+ * the label and the label clear of the border.
+ */
+
+@layer components {
+  .progreso-doors .c-tile[data-size='door'] {
+    padding: 0 6px;
+    gap: 6px;
+  }
+}

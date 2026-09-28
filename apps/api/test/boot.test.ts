@@ -1,14 +1,20 @@
 /**
  * Booting against a database that never answers (an expired free Postgres, a host that drops
  * packets): the server must still listen, report `db: down`, answer /v1 with 503 and keep
- * retrying in the background instead of exiting (docs/API.md §15).
+ * retrying in the background instead of exiting (docs/API.md §15). And shutting down: requests
+ * in flight (a coach call included) finish before the process exits.
  */
 import type { HealthResponse } from '@centrate/shared/cloud-api';
+import { readFileSync } from 'node:fs';
+import { Agent, get } from 'node:http';
+import type { IncomingHttpHeaders } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { isRetryableBootError, startServer } from '../src/boot';
+import { buildApp } from '../src/app';
+import { isRetryableBootError, SHUTDOWN_TIMEOUT_MS, startServer } from '../src/boot';
+import { ENDPOINTS, SETTLE_MARGIN_MS } from '../src/coach/service';
 import { DatabaseNotReadyError } from '../src/db/migrate';
 import { testConfig } from './helpers/app';
 import { closedPortUrl, startBlackhole } from './helpers/blackhole';
@@ -92,5 +98,54 @@ describe('startServer without a reachable database', () => {
     expect(isRetryableBootError(new DatabaseNotReadyError(new Error('x')))).toBe(true);
     expect(isRetryableBootError(new Error('Connection terminated unexpectedly'))).toBe(true);
     expect(isRetryableBootError(Object.assign(new Error('syntax'), { code: '42601' }))).toBe(false);
+  });
+});
+
+describe('graceful shutdown', () => {
+  it('waits for the longest coach call to settle, and Render waits for it', () => {
+    const longest = Math.max(...Object.values(ENDPOINTS).map((e) => e.deadlineMs));
+    expect(SHUTDOWN_TIMEOUT_MS).toBeGreaterThanOrEqual(longest + SETTLE_MARGIN_MS);
+    const blueprint = readFileSync(new URL('../../../render.yaml', import.meta.url), 'utf8');
+    const api = blueprint.slice(blueprint.indexOf('name: centrate-api'));
+    const delay = Number(/\n\s+maxShutdownDelaySeconds: (\d+)\n/.exec(api)?.[1]);
+    expect(delay * 1000).toBeGreaterThanOrEqual(SHUTDOWN_TIMEOUT_MS);
+    expect(delay).toBeLessThanOrEqual(300);
+  });
+
+  it('lets a request in flight finish, then closes its keep-alive connection at once', async () => {
+    const app = await buildApp({ config: testConfig({ DATABASE_URL: undefined }), logger: false });
+    app.get('/slow-test', async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      return { ok: true };
+    });
+    await app.listen({ host: '127.0.0.1', port: 0 });
+    const { port } = app.server.address() as AddressInfo;
+    const agent = new Agent({ keepAlive: true, maxSockets: 1 });
+    const call = (path: string) =>
+      new Promise<{ status: number; headers: IncomingHttpHeaders; at: number }>(
+        (resolve, reject) => {
+          get({ host: '127.0.0.1', port, path, agent }, (res) => {
+            res.resume();
+            res.on('end', () =>
+              resolve({ status: res.statusCode ?? 0, headers: res.headers, at: Date.now() }),
+            );
+          }).on('error', reject);
+        },
+      );
+    try {
+      // A warm keep-alive connection, as Render's proxy keeps.
+      expect((await call('/health')).headers.connection).toBe('keep-alive');
+      const inFlight = call('/slow-test');
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const closed = app.close().then(() => Date.now());
+      const res = await inFlight;
+      expect(res.status).toBe(200);
+      expect(res.headers.connection).toBe('close');
+      // Without closing the connection the server would wait for Fastify's 72 s keep-alive.
+      expect((await closed) - res.at).toBeLessThan(1000);
+    } finally {
+      agent.destroy();
+      await app.close();
+    }
   });
 });

@@ -7,8 +7,8 @@ import type { HealthResponse, MeResponse } from '@centrate/shared/cloud-api';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { normalizeMailbox } from '../src/auth/email-limits';
-import { account, profiles, rateCounters, session, user } from '../src/db/schema';
-import { fakeClock, testConfig } from './helpers/app';
+import { account, devices, profiles, rateCounters, session, user } from '../src/db/schema';
+import { createTestUser, fakeClock, testConfig } from './helpers/app';
 import type { FakeClock } from './helpers/app';
 import { buildCoreApp, sessionCookie, TEST_ORIGIN } from './helpers/core';
 import { createTestDb, resetDb, type TestDb } from './helpers/db';
@@ -456,30 +456,91 @@ describe('sessions', () => {
     }
   });
 
-  it('stops a deleted session at once and slides expiry once a day', async () => {
-    const { token } = await signIn('ana@example.com');
-    const headers = { authorization: `Bearer ${token}` };
+  /** A desktop session: the kind a `devices` row points at (the loopback login's). */
+  async function desktopSession(): Promise<{ token: string; headers: Record<string, string> }> {
+    const u = await createTestUser(t.db, { now: clock.now() });
+    await t.db.insert(devices).values({
+      userId: u.userId,
+      installId: 'install-auth-test-0001',
+      sessionId: u.sessionId,
+      name: 'PC',
+      platform: 'linux',
+      appVersion: '1.0.0',
+    });
+    return { token: u.token, headers: u.headers };
+  }
+
+  it('slides a desktop session once a day and stops a deleted one at once', async () => {
+    const { token, headers } = await desktopSession();
     const [row] = await t.db.select().from(session).where(eq(session.token, token));
     const firstExpiry = row?.expiresAt.getTime() ?? 0;
 
     clock.advance(2 * 86_400_000);
     expect((await core.app.inject({ method: 'GET', url: '/v1/me', headers })).statusCode).toBe(200);
     const [slid] = await t.db.select().from(session).where(eq(session.token, token));
+    expect(slid?.expiresAt.getTime()).toBe(clock.now().getTime() + 60 * 86_400_000);
     expect(slid?.expiresAt.getTime()).toBeGreaterThan(firstExpiry);
 
     await t.db.delete(session).where(eq(session.token, token));
     expect((await core.app.inject({ method: 'GET', url: '/v1/me', headers })).statusCode).toBe(401);
   });
 
-  it('expires sessions after 60 days without use', async () => {
-    const { token } = await signIn('ana@example.com');
+  it('expires desktop sessions after 60 days without use', async () => {
+    const { headers } = await desktopSession();
+    clock.advance(59 * 86_400_000);
+    expect((await core.app.inject({ method: 'GET', url: '/v1/me', headers })).statusCode).toBe(200);
     clock.advance(61 * 86_400_000);
+    expect((await core.app.inject({ method: 'GET', url: '/v1/me', headers })).statusCode).toBe(401);
+  });
+
+  it('ends a browser session 14 days after sign-in, however often it is used', async () => {
+    expect((await requestCode('ana@example.com')).statusCode).toBe(200);
+    const res = await core.app.inject({
+      method: 'POST',
+      url: '/api/auth/sign-in/email-otp',
+      headers: json,
+      payload: { email: 'ana@example.com', otp: lastCode() },
+    });
+    expect(res.statusCode).toBe(200);
+    const setCookie = [res.headers['set-cookie']].flat().join('\n');
+    expect(setCookie).toMatch(/centrate\.session_token=[^;]+;[^\n]*Max-Age=1209600/);
+    const cookie = `centrate.session_token=${setCookie.match(/centrate\.session_token=([^;]+)/)?.[1]}`;
+    const token: string = res.json().token;
+    const [row] = await t.db.select().from(session).where(eq(session.token, token));
+    const expiry = row?.expiresAt.getTime() ?? 0;
+    // better-auth stamps it with the real clock, which the fake one started from.
+    expect(Math.abs(expiry - (clock.now().getTime() + 14 * 86_400_000))).toBeLessThan(60_000);
+
+    for (let day = 0; day < 13; day += 1) {
+      clock.advance(86_400_000);
+      for (const headers of [{ cookie }, { authorization: `Bearer ${token}` }]) {
+        const me = await core.app.inject({ method: 'GET', url: '/v1/me', headers });
+        expect(me.statusCode).toBe(200);
+      }
+    }
+    const [same] = await t.db.select().from(session).where(eq(session.token, token));
+    expect(same?.expiresAt.getTime()).toBe(expiry);
+
+    clock.set(new Date(expiry + 1000));
+    const late = await core.app.inject({ method: 'GET', url: '/v1/me', headers: { cookie } });
+    expect(late.statusCode).toBe(401);
+  });
+
+  it("never lets better-auth's session read extend a browser session", async () => {
+    const { cookie, token } = await signIn('ana@example.com');
+    // As if signed in two days ago (better-auth reads the real clock): past its one-day
+    // `updateAge`, a refreshing get-session would push the expiry to now + 14 days.
+    const expiresAt = new Date(Date.now() + 12 * 86_400_000);
+    await t.db.update(session).set({ expiresAt }).where(eq(session.token, token));
     const res = await core.app.inject({
       method: 'GET',
-      url: '/v1/me',
-      headers: { authorization: `Bearer ${token}` },
+      url: '/api/auth/get-session',
+      headers: { cookie },
     });
-    expect(res.statusCode).toBe(401);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()?.session?.token).toBe(token);
+    const [row] = await t.db.select().from(session).where(eq(session.token, token));
+    expect(row?.expiresAt.getTime()).toBe(expiresAt.getTime());
   });
 });
 
@@ -513,6 +574,114 @@ describe('CSRF rule for cookie sessions', () => {
     core = await buildCoreApp(t.db, clock, testConfig({ APP_ORIGINS: 'https://panel.example' }));
     const { cookie } = await signIn('ana@example.com');
     expect((await patch({ cookie, origin: 'https://panel.example' })).statusCode).toBe(200);
+  });
+});
+
+describe('sign-in routes refuse cross-site requests (login CSRF)', () => {
+  /** What a hidden auto-submitted HTML form on another site sends (no cookie: SameSite=Lax). */
+  const crossSiteForm = {
+    'content-type': 'application/x-www-form-urlencoded',
+    origin: 'https://evil.example',
+    'sec-fetch-site': 'cross-site',
+    'sec-fetch-mode': 'navigate',
+  };
+
+  it('never signs a browser in from another site, even with a valid code', async () => {
+    expect((await requestCode('mallory@example.com')).statusCode).toBe(200);
+    const otp = lastCode();
+    const res = await core.app.inject({
+      method: 'POST',
+      url: '/api/auth/sign-in/email-otp',
+      headers: crossSiteForm,
+      payload: new URLSearchParams({ email: 'mallory@example.com', otp }).toString(),
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('forbidden');
+    expect(res.headers['set-cookie']).toBeUndefined();
+    expect(res.headers['set-auth-token']).toBeUndefined();
+    expect(await t.db.select().from(session)).toHaveLength(0);
+    // The request never reached better-auth: the code is untouched and still works here.
+    const own = await core.app.inject({
+      method: 'POST',
+      url: '/api/auth/sign-in/email-otp',
+      headers: json,
+      payload: { email: 'mallory@example.com', otp },
+    });
+    expect(own.statusCode).toBe(200);
+  });
+
+  it('refuses cross-site code requests before counting or sending anything', async () => {
+    const res = await core.app.inject({
+      method: 'POST',
+      url: '/api/auth/email-otp/send-verification-otp',
+      headers: crossSiteForm,
+      payload: new URLSearchParams({ email: 'victim@example.com', type: 'sign-in' }).toString(),
+    });
+    expect(res.statusCode).toBe(403);
+    expect(await t.db.select().from(rateCounters)).toHaveLength(0);
+    expect(core.mailer.sent).toHaveLength(0);
+  });
+
+  it('accepts only JSON from our own pages', async () => {
+    const send = (headers: Record<string, string>, payload: string) =>
+      core.app.inject({
+        method: 'POST',
+        url: '/api/auth/email-otp/send-verification-otp',
+        headers,
+        payload,
+      });
+    const body = JSON.stringify({ email: 'ana@example.com', type: 'sign-in' });
+    const refused: Record<string, string>[] = [
+      // JSON, but not from us (a script elsewhere, a non-browser client without Origin).
+      { 'content-type': 'application/json', origin: 'https://evil.example' },
+      { 'content-type': 'application/json', origin: 'null' },
+      { 'content-type': 'application/json', 'sec-fetch-site': 'same-site' },
+      { 'content-type': 'application/json' },
+      // From us, but not JSON: what a form can send (text/plain can carry a JSON-looking body).
+      { 'content-type': 'text/plain', origin: TEST_ORIGIN },
+      { 'content-type': 'application/x-www-form-urlencoded', origin: TEST_ORIGIN },
+      { 'content-type': 'multipart/form-data; boundary=x', origin: TEST_ORIGIN },
+      { origin: TEST_ORIGIN },
+    ];
+    for (const headers of refused) {
+      expect((await send(headers, body)).statusCode, JSON.stringify(headers)).toBe(403);
+    }
+    expect(await t.db.select().from(rateCounters)).toHaveLength(0);
+    expect(
+      (
+        await send(
+          { 'content-type': 'application/json; charset=utf-8', 'sec-fetch-site': 'same-origin' },
+          body,
+        )
+      ).statusCode,
+    ).toBe(200);
+    expect((await send(json, body)).statusCode).toBe(200);
+  });
+
+  it('applies the rule to every POST under /api/auth, and not to reads', async () => {
+    for (const url of ['/api/auth/sign-out', '/api/auth/sign-in/social']) {
+      const res = await core.app.inject({
+        method: 'POST',
+        url,
+        headers: crossSiteForm,
+        payload: 'provider=google&callbackURL=%2Fcuenta',
+      });
+      expect(res.statusCode, url).toBe(403);
+    }
+    const read = await core.app.inject({ method: 'GET', url: '/api/auth/get-session' });
+    expect(read.statusCode).toBe(200);
+  });
+
+  it('reads urlencoded bodies only on the «Conectar» form route', async () => {
+    const { cookie } = await signIn('ana@example.com');
+    const res = await core.app.inject({
+      method: 'PATCH',
+      url: '/v1/me',
+      headers: { cookie, origin: TEST_ORIGIN, 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'sharing%5BsyncStats%5D=true',
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('validation_failed');
   });
 });
 

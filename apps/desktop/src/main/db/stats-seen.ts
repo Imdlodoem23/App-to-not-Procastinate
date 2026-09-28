@@ -26,7 +26,11 @@ export function parseSeen(text: string | null): SeenAchievements {
     const r = raw as Record<string, unknown>;
     const epoch = typeof r['epoch'] === 'string' && r['epoch'].length <= 64 ? r['epoch'] : null;
     const ids = Array.isArray(r['ids'])
-      ? [...new Set(r['ids'].filter((id): id is AchievementId => typeof id === 'string' && IDS.has(id)))]
+      ? [
+          ...new Set(
+            r['ids'].filter((id): id is AchievementId => typeof id === 'string' && IDS.has(id)),
+          ),
+        ]
       : [];
     return { epoch, ids };
   } catch {

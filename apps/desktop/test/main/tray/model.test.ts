@@ -185,6 +185,7 @@ describe('menu', () => {
       'sep-status',
       'extend',
       'quick',
+      'mini-timer',
       'sep-actions',
       'open',
       'quit',
@@ -240,6 +241,25 @@ describe('menu', () => {
   it('counts minutes already queued for undo', () => {
     // extend-undo: 43 min left (rounded up) + 30 queued.
     expect(trayExtendMax(snap('extend-undo'), NOW)).toBe(24 * 60 - 43 - 30);
+  });
+});
+
+describe('«Mini temporizador» checkbox', () => {
+  it('shows with its flag, checked when the mini timer is visible', () => {
+    const hidden = find(trayMenu(snap('one-block'), NOW), TRAY_ITEM.miniTimer);
+    expect(hidden).toMatchObject({ type: 'checkbox', checked: false, label: 'Mini temporizador' });
+    const shown = find(trayMenu(snap('mini-timer'), NOW), TRAY_ITEM.miniTimer);
+    expect(shown).toMatchObject({ type: 'checkbox', checked: true, enabled: true });
+  });
+
+  it('is not there with the flag off', () => {
+    const s = snap('one-block');
+    const off = { ...s, features: resolveFeatures({ miniTimer: false }) };
+    expect(find(trayMenu(off, NOW), TRAY_ITEM.miniTimer)).toBeUndefined();
+  });
+
+  it('maps to the mini timer action', () => {
+    expect(trayActionForItem(TRAY_ITEM.miniTimer)).toEqual({ type: 'mini-timer' });
   });
 });
 

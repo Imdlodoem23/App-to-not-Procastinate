@@ -404,7 +404,6 @@ export function synthesize(script: Script, options: SynthOptions = {}): SynthTic
       if (camera === 'ok' && t >= nextObjectAt) {
         // Fixed cadence on average (like "every N frames" in the real loop), no catch-up burst.
         nextObjectAt = Math.max(nextObjectAt + objectEveryMs, t + objectEveryMs / 2);
-        let phone: PhoneDetection | null = null;
         const phoneSpec: PhoneSpec | null =
           spec.phone ??
           (persona.deskPhoneScore > 0 && step.activity !== 'absent' && step.activity !== 'covered'
@@ -429,7 +428,13 @@ export function synthesize(script: Script, options: SynthOptions = {}): SynthTic
           });
         }
         const faceBox = t - lastFaceAt <= FACE_MEMORY_MS ? lastFaceBox : null;
-        phone = phones.update(seen, t, faceBox, FRAME_WIDTH, FRAME_HEIGHT);
+        const phone: PhoneDetection | null = phones.update(
+          seen,
+          t,
+          faceBox,
+          FRAME_WIDTH,
+          FRAME_HEIGHT,
+        );
         let book: ObjectDetection | null = null;
         if (spec.book && rng() < spec.book.detectP) {
           book = { score: range(rng, spec.book.score), box: boxAround(box, 0, 0.45, 0.35, 0.2) };

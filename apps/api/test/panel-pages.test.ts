@@ -329,6 +329,7 @@ describe('with the real app', () => {
           clientRef: `ref-${at.replace(/\D/g, '')}`,
           kind,
           occurredAt: at,
+          sentAt: at,
           countdownEndsAt:
             countdownMinutes === null
               ? null
@@ -363,7 +364,8 @@ describe('with the real app', () => {
     expect(waiting).toContain(`data-event="${pending}"`);
     expect(waiting).toContain('data-decision="approve"');
     expect(waiting).toContain('data-decision="deny"');
-    expect(waiting).toContain('Puedes responder hasta las 12:15');
+    // The deadline ends 30 s before the 15-minute countdown (12:14:30).
+    expect(waiting).toContain('Puedes responder hasta las 12:14');
     expect(recent).toContain('ha abandonado una sesión de estudio');
     expect(recent).toContain('Nadie respondió a tiempo, así que se aprobó solo.');
     expect(recent).toContain('ayer a las 18:40 · Lo aprobaste tú.');

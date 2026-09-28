@@ -317,6 +317,125 @@ describe('study session facade (wiring)', () => {
     await handle.stop();
   });
 
+  describe('WebGL context lost (GPU reset, resume from sleep)', () => {
+    /** A rig whose next `createVision` calls return these (a pipeline, a failure, or hang). */
+    function rebuildRig(next: (FakeVision | Error | 'hang')[]): Rig & { pipelines: FakeVision[] } {
+      const r = rig();
+      const pipelines: FakeVision[] = [r.vision];
+      r.deps.createVision = () => {
+        r.visionLoads += 1;
+        if (r.visionLoads === 1) return Promise.resolve(r.vision);
+        const item = next.shift();
+        if (item === undefined || item === 'hang') return new Promise(() => undefined);
+        if (item instanceof Error) return Promise.reject(item);
+        pipelines.push(item);
+        return Promise.resolve(item);
+      };
+      return Object.assign(r, { pipelines });
+    }
+
+    it('rebuilds the pipeline at once and keeps analysing, without counting a failure', async () => {
+      const fresh = new FakeVision();
+      const r = rebuildRig([fresh]);
+      const f = fakeParts();
+      const handle = await startStudySessionWith(r.options(), f.parts);
+      await run(r, handle, 3_000);
+      r.vision.contextLost = true;
+      await run(r, handle, 3_000);
+      expect(r.visionLoads).toBe(2);
+      expect(r.vision.closed).toBe(1);
+      expect(fresh.calls.length).toBeGreaterThan(5);
+      expect(eventsOf(r.events, 'mode')).toEqual([]);
+      const report = handle.report();
+      expect(report.mode).toBe('camera');
+      expect(report.loop?.errors).toBe(0);
+      // The frames of the lost context never reached the engine as «nobody there».
+      const lostAt = r.vision.calls.at(-1)?.frame.t ?? 0;
+      const blind = f.engine().ticks.filter((t) => t.now >= lostAt && t.frame === null);
+      expect(blind.every((t) => t.camera === 'ok')).toBe(true);
+      expect(f.engine().ticks.at(-1)?.frame).not.toBeNull();
+      await handle.stop();
+      expect(fresh.closed).toBe(1);
+    });
+
+    it('a rebuild that fails, or takes over 8 s, switches to no-camera mode at once', async () => {
+      for (const outcome of [new VisionError('load_failed'), 'hang'] as const) {
+        const r = rebuildRig([outcome]);
+        const f = fakeParts();
+        const handle = await startStudySessionWith(r.options(), f.parts);
+        await run(r, handle, 2_000);
+        r.vision.contextLost = true;
+        await run(r, handle, outcome === 'hang' ? 7_000 : 1_000);
+        if (outcome === 'hang') {
+          expect(eventsOf(r.events, 'mode')).toEqual([]);
+          await run(r, handle, 2_000);
+        }
+        expect(eventsOf(r.events, 'mode').map((e) => e.reason)).toEqual(['vision_failed']);
+        expect(handle.report().mode).toBe('no-camera');
+        expect(r.camera.last.stopped).toBe(1);
+        await handle.stop();
+      }
+    });
+
+    it('a second loss within 60 s of a rebuild gives up; a later one rebuilds again', async () => {
+      const second = new FakeVision();
+      const third = new FakeVision();
+      const r = rebuildRig([second, third]);
+      const f = fakeParts();
+      const handle = await startStudySessionWith(r.options(), f.parts);
+      await run(r, handle, 2_000);
+      r.vision.contextLost = true;
+      await run(r, handle, 61_000);
+      second.contextLost = true;
+      await run(r, handle, 2_000);
+      expect(r.visionLoads).toBe(3); // 70 s later: rebuilt again
+      expect(eventsOf(r.events, 'mode')).toEqual([]);
+      third.contextLost = true;
+      await run(r, handle, 2_000);
+      expect(eventsOf(r.events, 'mode').map((e) => e.reason)).toEqual(['vision_failed']);
+      await handle.stop();
+    });
+
+    it('resume() rebuilds a pipeline whose context was lost before its next frame', async () => {
+      const fresh = new FakeVision();
+      const r = rebuildRig([fresh]);
+      const f = fakeParts();
+      const handle = await startStudySessionWith(r.options(), f.parts);
+      await run(r, handle, 2_000);
+      r.vision.contextLost = true;
+      const processed = r.vision.calls.length;
+      handle.resume();
+      expect(r.visionLoads).toBe(2);
+      await run(r, handle, 2_000);
+      expect(r.vision.calls.length).toBe(processed);
+      expect(fresh.calls.length).toBeGreaterThan(0);
+      await handle.stop();
+    });
+
+    it('stop() during a rebuild closes the late pipeline', async () => {
+      const r = rig();
+      let resolve: ((v: FakeVision) => void) | null = null;
+      r.deps.createVision = () => {
+        r.visionLoads += 1;
+        if (r.visionLoads === 1) return Promise.resolve(r.vision);
+        return new Promise((ok) => {
+          resolve = ok;
+        });
+      };
+      const f = fakeParts();
+      const handle = await startStudySessionWith(r.options(), f.parts);
+      await run(r, handle, 1_000);
+      r.vision.contextLost = true;
+      await run(r, handle, 1_000);
+      await handle.stop();
+      const late = new FakeVision();
+      (resolve as unknown as (v: FakeVision) => void)(late);
+      await r.s.advance(10);
+      expect(late.closed).toBe(1);
+      expect(late.calls).toEqual([]);
+    });
+  });
+
   it('feeds the process-CPU probe to the governor, which slows the loop down', async () => {
     const r = rig();
     let pct = 5;
@@ -336,15 +455,114 @@ describe('study session facade (wiring)', () => {
     await handle.stop();
   });
 
-  it('rejects with the CameraOpenError when the camera cannot be opened', async () => {
+  it('a camera that cannot be opened at start runs the session without camera (never rejects)', async () => {
+    // Main starts the analysis after the guardian accepted the session: rejecting here would
+    // leave that session without reports, heartbeats, and so abandoned and punished.
     const r = rig();
-    r.camera.failWith = new CameraError('permission_denied');
+    r.camera.failWith = new CameraError('in_use');
     const f = fakeParts();
-    await expect(startStudySessionWith(r.options(), f.parts)).rejects.toMatchObject({
-      code: 'permission_denied',
-    });
+    const handle = await startStudySessionWith(r.options(), f.parts);
     expect(r.vision.closed).toBe(1);
+    expect(f.observers).toHaveLength(0);
+    expect(f.engine().observer).toBeInstanceOf(NoCameraObserver);
+    expect(r.events).toEqual([
+      { type: 'camera', at: expect.any(Number), status: 'error', error: 'in_use' },
+      { type: 'mode', at: expect.any(Number), mode: 'no-camera', reason: 'vision_failed' },
+    ]);
+    for (const event of r.events) expect(isAnalysisOutbound({ type: 'event', event })).toBe(true);
+    await run(r, handle, 3_000);
+    const report = r.reports[r.reports.length - 1] as SessionReport;
+    expect(report.mode).toBe('no-camera');
+    expect(report.cameraOn).toBe(false);
+    expect(report.totals.ticks).toBeGreaterThan(0);
+    // The camera error explains it: not the «the AI could not start» hint.
+    expect(report.snapshot.hints).not.toContain('vision_failed');
+    expect(r.camera.calls).toHaveLength(1); // no-camera mode never retries the camera
+    expect(handle.continueWithoutCamera()).toBe(false); // already without camera
+    expect(handle.studyingFeedback()).toEqual({ ok: false, reason: 'no_camera' });
+    await handle.stop();
     expect(r.s.pending).toBe(0);
+  });
+
+  it('a camera that never answers at start gives up after 15 s and stops the late stream', async () => {
+    const r = rig();
+    r.camera.hang = true; // wedged driver: getUserMedia never settles
+    const f = fakeParts();
+    let handle: StudySessionHandle | null = null;
+    void startStudySessionWith(r.options(), f.parts).then((h) => {
+      handle = h;
+    });
+    await r.s.advance(14_000);
+    expect(handle).toBeNull();
+    await r.s.advance(1_500);
+    expect(handle).not.toBeNull();
+    expect(eventsOf(r.events, 'camera')).toEqual([
+      { type: 'camera', at: expect.any(Number), status: 'error', error: 'unknown' },
+    ]);
+    expect(eventsOf(r.events, 'mode')).toHaveLength(1);
+    expect(r.vision.closed).toBe(1);
+    // The stream arrives much later: released at once, never analysed.
+    const late = r.camera.answerHung();
+    await r.s.advance(1_000);
+    expect(late).toHaveLength(1);
+    expect(late[0]?.stopped).toBe(1);
+    expect(late[0]?.frames).toHaveLength(0);
+    expect(r.reports[r.reports.length - 1]?.mode).toBe('no-camera');
+    await (handle as unknown as StudySessionHandle).stop();
+  });
+
+  it('a vision load that never settles gives up after 30 s: no-camera mode, late pipeline closed', async () => {
+    const r = rig();
+    const lateVision = new FakeVision(r.s);
+    let answer: ((vision: FakeVision) => void) | null = null;
+    r.deps.createVision = () =>
+      new Promise((resolve) => {
+        answer = resolve;
+      });
+    const f = fakeParts();
+    let handle: StudySessionHandle | null = null;
+    void startStudySessionWith(r.options(), f.parts).then((h) => {
+      handle = h;
+    });
+    await r.s.advance(29_000);
+    expect(handle).toBeNull();
+    await r.s.advance(1_500);
+    expect(handle).not.toBeNull();
+    expect(r.camera.opened[0]?.stopped).toBe(1);
+    expect(eventsOf(r.events, 'mode')).toEqual([
+      { type: 'mode', at: expect.any(Number), mode: 'no-camera', reason: 'vision_failed' },
+    ]);
+    (answer as unknown as (vision: FakeVision) => void)(lateVision);
+    await r.s.advance(1_000);
+    expect(lateVision.closed).toBe(1);
+    expect(lateVision.calls).toHaveLength(0);
+    await (handle as unknown as StudySessionHandle).stop();
+  });
+
+  it('a reopen that hangs mid-session gives up after 15 s and keeps retrying', async () => {
+    const r = rig();
+    const f = fakeParts();
+    const handle = await startStudySessionWith(r.options(), f.parts);
+    await run(r, handle, 2_000);
+    r.camera.hang = true;
+    r.camera.last.status = 'error'; // unplugged; the reopen never answers
+    await run(r, handle, 14_000);
+    expect(r.camera.calls).toHaveLength(2); // still waiting on the first reopen
+    await run(r, handle, 3_000);
+    expect(r.camera.calls.length).toBeGreaterThanOrEqual(3); // gave up, retried
+    await run(r, handle, 14_000);
+    // Failing for 30 s: «Continuar sin cámara» is offered with the timeout's code.
+    expect(eventsOf(r.events, 'camera').filter((e) => e.status === 'error')).toEqual([
+      { type: 'camera', at: expect.any(Number), status: 'error', error: 'unknown' },
+    ]);
+    // The driver wakes up: the timed-out stream is stopped, the one still in time is used.
+    r.camera.hang = false;
+    const answered = r.camera.answerHung();
+    await run(r, handle, 12_000);
+    expect(answered[0]?.stopped).toBe(1);
+    expect(r.reports[r.reports.length - 1]?.camera).toBe('ok');
+    expect(r.reports[r.reports.length - 1]?.cameraOn).toBe(true);
+    await handle.stop();
   });
 
   it('no-camera mode never opens the camera and ticks at 1 Hz', async () => {

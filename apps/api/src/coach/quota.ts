@@ -146,7 +146,8 @@ export async function reserve(db: Db, config: Config, input: ReserveInput): Prom
         userBudget;
     if (!fits(rows)) {
       // What is held by the user's other call in flight comes back when it settles; what is
-      // held by a call whose process died stays taken until the day ends.
+      // held by a call whose process died stays taken until the janitor frees it, about an hour
+      // after its `reserved_until` at most (jobs/janitor.ts).
       const others = rows.filter((r) => inFlight(r, now));
       if (others.length > 0 && fits(rows.filter((r) => !inFlight(r, now)))) {
         const wait = Math.max(...others.map(retryAfter));

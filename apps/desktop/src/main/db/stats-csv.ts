@@ -18,11 +18,12 @@ import {
 } from './stats-compute';
 
 /** Byte order mark: Excel opens UTF-8 without it as ANSI. */
-export const CSV_BOM = '﻿';
+export const CSV_BOM = '\uFEFF';
 
+/** Column titles in the user's language (six each, in the order the rows use). */
 export interface CsvHeaders {
-  events: readonly [string, string, string, string, string, string];
-  days: readonly [string, string, string, string, string, string];
+  events: readonly string[];
+  days: readonly string[];
 }
 
 /** Log rows oldest first: date, type, points, target, minutes, mode. */
@@ -47,10 +48,20 @@ export function eventsCsv(
 }
 
 /** Day rows: day, focus minutes, block minutes, attempts, points, goal met (1/0). */
-export function daysCsv(days: readonly DayRow[], headers: CsvHeaders['days']): { text: string; rows: number } {
+export function daysCsv(
+  days: readonly DayRow[],
+  headers: CsvHeaders['days'],
+): { text: string; rows: number } {
   let text = CSV_BOM + csvLine(headers);
   for (const d of days) {
-    text += csvLine([d.day, d.focusMinutes, d.blockMinutes, d.attempts, d.points, d.goalMet ? 1 : 0]);
+    text += csvLine([
+      d.day,
+      d.focusMinutes,
+      d.blockMinutes,
+      d.attempts,
+      d.points,
+      d.goalMet ? 1 : 0,
+    ]);
   }
   return { text, rows: days.length };
 }

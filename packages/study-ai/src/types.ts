@@ -193,11 +193,18 @@ export interface ObjectDetection {
 }
 
 export interface PhoneDetection extends ObjectDetection {
-  /** Box near or overlapping the user's face region (held in hand, on a call). */
+  /**
+   * Held near the face: the box overlaps the face box or sits in front of the chest (±1.2
+   * face widths, down to 1.5 face heights below the chin); never a phone at rest (still for
+   * 20 s) nor a box cut by the bottom edge that does not move.
+   */
   nearFace: boolean;
-  /** Box moved or resized since the previous detector run. */
+  /** Box clearly moved or resized since it was last seen at rest or on the previous run. */
   moving: boolean;
-  /** How long the box has stayed put (IoU ≥ 0.8), e.g. a phone lying on the desk. */
+  /**
+   * How long the box has stayed at one spot (pixel-tolerant, kept across detector misses
+   * for 60 s), e.g. a phone lying on the desk or a timer on a stand. 0 while it moves.
+   */
   stillMs: number;
 }
 
@@ -208,7 +215,10 @@ export interface ObjectFeatures {
   ageMs: number;
   /** The detector ran on this very frame (persistence rules count runs, not frames). */
   fresh: boolean;
-  /** Best `cell phone` above the detector threshold with area ≥ 0.4 % of the frame. */
+  /**
+   * A `cell phone` above the detector threshold with area ≥ 0.4 % of the frame: the best one
+   * that looks in hand (near the face or moving), else the best one.
+   */
   phone: PhoneDetection | null;
   /** Best `book`. */
   book: ObjectDetection | null;
@@ -356,6 +366,12 @@ export interface VisionPipeline {
   /** Clears trackers and held values (after a camera restart or a gap). */
   reset(): void;
   close(): void;
+  /**
+   * True once the WebGL context MediaPipe runs through was lost (GPU reset, resume from
+   * sleep): `process` then throws a `VisionLoadError` with `contextLost: true` and the
+   * pipeline must be rebuilt. Absent on pipelines without WebGL (test fakes).
+   */
+  readonly contextLost?: boolean;
 }
 
 // ---------------------------------------------------------------------------------------

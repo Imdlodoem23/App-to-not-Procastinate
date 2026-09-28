@@ -7,15 +7,17 @@
  * from the sender, never from the payload.
  */
 import { ipcMain, type IpcMainEvent } from 'electron';
-import type { Core } from '../contracts';
+import type { Core, PlatformServices } from '../contracts';
 import {
   SEND_CHANNELS,
   type GuideId,
+  type IpcContext,
   type SendChannel,
   type SendHandlers,
   type SendPayload,
 } from '../../shared/ipc';
 import { phase5SendStubs } from '../../shared/phase5-stubs';
+import { isSurfaceKind, type SurfaceKind, type UiWindow } from '../../shared/ui-state';
 import type { AppLog } from '../app/log';
 import { logRendererError } from '../logs/logger';
 import { SEND_GUARDS } from './send-guards';
@@ -28,6 +30,18 @@ export interface WindowIpcOptions {
   /** «Salir»: `app.quit()` (the bootstrap's `before-quit` flushes the core). */
   quit(): void;
   openGuide(guide: GuideId): void;
+  /**
+   * Phase 5 (docs/DESKTOP.md §15): the platform services take the new send channels and the
+   * surfaces' readiness. Without them (tests) the new channels are ignored.
+   */
+  platform?: SurfaceIpc;
+}
+
+/** What the send channels need from PLATFORM's services. */
+export interface SurfaceIpc {
+  readonly sendHandlers: PlatformServices['sendHandlers'];
+  /** `window:ready` from a surface window (several Nuclear windows share the kind). */
+  markSurfaceReady(webContentsId: number, kind: SurfaceKind, stateId: string | null): void;
 }
 
 export function createSendHandlers(options: WindowIpcOptions): SendHandlers {
@@ -41,18 +55,21 @@ export function createSendHandlers(options: WindowIpcOptions): SendHandlers {
         shell.handleShowAck(payload.seq, payload.layout, ctx.window);
       }
     },
-    // Phase 5 surfaces report readiness to PLATFORM's windows (not registered yet).
+    // Surfaces report readiness to PLATFORM (`registerWindowIpc` routes it with the sender).
     'window:ready': (payload, ctx) => {
       if (ctx.window === 'main' || ctx.window === 'detail') {
         shell.markReady(ctx.window, payload.stateId);
       }
     },
+    // Esc in a surface (mini timer, OSD, Nuclear) closes nothing.
     'window:hide': (_payload, ctx) => {
       if (ctx.window === 'main') shell.hideAll();
-      else shell.closeDetail();
+      else if (ctx.window === 'detail') shell.closeDetail();
     },
     'window:open-detail': (request) => void shell.openDetail(request, { show: true }),
-    'window:close-detail': () => shell.closeDetail(),
+    'window:close-detail': (_payload, ctx) => {
+      if (ctx.window === 'main' || ctx.window === 'detail') shell.closeDetail();
+    },
     'window:confirm-draft': ({ draft }) => {
       // The card must be in the renderer before it measures itself for the show.
       shell.sendCommand({ type: 'confirm-draft', draft });
@@ -64,8 +81,8 @@ export function createSendHandlers(options: WindowIpcOptions): SendHandlers {
     'app:quit': () => options.quit(),
     // MAIN-GUARDIAN's app log keeps only the first line and frames, scrubbed.
     'app:renderer-error': ({ message, stack }) => logRendererError(message, stack),
-    // Phase 5 (docs/DESKTOP.md §15): PLATFORM routes these to `PlatformServices.sendHandlers`.
-    ...phase5SendStubs(),
+    // Phase 5 (docs/DESKTOP.md §15): PLATFORM's `PlatformServices.sendHandlers`.
+    ...(options.platform?.sendHandlers ?? phase5SendStubs()),
   };
 }
 
@@ -86,6 +103,11 @@ export function registerWindowIpc(options: WindowIpcOptions): () => void {
       }
       if (!SEND_GUARDS[channel](payload)) {
         options.log.warn('send_rejected_payload', { channel, window: kind });
+        return;
+      }
+      if (channel === 'window:ready' && isSurfaceKind(kind)) {
+        const ready = payload as SendPayload<'window:ready'>;
+        options.platform?.markSurfaceReady(event.sender.id, kind, ready.stateId);
         return;
       }
       try {
@@ -116,8 +138,8 @@ function dispatch<C extends SendChannel>(
   handlers: SendHandlers,
   channel: C,
   payload: unknown,
-  window: 'main' | 'detail',
+  window: UiWindow,
 ): void {
-  const handler = handlers[channel] as (p: SendPayload<C>, ctx: { window: typeof window }) => void;
+  const handler = handlers[channel] as (p: SendPayload<C>, ctx: IpcContext) => void;
   handler(payload as SendPayload<C>, { window });
 }

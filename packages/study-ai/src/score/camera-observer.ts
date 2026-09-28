@@ -28,10 +28,14 @@ import { clamp } from '../util/math';
 import {
   CANT_SEE_HIDDEN_MS,
   CANT_SEE_TRUNCATED,
+  CANT_SEE_UNKNOWN_MS,
+  DESK_SPOT_FORGET_MS,
+  DESK_SPOT_MAX,
   EYES_MAX_LOOK_DOWN,
   EYES_MIN_QUALITY,
   FACE_RECENT_MS,
   HIDDEN_LOOKBACK_MS,
+  HIDDEN_LOW_VALUE,
   HIDDEN_TURNED_YAW,
   LOOK_DOWN_ABS_PITCH,
   LOOK_DOWN_BLEND,
@@ -44,6 +48,13 @@ import {
   STALE_WINDOW_MS,
   YAWN_JAW,
 } from './constants';
+import {
+  atSpot,
+  withoutDeskPhone,
+  type DeskPhoneLearner,
+  type DeskPhoneSpot,
+  type DeskPhoneVouch,
+} from './desk-phone';
 import { DetectorEvidence } from './evidence';
 import { fuse, hiddenValue, type HiddenPose } from './fusion';
 
@@ -58,17 +69,27 @@ interface LastVisible {
   rel: RelativePose | null;
   pose: HeadPose;
   lookingDown: boolean;
+  /** How much the face was cut by the frame edge. */
+  truncated: number;
 }
 
 interface HiddenStretch {
   since: MonoMs;
   pose: HiddenPose;
+  /** The face was cut by the frame edge just before it was lost (it slid out of view). */
+  slidOut: boolean;
 }
 
 /** Rule-side inputs of a hidden observation, kept for `rescore` (never serialised). */
 interface HiddenMemo {
   value: number;
-  turned: boolean;
+  pose: HiddenPose;
+}
+
+/** A vouched desk phone and when it was last seen there (observed time). */
+interface DeskSpotMemo {
+  spot: DeskPhoneSpot;
+  seenAt: number;
 }
 
 const NO_EYES = Object.freeze({ closed: false, yawn: false });
@@ -85,6 +106,21 @@ function isLookingDown(face: FaceFeatures, rel: RelativePose | null): boolean {
   );
 }
 
+/** Yaw of a visible face: relative to the screen baseline, or absolute before one exists. */
+function faceYaw(face: FaceFeatures | null, rel: RelativePose | null): number | null {
+  if (!face) return null;
+  return rel ? rel.dyaw : face.pose.yaw;
+}
+
+/**
+ * Keyboard or mouse used within `limitMs` (the no-camera idle limit). Unknown idle counts as
+ * recent, as in the no-camera mode.
+ */
+function recentInput(idleMs: number | null, limitMs: number): boolean {
+  if (typeof idleMs !== 'number' || !Number.isFinite(idleMs) || idleMs < 0) return true;
+  return idleMs < limitMs;
+}
+
 function argmax(p: ClassProbabilities): keyof ClassProbabilities {
   let best: keyof ClassProbabilities = 'screen';
   for (const key of ['paper', 'phone', 'away', 'absent'] as const) {
@@ -93,7 +129,7 @@ function argmax(p: ClassProbabilities): keyof ClassProbabilities {
   return best;
 }
 
-export class CameraObserver implements Observer {
+export class CameraObserver implements Observer, DeskPhoneLearner {
   readonly mode: StudyMode = 'camera';
 
   private current: AttentionClassifier;
@@ -107,7 +143,14 @@ export class CameraObserver implements Observer {
   private lastFaceAt: MonoMs | null = null;
   private lastVisible: LastVisible | null = null;
   private hidden: HiddenStretch | null = null;
+  /** The hidden stretch is past its allowance and reported as `absent` (not observable). */
+  private unseen = false;
   private yawnSince: MonoMs | null = null;
+
+  // Vouched desk phones (session memory: survive reset(), forgotten once the phone leaves)
+  private observedMs = 0;
+  private deskSpots: DeskSpotMemo[] = [];
+  private vouchedSpan: { from: MonoMs; to: MonoMs } | null = null;
 
   // Stale-profile check (sticky: survives reset())
   private staleObservedMs = 0;
@@ -136,6 +179,27 @@ export class CameraObserver implements Observer {
     this.current = classifier;
   }
 
+  /**
+   * «¡Estaba estudiando!» on a phone lying on the desk: from now on a phone at that spot is
+   * not seen (evidence, classifier, feedback rows) while it stays there, the current E_phone
+   * is dropped, and `rescore` ignores the phone evidence of the vouched span.
+   */
+  vouchDeskPhone(vouch: DeskPhoneVouch): void {
+    const spot: DeskPhoneSpot = { box: vouch.box, width: vouch.width, height: vouch.height };
+    this.deskSpots = this.deskSpots.filter((m) => !atSpot(vouch.box, m.spot));
+    this.deskSpots.push({ spot, seenAt: this.observedMs });
+    if (this.deskSpots.length > DESK_SPOT_MAX) this.deskSpots.shift();
+    if (Number.isFinite(vouch.from) && Number.isFinite(vouch.to) && vouch.to >= vouch.from) {
+      this.vouchedSpan = { from: vouch.from, to: vouch.to };
+    }
+    this.evidence.dropPhone();
+  }
+
+  /** The vouched desk-phone spots still remembered (tests, diagnostics). */
+  get deskPhoneSpots(): readonly DeskPhoneSpot[] {
+    return this.deskSpots.map((m) => m.spot);
+  }
+
   observe(input: TickInput, settings: Readonly<StudyAiSettings>): Observation {
     const c = STUDY_AI_CONSTANTS;
     const now = input.now;
@@ -144,6 +208,7 @@ export class CameraObserver implements Observer {
         ? 0
         : clamp(now - this.lastT, 0, OBSERVE_MAX_STEP_MS);
     if (Number.isFinite(now)) this.lastT = now;
+    this.observedMs += dt;
     const work = input.phase === 'work';
     const threshold = settings.focusScoreThreshold;
     const classifier = this.current;
@@ -165,24 +230,25 @@ export class CameraObserver implements Observer {
     // Detector evidence. The pose comes first: a phone only counts as in use when it moves,
     // the user looks down at it or holds it at the face, or the face is out of view.
     const cameraOk = input.camera === 'ok';
-    const frame = cameraOk ? input.frame : null;
-    const seenFace = frame && !frame.luma?.covered ? frame.face : null;
+    const frame = cameraOk ? this.maskDeskPhone(input.frame) : null;
+    const seenFace = frame ? frame.face : null;
     const rel = seenFace ? classifier.relativePose(seenFace) : null;
     const lookingDown = seenFace ? isLookingDown(seenFace, rel) : false;
     this.evidence.record(frame, thresholds, lookingDown);
     this.evidence.update(now);
 
-    // Presence
+    // Presence. A tracked face beats the luma statistic: a dim, low-contrast room can look
+    // «covered» to the 32×24 thumbnail while the landmarker still follows the user.
+    // Covering the lens removes the face, so this is no way around `covered`.
     let presence: Presence;
     if (!cameraOk) presence = 'camera_lost';
     else if (!frame) presence = this.presence;
-    else if (frame.luma?.covered) presence = 'covered';
     else if (frame.face) presence = 'visible';
+    else if (frame.luma?.covered) presence = 'covered';
     else if (this.someoneWithoutFace(frame, now, thresholds.person)) presence = 'hidden';
     else presence = 'absent';
-    this.presence = presence;
 
-    // `visible` means a frame with a face that is not covered: exactly `seenFace`.
+    // `visible` means a frame with a face: exactly `seenFace`.
     const face = presence === 'visible' ? seenFace : null;
     const phone = this.evidence.phone;
     const evidence: ObservationEvidence = {
@@ -193,9 +259,45 @@ export class CameraObserver implements Observer {
       inputActive,
     };
 
+    // Face bookkeeping and the hidden last-pose rule. A hidden stretch past its allowance
+    // (unknown pose after 20 s, head down after 10 min) is not observable: without a phone
+    // or a distraction to go by it is reported `absent`, so the absence path (warning at
+    // half, strike at `noFaceStrikeMs`, cause `no_face`) replaces a DUDA that would blame
+    // attention for a framing or light problem. Turned away stays observable (0.2).
+    let hidden: HiddenMemo | null = null;
+    if (frame) {
+      if (face) {
+        this.lastFaceAt = now;
+        this.lastVisible = {
+          at: now,
+          rel,
+          pose: face.pose,
+          lookingDown,
+          truncated: face.truncated,
+        };
+        this.hidden = null;
+      } else if (presence === 'hidden') {
+        if (!this.hidden) {
+          this.hidden = { since: now, pose: this.lastPose(now), slidOut: this.slidOut(now) };
+        }
+        const pose = this.hidden.pose;
+        const holdUnknown =
+          frame.luma?.lowLight === true && recentInput(idle, settings.noCameraIdleMs);
+        const value = hiddenValue(pose, now - this.hidden.since, threshold, holdUnknown);
+        if (value !== null) hidden = { value, pose };
+        else if (phone || distractionApp) hidden = { value: HIDDEN_LOW_VALUE, pose };
+        else presence = 'absent';
+      } else {
+        this.hidden = null;
+      }
+    } else if (!cameraOk) {
+      this.hidden = null;
+    }
+    this.unseen = presence === 'absent' && this.hidden !== null;
+    this.presence = presence;
+
     // A null frame with the camera ok keeps the previous presence and pushes nothing.
     if (!frame) {
-      if (presence !== 'hidden') this.hidden = null;
       this.yawnSince = null;
       return {
         at: now,
@@ -219,22 +321,6 @@ export class CameraObserver implements Observer {
     }
 
     const p = presence === 'visible' || presence === 'hidden' ? classifier.predict(frame) : null;
-
-    // Face bookkeeping and the hidden last-pose rule.
-    let hidden: HiddenMemo | null = null;
-    if (face) {
-      this.lastFaceAt = now;
-      this.lastVisible = { at: now, rel, pose: face.pose, lookingDown };
-      this.hidden = null;
-    } else if (presence === 'hidden') {
-      if (!this.hidden) this.hidden = { since: now, pose: this.lastPose(now) };
-      hidden = {
-        value: hiddenValue(this.hidden.pose, now - this.hidden.since, threshold),
-        turned: this.hidden.pose === 'turned',
-      };
-    } else {
-      this.hidden = null;
-    }
 
     // Eyes
     let closed = false;
@@ -266,6 +352,7 @@ export class CameraObserver implements Observer {
       trust: classifier.trust,
       evidence,
       hidden,
+      faceYaw: faceYaw(face, rel),
       threshold,
       eyesClosed: closed,
     });
@@ -289,18 +376,33 @@ export class CameraObserver implements Observer {
   }
 
   rescore(observation: Observation, settings: Readonly<StudyAiSettings>): number | null {
-    const frame = observation.frame;
-    if (observation.study === null || !frame) return observation.study;
+    const stored = observation.frame;
+    if (observation.study === null || !stored) return observation.study;
     const presence = observation.presence;
     if (presence !== 'visible' && presence !== 'hidden') return null;
     const classifier = this.current;
-    const p = classifier.predict(frame);
+    const frame =
+      this.deskSpots.length > 0
+        ? withoutDeskPhone(
+            stored,
+            this.deskSpots.map((m) => m.spot),
+          )
+        : stored;
+    // The phone evidence of a vouched desk-phone span came from that phone.
+    const span = this.vouchedSpan;
+    const vouched =
+      observation.evidence.phone &&
+      span !== null &&
+      observation.at >= span.from &&
+      observation.at <= span.to;
+    const face = presence === 'visible' ? frame.face : null;
     return fuse({
       presence,
-      p,
+      p: classifier.predict(frame),
       trust: classifier.trust,
-      evidence: observation.evidence,
+      evidence: vouched ? { ...observation.evidence, phone: false } : observation.evidence,
       hidden: this.hiddenMemo.get(observation) ?? null,
+      faceYaw: faceYaw(face, observation.rel),
       threshold: settings.focusScoreThreshold,
       eyesClosed: false,
     }).study;
@@ -314,7 +416,36 @@ export class CameraObserver implements Observer {
     this.lastFaceAt = null;
     this.lastVisible = null;
     this.hidden = null;
+    this.unseen = false;
     this.yawnSince = null;
+  }
+
+  /** A phone at a vouched desk spot is not seen; spots the phone left are forgotten. */
+  private maskDeskPhone(frame: FrameFeatures | null): FrameFeatures | null {
+    if (!frame || this.deskSpots.length === 0) return frame;
+    const objects = frame.objects;
+    const phone = objects?.phone ?? null;
+    if (objects?.fresh && phone) {
+      for (const memo of this.deskSpots) {
+        if (atSpot(phone.box, memo.spot)) memo.seenAt = this.observedMs;
+      }
+    }
+    this.deskSpots = this.deskSpots.filter(
+      (memo) => this.observedMs - memo.seenAt <= DESK_SPOT_FORGET_MS,
+    );
+    if (this.deskSpots.length === 0) return frame;
+    return withoutDeskPhone(
+      frame,
+      this.deskSpots.map((m) => m.spot),
+    );
+  }
+
+  /** The face was cut by the frame edge within 2 s before it was lost (it slid out). */
+  private slidOut(now: MonoMs): boolean {
+    const last = this.lastVisible;
+    return (
+      last !== null && now - last.at <= HIDDEN_LOOKBACK_MS && last.truncated > CANT_SEE_TRUNCATED
+    );
   }
 
   /** No face, but a person in the recent detector runs or motion where the face just was. */
@@ -369,10 +500,19 @@ export class CameraObserver implements Observer {
     const out: HintCode[] = [];
     if (frame?.luma?.lowLight) out.push('low_light');
     if (presence === 'covered') out.push('camera_covered');
-    const hiddenLong =
-      presence === 'hidden' && this.hidden !== null && now - this.hidden.since > CANT_SEE_HIDDEN_MS;
+    // Someone is there but the face is not: say so early, before the absence path warns.
+    const stretch = presence === 'hidden' || this.unseen ? this.hidden : null;
+    let cantSee = false;
+    if (stretch !== null) {
+      const ms = now - stretch.since;
+      cantSee =
+        this.unseen ||
+        stretch.slidOut ||
+        ms > CANT_SEE_HIDDEN_MS ||
+        (stretch.pose === 'unknown' && ms >= CANT_SEE_UNKNOWN_MS);
+    }
     const truncated = presence === 'visible' && (frame?.face?.truncated ?? 0) > CANT_SEE_TRUNCATED;
-    if (hiddenLong || truncated) out.push('camera_cant_see_you');
+    if (cantSee || truncated) out.push('camera_cant_see_you');
     if (this.stale) out.push('recalibrate');
     return out;
   }

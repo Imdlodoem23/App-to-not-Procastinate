@@ -110,7 +110,17 @@ export class HeartbeatAccumulator {
     };
   }
 
-  /** Puts back a body that could not be sent so its deltas are not lost. */
+  /**
+   * Puts back the deltas of a body that **certainly never reached** the guardian (the request
+   * was never sent: no connection could be opened, main refused it before sending), so the
+   * next `take` carries them.
+   *
+   * Never after a request that may have arrived (a timeout, a lost response, a 5xx): the
+   * guardian may already have counted it, and restoring would count those focused ms and
+   * warnings twice. Resend the identical `{seq, body}` instead until a definitive answer: a
+   * `seq` ≤ the last accepted one is a no-op (`duplicate: true`), so an identical resend is
+   * exactly-once. Take a new body only after that answer (HANDOFF §4).
+   */
   restore(body: HeartbeatBody): void {
     this.pendingFocusedMs += nonNegative(body.focusedMsSinceLast);
     this.pendingWarnings += Math.round(nonNegative(body.warningsSinceLast));

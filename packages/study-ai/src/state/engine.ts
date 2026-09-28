@@ -8,6 +8,7 @@
  * when to *request* a strike; the guardian decides whether it counts.
  */
 import { STUDY_AI_CONSTANTS, resolveStudyAiSettings } from '../config';
+import { isDeskPhoneLearner } from '../score/desk-phone';
 import type {
   AttentionEngineOptions,
   AttentionEvent,
@@ -199,8 +200,15 @@ export class AttentionEngine {
    * re-scores the window and clears DUDA only if the new long score is ≥ θ + hysteresis.
    */
   applyFeedback(now: MonoMs, episodeId: number): readonly AttentionEvent[] {
-    if (!this.feedback.use(episodeId)) return [];
+    const used = this.feedback.use(episodeId);
+    if (!used) return [];
     const settings = this.settings;
+    // A phone lying on the desk misread as «in hand»: the observer ignores it from now on
+    // while it stays there, and its phone time no longer names a strike cause.
+    if (used.deskPhone && isDeskPhoneLearner(this.observer)) {
+      this.observer.vouchDeskPhone(used.deskPhone);
+      this.lowPhoneMs = 0;
+    }
     this.scores.rescore((sample) =>
       sample.obs ? this.observer.rescore(sample.obs, settings) : sample.value,
     );

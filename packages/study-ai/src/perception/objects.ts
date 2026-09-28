@@ -120,6 +120,15 @@ export function touchesBottom(box: Box, height: number): boolean {
   return box.cy + box.h / 2 >= 1 - PHONE_BOTTOM_EDGE_PX / Math.max(1, height);
 }
 
+/**
+ * A phone that has not moved for 20 s: it lies on the desk or stands on a stand. It is not
+ * near the face by construction, and it is no phone evidence for anyone (DECISION's
+ * `PHONE_STILL_MS` and the classifier rows use the same rule).
+ */
+export function isResting(phone: PhoneDetection): boolean {
+  return !phone.moving && phone.stillMs >= PHONE_RESTING_MS;
+}
+
 /** Centre distance in pixels. */
 function pixelDistance(a: Box, b: Box, width: number, height: number): number {
   return Math.hypot((a.cx - b.cx) * width, (a.cy - b.cy) * height);
@@ -175,7 +184,6 @@ interface Spot {
   sightings: number;
   /** The last few sightings of this track since it stopped here, one bit each: 1 = stray. */
   strays: number;
-  outcomes: number;
 }
 
 /** One physical phone (or phone-like object) followed across runs. */
@@ -199,7 +207,6 @@ const newSpot = (box: Box, at: number): Spot => ({
   since: at,
   sightings: 1,
   strays: 0,
-  outcomes: 1,
 });
 
 /** Folds a sighting into the spot's mean until it has settled. */
@@ -221,7 +228,6 @@ const HISTORY_MASK = (1 << PHONE_STRAY_WINDOW) - 1;
 /** Records one sighting outcome; returns the strays among the last `PHONE_STRAY_WINDOW`. */
 function recordOutcome(spot: Spot, stray: boolean): number {
   spot.strays = ((spot.strays << 1) | (stray ? 1 : 0)) & HISTORY_MASK;
-  spot.outcomes = Math.min(PHONE_STRAY_WINDOW, spot.outcomes + 1);
   let n = 0;
   for (let bits = spot.strays; bits !== 0; bits &= bits - 1) n += 1;
   return n;
@@ -236,8 +242,8 @@ const restingAt = (spot: Spot, t: number): boolean => t - spot.since >= PHONE_RE
  *   (`sameSpot`). A phone missed by the detector is remembered by its spot for 60 s, and a
  *   stray sighting (jitter, a glitch) does not restart it; 4 strays among its last 8
  *   sightings (a hand wobbling around one place) or two clear moves in a row do.
- * - `moving`: seen clearly away (`movedFrom`) from its spot and from where it was on its
- *   previous sighting (≤ 5 s ago).
+ * - `moving`: seen clearly away (`movedFrom`) from its spot and from where it was heading,
+ *   within 5 s of its previous sighting.
  * - `nearFace`: near the user's face (`isNearFace`), not cut by the bottom edge unless it
  *   moves, and not resting (a phone still for 20 s lies on the desk or stands on a stand).
  *
@@ -265,14 +271,13 @@ export class PhoneTracker {
     let bestInHand = false;
     for (const phone of sorted) {
       const { moving, stillMs } = this.follow(phone.box, ranAt, used, width, height);
-      const resting = !moving && stillMs >= PHONE_RESTING_MS;
-      const nearFace =
+      const found: PhoneDetection = { ...phone, nearFace: false, moving, stillMs };
+      found.nearFace =
         face !== null &&
-        !resting &&
+        !isResting(found) &&
         (moving || !touchesBottom(phone.box, height)) &&
         isNearFace(phone.box, face);
-      const found: PhoneDetection = { score: phone.score, box: phone.box, nearFace, moving, stillMs };
-      const inHand = nearFace || moving;
+      const inHand = found.nearFace || moving;
       if (best === null || (inHand && !bestInHand)) {
         best = found;
         bestInHand = inHand;
@@ -385,7 +390,8 @@ export class PhoneTracker {
     if (kind === 'spot' || kind === 'away') settle(track.spot, box);
     track.lastAt = t;
     track.lastBox = box;
-    return { moving, stillMs: Math.max(0, t - track.spot.since) };
+    // A clear move is not at the spot: it has not been still at all.
+    return { moving, stillMs: moving ? 0 : Math.max(0, t - track.spot.since) };
   }
 
   /**

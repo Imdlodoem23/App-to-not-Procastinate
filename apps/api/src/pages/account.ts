@@ -1,6 +1,7 @@
 /**
  * Owner: CORE. docs/API.md §4 and §11.
- * - /cuenta: sign in (Google, or a 6-digit email code) and sign out.
+ * - /cuenta: sign in (Google, or a 6-digit email code) and sign out; signed in, the open browser
+ *   sessions (dates only) and «Cerrar sesión en los demás navegadores».
  * - /cuenta/codigo: landing of the link in the sign-in email (the code travels in the URL
  *   fragment, which never reaches the server; a button signs in).
  * - /cuenta/conectar: «¿Conectar este ordenador?» for the desktop loopback login.
@@ -10,10 +11,12 @@
  */
 import { eq } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
+import type { BrowserSessionRow } from '../auth/session';
+import { BROWSER_SESSION_TTL_SECONDS, listBrowserSessions } from '../auth/session';
 import { deriveCapabilities } from '../config';
 import { user } from '../db/schema';
 import { notFound } from '../lib/errors';
-import { hasControlChars } from '../lib/profile';
+import { getProfile, hasControlChars } from '../lib/profile';
 import { CHALLENGE_RE, STATE_RE } from '../routes/app-auth';
 import { registerAccountAssets } from './assets';
 import { html, page, pageAssets, PRIVACY_URL } from './layout';
@@ -115,7 +118,55 @@ function signInBody(options: {
   </section>`;
 }
 
-function signedInBody(email: string): SafeHtml {
+/** «28 de septiembre a las 10:05» in the user's zone (UTC if the zone is somehow not valid). */
+export function sessionDate(at: Date, timeZone: string): string {
+  const options: Intl.DateTimeFormatOptions = {
+    day: 'numeric',
+    month: 'long',
+    hour: '2-digit',
+    minute: '2-digit',
+  };
+  try {
+    return new Intl.DateTimeFormat('es-ES', { ...options, timeZone }).format(at);
+  } catch {
+    return new Intl.DateTimeFormat('es-ES', { ...options, timeZone: 'UTC' }).format(at);
+  }
+}
+
+const BROWSER_SESSION_DAYS = BROWSER_SESSION_TTL_SECONDS / 86_400;
+
+function sessionsSection(
+  sessions: readonly BrowserSessionRow[],
+  currentId: string,
+  timeZone: string,
+): SafeHtml {
+  const others = sessions.filter((s) => s.id !== currentId).length;
+  return html`<h2>Navegadores con la sesión abierta</h2>
+    <p class="muted">
+      Cada sesión en un navegador dura ${String(BROWSER_SESSION_DAYS)} días desde que entras. Si has
+      entrado en un ordenador que no es tuyo, ciérrala desde aquí. Solo guardamos las fechas.
+    </p>
+    <ul class="sessions" id="sessions">
+      ${sessions.map(
+        (s) =>
+          html`<li>
+            ${s.id === currentId ? 'Este navegador' : 'Otro navegador'}: desde el
+            ${sessionDate(s.createdAt, timeZone)}, caduca el ${sessionDate(s.expiresAt, timeZone)}
+          </li>`,
+      )}
+    </ul>
+    ${
+      others > 0
+        ? html`<div class="actions">
+            <button type="button" class="button" id="revoke-others">
+              Cerrar sesión en los demás navegadores
+            </button>
+          </div>`
+        : html`<p class="muted">Solo este navegador tiene la sesión abierta.</p>`
+    }`;
+}
+
+function signedInBody(email: string, sessions: SafeHtml): SafeHtml {
   return html`<section class="card">
     <h1>Tu cuenta</h1>
     <p>Has iniciado sesión como <strong>${email}</strong>.</p>
@@ -129,7 +180,7 @@ function signedInBody(email: string): SafeHtml {
     <div class="actions">
       <button type="button" class="button" id="sign-out">Cerrar sesión</button>
     </div>
-    ${statusLine}
+    ${sessions} ${statusLine}
     <p class="fine"><a href="${PRIVACY_URL}">Cómo tratamos tus datos</a></p>
   </section>`;
 }
@@ -229,7 +280,15 @@ export const accountPages: FastifyPluginAsync = async (app) => {
     const volver = safeVolver(request.query.volver);
     const email = await emailOf(request);
     if (email && volver) return reply.redirect(volver, 303);
-    if (email) return sendPage(reply, 200, 'Tu cuenta', signedInBody(email));
+    if (email && ctx.db && request.user) {
+      const now = ctx.now();
+      const [sessions, profile] = await Promise.all([
+        listBrowserSessions(ctx.db, request.user.userId, now),
+        getProfile(ctx.db, request.user.userId),
+      ]);
+      const list = sessionsSection(sessions, request.user.sessionId, profile.timeZone);
+      return sendPage(reply, 200, 'Tu cuenta', signedInBody(email, list));
+    }
     return sendPage(
       reply,
       200,

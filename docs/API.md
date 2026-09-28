@@ -142,12 +142,13 @@ apps/api/
     lib/ip-limit.ts      client keys (IPv6 /64), pre-session IP gate          CORE
     auth/index.ts        better-auth instance, /api/auth/* routes             CORE
     auth/session.ts      resolveSession (cookie or bearer), createSessionRow  CORE
-    auth/csrf.ts         Origin rule for cookie writes                        CORE
+    auth/csrf.ts         Origin rule for cookie writes and sign-in routes     CORE
     auth/email.ts        the sign-in code email                               CORE
     auth/email-limits.ts sign-in email caps (mailbox, global)                 CORE
     routes/health.ts     GET /health                                          architect
     routes/app-auth.ts   desktop loopback login                               CORE
     routes/me.ts         account, consent, devices, export, delete            CORE
+    routes/sessions.ts   browser sessions: list, sign out the others          CORE
     routes/sync.ts       sync and stats                                       CORE
     routes/friends.ts    invites, friends, blocks                             SOCIAL
     routes/ranking.ts    weekly ranking                                       SOCIAL
@@ -208,9 +209,19 @@ npm packages external). Scripts: `build`, `start` (`node dist/server.mjs`), `dev
   email code (better-auth's `requireLocalEmailVerified` does not stop it, since code sign-ins
   mark the address verified). An unverified match redirects to
   `/cuenta?error=google&error=account_not_linked` and signs nobody in.
-- **Sessions**: 60 days, sliding (`updateAge` 1 day), no cookie cache (revocation is
-  immediate). Cookies `HttpOnly; Secure (production); SameSite=Lax`, first-party on the API
+- **Sessions**, two kinds, told apart by the `devices` row that points at a desktop one:
+  - **desktop** (bearer, written by the loopback login, §4.2): 60 days, sliding (extended at
+    most once a day by `resolveSession`), so a computer in daily use stays connected;
+  - **browser** (cookie, written by better-auth): 14 days from sign-in, never extended
+    (`expiresIn` 14 days, `disableSessionRefresh: true`, so not even better-auth's
+    `get-session` extends it), so a session left on a shared or lost computer ends on its own.
+    `/cuenta` lists them (dates only) and «Cerrar sesión en los demás navegadores» ends every
+    other one (`POST /v1/sessions/revoke-others`, §5.1).
+
+  No cookie cache (revocation is immediate). Cookies
+  `HttpOnly; Secure (production); SameSite=Lax`, `Max-Age` 14 days, first-party on the API
   domain. `trustedOrigins = [BETTER_AUTH_URL, …APP_ORIGINS]`.
+
 - **Privacy**: `telemetry: { enabled: false }`, `advanced.ipAddress.disableIpTracking: true`,
   user agents not stored (session `create.before` hook), the Google picture not stored
   (`image` always null).
@@ -229,13 +240,18 @@ npm packages external). Scripts: `build`, `start` (`node dist/server.mjs`), `dev
   - with email: `POST /api/auth/email-otp/send-verification-otp` (`type: 'sign-in'` only,
     else 400; the sign-in email caps of §12 run before better-auth creates a code) and
     `POST /api/auth/sign-in/email-otp`.
+
+  Every `POST` among them follows the sign-in rule below (JSON from our own pages), checked in
+  an `onRequest` hook before the body is read, anything is counted or better-auth is called.
+
 - `createAuth(ctx, log)` returns `{ resolveSession, routes }`. `resolveSession(headers)`
   (`src/auth/session.ts`) reads the session straight from the table on every request: the
   bearer token (raw, or better-auth's signed `token.signature`) or the signed cookie
   `centrate.session_token` (`__Secure-` prefixed over https; signature checked with
-  `BETTER_AUTH_SECRET`). Expired or deleted sessions fail at once; the expiry slides at most
-  once a day. It returns `AuthedUser { userId, sessionId, sessionCreatedAt, deviceId }` (device =
-  the `devices` row whose `session_id` is this session) or null. better-auth's own messages are
+  `BETTER_AUTH_SECRET`). Expired or deleted sessions fail at once; a desktop session's expiry
+  slides at most once a day, a browser session's never. It returns
+  `AuthedUser { userId, sessionId, sessionCreatedAt, deviceId }` (device = the `devices` row
+  whose `session_id` is this session) or null. better-auth's own messages are
   logged with email addresses scrubbed.
 - **CSRF** (`src/auth/csrf.ts`, called from the session hook in app.ts): besides
   `SameSite=Lax`, a state-changing request (not GET/HEAD/OPTIONS) authenticated by **cookie**
@@ -244,6 +260,19 @@ npm packages external). Scripts: `build`, `start` (`node dist/server.mjs`), `dev
   credentials). The API sends `Referrer-Policy: no-referrer`, under which browsers send
   `Origin: null` on same-origin form posts, so every page carries a `referrer` meta tag with
   `same-origin` (layout.ts); the `Sec-Fetch-Site` rule covers the rest.
+- **Sign-in rule (login CSRF)** (`assertSignInRequest`, a hook on the `/api/auth` routes): every
+  `POST /api/auth/*` must be `Content-Type: application/json` **and** carry the same Origin
+  (or `Sec-Fetch-Site: same-origin`), **with or without a cookie**, else 403 `forbidden`. The
+  cookie rule alone does not cover these routes: a signed-out browser (or a `SameSite=Lax`
+  cookie on a cross-site POST) carries no cookie, and better-auth checks origins only when a
+  cookie is present. Without it a hidden auto-submitted form on any site could sign the
+  visitor into the attacker's account (the next «Iniciar sesión» in the app would then offer
+  to connect the victim's computer to it) or make many visitors' browsers spend the sign-in
+  email caps. A plain HTML form can only send urlencoded, multipart or `text/plain` bodies,
+  never JSON, and a cross-site `fetch` with JSON needs a CORS preflight we refuse. The pages
+  post JSON with `fetch`, which sends our Origin.
+- **Form bodies:** the only urlencoded parser is registered on `POST /v1/app-auth/authorize`
+  alone (the «Conectar» button, §4.2); every other route answers 400 to a form body.
 
 ### 4.2 Desktop login: loopback redirect + PKCE (RFC 8252, RFC 7636)
 
@@ -283,9 +312,12 @@ claim the scheme).
 
 ### 4.3 Fresh sessions
 
-`DELETE /v1/me` needs a session created less than 15 minutes ago
-(`requireFreshSession`), else 403 `reauth_required`. The app then runs the loopback login again
-(a new session) and retries; the web panel sends the user to `/cuenta` to sign in again.
+`DELETE /v1/me` and `POST /v1/sessions/revoke-others` with `includeDevices: true` need a
+session created less than 15 minutes ago (`requireFreshSession`), else 403 `reauth_required`.
+The app then runs the loopback login again (a new session) and retries; the web panel sends the
+user to `/cuenta` to sign in again. Signing out only the other browsers needs none: the worst an
+old session left elsewhere can do with it is sign the owner's browsers out, and the owner's next
+sign-in and the same button then end that session.
 
 ## 5. Endpoints
 
@@ -327,20 +359,22 @@ Conventions:
 
 ### 5.1 Health and account
 
-| Method and path               | Auth | Request → response                                                     | Owner |
-| ----------------------------- | ---- | ---------------------------------------------------------------------- | ----- |
-| GET `/health`                 | P    | → `HealthResponse { ok, version, now, db, serverEpoch, capabilities }` | —     |
-| GET, POST `/api/auth/*`       | P    | better-auth (Google, email code, sign-out, session)                    | CORE  |
-| POST `/v1/app-auth/authorize` | C    | form `{challenge, state, port}` → 303 to the loopback                  | CORE  |
-| POST `/v1/app-auth/token`     | P    | `AppTokenRequest` → `AppTokenResponse`                                 | CORE  |
-| POST `/v1/app-auth/logout`    | S    | → 204                                                                  | CORE  |
-| GET `/v1/me`                  | S    | → `MeResponse { user, profile, sharing, consentUpdatedAt, … }`         | CORE  |
-| PATCH `/v1/me`                | S    | `PatchMeRequest { profile?, sharing? }` → `MeResponse`                 | CORE  |
-| GET `/v1/me/export`           | S    | → `CloudExport` as an attachment (`centrate-datos.json`)               | CORE  |
-| DELETE `/v1/me`               | F    | `{ confirm: 'BORRAR' }` → 204, hard delete with cascade                | CORE  |
-| GET `/v1/devices`             | S    | → `DevicesResponse`                                                    | CORE  |
-| PATCH `/v1/devices/:id`       | S    | `{ name }` → `CloudDevice`                                             | CORE  |
-| DELETE `/v1/devices/:id`      | S    | → 204 (device, its stats and its session)                              | CORE  |
+| Method and path                   | Auth | Request → response                                                     | Owner |
+| --------------------------------- | ---- | ---------------------------------------------------------------------- | ----- |
+| GET `/health`                     | P    | → `HealthResponse { ok, version, now, db, serverEpoch, capabilities }` | —     |
+| GET, POST `/api/auth/*`           | P    | better-auth (Google, email code, sign-out, session)                    | CORE  |
+| POST `/v1/app-auth/authorize`     | C    | form `{challenge, state, port}` → 303 to the loopback                  | CORE  |
+| POST `/v1/app-auth/token`         | P    | `AppTokenRequest` → `AppTokenResponse`                                 | CORE  |
+| POST `/v1/app-auth/logout`        | S    | → 204                                                                  | CORE  |
+| GET `/v1/me`                      | S    | → `MeResponse { user, profile, sharing, consentUpdatedAt, … }`         | CORE  |
+| PATCH `/v1/me`                    | S    | `PatchMeRequest { profile?, sharing? }` → `MeResponse`                 | CORE  |
+| GET `/v1/me/export`               | S    | → `CloudExport` as an attachment (`centrate-datos.json`)               | CORE  |
+| DELETE `/v1/me`                   | F    | `{ confirm: 'BORRAR' }` → 204, hard delete with cascade                | CORE  |
+| GET `/v1/devices`                 | S    | → `DevicesResponse`                                                    | CORE  |
+| PATCH `/v1/devices/:id`           | S    | `{ name }` → `CloudDevice`                                             | CORE  |
+| DELETE `/v1/devices/:id`          | S    | → 204 (device, its stats and its session)                              | CORE  |
+| GET `/v1/sessions`                | S    | → `SessionsResponse { browser: [{ createdAt, expiresAt, current }] }`  | CORE  |
+| POST `/v1/sessions/revoke-others` | S    | `{ includeDevices? }` → `{ browser, devices }` (sessions ended)        | CORE  |
 
 `PATCH /v1/me` rules: `displayName` trimmed 1–40 chars without control characters, and once
 set it can be changed but not cleared (`null` is 400; `PatchMeRequest` types it as `string`,
@@ -386,17 +420,17 @@ on stores `rankingSince` (kept while it stays on, cleared when it goes off, a CH
 
 ### 5.4 Accountability (SOCIAL)
 
-| Method and path                               | Auth | Request → response                                                 |
-| --------------------------------------------- | ---- | ------------------------------------------------------------------ |
-| GET `/v1/partners`                            | S    | → `PartnersResponse` (as owner and as partner)                     |
-| POST `/v1/partners`                           | S    | `{ friendId, requireApproval }` → `PartnerLink` (pending)          |
-| POST `/v1/partners/:id/accept`                | S    | (partner) → `PartnerLink`                                          |
-| PATCH `/v1/partners/:id`                      | S    | (owner) `{ requireApproval }` → `PartnerLink`                      |
-| DELETE `/v1/partners/:id`                     | S    | → 204 (removed now) or 200 `PartnerLink` (ends in 24 h)            |
-| POST `/v1/accountability/events`              | S    | `PostAccountabilityEventRequest` → 201/200 `{ eventId, approval }` |
-| GET `/v1/accountability/events/:id`           | S    | (owner) → `AccountabilityEventResponse`                            |
-| GET `/v1/accountability/inbox`                | S    | (partner) → `InboxResponse`                                        |
-| POST `/v1/accountability/events/:id/decision` | S    | (partner) `{ decision, note }` → `ApprovalState`                   |
+| Method and path                               | Auth | Request → response                                                                                                 |
+| --------------------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------ |
+| GET `/v1/partners`                            | S    | → `PartnersResponse` (as owner and as partner)                                                                     |
+| POST `/v1/partners`                           | S    | `{ friendId, requireApproval }` → `PartnerLink` (pending)                                                          |
+| POST `/v1/partners/:id/accept`                | S    | (partner) → `PartnerLink`                                                                                          |
+| PATCH `/v1/partners/:id`                      | S    | (owner) `{ requireApproval }` → `PartnerLink`                                                                      |
+| DELETE `/v1/partners/:id`                     | S    | → 204 (removed now) or 200 `PartnerLink` (ends in 24 h)                                                            |
+| POST `/v1/accountability/events`              | S    | `PostAccountabilityEventRequest` → 201/200 `{ eventId, approval }` (`eventId: null`: nobody listens, nothing kept) |
+| GET `/v1/accountability/events/:id`           | S    | (owner) → `AccountabilityEventResponse`                                                                            |
+| GET `/v1/accountability/inbox`                | S    | (partner) → `InboxResponse`                                                                                        |
+| POST `/v1/accountability/events/:id/decision` | S    | (partner) `{ decision, note }` → `ApprovalState`                                                                   |
 
 ### 5.5 Coach (COACH)
 
@@ -447,7 +481,7 @@ about them (the one exception is `accountability_events.decided_by`, set null).
 | `meta`                  | `key`                                 | `server_epoch`, `janitor_last_run`                                                            |
 
 **Migrations.** `npm run db:generate -w apps/api` writes SQL to `apps/api/drizzle/` (commit it,
-then run prettier on `drizzle/meta/*.json`). The server applies migrations at boot under a
+the script runs prettier on `drizzle/meta/*.json`, which CI checks). The server applies migrations at boot under a
 Postgres advisory lock (Render's free plan has no pre-deploy command); tests apply the same
 files to PGlite. Until the first deploy there is a single `0000_init` migration: a builder who
 must change the schema edits `schema.ts`, deletes `apps/api/drizzle/`, regenerates with
@@ -466,6 +500,7 @@ depend on it, they filter by time):
 | `usage_counters`                            | after 7 days                                     |
 | `rate_counters`                             | past `expires_at` (end of the window, ≤ 1 day)   |
 | `ai_usage`, `ai_global_daily`               | after 90 days                                    |
+| AI quota holds of calls whose process died  | freed 10 min after `reserved_until` (§10.2)      |
 | `daily_stats`                               | days older than 2 years                          |
 | `user.name`                                 | emptied once the profile exists (§4.1)           |
 
@@ -582,8 +617,23 @@ depend on it, they filter by time):
 - **Events:** the app reports `emergency_requested`, `emergency_confirmed`,
   `emergency_cancelled`, `study_abandoned`, `punishment_started` with a random `clientRef`
   (16–64 chars) from its offline outbox. `(owner_id, client_ref)` is unique: a replay returns
-  the stored event with 200 (a new one is 201). `occurredAt` must be within
-  `[now − 7 days, now + 5 min]`. No reason, domain, task or note from the owner is accepted.
+  the stored event with 200 (a new one is 201). No reason, domain, task or note from the owner
+  is accepted.
+- **The owner's clock is not trusted.** A computer clock can be minutes or hours off, so every
+  request carries `sentAt` (the app's clock when sending; the client sets it on each attempt)
+  and the server only uses differences on that one clock: the event happened
+  `sentAt − occurredAt` ago (0 to 7 days; up to 5 min negative is read as 0, a clock stepped
+  back in between) and the countdown has `countdownEndsAt − sentAt` left. Both are placed on
+  the server's clock when the request arrives, so a fast clock is not rejected, a slow one does
+  not hide the event behind `acceptedAt`, and an approval deadline never outlasts the real
+  countdown. Only the request's travel time is unaccounted for; the 30 s margin below absorbs
+  it (a request held longer, say by a cold start past the app's 10 s timeout, already counts
+  as approved on the app: step 4). A clock changed between the event and its sending shifts
+  that one event.
+- **Only kept while someone listens.** An event no partner hears about (no partner, only
+  pending ones, or all accepted after the event) is not stored at all: the answer is 200
+  `{ eventId: null, approval: null }` and the outbox drops it as sent. A replay stays harmless:
+  a partner who accepts later never hears about an earlier event.
 - **Who hears:** partners of active (or ending) links accepted before the event. The inbox
   (`GET /v1/accountability/inbox`) lists their owners' events of the last 30 days, newest first
   (≤ 100). Email (Resend) only when the partner turned `partnerEmails` on, only for
@@ -595,12 +645,18 @@ depend on it, they filter by time):
 
 ### Approval flow (never blocks the guardian)
 
-1. Only for `emergency_requested` with `countdownEndsAt ≥ now + 60 s`, when the owner has at
-   least one active link with approval effectively on. Else `approval: null`.
-2. `deadline = min(countdownEndsAt, now + 30 min)`: the approval never adds waiting time on top
-   of the guardian's own local countdown, which keeps running unchanged.
+1. Only for `emergency_requested` whose countdown leaves the partner at least 60 s after the
+   margin (`countdownEndsAt − sentAt ≥ 90 s`), when the owner has at least one active link with
+   approval effectively on. Else `approval: null`.
+2. `deadline = now + min(countdownEndsAt − sentAt − 30 s, 30 min)` (`approvalMarginSeconds`):
+   the approval never adds waiting time on top of the guardian's own local countdown, which
+   keeps running unchanged, and it closes 30 s before that countdown ends (travel time plus one
+   poll), so the app reads the last answer before the confirm button appears. The deadline is
+   on the server's clock and is only shown to partners («hasta las 18:55»).
 3. The app polls `GET /v1/accountability/events/:id` every 15 s. `expired` is computed on read
-   (pending past its deadline).
+   (pending past its deadline). `approvalOutcome(approval, now, countdownEndsAt)` decides with
+   the app's own countdown, never by comparing the server's deadline with the app's clock:
+   `wait` while the last answer is `pending` and the countdown runs.
 4. **Approved** → the usual confirm button at the end of the countdown (approval never
    shortens it). **Denied** → the app shows «Tu compañero ha dicho que no» and cancels _this_
    emergency request through the guardian's existing cancel endpoint; the block stays. The user
@@ -775,7 +831,11 @@ Nothing is reserved for a request that fails validation.
     another model) at its input, and the model of each `fallback` block at its worst case;
   - anything unexpected: the whole reservation.
 - A reservation that never settles (the process died mid-call) stops blocking the user once
-  `reserved_until` passes; its amounts stay held for the rest of the day (conservative). A late
+  `reserved_until` passes, and the janitor frees its hold (§6) 10 minutes after that at the
+  earliest and about an hour at most: the user's row gives it back (the request stays counted;
+  a call our process lost is not the user's spending), the global budget books it as spent
+  (what the provider billed is unknown, so the money side keeps the upper bound). A graceful
+  shutdown never loses a call: SIGTERM waits for it (§15). A late
   settle only frees its own amounts. `/health` reports `coach: budget` from **settled** spend
   only, so reservations in flight (gone within `deadline + 30 s`) never switch the coach off
   for everyone; while they fill the budget, new calls get 503 `budget` for that time.
@@ -830,14 +890,14 @@ http://127.0.0.1:*` (the connect form redirects to the loopback), `frame-ancesto
   Page scripts are registered assets; charts are SVG built from numbers (server-side `raw` or
   DOM calls in page scripts).
 
-| Page               | Owner  | What                                                                                                                                                                                                                                                      |
-| ------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/cuenta`          | CORE   | «Continuar con Google» and «Recibir un código por email»; signed in: email, links to the panel, «Cerrar sesión». Notice «Debes tener al menos 14 años» (LOPDGDD art. 7) and a link to the privacy page. `?volver=` accepts only relative `/cuenta…` paths |
-| `/cuenta/codigo`   | CORE   | Landing of the email link; reads `email` and `otp` from the fragment; «Entrar» signs in                                                                                                                                                                   |
-| `/cuenta/conectar` | CORE   | §4.2 steps 3–5                                                                                                                                                                                                                                            |
-| `/cuenta/panel`    | CLIENT | Charts of the last 12 weeks (focus and study minutes, points won and lost, goal days) from `GET /v1/stats`; devices with «Quitar»; «Descargar mis datos»; «Borrar mi cuenta» (typed confirmation, re-sign-in when not fresh)                              |
-| `/cuenta/avisos`   | CLIENT | A partner's inbox: recent alerts, «Aprobar» / «Rechazar» for pending approvals                                                                                                                                                                            |
-| `/i/:code`         | SOCIAL | Public invite landing: «Te han invitado a Céntrate», the code with «Copiar», how to add it in the app (Amigos → «Tengo un código»), download link. Never looks the code up or shows who invited                                                           |
+| Page               | Owner  | What                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/cuenta`          | CORE   | «Continuar con Google» and «Recibir un código por email»; signed in: email, links to the panel, «Cerrar sesión», the open browser sessions (start and expiry dates only: no IP or browser is stored) and «Cerrar sesión en los demás navegadores». Notice «Debes tener al menos 14 años» (LOPDGDD art. 7) and a link to the privacy page. `?volver=` accepts only relative `/cuenta…` paths |
+| `/cuenta/codigo`   | CORE   | Landing of the email link; reads `email` and `otp` from the fragment; «Entrar» signs in                                                                                                                                                                                                                                                                                                     |
+| `/cuenta/conectar` | CORE   | §4.2 steps 3–5                                                                                                                                                                                                                                                                                                                                                                              |
+| `/cuenta/panel`    | CLIENT | Charts of the last 12 weeks (focus and study minutes, points won and lost, goal days) from `GET /v1/stats`; devices with «Quitar»; «Descargar mis datos»; «Borrar mi cuenta» (typed confirmation, re-sign-in when not fresh)                                                                                                                                                                |
+| `/cuenta/avisos`   | CLIENT | A partner's inbox: recent alerts, «Aprobar» / «Rechazar» for pending approvals                                                                                                                                                                                                                                                                                                              |
+| `/i/:code`         | SOCIAL | Public invite landing: «Te han invitado a Céntrate», the code with «Copiar», how to add it in the app (Amigos → «Tengo un código»), download link. Never looks the code up or shows who invited                                                                                                                                                                                             |
 
 Pages that need a session redirect to `/cuenta?volver=…`. Their scripts call the JSON API with
 the cookie session (same origin; §4.1 CSRF rule applies).
@@ -902,6 +962,7 @@ first deploy (`PENDIENTE_PARA_MI`).
 | Accountability events and decisions                      | 30 per hour                                |
 | `/v1/coach/*` (plus the daily quotas)                    | 10 per minute                              |
 | `GET /v1/me/export`, `DELETE /v1/me`                     | 3 per hour                                 |
+| `POST /v1/sessions/revoke-others`                        | 10 per hour                                |
 
 **Sign-in emails** (`src/auth/email-limits.ts`) are what an anonymous caller can make us send,
 and the Resend free plan allows about 100 emails a day for everything (codes and partner
@@ -911,10 +972,11 @@ with `BETTER_AUTH_SECRET`, so plus and dot variants cannot bomb one inbox. Past 
 the route answers 503 `feature_disabled` (`emailLogin`, `budget`), `/health` shows it, and the
 page says «Hoy ya no podemos enviar más códigos por email» until 00:00 UTC; Google sign-in keeps
 working. The IP limit runs first, then the Postgres caps, so a request refused by IP counts
-against nothing.
+against nothing. A request from another site (a form, or JSON without our Origin) is refused
+with 403 before either (§4.1, sign-in rule), so it cannot spend the caps either.
 
 Body limits: 32 KB by default, 256 KB for `PUT /v1/sync/days`, 16 KB for coach routes, 4 KB
-for urlencoded forms.
+for the one urlencoded form (`POST /v1/app-auth/authorize`).
 
 ## 13. Privacy, logging and GDPR
 
@@ -923,7 +985,7 @@ for urlencoded forms.
   only for days since the friendship and since the ranking was last turned on (never earlier
   weeks);
   `presence` → friends see focus/study, since, ends; accountability → partners see event kind,
-  time and the approval outcome; `coach` → the text the user typed for that request goes to
+  time and the approval outcome, and an event no partner hears about is not stored (§9); `coach` → the text the user typed for that request goes to
   Anthropic (processed in the United States under Anthropic's API terms), is never stored by
   us, and the first use shows a notice in the app.
 - **Logs** (pino): one line per request with request id, method, **route pattern** (never the
@@ -1001,7 +1063,8 @@ For the desktop team (and the CLIENT builder's `cloud-api.ts` client):
   class (background, interactive, coach) unless the call passes `timeoutMs`, and an optional
   `signal` (coach model calls also take `onWaking` and wake the server first, as above). Fetch runs with `credentials: 'omit'`, `cache: 'no-store'`, `redirect: 'error'`.
   It never retries by itself. `removePartner` returns null (removed now) or the link (ends in
-  24 h).
+  24 h). `postAccountabilityEvent` takes the event without `sentAt` and stamps it from `now()`
+  on every call; the outbox stores events without it.
 - **Outbox** (`createOutbox({ storage, client })` with `addDays`, `addEvent`, `flush({ force })`,
   `pending`, `nextFlushAt`, `clear`): the app persists `OutboxState` through `storage` (its
   SQLite); `memoryOutboxStorage` is for tests. A flush sends events first, then days per
@@ -1015,7 +1078,9 @@ For the desktop team (and the CLIENT builder's `cloud-api.ts` client):
   other 4xx, only the rejected days of a `validation_failed` batch, and events older than
   7 days; `feature_disabled` keeps them and backs off. Call `flush` after queuing, at
   `nextFlushAt`, and with `force` when the network comes back.
-- **Helpers:** `approvalOutcome(approval, now)` → `wait | approved | denied` (fails open),
+- **Helpers:** `approvalOutcome(approval, now, countdownEndsAt)` → `wait | approved | denied`
+  (fails open; `countdownEndsAt` is the local one sent with the request, on the same clock as
+  `now`),
   `daysToReupload(localDays, syncState)` after a `serverEpoch` change, `newClientRef()`.
 - **Polling:** approval every 15 s while a request is pending; inbox and friends' presence
   every 60 s while the Amigos window is open; ranking on open.
@@ -1034,7 +1099,7 @@ For the desktop team (and the CLIENT builder's `cloud-api.ts` client):
   `buildCommand: npm ci --include=dev && npm run build -w apps/api` (with `NODE_ENV=production`
   a plain `npm ci` skips the devDependencies the build needs),
   `startCommand: node apps/api/dist/server.mjs`, `healthCheckPath: /health`,
-  `buildFilter.paths: [apps/api/**, packages/shared/**, package-lock.json]`.
+  `maxShutdownDelaySeconds: 120` (see the shutdown bullet below), `buildFilter.paths: [apps/api/**, packages/shared/**, package-lock.json]`.
   Env: `NODE_VERSION=22`, `NODE_ENV=production`, `ELECTRON_SKIP_BINARY_DOWNLOAD=1`,
   `TRUST_PROXY_HOPS=1`, `AI_ENABLED=true`, `AI_GLOBAL_DAILY_BUDGET_USD=2`,
   `SIGNIN_EMAILS_PER_DAY=50`; `DATABASE_URL` from the database's `connectionString`; `BETTER_AUTH_SECRET` with `generateValue: true`; `BETTER_AUTH_URL`,
@@ -1066,7 +1131,15 @@ For the desktop team (and the CLIENT builder's `cloud-api.ts` client):
 - `TRUST_PROXY_HOPS=1` must match Render's proxy chain; check it once after the first deploy
   (§12).
 - `SIGTERM`/`SIGINT` close the server gracefully: in-flight requests finish, new ones get 503,
-  the pool closes; a forced exit follows after 10 s.
+  the pool closes. A coach call in flight is waited for too: cutting it short would leave its
+  worst-case quota reservation held (§10.2). Every answer sent while closing carries
+  `Connection: close`, so the process exits as soon as the last request is done instead of
+  waiting for keep-alive connections. A forced exit follows after `SHUTDOWN_TIMEOUT_MS`
+  (`src/boot.ts`: the longest coach deadline plus its 30 s settle margin plus 5 s = 115 s), so
+  Render must wait longer than its 30 s default before killing the process:
+  `maxShutdownDelaySeconds: 120` in render.yaml (a test checks the two agree). With zero-downtime
+  deploys the new instance already takes the traffic meanwhile. A process killed anyway (out of
+  memory, a crash) leaves its holds to the janitor (§6).
 - The Render account is at its 25-service limit (DECISIONS.md), so deploying needs a free slot:
   a `PENDIENTE_PARA_MI` item, like creating the Google OAuth client (redirect
   `{API}/api/auth/callback/google`), verifying a Resend domain and adding the Anthropic key and
@@ -1088,12 +1161,17 @@ sessionCreatedAt… })` (user + profile + bearer session), `tokenSessionResolver
   database, the error envelope, log hygiene.
 - CORE's tests: `auth` (email code end to end, sign-in email caps per mailbox, per /64 and
   global, Google sign-in and linking with Google's token endpoint stubbed (an unverified
-  address never joins an existing account), cookies and bearer on the real resolver, CSRF,
-  sign-in methods per configuration, unreachable better-auth endpoints), `flood` (session gate,
-  404 limit, cached health), `boot` (a database that never answers or refuses: the server
-  listens, reports `db: down`, retries), `app-auth` (connect
-  page, authorize, PKCE token, reuse, limits, logout), `me`, `sync`, `gdpr` (schema-driven),
-  `janitor`, `mailer`, `account-pages`, `errors` (real node-postgres connection errors).
+  address never joins an existing account), cookies and bearer on the real resolver, desktop
+  (sliding) and browser (14 days, fixed) lifetimes, CSRF for cookie writes, the sign-in rule
+  (a cross-site form with a valid code signs nobody in; cross-site code requests count
+  nothing), sign-in methods per configuration, unreachable better-auth endpoints), `flood`
+  (session gate, 404 limit, cached health), `boot` (a database that never answers or refuses:
+  the server listens, reports `db: down`, retries; shutdown waits for a request in flight and
+  then closes its keep-alive connection; `SHUTDOWN_TIMEOUT_MS` and render.yaml agree),
+  `app-auth` (connect page, authorize, PKCE token, reuse, limits, logout), `sessions` (list,
+  sign out the others, computers only on request and with a fresh session, `/cuenta`), `me`,
+  `sync`, `gdpr` (schema-driven), `janitor` (retention, dead AI holds), `mailer`,
+  `account-pages`, `errors` (real node-postgres connection errors).
   `test/helpers/core.ts` signs cookies like
   better-auth and builds the app on the real resolver.
 - `vitest.config.ts` gives hooks 60 s: every file starts its own PGlite, which takes seconds

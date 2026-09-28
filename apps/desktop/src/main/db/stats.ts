@@ -12,7 +12,15 @@
 import { existsSync } from 'node:fs';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import type { LocalDay, WireEvent } from '@centrate/shared/domain';
-import { STATS_LIMITS, type EventLogFilter, type EventLogPage, type HeatmapQuery, type StatsHeatmap, type StatsOverview, type StatsQuery } from '../../shared/stats';
+import {
+  STATS_LIMITS,
+  type EventLogFilter,
+  type EventLogPage,
+  type HeatmapQuery,
+  type StatsHeatmap,
+  type StatsOverview,
+  type StatsQuery,
+} from '../../shared/stats';
 import type { AchievementStatus } from '../../shared/platform';
 import {
   computeAchievements,
@@ -117,7 +125,9 @@ export class StatsReader {
 
   cursor(): { epoch: string | null; lastSeq: number } {
     const row = this.selectCursor.get() as { epoch: string | null; last_seq: number } | undefined;
-    return row ? { epoch: row.epoch ?? null, lastSeq: Number(row.last_seq) } : { epoch: null, lastSeq: 0 };
+    return row
+      ? { epoch: row.epoch ?? null, lastSeq: Number(row.last_seq) }
+      : { epoch: null, lastSeq: 0 };
   }
 
   count(): number {
@@ -146,15 +156,14 @@ export class StatsReader {
         ? `SELECT ${COLUMNS} FROM events WHERE ${where} ORDER BY seq DESC LIMIT ?`
         : `SELECT ${COLUMNS} FROM events WHERE ${where} AND seq < ? ORDER BY seq DESC LIMIT ?`;
     const statement = this.db.prepare(sql);
-    const rows =
-      beforeSeq === null ? statement.all(limit) : statement.all(beforeSeq, limit);
+    const rows = beforeSeq === null ? statement.all(limit) : statement.all(beforeSeq, limit);
     return (rows as Array<Record<string, unknown>>).map(toStored);
   }
 
   countMatching(filter: EventLogFilter): number {
-    const row = this.db.prepare(`SELECT COUNT(*) AS n FROM events WHERE ${FILTER_SQL[filter]}`).get() as
-      | { n: number }
-      | undefined;
+    const row = this.db
+      .prepare(`SELECT COUNT(*) AS n FROM events WHERE ${FILTER_SQL[filter]}`)
+      .get() as { n: number } | undefined;
     return Number(row?.n ?? 0);
   }
 
@@ -213,9 +222,9 @@ export class LocalStats {
     return this.cache;
   }
 
-  /** The epoch the local copy is on (`null` before the first sync). */
-  epoch(): string | null {
-    return this.db().cursor().epoch;
+  /** How far the local copy is synced (`epoch: null` before the first page). */
+  cursor(): { epoch: string | null; lastSeq: number } {
+    return this.db().cursor();
   }
 
   overview(query: StatsQuery): StatsOverview {

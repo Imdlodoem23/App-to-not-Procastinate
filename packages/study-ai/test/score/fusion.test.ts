@@ -16,6 +16,7 @@ function input(over: Partial<FusionInput> & { ev?: Partial<ObservationEvidence> 
     trust: { phone: 0, away: 0 },
     evidence: { ...NO_EVIDENCE, ...ev },
     hidden: null,
+    faceYaw: 0,
     threshold: 50,
     eyesClosed: false,
     ...rest,
@@ -64,15 +65,46 @@ describe('base value (visible)', () => {
 });
 
 describe('rules in order', () => {
-  it('1. looking down or a book raise the value to the floor', () => {
+  it('1. looking down or a book the head could be reading raise the value to the floor', () => {
     const away = probs({ away: 1 });
+    const unsure = probs({ screen: 0.3, paper: 0.1, away: 0.25, phone: 0.35 });
     expect(fuse(input({ p: away, ev: { lookingDown: true } })).study).toBeCloseTo(0.7);
-    expect(fuse(input({ p: away, ev: { book: true } })).study).toBeCloseTo(0.7);
-    expect(fuse(input({ p: away, threshold: 80, ev: { book: true } })).study).toBeCloseTo(0.95);
+    expect(fuse(input({ p: away, faceYaw: 60, ev: { lookingDown: true } })).study).toBeCloseTo(0.7);
+    expect(fuse(input({ p: unsure, ev: { book: true } })).study).toBeCloseTo(0.7);
+    expect(fuse(input({ p: unsure, threshold: 80, ev: { book: true } })).study).toBeCloseTo(0.95);
     // Never lowers a higher value.
     expect(fuse(input({ p: probs({ screen: 0.9, away: 0.1 }), ev: { book: true } })).study).toBe(
       0.9,
     );
+  });
+
+  it('1b. a book is a bounded bonus when the head cannot be reading it', () => {
+    const away = probs({ away: 0.9, screen: 0.1 });
+    // Model says away (TV to the side with a textbook on the desk): +0.10, still low.
+    const tv = fuse(input({ p: away, ev: { book: true } }));
+    expect(tv.study).toBeCloseTo(0.2);
+    expect(tv.cause).toBe('looking_away');
+    // Turned ≥ 35° from the screen: no floor even if the model is unsure.
+    const unsure = probs({ screen: 0.3, paper: 0.1, away: 0.25, phone: 0.35 });
+    expect(fuse(input({ p: unsure, faceYaw: 35, ev: { book: true } })).study).toBeCloseTo(0.5);
+    expect(fuse(input({ p: unsure, faceYaw: -50, ev: { book: true } })).study).toBeCloseTo(0.5);
+    expect(fuse(input({ p: unsure, faceYaw: 34.9, ev: { book: true } })).study).toBeCloseTo(0.7);
+    // No yaw known on a visible frame: only the bonus.
+    expect(fuse(input({ p: unsure, faceYaw: null, ev: { book: true } })).study).toBeCloseTo(0.5);
+    // Capped at 1, and not with a phone in hand.
+    expect(fuse(input({ p: probs({ screen: 0.95 }), faceYaw: 50, ev: { book: true } })).study).toBe(
+      1,
+    );
+    expect(fuse(input({ p: away, ev: { book: true, phone: true } })).study).toBeCloseTo(0.1);
+  });
+
+  it('1c. hidden: a book lifts only a head lost while looking down', () => {
+    const p = probs({ screen: 0.1, paper: 0.1, away: 0.8 });
+    const hidden = (pose: 'down' | 'turned' | 'unknown', value: number) =>
+      input({ presence: 'hidden', p, faceYaw: null, hidden: { value, pose }, ev: { book: true } });
+    expect(fuse(hidden('down', 0.7)).study).toBeCloseTo(0.7);
+    expect(fuse(hidden('turned', 0.2)).study).toBeCloseTo(0.3);
+    expect(fuse(hidden('unknown', 0.55)).study).toBeCloseTo(0.65);
   });
 
   it('2. keyboard and mouse add a weak +0.10 (capped at 1), not with a distraction or phone', () => {
@@ -92,7 +124,7 @@ describe('rules in order', () => {
       input({
         presence: 'hidden',
         p: null,
-        hidden: { value: studyFloor(50), turned: false },
+        hidden: { value: studyFloor(50), pose: 'down' },
         ev: { phone: true },
       }),
     );
@@ -120,12 +152,12 @@ describe('hidden face', () => {
   it('takes the larger of the model share and the last-pose rule', () => {
     const p = probs({ screen: 0.1, paper: 0.1, away: 0.8 });
     expect(
-      fuse(input({ presence: 'hidden', p, hidden: { value: 0.7, turned: false } })).study,
+      fuse(input({ presence: 'hidden', p, hidden: { value: 0.7, pose: 'down' } })).study,
     ).toBeCloseTo(0.7);
     expect(
-      fuse(input({ presence: 'hidden', p, hidden: { value: 0.1, turned: false } })).study,
+      fuse(input({ presence: 'hidden', p, hidden: { value: 0.1, pose: 'unknown' } })).study,
     ).toBeCloseTo(0.2);
-    const turned = fuse(input({ presence: 'hidden', p, hidden: { value: 0.2, turned: true } }));
+    const turned = fuse(input({ presence: 'hidden', p, hidden: { value: 0.2, pose: 'turned' } }));
     expect(turned.study).toBeCloseTo(0.2);
     expect(turned.cause).toBe('looking_away');
   });
@@ -133,10 +165,35 @@ describe('hidden face', () => {
   it('last-pose values: down → floor for 10 min, turned → 0.2, unknown → θ+5 for 20 s', () => {
     expect(hiddenValue('down', 0, 50)).toBeCloseTo(0.7);
     expect(hiddenValue('down', 600_000, 50)).toBeCloseTo(0.7);
-    expect(hiddenValue('down', 600_001, 50)).toBeCloseTo(0.2);
     expect(hiddenValue('turned', 0, 50)).toBeCloseTo(0.2);
+    expect(hiddenValue('turned', 3_600_000, 50)).toBeCloseTo(0.2);
     expect(hiddenValue('unknown', 20_000, 60)).toBeCloseTo(0.65);
-    expect(hiddenValue('unknown', 20_001, 60)).toBeCloseTo(0.2);
+  });
+
+  it('past the allowance a hidden stretch is not observable (null), not «not studying»', () => {
+    expect(hiddenValue('down', 600_001, 50)).toBeNull();
+    expect(hiddenValue('unknown', 20_001, 60)).toBeNull();
+    // Low light with recent input: the unknown pose keeps its neutral value.
+    expect(hiddenValue('unknown', 3_600_000, 60, true)).toBeCloseTo(0.65);
+    expect(hiddenValue('down', 600_001, 50, true)).toBeNull();
+  });
+
+  it('a distraction discounts the unknown-pose value like p.screen, not head down', () => {
+    const p = probs({ away: 1 });
+    const ev = { distractionApp: true };
+    const unknown = fuse(
+      input({ presence: 'hidden', p, faceYaw: null, hidden: { value: 0.55, pose: 'unknown' }, ev }),
+    );
+    expect(unknown.study).toBeCloseTo(0.055);
+    expect(unknown.cause).toBe('distraction_app');
+    const down = fuse(
+      input({ presence: 'hidden', p, faceYaw: null, hidden: { value: 0.7, pose: 'down' }, ev }),
+    );
+    expect(down.study).toBeCloseTo(0.7);
+    const model = fuse(
+      input({ presence: 'hidden', p: probs({ screen: 0.8, paper: 0.1 }), hidden: null, ev }),
+    );
+    expect(model.study).toBeCloseTo(0.18);
   });
 });
 

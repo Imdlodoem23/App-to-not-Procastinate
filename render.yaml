@@ -102,6 +102,11 @@ services:
     # Migrations run at boot (the free plan has no pre-deploy command).
     startCommand: node apps/api/dist/server.mjs
     healthCheckPath: /health
+    # On a deploy or restart the old process gets SIGTERM and finishes its requests; a coach call
+    # can take up to about 2 minutes (deadline plus settling its quota), so Render must wait that
+    # long before killing it (its default is 30 s). It must stay at least SHUTDOWN_TIMEOUT_MS
+    # (apps/api/src/boot.ts, 115 s); a test checks it. The process exits as soon as it is done.
+    maxShutdownDelaySeconds: 120
     buildFilter:
       paths:
         - apps/api/**

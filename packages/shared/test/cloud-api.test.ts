@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
+  AccountabilityEventInput,
   CloudDayStats,
   CloudFetch,
   OutboxItem,
+  OutboxOptions,
   OutboxState,
-  PostAccountabilityEventRequest,
+  PostAccountabilityEventResponse,
   PutDaysRequest,
 } from '../src/cloud-api';
 import {
@@ -12,6 +14,7 @@ import {
   CLOUD_TIMEOUTS,
   CloudError,
   approvalOutcome,
+  cloudWasReset,
   coalesceOutbox,
   createCloudClient,
   createOutbox,
@@ -20,6 +23,7 @@ import {
   newClientRef,
   nextRetryDelay,
   normalizeOutboxState,
+  sendAccountabilityEvent,
 } from '../src/cloud-api';
 
 // ---------------------------------------------------------------------------------------
@@ -121,6 +125,62 @@ describe('createCloudClient requests', () => {
       `${BASE}/v1/ranking`,
       `${BASE}/v1/ranking?week=2026-W53`,
     ]);
+  });
+
+  it('stamps an accountability event with the app clock at every send, after a wake-up', async () => {
+    let t = Date.parse('2026-09-28T10:00:00.000Z');
+    const { fetch, seen } = stubFetch(({ url }) => {
+      if (!url.endsWith('/health')) return reply(201, { eventId: 'e-1', approval: null });
+      t += 45_000; // A cold start: the countdown keeps running meanwhile.
+      return reply(200, HEALTH);
+    });
+    const c = client(fetch, { now: () => new Date(t) });
+    const onWaking = vi.fn();
+    // Extra fields (an old outbox row) never reach the strict server schema.
+    const queued = { ...event('ref-000000000001'), sentAt: 'stale', note: 'x' };
+    await c.postAccountabilityEvent(queued, { onWaking });
+    t += 90_000;
+    await c.postAccountabilityEvent(queued, { onWaking });
+    expect(seen.map((s) => new URL(s.url).pathname)).toEqual([
+      '/health',
+      '/v1/accountability/events',
+      '/v1/accountability/events',
+    ]);
+    expect(onWaking).toHaveBeenCalledTimes(1);
+    expect(seen.slice(1).map((s) => s.body)).toEqual([
+      { ...event('ref-000000000001'), sentAt: '2026-09-28T10:00:45.000Z' },
+      { ...event('ref-000000000001'), sentAt: '2026-09-28T10:02:15.000Z' },
+    ]);
+  });
+
+  it('gives an event the interactive timeout to wake the server and the background one to send', async () => {
+    vi.useFakeTimers();
+    let healthAnswers = false;
+    const seen: string[] = [];
+    const fetch: CloudFetch = (url) => {
+      seen.push(new URL(url).pathname);
+      return healthAnswers && url.endsWith('/health')
+        ? Promise.resolve(reply(200, HEALTH))
+        : new Promise(() => undefined);
+    };
+    const c = client(fetch);
+
+    const waking = failure(c.postAccountabilityEvent(event('ref-000000000001')));
+    await vi.advanceTimersByTimeAsync(CLOUD_TIMEOUTS.backgroundMs);
+    expect(seen).toEqual(['/health']); // Still waiting for the cold start.
+    await vi.advanceTimersByTimeAsync(CLOUD_TIMEOUTS.interactiveMs - CLOUD_TIMEOUTS.backgroundMs);
+    expect(await waking).toMatchObject({ kind: 'timeout', operation: 'health', retryable: true });
+    expect(seen).toEqual(['/health']);
+
+    healthAnswers = true;
+    const sending = failure(c.postAccountabilityEvent(event('ref-000000000001')));
+    await vi.advanceTimersByTimeAsync(CLOUD_TIMEOUTS.backgroundMs);
+    expect(await sending).toMatchObject({
+      kind: 'timeout',
+      operation: 'postAccountabilityEvent',
+      retryable: true,
+    });
+    expect(seen).toEqual(['/health', '/health', '/v1/accountability/events']);
   });
 
   it('never sends the token to public routes', async () => {
@@ -599,7 +659,7 @@ function day(date: string, rev: number, focusMinutes = 30): CloudDayStats {
 function event(
   clientRef: string,
   occurredAt = '2026-09-28T09:00:00.000Z',
-): PostAccountabilityEventRequest {
+): AccountabilityEventInput {
   return { clientRef, kind: 'emergency_confirmed', occurredAt, countdownEndsAt: null };
 }
 
@@ -608,7 +668,7 @@ const dayItem = (deviceId: string, stats: CloudDayStats): OutboxItem => ({
   deviceId,
   stats,
 });
-const eventItem = (e: PostAccountabilityEventRequest): OutboxItem => ({ type: 'event', event: e });
+const eventItem = (e: AccountabilityEventInput): OutboxItem => ({ type: 'event', event: e });
 
 describe('approvalOutcome', () => {
   const now = new Date('2026-09-28T10:00:00.000Z');
@@ -619,27 +679,94 @@ describe('approvalOutcome', () => {
     decidedAt: null,
   });
 
+  const ends = '2026-09-28T10:05:00.000Z';
+
   it('fails open: only an explicit «no» denies', () => {
-    expect(approvalOutcome(null, now)).toBe('approved');
-    expect(approvalOutcome(state('approved', '2026-09-28T10:10:00Z'), now)).toBe('approved');
-    expect(approvalOutcome(state('expired', '2026-09-28T09:59:00Z'), now)).toBe('approved');
-    expect(approvalOutcome(state('pending', '2026-09-28T10:00:00Z'), now)).toBe('approved');
-    expect(approvalOutcome(state('pending', 'garbage'), now)).toBe('approved');
-    expect(approvalOutcome(state('pending', '2026-09-28T10:00:01Z'), now)).toBe('wait');
-    expect(approvalOutcome(state('denied', '2026-09-28T10:10:00Z'), now)).toBe('denied');
+    expect(approvalOutcome(null, now, ends)).toBe('approved');
+    expect(approvalOutcome(state('approved', '2026-09-28T10:10:00Z'), now, ends)).toBe('approved');
+    expect(approvalOutcome(state('expired', '2026-09-28T09:59:00Z'), now, ends)).toBe('approved');
+    expect(approvalOutcome(state('pending', '2026-09-28T10:04:30Z'), now, ends)).toBe('wait');
+    expect(approvalOutcome(state('denied', '2026-09-28T10:10:00Z'), now, ends)).toBe('denied');
+    // A pending answer lasts until the local countdown ends, never longer.
+    expect(approvalOutcome(state('pending', '2026-09-28T10:04:30Z'), now, now)).toBe('approved');
+    expect(approvalOutcome(state('pending', '2026-09-28T10:04:30Z'), now, 'garbage')).toBe(
+      'approved',
+    );
+    expect(approvalOutcome(state('denied', '2026-09-28T10:04:30Z'), now, now)).toBe('denied');
+  });
+
+  it('never compares the server deadline with the app clock', () => {
+    // App clock 10 minutes fast: the server deadline (its clock) already looks past, but the
+    // partner can still answer, so the app keeps waiting (and polling) until its countdown ends.
+    const fastNow = new Date('2026-09-28T10:10:00.000Z');
+    const fastEnds = new Date('2026-09-28T10:15:00.000Z');
+    expect(approvalOutcome(state('pending', '2026-09-28T10:04:30Z'), fastNow, fastEnds)).toBe(
+      'wait',
+    );
+    // App clock 10 minutes slow: the deadline looks far away, yet a stale `pending` (offline)
+    // turns into `approved` exactly when the local countdown ends.
+    const slowEnds = new Date('2026-09-28T09:55:00.000Z');
+    const atEnd = new Date('2026-09-28T09:55:00.000Z');
+    expect(approvalOutcome(state('pending', '2026-09-28T10:04:30Z'), atEnd, slowEnds)).toBe(
+      'approved',
+    );
   });
 });
 
 describe('daysToReupload', () => {
-  it('keeps days the server lacks or holds at a lower rev', () => {
-    const local = [day('2026-09-25', 5), day('2026-09-26', 7), day('2026-09-27', 9)];
+  it('keeps days the server lacks or holds at the same or a lower rev', () => {
+    const local = [
+      day('2026-09-24', 4),
+      day('2026-09-25', 5),
+      day('2026-09-26', 7),
+      day('2026-09-27', 9),
+    ];
     const server = {
       revs: [
+        { day: '2026-09-24', rev: 6 },
         { day: '2026-09-25', rev: 5 },
         { day: '2026-09-26', rev: 3 },
       ],
     };
-    expect(daysToReupload(local, server).map((d) => d.day)).toEqual(['2026-09-26', '2026-09-27']);
+    expect(daysToReupload(local, server).map((d) => d.day)).toEqual([
+      '2026-09-25',
+      '2026-09-26',
+      '2026-09-27',
+    ]);
+  });
+
+  it('resends a same-rev day whose minutes grew after the last upload', () => {
+    // A block that crossed midnight: the guardian wrote no new event after 23:50, so the day
+    // closed at the same rev with more minutes, and a sign-out emptied the outbox before that
+    // snapshot went out. The server lets an equal rev overwrite.
+    const server = { revs: [{ day: '2026-09-27', rev: 42 }] };
+    const local = [day('2026-09-27', 42, 95)];
+    expect(daysToReupload(local, server)).toEqual(local);
+  });
+});
+
+describe('cloudWasReset', () => {
+  const health = (db: 'up' | 'down' | 'unconfigured', serverEpoch: string | null) => ({
+    db,
+    serverEpoch,
+  });
+
+  it('is true only when the database answers with another epoch', () => {
+    expect(cloudWasReset('epoch-1', health('up', 'epoch-2'))).toBe(true);
+    expect(cloudWasReset('epoch-1', health('up', 'epoch-1'))).toBe(false);
+  });
+
+  it('reads a missing epoch as unknown, never as a reset', () => {
+    // Database down (free Postgres in its grace period, a brief outage) or unconfigured.
+    expect(cloudWasReset('epoch-1', health('down', null))).toBe(false);
+    expect(cloudWasReset('epoch-1', health('unconfigured', null))).toBe(false);
+    // Up, but the epoch could not be read.
+    expect(cloudWasReset('epoch-1', health('up', null))).toBe(false);
+    // An epoch next to a database that is not up is not trusted either.
+    expect(cloudWasReset('epoch-1', health('down', 'epoch-2'))).toBe(false);
+    // Nothing remembered yet: remember it, nothing to drop.
+    expect(cloudWasReset(null, health('up', 'epoch-2'))).toBe(false);
+    expect(cloudWasReset('', health('up', 'epoch-2'))).toBe(false);
   });
 });
 
@@ -774,7 +901,7 @@ function fakeServer() {
       }
       return { accepted: body.days.length - stale.length, stale };
     }),
-    postAccountabilityEvent: vi.fn(async (body: PostAccountabilityEventRequest) => {
+    postAccountabilityEvent: vi.fn(async (body: AccountabilityEventInput) => {
       calls.push(`event:${body.clientRef}`);
       // The server stores the event before the answer is lost (idempotent replay).
       events.set(body.clientRef, (events.get(body.clientRef) ?? 0) + 1);
@@ -805,7 +932,7 @@ const httpError = (status: number, code: string, extras: Record<string, unknown>
   });
 const offline = () => new CloudError({ kind: 'offline', operation: 'test' });
 
-function setup(initial: OutboxState | null = null) {
+function setup(initial: OutboxState | null = null, extra: Pick<OutboxOptions, 'onEventSent'> = {}) {
   let t = new Date('2026-09-28T10:00:00.000Z').getTime();
   const clock = {
     now: () => new Date(t),
@@ -815,7 +942,13 @@ function setup(initial: OutboxState | null = null) {
   };
   const storage = memoryOutboxStorage(initial);
   const server = fakeServer();
-  const outbox = createOutbox({ storage, client: server.api, now: clock.now, random: () => 0 });
+  const outbox = createOutbox({
+    storage,
+    client: server.api,
+    now: clock.now,
+    random: () => 0,
+    ...extra,
+  });
   return { outbox, storage, server, clock };
 }
 
@@ -968,6 +1101,44 @@ describe('createOutbox', () => {
     expect(server.events.size).toBe(1);
   });
 
+  it('hands the server answer of every sent event to onEventSent', async () => {
+    const answers: Array<[string, PostAccountabilityEventResponse, number]> = [];
+    const { outbox, server, clock, storage } = setup(null, {
+      onEventSent: (e, response) => {
+        answers.push([e.clientRef, response, storage.state?.items.length ?? -1]);
+      },
+    });
+    await outbox.addEvent(event('ref-000000000001'));
+    await outbox.addEvent(event('ref-000000000002'));
+    server.answers.push('ok', offline());
+    expect(await outbox.flush()).toMatchObject({ status: 'retry_later', sent: 1 });
+    // Reported once the event left the queue; nothing for the one that failed.
+    expect(answers).toEqual([
+      ['ref-000000000001', { eventId: 'id-ref-000000000001', approval: null }, 1],
+    ]);
+
+    clock.advance(CLOUD_OUTBOX.retryMinMs);
+    expect(await outbox.flush()).toMatchObject({ status: 'done', sent: 1 });
+    expect(answers.map(([ref]) => ref)).toEqual(['ref-000000000001', 'ref-000000000002']);
+  });
+
+  it('keeps flushing when onEventSent throws or rejects', async () => {
+    let calls = 0;
+    const { outbox, server } = setup(null, {
+      onEventSent: (e) => {
+        calls += 1;
+        if (e.clientRef.endsWith('1')) throw new Error('ui bug');
+        return Promise.reject(new Error('async ui bug'));
+      },
+    });
+    await outbox.addEvent(event('ref-000000000001'));
+    await outbox.addEvent(event('ref-000000000002'));
+    await outbox.addDays('dev', range(1));
+    expect(await outbox.flush()).toMatchObject({ status: 'done', sent: 3, remaining: 0 });
+    expect(calls).toBe(2);
+    expect(server.calls).toHaveLength(3);
+  });
+
   it('backs off after failures and waits unless forced', async () => {
     const { outbox, server, clock, storage } = setup();
     await outbox.addDays('dev', [day('2026-09-27', 1)]);
@@ -1072,6 +1243,14 @@ describe('createOutbox', () => {
     expect(server.calls).toEqual(['put:dev:2']);
   });
 
+  it('keeps an event without a send time (the client stamps it when sending)', async () => {
+    const { outbox, storage, server } = setup();
+    await outbox.addEvent({ ...event('ref-000000000001'), sentAt: 'old' } as never);
+    expect(storage.state?.items).toEqual([eventItem(event('ref-000000000001'))]);
+    await outbox.flush();
+    expect(server.api.postAccountabilityEvent).toHaveBeenCalledWith(event('ref-000000000001'));
+  });
+
   it('survives a restart through its storage', async () => {
     const { outbox, storage } = setup();
     await outbox.addDays('dev', range(2));
@@ -1092,5 +1271,133 @@ describe('createOutbox', () => {
     await outbox.addDays('dev', range(2));
     await outbox.clear();
     expect(await outbox.pending()).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// Sending an event now
+// ---------------------------------------------------------------------------------------
+
+describe('sendAccountabilityEvent', () => {
+  const request = (clientRef = 'ref-000000000001'): AccountabilityEventInput => ({
+    clientRef,
+    kind: 'emergency_requested',
+    occurredAt: '2026-09-28T10:00:00.000Z',
+    countdownEndsAt: '2026-09-28T10:10:00.000Z',
+  });
+  const pending: PostAccountabilityEventResponse = {
+    eventId: 'ev-1',
+    approval: {
+      status: 'pending',
+      deadline: '2026-09-28T10:09:30.000Z',
+      note: null,
+      decidedAt: null,
+    },
+  };
+
+  it('returns the answer at once and queues nothing', async () => {
+    const client = { postAccountabilityEvent: vi.fn(async () => pending) };
+    const outbox = { addEvent: vi.fn(async () => undefined) };
+    const onWaking = vi.fn();
+    const result = await sendAccountabilityEvent(client, outbox, request(), { onWaking });
+    expect(result).toEqual({ status: 'sent', response: pending, error: null });
+    expect(client.postAccountabilityEvent).toHaveBeenCalledWith(request(), { onWaking });
+    expect(outbox.addEvent).not.toHaveBeenCalled();
+  });
+
+  it('queues it when it cannot go out now, and the outbox recovers the answer', async () => {
+    // The first POST reaches the server, which stores the event, but the answer is lost.
+    const stored = new Map<string, PostAccountabilityEventResponse>();
+    let lose = true;
+    const client = {
+      putDays: vi.fn(async () => ({ accepted: 0, stale: [] })),
+      postAccountabilityEvent: vi.fn(async (e: AccountabilityEventInput) => {
+        if (!stored.has(e.clientRef)) stored.set(e.clientRef, pending);
+        if (lose) {
+          lose = false;
+          throw new CloudError({ kind: 'timeout', operation: 'postAccountabilityEvent' });
+        }
+        return stored.get(e.clientRef) ?? pending;
+      }),
+    };
+    const onEventSent = vi.fn();
+    const outbox = createOutbox({
+      storage: memoryOutboxStorage(),
+      client,
+      onEventSent,
+      now: () => new Date('2026-09-28T10:01:00.000Z'),
+    });
+
+    const result = await sendAccountabilityEvent(client, outbox, {
+      ...request(),
+      sentAt: 'stale',
+    } as AccountabilityEventInput);
+    expect(result).toMatchObject({ status: 'queued', response: null, error: { kind: 'timeout' } });
+    expect(await outbox.pending()).toBe(1);
+
+    // The replay of the same clientRef answers the stored event: the eventId is not lost.
+    expect(await outbox.flush()).toMatchObject({ status: 'done', sent: 1 });
+    expect(client.postAccountabilityEvent.mock.calls.map(([e]) => e)).toEqual([
+      { ...request(), sentAt: 'stale' },
+      request(),
+    ]);
+    expect(onEventSent).toHaveBeenCalledWith(request(), pending);
+  });
+
+  it.each([
+    ['offline', new CloudError({ kind: 'offline', operation: 'health' })],
+    ['aborted', new CloudError({ kind: 'aborted', operation: 'postAccountabilityEvent' })],
+    ['server error', httpError(503, 'database_unavailable')],
+    [
+      'feature off',
+      httpError(503, 'feature_disabled', { feature: 'social', reason: 'missing_key' }),
+    ],
+  ])('queues it after %s', async (_name, error) => {
+    const client = { postAccountabilityEvent: vi.fn(async () => Promise.reject(error)) };
+    const outbox = { addEvent: vi.fn(async () => undefined) };
+    const result = await sendAccountabilityEvent(client, outbox, request());
+    expect(result).toEqual({ status: 'queued', response: null, error });
+    expect(outbox.addEvent).toHaveBeenCalledWith(request());
+  });
+
+  it('drops what the server refuses for good and never queues after a 401', async () => {
+    const outbox = { addEvent: vi.fn(async () => undefined) };
+    const refused = httpError(400, 'validation_failed');
+    const dropped = await sendAccountabilityEvent(
+      { postAccountabilityEvent: async () => Promise.reject(refused) },
+      outbox,
+      request(),
+    );
+    expect(dropped).toEqual({ status: 'dropped', response: null, error: refused });
+    const unauthorized = httpError(401, 'unauthorized');
+    const signedOut = await sendAccountabilityEvent(
+      { postAccountabilityEvent: async () => Promise.reject(unauthorized) },
+      outbox,
+      request(),
+    );
+    expect(signedOut).toEqual({ status: 'signed_out', response: null, error: unauthorized });
+    expect(outbox.addEvent).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed event before sending anything', async () => {
+    const client = { postAccountabilityEvent: vi.fn(async () => pending) };
+    const outbox = { addEvent: vi.fn(async () => undefined) };
+    await expect(sendAccountabilityEvent(client, outbox, request('bad ref!'))).rejects.toThrow(
+      RangeError,
+    );
+    expect(client.postAccountabilityEvent).not.toHaveBeenCalled();
+  });
+
+  it('lets errors that are not CloudErrors through', async () => {
+    const bug = new TypeError('bug');
+    const outbox = { addEvent: vi.fn(async () => undefined) };
+    await expect(
+      sendAccountabilityEvent(
+        { postAccountabilityEvent: async () => Promise.reject(bug) },
+        outbox,
+        request(),
+      ),
+    ).rejects.toBe(bug);
+    expect(outbox.addEvent).not.toHaveBeenCalled();
   });
 });

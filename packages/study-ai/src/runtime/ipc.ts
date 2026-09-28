@@ -5,8 +5,18 @@
  * Every message is a plain object with exactly the keys of its `type`, finite numbers, known
  * enum values and capped strings/arrays (`profileJson` ≤ 512 KB). Both sides validate: the
  * analysis window checks `AnalysisInbound`, Electron main checks `AnalysisOutbound`.
+ *
+ * A profile going to main (`profile_updated`, `calibration_built`) must also be the canonical
+ * serialisation of a strictly valid profile of the current format, version and trainer
+ * (`canonicalProfileJson`): main writes it to disk as is, so the file can only ever hold
+ * calibration numbers, whatever the renderer sends.
  */
-import { PROFILE_MAX_BYTES } from '../calibration/constants';
+import { PROFILE_FORMAT, PROFILE_MAX_BYTES, PROFILE_VERSION } from '../calibration/constants';
+import {
+  PROFILE_TRAINER_VERSION,
+  parseProfile,
+  serializeProfile,
+} from '../calibration/profile';
 import {
   ATTENTION_STATES,
   CALIBRATION_CLASSES,
@@ -33,6 +43,7 @@ import {
   bool,
   exact,
   int,
+  isPlainObject,
   literal,
   nullable,
   num,
@@ -119,7 +130,48 @@ const time = num(0);
 const duration = num(0);
 const count = int(0);
 const ratio = num(0, 1);
+/** Main → window: the stored profile; the window parses it (and may migrate it) itself. */
 const profileJson = str(PROFILE_MAX_BYTES);
+
+/** The last profile string that passed (a pure check: it stays valid). */
+let lastCanonicalProfile: string | null = null;
+
+/**
+ * Window → main: the canonical JSON of a strictly valid profile of the current format,
+ * version and trainer (fixed keys, finite numbers, ISO dates and the camera hash only), so
+ * main can write it to `profile.json` as is.
+ *
+ * It never retrains: a profile of another version or trainer is refused before the full
+ * parse (`parseProfile` would retrain it, seconds of CPU on main's thread). The window only
+ * sends profiles it has just serialised, so a genuine one always passes.
+ */
+export function canonicalProfileJson(value: unknown): boolean {
+  if (typeof value !== 'string' || value.length > PROFILE_MAX_BYTES) return false;
+  if (value === lastCanonicalProfile) return true;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(value);
+  } catch {
+    return false;
+  }
+  if (
+    !isPlainObject(raw) ||
+    raw.format !== PROFILE_FORMAT ||
+    raw.version !== PROFILE_VERSION ||
+    raw.trainer !== PROFILE_TRAINER_VERSION
+  ) {
+    return false;
+  }
+  try {
+    const parsed = parseProfile(value);
+    if (!parsed.ok || parsed.migrated || serializeProfile(parsed.profile) !== value) return false;
+  } catch {
+    return false;
+  }
+  lastCanonicalProfile = value;
+  return true;
+}
+const outboundProfileJson: Check = canonicalProfileJson;
 const studyMode = oneOf(STUDY_MODES);
 const calibrationClass = oneOf(CALIBRATION_CLASSES);
 const cameraStatus = oneOf(CAMERA_STATUSES);
@@ -213,7 +265,7 @@ const sessionEvent: Check = tagged({
   profile_updated: exact({
     type: literal('profile_updated'),
     at: time,
-    profileJson,
+    profileJson: outboundProfileJson,
     reason: literal('feedback', 'migrated'),
   }),
   camera: exact({
@@ -337,7 +389,7 @@ const calibrationReport: Check = exact({
 });
 
 const buildOutcome: Check = okUnion(
-  exact({ ok: literal(true), profileJson, report: calibrationReport, issues }),
+  exact({ ok: literal(true), profileJson: outboundProfileJson, report: calibrationReport, issues }),
   exact({ ok: literal(false), issues }),
 );
 

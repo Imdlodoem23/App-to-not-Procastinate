@@ -92,8 +92,7 @@ export const ESTADISTICAS_ES = {
     today: 'hoy',
     yesterday: 'ayer',
     /** «jue 24 sept». */
-    dayShort: (weekday: string, day: number, month: string): string =>
-      `${weekday} ${day} ${month}`,
+    dayShort: (weekday: string, day: number, month: string): string => `${weekday} ${day} ${month}`,
     /** «Jueves 24 de septiembre» (starts a sentence). */
     dayLong: (weekday: string, day: number, month: string): string =>
       `${capitalize(weekday)} ${day} de ${month}`,

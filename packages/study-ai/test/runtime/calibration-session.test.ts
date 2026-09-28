@@ -71,7 +71,12 @@ describe('calibration session', () => {
       const objects = calls.filter((c) => c.options.objects).length;
       expect(Math.abs(objects - calls.length / 2)).toBeLessThanOrEqual(1);
     }
-    for (const frame of r.camera.last.frames) expect(frame.closed).toBe(1);
+    // One camera per recording, each stopped when its clip ended; every frame closed once.
+    expect(r.camera.opened).toHaveLength(5);
+    for (const source of r.camera.opened) {
+      expect(source.stopped).toBe(1);
+      for (const frame of source.frames) expect(frame.closed).toBe(1);
+    }
     expect(r.progress.length).toBeGreaterThan(5 * 78);
     expect(r.progress.some((p) => p.phase === 'settling')).toBe(true);
     expect(r.progress[r.progress.length - 1]?.phase).toBe('done');
@@ -91,6 +96,37 @@ describe('calibration session', () => {
     handle.close();
     expect(r.camera.last.stopped).toBe(1);
     expect(r.vision.closed).toBe(1);
+    expect(r.s.pending).toBe(0);
+  });
+
+  it('the camera is on only while a situation is being recorded', async () => {
+    const r = rig();
+    const handle = await startCalibration({
+      assets: ASSETS,
+      profileJson: null,
+      onProgress: () => undefined,
+      deps: r.deps,
+    });
+    // The wizard is open and the user reads the instructions: no camera yet.
+    await r.s.advance(30_000);
+    expect(r.camera.calls).toHaveLength(0);
+    const first = recordClass(r, handle, 'screen');
+    await first;
+    expect(r.camera.opened).toHaveLength(1);
+    expect(r.camera.last.stopped).toBe(1); // off right after the clip
+    await r.s.advance(60_000); // between two recordings
+    expect(r.camera.calls).toHaveLength(1);
+    r.play('paper');
+    const second = handle.record('paper');
+    await r.s.advance(3_000);
+    expect(r.camera.opened).toHaveLength(2);
+    expect(r.camera.last.stopped).toBe(0); // on while recording
+    handle.cancel();
+    await expect(second).rejects.toMatchObject({ name: 'AbortError' });
+    expect(r.camera.last.stopped).toBe(1); // off at once on cancel
+    // The recording still gets its full 20 s: they start when the camera is open.
+    await expect(first).resolves.toMatchObject({ cls: 'screen' });
+    handle.close();
     expect(r.s.pending).toBe(0);
   });
 
@@ -190,9 +226,38 @@ describe('calibration session', () => {
     handle.close();
   });
 
-  it('fails to start when the camera or vision fails, releasing the other', async () => {
-    const r1 = rig();
-    r1.camera.failWith = new CameraError('not_found');
+  it('a lost WebGL context mid-recording rebuilds the pipeline and the clip still counts', async () => {
+    const r = rig();
+    const fresh = new FakeVision();
+    let loads = 0;
+    r.deps.createVision = () => {
+      loads += 1;
+      return Promise.resolve(loads === 1 ? r.vision : fresh);
+    };
+    const handle = await startCalibration({
+      assets: ASSETS,
+      profileJson: null,
+      onProgress: (p) => r.progress.push(p),
+      deps: r.deps,
+    });
+    const frames = calibrationFrames('screen', { persona: PERSONAS.baseline, seed: 20 });
+    r.vision.features = replay(frames);
+    fresh.features = replay(frames);
+    const pending = handle.record('screen');
+    await r.s.advance(5_000);
+    r.vision.contextLost = true;
+    await r.s.advance(16_000);
+    const summary = await pending;
+    expect(loads).toBe(2);
+    expect(r.vision.closed).toBe(1);
+    expect(fresh.calls.length).toBeGreaterThan(50);
+    expect(summary.issues.filter((i) => i.severity === 'error')).toEqual([]);
+    handle.close();
+    expect(fresh.closed).toBe(1);
+  });
+
+  it('fails to start only when vision fails; a camera failure fails that recording', async () => {
+    const r1 = rig(new VisionError('hash_mismatch'));
     await expect(
       startCalibration({
         assets: ASSETS,
@@ -200,18 +265,115 @@ describe('calibration session', () => {
         onProgress: () => undefined,
         deps: r1.deps,
       }),
-    ).rejects.toMatchObject({ code: 'not_found' });
-    expect(r1.vision.closed).toBe(1);
-
-    const r2 = rig(new VisionError('hash_mismatch'));
-    await expect(
-      startCalibration({
-        assets: ASSETS,
-        profileJson: null,
-        onProgress: () => undefined,
-        deps: r2.deps,
-      }),
     ).rejects.toMatchObject({ code: 'hash_mismatch' });
-    expect(r2.camera.last.stopped).toBe(1);
+    expect(r1.camera.calls).toHaveLength(0);
+
+    const r2 = rig();
+    r2.camera.failWith = new CameraError('not_found');
+    const handle = await startCalibration({
+      assets: ASSETS,
+      profileJson: null,
+      onProgress: () => undefined,
+      deps: r2.deps,
+    });
+    await expect(handle.record('screen')).rejects.toMatchObject({
+      name: 'CameraOpenError',
+      code: 'not_found',
+    });
+    // Not stuck: the camera comes back and the next recording works.
+    r2.camera.failWith = null;
+    await expect(recordClass(r2, handle, 'screen')).resolves.toMatchObject({ cls: 'screen' });
+    handle.close();
+    expect(r2.vision.closed).toBe(1);
+  });
+
+  it('a camera that never answers fails the recording after 15 s and stops the late stream', async () => {
+    const r = rig();
+    const handle = await startCalibration({
+      assets: ASSETS,
+      profileJson: null,
+      onProgress: (p) => r.progress.push(p),
+      deps: r.deps,
+    });
+    r.camera.hang = true;
+    let error: unknown = null;
+    handle.record('screen').catch((e: unknown) => {
+      error = e;
+    });
+    await r.s.advance(14_000);
+    expect(error).toBeNull();
+    await r.s.advance(1_500);
+    expect(error).toMatchObject({ name: 'CameraOpenError', code: 'unknown' });
+    expect(r.progress).toHaveLength(0);
+    const late = r.camera.answerHung();
+    await r.s.advance(10);
+    expect(late[0]?.stopped).toBe(1);
+    // The wizard can try again.
+    r.camera.hang = false;
+    await expect(recordClass(r, handle, 'screen')).resolves.toMatchObject({ cls: 'screen' });
+    handle.close();
+    expect(r.s.pending).toBe(0);
+  });
+
+  it('a vision load that never settles fails the start after 30 s and closes the late pipeline', async () => {
+    const r = rig();
+    const late = new FakeVision();
+    let answer: ((vision: FakeVision) => void) | null = null;
+    r.deps.createVision = () =>
+      new Promise((resolve) => {
+        answer = resolve;
+      });
+    let error: unknown = null;
+    startCalibration({
+      assets: ASSETS,
+      profileJson: null,
+      onProgress: () => undefined,
+      deps: r.deps,
+    }).catch((e: unknown) => {
+      error = e;
+    });
+    await r.s.advance(29_000);
+    expect(error).toBeNull();
+    await r.s.advance(1_500);
+    expect(error).toMatchObject({ name: 'VisionLoadError', code: 'load_failed' });
+    (answer as unknown as (vision: FakeVision) => void)(late);
+    await r.s.advance(10);
+    expect(late.closed).toBe(1);
+    expect(r.camera.calls).toHaveLength(0);
+  });
+
+  it('another camera between two recordings discards the clips of the first one', async () => {
+    const r = rig();
+    const handle = await startCalibration({
+      assets: ASSETS,
+      profileJson: null,
+      onProgress: () => undefined,
+      deps: r.deps,
+    });
+    for (const cls of CALIBRATION_CLASSES.slice(0, 4)) await recordClass(r, handle, cls);
+    r.camera.identity = { key: `sha256:${'b'.repeat(64)}`, aspect: 16 / 9 };
+    await recordClass(r, handle, 'absent');
+    const outcome = handle.build();
+    expect(outcome.ok).toBe(false);
+    const missing = outcome.issues.filter((i) => i.code === 'missing').map((i) => i.cls);
+    expect(missing.sort()).toEqual([...CALIBRATION_CLASSES.slice(0, 4)].sort());
+    handle.close();
+  });
+
+  it('building before any recording reports every situation as missing', async () => {
+    const r = rig();
+    const handle = await startCalibration({
+      assets: ASSETS,
+      profileJson: null,
+      onProgress: () => undefined,
+      deps: r.deps,
+    });
+    const outcome = handle.build();
+    expect(outcome).toEqual({
+      ok: false,
+      issues: CALIBRATION_CLASSES.map((cls) => ({ code: 'missing', cls, severity: 'error' })),
+    });
+    expect(isAnalysisOutbound({ type: 'calibration_built', outcome })).toBe(true);
+    handle.close();
   });
 });

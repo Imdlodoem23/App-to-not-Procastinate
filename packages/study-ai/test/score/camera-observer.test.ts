@@ -68,6 +68,17 @@ describe('presence (first match wins)', () => {
     expect(observeAt(obs, 300, {}).presence).toBe('visible');
   });
 
+  it('a tracked face beats a «covered» luma (a dim, low-contrast room)', () => {
+    const obs = observer();
+    const dim = { luma: { covered: true, mean: 0.06, spatialStd: 0.02, lowLight: false } };
+    const o = observeAt(obs, 0, dim, { context: { idleMs: 0 } });
+    expect(o.presence).toBe('visible');
+    expect(o.study).toBeGreaterThan(0.5);
+    expect(o.hints).not.toContain('camera_covered');
+    // Without a face the same thumbnail still means a covered lens.
+    expect(observeAt(obs, 300, { ...dim, face: null }).presence).toBe('covered');
+  });
+
   it('no face but a person in the last 3 runs → hidden, then absent', () => {
     const obs = observer();
     observeAt(obs, 0, { run: { person: 0.9 } });
@@ -180,12 +191,26 @@ describe('phone and book', () => {
     expect(observeAt(obs, 1_000, { run: { phone } }).evidence.phone).toBe(false);
   });
 
-  it('a book raises a turned head to the floor', () => {
+  it('a book lying in view does not lift a head turned away (TV to the side)', () => {
     const obs = observer();
     observeAt(obs, 0, { face: faceOf({ yaw: 50 }), run: { book: 0.6 } });
     const o = observeAt(obs, 1_000, { face: faceOf({ yaw: 50 }), run: { book: 0.6 } });
     expect(o.evidence.book).toBe(true);
+    expect(o.study).toBeCloseTo(0.1 + 0.1); // the oracle's screen + paper, plus the bonus
+    expect(o.cause).toBe('looking_away');
+  });
+
+  it('a book lifts a head that could be reading it', () => {
+    const unsure = oracleClassifier({
+      predict: () => probs({ screen: 0.3, paper: 0.1, phone: 0.35, away: 0.25 }),
+    });
+    const obs = observer(unsure);
+    observeAt(obs, 0, { face: faceOf({ yaw: 20, pitch: 0 }), run: { book: 0.6 } });
+    const o = observeAt(obs, 1_000, { face: faceOf({ yaw: 20, pitch: 0 }), run: { book: 0.6 } });
+    expect(o.evidence.lookingDown).toBe(false);
     expect(o.study).toBeCloseTo(0.7);
+    // Rescoring keeps the rule (the yaw comes from the stored relative pose).
+    expect(obs.rescore(o, SETTINGS)).toBeCloseTo(0.7);
   });
 });
 
@@ -206,29 +231,108 @@ describe('hidden face: last-pose rule', () => {
     expect(o.cause).toBe('looking_away');
   });
 
-  it('unknown → θ+5 for 20 s, then 0.2; «cannot see you» after 60 s', () => {
+  it('unknown → θ+5 for 20 s, then not observable (absent); «cannot see you» after 5 s', () => {
     const obs = observer();
     observeAt(obs, 0, { run: { person: 0.9 } });
     let o = observeAt(obs, 2_500, { face: null, run: { person: 0.9 } });
+    expect(o.presence).toBe('hidden');
     expect(o.study).toBeCloseTo(0.55);
+    expect(o.hints).not.toContain('camera_cant_see_you');
+    o = observeAt(obs, 7_500, { face: null, run: { person: 0.9 } });
+    expect(o.hints).toContain('camera_cant_see_you');
     o = observeAt(obs, 22_500, { face: null, run: { person: 0.9 } });
+    expect(o.presence).toBe('hidden');
     expect(o.study).toBeCloseTo(0.55);
     o = observeAt(obs, 22_600, { face: null, run: { person: 0.9 } });
-    expect(o.study).toBeCloseTo(0.2);
-    expect(o.hints).not.toContain('camera_cant_see_you');
-    o = observeAt(obs, 62_600, { face: null, run: { person: 0.9 } });
+    expect(o.presence).toBe('absent');
+    expect(o.study).toBeNull();
+    expect(o.cause).toBeNull();
+    expect(o.hints).toContain('camera_cant_see_you');
+    // A null frame keeps it; the face back ends it.
+    expect(observeAt(obs, 22_900, null).presence).toBe('absent');
+    o = observeAt(obs, 23_200, { face: null, run: { person: 0.9 } });
+    expect(o.presence).toBe('absent');
+    expect(observeAt(obs, 23_500, { run: { person: 0.9 } }).presence).toBe('visible');
+    expect(observeAt(obs, 23_800, { face: null, run: { person: 0.9 } }).study).toBeCloseTo(0.55);
+  });
+
+  it('a face that slid out of the frame edge raises «cannot see you» at once', () => {
+    const obs = observer();
+    observeAt(obs, 0, { face: faceOf({ truncated: 0.4 }), run: { person: 0.9 } });
+    const o = observeAt(obs, 300, { face: null, run: { person: 0.9 } });
+    expect(o.presence).toBe('hidden');
     expect(o.hints).toContain('camera_cant_see_you');
   });
 
-  it('head down but hidden for more than 10 min → 0.2', () => {
+  it('turned away stays observable: 0.2 for as long as it lasts', () => {
+    const obs = observer();
+    observeAt(obs, 0, { face: faceOf({ yaw: 40 }), run: { person: 0.9 } });
+    let o: Observation | null = null;
+    for (let t = 1_000; t <= 120_000; t += 1_000) {
+      o = observeAt(obs, t, { face: null, run: { person: 0.9 } });
+    }
+    expect(o?.presence).toBe('hidden');
+    expect(o?.study).toBeCloseTo(0.2);
+    expect(o?.cause).toBe('looking_away');
+  });
+
+  it('a phone or a distraction keeps an unseen stretch observable (their rules apply)', () => {
+    const phone = observer();
+    observeAt(phone, 0, { run: { person: 0.9 } });
+    let o: Observation | null = null;
+    for (let t = 1_000; t <= 30_000; t += 1_000) {
+      o = observeAt(phone, t, {
+        face: null,
+        run: { person: 0.9, phone: { score: 0.8, moving: true } },
+      });
+    }
+    expect(o?.presence).toBe('hidden');
+    expect(o?.study).toBeCloseTo(0.1);
+    expect(o?.cause).toBe('phone');
+
+    const dist = observer();
+    const ctx = { context: { foreground: 'distraction' as const } };
+    observeAt(dist, 0, { run: { person: 0.9 } }, ctx);
+    for (let t = 1_000; t <= 30_000; t += 1_000) {
+      o = observeAt(dist, t, { face: null, run: { person: 0.9 } }, ctx);
+    }
+    expect(o?.presence).toBe('hidden');
+    expect(o?.study).toBeCloseTo(0.1 * 0.1 + 0.1); // p.screen discounted, p.paper kept
+    expect(o?.cause).toBe('distraction_app');
+  });
+
+  it('low light with recent input holds the neutral value (judged like no-camera)', () => {
+    const obs = observer();
+    const dark = { face: null, run: { person: 0.9 }, luma: { lowLight: true, mean: 0.12 } };
+    observeAt(obs, 0, { run: { person: 0.9 } });
+    let o: Observation | null = null;
+    for (let t = 1_000; t <= 120_000; t += 1_000) {
+      o = observeAt(obs, t, dark, { context: { idleMs: 20_000 } });
+    }
+    expect(o?.presence).toBe('hidden');
+    expect(o?.study).toBeCloseTo(0.55);
+    expect(o?.hints).toContain('low_light');
+    expect(o?.hints).toContain('camera_cant_see_you');
+    // Idle past the no-camera limit: not observable any more.
+    o = observeAt(obs, 121_000, dark, { context: { idleMs: SETTINGS.noCameraIdleMs } });
+    expect(o.presence).toBe('absent');
+    // …and in normal light it never held.
+    o = observeAt(obs, 122_000, { face: null, run: { person: 0.9 } }, { context: { idleMs: 0 } });
+    expect(o.presence).toBe('absent');
+  });
+
+  it('head down but hidden for more than 10 min → not observable', () => {
     const obs = observer();
     observeAt(obs, 0, { face: faceOf({ pitch: -40 }), run: { person: 0.9 } });
     let t = 300;
     let o: Observation | null = null;
     for (; t <= 600_300; t += 1_000) o = observeAt(obs, t, { face: null, run: { person: 0.9 } });
+    expect(o?.presence).toBe('hidden');
     expect(o?.study).toBeCloseTo(0.7);
+    expect(o?.hints).toContain('camera_cant_see_you'); // hidden > 60 s
     o = observeAt(obs, t + 1_000, { face: null, run: { person: 0.9 } });
-    expect(o.study).toBeCloseTo(0.2);
+    expect(o.presence).toBe('absent');
+    expect(o.study).toBeNull();
   });
 
   it('rescore keeps the last-pose value of a hidden observation', () => {

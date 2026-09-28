@@ -35,6 +35,37 @@ function fakeModel(entry: ModelManifestEntry): Uint8Array {
 const FACE_BYTES = fakeModel(MODEL_MANIFEST[0]!);
 const OBJECT_BYTES = fakeModel(MODEL_MANIFEST[1]!);
 
+/** A 1×1 task canvas whose WebGL context can be lost, like `WEBGL_lose_context` does. */
+class FakeTaskCanvas {
+  readonly listeners = new Set<() => void>();
+  context: { lost: boolean; isContextLost(): boolean } | null = null;
+  lookups = 0;
+  /** What MediaPipe does on the first frame: creates a WebGL2 context on the canvas. */
+  create(): void {
+    this.context ??= {
+      lost: false,
+      isContextLost() {
+        return this.lost;
+      },
+    };
+  }
+  getContext(type: string): { isContextLost(): boolean } | null {
+    this.lookups += 1;
+    return type === 'webgl2' ? this.context : null;
+  }
+  addEventListener(type: string, listener: () => void): void {
+    if (type === 'webglcontextlost') this.listeners.add(listener);
+  }
+  removeEventListener(type: string, listener: () => void): void {
+    if (type === 'webglcontextlost') this.listeners.delete(listener);
+  }
+  /** `WEBGL_lose_context.loseContext()`, optionally without the event. */
+  lose(event = true): void {
+    if (this.context) this.context.lost = true;
+    if (event) for (const listener of this.listeners) listener();
+  }
+}
+
 interface Calls {
   fetched: string[];
   fileset: WasmFilesetLike[];
@@ -45,6 +76,7 @@ interface Calls {
   closed: string[];
   luma: number;
   boosts: number[];
+  taskCanvases: FakeTaskCanvas[];
 }
 
 interface FakeOptions {
@@ -55,6 +87,8 @@ interface FakeOptions {
   detectThrows?: boolean;
   importFails?: boolean;
   objects?: DetectionResultLike;
+  /** No OffscreenCanvas: MediaPipe makes its own canvases. */
+  noTaskCanvas?: boolean;
 }
 
 function fakeRuntime(options: FakeOptions = {}): { runtime: VisionRuntime; calls: Calls } {
@@ -68,11 +102,17 @@ function fakeRuntime(options: FakeOptions = {}): { runtime: VisionRuntime; calls
     closed: [],
     luma: 0,
     boosts: [],
+    taskCanvases: [],
   };
   let clock = 0;
+  const canvasOf = (opts: { canvas?: unknown }): FakeTaskCanvas | null =>
+    opts.canvas instanceof FakeTaskCanvas ? opts.canvas : null;
+  let faceCanvas: FakeTaskCanvas | null = null;
+  let objectCanvas: FakeTaskCanvas | null = null;
   const face: FaceTask = {
     detectForVideo: (_image, ts) => {
       if (options.detectThrows) throw new Error('wasm abort');
+      faceCanvas?.create();
       calls.faceTs.push(ts);
       clock += 9;
       return faceResult([{ box: { cx: 0.5, cy: 0.4, w: 0.2, h: 0.3 }, pitch: -20 }]);
@@ -81,6 +121,7 @@ function fakeRuntime(options: FakeOptions = {}): { runtime: VisionRuntime; calls
   };
   const objects: ObjectTask = {
     detectForVideo: (_image, ts) => {
+      objectCanvas?.create();
       calls.objectTs.push(ts);
       clock += 35;
       return (
@@ -98,6 +139,7 @@ function fakeRuntime(options: FakeOptions = {}): { runtime: VisionRuntime; calls
         calls.fileset.push(fileset);
         calls.faceOptions.push(opts);
         if (options.createFails === 'face') throw new Error('bad model');
+        faceCanvas = canvasOf(opts);
         return face;
       },
     },
@@ -106,6 +148,7 @@ function fakeRuntime(options: FakeOptions = {}): { runtime: VisionRuntime; calls
         calls.fileset.push(fileset);
         calls.objectOptions.push(opts);
         if (options.createFails === 'objects') throw new Error('bad model');
+        objectCanvas = canvasOf(opts);
         return objects;
       },
     },
@@ -140,6 +183,12 @@ function fakeRuntime(options: FakeOptions = {}): { runtime: VisionRuntime; calls
     },
     now: () => clock,
     createCanvas: () => canvas,
+    createTaskCanvas: () => {
+      if (options.noTaskCanvas) return null;
+      const taskCanvas = new FakeTaskCanvas();
+      calls.taskCanvases.push(taskCanvas);
+      return taskCanvas as unknown as OffscreenCanvas;
+    },
   };
   return { runtime, calls };
 }
@@ -193,8 +242,16 @@ describe('createVisionPipeline (loading)', () => {
       wasmBinaryPath: 'http://127.0.0.1:5173/mediapipe/vision_wasm_internal.wasm',
     });
     // Model buffers are compared by identity: a deep compare of megabytes takes minutes.
-    const { baseOptions: faceBase, ...faceOptions } = calls.faceOptions[0]!;
-    const { baseOptions: objectBase, ...objectOptions } = calls.objectOptions[0]!;
+    const { baseOptions: faceBase, canvas: faceCanvas, ...faceOptions } = calls.faceOptions[0]!;
+    const {
+      baseOptions: objectBase,
+      canvas: objectCanvas,
+      ...objectOptions
+    } = calls.objectOptions[0]!;
+    // Each task renders through its own canvas, so its WebGL context can be watched.
+    expect(calls.taskCanvases).toHaveLength(2);
+    expect(faceCanvas).toBe(calls.taskCanvases[0]);
+    expect(objectCanvas).toBe(calls.taskCanvases[1]);
     expect(faceBase?.delegate).toBe('CPU');
     expect(faceBase?.modelAssetBuffer === FACE_BYTES).toBe(true);
     expect(objectBase?.delegate).toBe('CPU');
@@ -365,6 +422,67 @@ describe('VisionPipeline.process', () => {
     for (let t = 0; t <= 7_000; t += 1_000) plain.process(frame(t), { objects: false, luma: true });
     expect(off.calls.boosts).toEqual([]);
     plain.close();
+  });
+
+  it('WebGL context lost (GPU reset): process throws contextLost before running a model', async () => {
+    for (const which of [0, 1]) {
+      const { runtime, calls } = fakeRuntime();
+      const vision = await createVisionPipelineWith(LOCAL, {}, runtime);
+      vision.process(frame(0), { objects: true, luma: true });
+      expect(vision.contextLost).toBe(false);
+      calls.taskCanvases[which]!.lose();
+      expect(vision.contextLost).toBe(true);
+      const ran = calls.faceTs.length;
+      let error: unknown = null;
+      try {
+        vision.process(frame(333), { objects: true, luma: true });
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeInstanceOf(VisionLoadError);
+      expect((error as VisionLoadError).code).toBe('process_failed');
+      expect((error as VisionLoadError).contextLost).toBe(true);
+      expect(calls.faceTs).toHaveLength(ran); // no model ran on the lost context
+      vision.close();
+      expect(calls.taskCanvases.every((c) => c.listeners.size === 0)).toBe(true);
+    }
+  });
+
+  it('sees a lost context without the event, and never creates a context itself', async () => {
+    const { runtime, calls } = fakeRuntime();
+    const vision = await createVisionPipelineWith(LOCAL, {}, runtime);
+    // Before the first frame the contexts are not looked up (MediaPipe creates them).
+    expect(calls.taskCanvases.map((c) => c.lookups)).toEqual([0, 0]);
+    vision.process(frame(0), { objects: false, luma: false });
+    calls.taskCanvases[0]!.lose(false);
+    expect(() => vision.process(frame(333), { objects: false, luma: false })).toThrow(
+      /webgl context lost/,
+    );
+    // The object task's context is looked up once it has run.
+    const other = fakeRuntime();
+    const v2 = await createVisionPipelineWith(LOCAL, {}, other.runtime);
+    v2.process(frame(0), { objects: true, luma: false });
+    other.calls.taskCanvases[1]!.lose(false);
+    expect(v2.contextLost).toBe(true);
+    vision.close();
+    v2.close();
+  });
+
+  it('other inference errors are not context losses; without task canvases nothing is watched', async () => {
+    const failing = fakeRuntime({ detectThrows: true });
+    const vision = await createVisionPipelineWith(LOCAL, {}, failing.runtime);
+    try {
+      vision.process(frame(0), { objects: false, luma: false });
+    } catch (error) {
+      expect((error as VisionLoadError).contextLost).toBe(false);
+    }
+    vision.close();
+    const plain = fakeRuntime({ noTaskCanvas: true });
+    const v2 = await createVisionPipelineWith(LOCAL, {}, plain.runtime);
+    expect('canvas' in plain.calls.faceOptions[0]!).toBe(false);
+    expect(v2.process(frame(0), { objects: true, luma: false }).features.face).not.toBeNull();
+    expect(v2.contextLost).toBe(false);
+    v2.close();
   });
 
   it('close() is idempotent and process() afterwards fails', async () => {

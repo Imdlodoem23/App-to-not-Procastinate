@@ -5,17 +5,18 @@
  * The boot sequence lives in boot.ts: when the database is unreachable at boot (a free Render
  * Postgres that expired, a host that never answers, a network blip) the server still starts:
  * /health reports `db: down` and /v1 answers 503 until a background retry manages to prepare
- * the database. SIGTERM/SIGINT close the server gracefully (in-flight requests finish; new ones
- * get 503) within 10 s.
+ * the database. SIGTERM/SIGINT close the server gracefully: new requests get 503, requests in
+ * flight finish (a coach call included, so its quota reservation settles), then the pool
+ * closes. The process exits as soon as that is done, or after `SHUTDOWN_TIMEOUT_MS` (the longest
+ * coach call plus its settle margin, about 2 minutes) at the latest.
  */
 import { fileURLToPath } from 'node:url';
-import { startServer } from './boot';
+import { SHUTDOWN_TIMEOUT_MS, startServer } from './boot';
 import { ConfigError, loadConfig } from './config';
 import type { Config } from './config';
 
 // src/server.ts and dist/server.mjs both sit one level below apps/api.
 const MIGRATIONS = fileURLToPath(new URL('../drizzle', import.meta.url));
-const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 function readConfig(): Config {
   try {

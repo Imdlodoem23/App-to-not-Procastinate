@@ -23,6 +23,15 @@ export const EYES_MIN_COVERAGE = 0.5;
 export const EYES_OPEN_WINDOW_MS = 5_000;
 export const EYES_OPEN_SHARE = 0.7;
 
+/**
+ * «¡Estaba estudiando!»: an episode whose low time had E_phone at least this share of the
+ * time is a phone episode. If that phone stayed at one spot (lying on the desk), its frames
+ * are offered with the phone removed and the observer learns to ignore the spot.
+ */
+export const FEEDBACK_PHONE_SHARE = 0.5;
+/** A ring entry never weighs more than this much time (low-time shares). */
+export const FEEDBACK_MAX_ENTRY_MS = 1_000;
+
 /** Timeline pieces shorter than this are absorbed into the previous segment. */
 export const TIMELINE_MIN_PIECE_MS = 5_000;
 

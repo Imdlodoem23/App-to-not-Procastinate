@@ -29,6 +29,8 @@ import {
   type ScheduleInput,
 } from '@centrate/shared/guardian-api';
 import type { HarnessFixture } from '../../shared/fixtures';
+import { PHASE5_INVOKE_GUARDS } from '../../shared/ipc-payloads';
+import type { InstallOutcome } from '../../shared/platform';
 import { phase5InvokeStubs } from '../../shared/phase5-stubs';
 import {
   UI_TIMINGS,
@@ -36,13 +38,18 @@ import {
   initialSnapshot,
   isIntentId,
   ok,
+  snapshotFeature,
   toUiError,
   uiError,
   type CommandResult,
+  type PlatformSnapshotPatch,
   type UiSnapshot,
 } from '../../shared/ui-state';
+import { ActiveWindowLayer, createForegroundReader } from '../activewin';
 import type { Clock, Core, CoreHarness, CoreOptions, RefreshReason } from '../contracts';
-import { EVENTS_DB_FILE, createNullEventsDb, openEventsDb, type EventsDb } from '../db/events-db';
+import { createNullEventsDb, openEventsDb, type EventsDb } from '../db/events-db';
+import { eventsDbFileName } from '../db/stats';
+import { ReminderScheduler } from '../reminders';
 import {
   applyPrefsPatch,
   defaultTemplates,
@@ -75,6 +82,7 @@ import { EventSync } from './event-sync';
 import { ExtendQueue } from './extend-queue';
 import { createFakeGuardian, type FakeGuardian } from './fake-guardian';
 import { MockGuardian, mockGuardianEnabled } from './mock';
+import { NuclearHeartbeat } from './nuclear-heartbeat';
 import { Poller, VersionFloor } from './poller';
 import { createSnapshotStore, type SnapshotStore } from './store';
 
@@ -238,7 +246,10 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
       mock = new MockGuardian({ clock, emergencyUnitMs: 1_000 });
       client = mock;
       tokenSource = staticTokenSource({ missing: false });
-      db = openDb(internals.eventsDbPath ?? ':memory:');
+      // Its own file, so statistics work in dev too (a new mock epoch wipes it on the first page).
+      db = openDb(
+        internals.eventsDbPath ?? join(options.userDataDir, eventsDbFileName(true)),
+      );
     } else {
       if (internals.guardian) {
         client = internals.guardian.client;
@@ -247,7 +258,9 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
         tokenSource = createClientJsonSource(clientJsonPath(options.sysDir, options.platform));
         client = createPortAwareClient(tokenSource);
       }
-      realDb ??= openDb(internals.eventsDbPath ?? join(options.userDataDir, EVENTS_DB_FILE));
+      realDb ??= openDb(
+        internals.eventsDbPath ?? join(options.userDataDir, eventsDbFileName(false)),
+      );
       db = realDb;
       ownsDb = false;
     }
@@ -397,6 +410,66 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
     }
   });
 
+  // Phase 5 (docs/DESKTOP.md §15): the platform loops that talk to the guardian live here, next
+  // to its client. Harness runs keep the fixture's own platform state (frozen clock).
+  const live = mode !== 'harness';
+
+  /** `Core.patchSnapshot`: a new `rev` only when something changed. */
+  function patchSnapshot(patch: PlatformSnapshotPatch): void {
+    store.update((s) => {
+      const changed = (Object.keys(patch) as (keyof PlatformSnapshotPatch)[]).some(
+        (key) => patch[key] !== undefined && JSON.stringify(patch[key]) !== JSON.stringify(s[key]),
+      );
+      return changed ? { ...s, ...patch } : s;
+    });
+  }
+
+  const activeWindow = live
+    ? new ActiveWindowLayer({
+        platform: options.platform,
+        clock: options.clock,
+        reader: createForegroundReader({ platform: options.platform, env, exec }),
+        report: (serviceId, browser) =>
+          call((c) =>
+            c.reportAttempt({
+              layer: 'window',
+              target: { type: 'service', value: serviceId },
+              browser,
+              incognito: false,
+            }),
+          ).then((r) => {
+            if (r.counted) {
+              session.poller.refreshNow('write');
+              session.events.kick();
+            }
+            return r;
+          }),
+        publish: (status) => patchSnapshot({ activeWindow: status }),
+        log: (event, fields) => log.debug(event, fields),
+      })
+    : null;
+  const reminders = live
+    ? new ReminderScheduler({ clock: options.clock, show: (content) => notifier.show(content) })
+    : null;
+  const nuclearBeat = live
+    ? new NuclearHeartbeat({
+        clock: options.clock,
+        send: (body) => call((c) => c.nuclearHeartbeat(body)),
+        onBeat: (at) =>
+          store.update((s) => ({ ...s, nuclear: { ...s.nuclear, lastHeartbeatAt: at } })),
+        onInactive: () => session.poller.refreshNow('retry'),
+        log: (event, fields) => log.warn(event, fields),
+      })
+    : null;
+
+  function syncPlatform(s: UiSnapshot): void {
+    if (!started || stopped) return;
+    activeWindow?.sync(s.state, s.link.status === 'ok');
+    reminders?.sync(s.state, s.prefs.reminders, snapshotFeature(s, 'reminders'));
+    nuclearBeat?.sync(s);
+  }
+  store.subscribe(syncPlatform);
+
   /** Guardian call on the session clock with the 3 s rule. */
   function call<T>(run: (client: GuardianClient) => Promise<T>): Promise<T> {
     return withTimeout(run(session.client), session.clock, UI_TIMINGS.requestTimeoutMs);
@@ -452,13 +525,16 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
     };
   }
 
+  const stubs = phase5InvokeStubs(
+    () => (mode === 'harness' ? currentFixture : null),
+    () => options.clock.now(),
+  );
+  const invalid = <T>(): CommandResult<T> => fail(uiError('rejected', 'validation_failed', 422));
+
   const handlers: Core['handlers'] = {
     // Phase 5 (docs/DESKTOP.md §15): fixture answers in harness mode, `not_implemented`
     // otherwise, until PLATFORM overrides each channel below this spread.
-    ...phase5InvokeStubs(
-      () => (mode === 'harness' ? currentFixture : null),
-      () => options.clock.now(),
-    ),
+    ...stubs,
 
     'block:create': (req) =>
       session.create.create(req?.intentId, req?.request).then((r) => {
@@ -701,6 +777,99 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
         if (mode === 'harness') return ok([...(currentFixture?.fake.processNames ?? [])]);
         return ok(await listProcessNames(options.platform, exec));
       }),
+
+    // -------------------------------------------------------------------------------------
+    // Phase 5, guardian-backed (docs/DESKTOP.md §15.3). Harness runs go through the fake
+    // guardian seeded from `fixture.fake`. The local-data and OS channels (statistics,
+    // achievements, processes, updater, sounds) are the platform services' (bootstrap).
+    // -------------------------------------------------------------------------------------
+
+    'schedules:create': (req) =>
+      guarded(async () => {
+        if (!PHASE5_INVOKE_GUARDS['schedules:create'](req)) return invalid();
+        const r = await call((c) => c.createSchedule(req.input, { idempotencyKey: req.intentId }));
+        log.info('schedule_created', { mode: r.schedule.mode });
+        afterWrite();
+        return ok(r.schedule);
+      }),
+
+    'schedules:update': (req) =>
+      guarded(async () => {
+        if (!PHASE5_INVOKE_GUARDS['schedules:update'](req)) return invalid();
+        const r = await call((c) => c.updateSchedule(req.id, req.input));
+        afterWrite();
+        return ok(r.schedule);
+      }),
+
+    'schedules:delete': (req) =>
+      guarded(async () => {
+        if (!PHASE5_INVOKE_GUARDS['schedules:delete'](req)) return invalid();
+        await call((c) => c.deleteSchedule(req.id));
+        afterWrite();
+        return ok(null);
+      }),
+
+    'settings:get': () => guarded(async () => ok(await call((c) => c.getSettings()))),
+
+    'settings:put': (req) =>
+      guarded(async () => {
+        if (!PHASE5_INVOKE_GUARDS['settings:put'](req)) return invalid();
+        const r = await call((c) => c.updateSettings(req.settings));
+        log.info('settings_put', { pending: r.pending.length });
+        afterWrite();
+        return ok(r);
+      }),
+
+    'rewards:list': () => guarded(async () => ok(await call((c) => c.listRewards()))),
+
+    'rewards:redeem': (req) =>
+      guarded(async () => {
+        if (!PHASE5_INVOKE_GUARDS['rewards:redeem'](req)) return invalid();
+        const r = await call((c) =>
+          c.redeemReward({ offerId: req.offerId }, { idempotencyKey: req.intentId }),
+        );
+        raiseFloorPastCurrent();
+        patchState((st) => ({
+          ...st,
+          points: { ...st.points, balance: r.balanceAfter },
+          allowances: [...st.allowances.filter((a) => a.id !== r.allowance.id), r.allowance],
+        }));
+        log.info('reward_redeemed', { cost: -r.pointsDelta });
+        afterWrite();
+        return ok(r);
+      }),
+
+    'points:summary': () => guarded(async () => ok((await call((c) => c.getPoints())).points)),
+
+    'activewin:request-permission': (req) => {
+      if (!activeWindow) return stubs['activewin:request-permission'](req);
+      return guarded(async () => ok({ outcome: await activeWindow.requestPermission() }));
+    },
+
+    'onboarding:install-guardian': (req) => {
+      if (mode === 'harness') return stubs['onboarding:install-guardian'](req);
+      return guarded(async () => {
+        if (mode === 'mock' || store.get().link.status === 'ok') {
+          return ok({ outcome: 'already-installed' as const });
+        }
+        const status = await installer.status();
+        if (status?.installed && status.running) {
+          session.poller.refreshNow('retry');
+          return ok({ outcome: 'already-installed' as const });
+        }
+        const outcome = await installer.repair();
+        afterElevation(outcome);
+        const map: Record<string, InstallOutcome> = {
+          started: 'installed',
+          cancelled: 'cancelled',
+          unsupported: 'unsupported',
+        };
+        const mapped = map[outcome];
+        if (!mapped) return fail(uiError('internal', 'install_failed'));
+        log.info('guardian_install', { outcome: mapped });
+        return ok({ outcome: mapped });
+      });
+    },
   };
 
   const harness: CoreHarness | null = options.harness
@@ -751,19 +920,13 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
       if (started || stopped) return;
       started = true;
       startSession(session);
+      syncPlatform(store.get());
     },
     visibilityChanged(): void {
       if (stopped) return;
       session.poller.reschedule();
     },
-    patchSnapshot(patch): void {
-      store.update((s) => {
-        const changed = (Object.keys(patch) as (keyof typeof patch)[]).some(
-          (key) => patch[key] !== undefined && JSON.stringify(patch[key]) !== JSON.stringify(s[key]),
-        );
-        return changed ? { ...s, ...patch } : s;
-      });
-    },
+    patchSnapshot,
     refreshNow(reason: RefreshReason): void {
       if (stopped) return;
       session.poller.refreshNow(reason);
@@ -772,11 +935,15 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
         // Timers do not count suspended time: the resume poll is usually a 304 (no
         // `onState`), so «Quedan 5 min» is re-planned from the wall clock here.
         session.notifications.onState(store.get().state);
+        reminders?.resume();
       }
     },
     async shutdown(budgetMs: number): Promise<void> {
       if (stopped) return;
       stopped = true;
+      activeWindow?.stop();
+      reminders?.stop();
+      nuclearBeat?.stop();
       const s = session;
       let budget: ReturnType<typeof setTimeout> | null = null;
       await Promise.race([

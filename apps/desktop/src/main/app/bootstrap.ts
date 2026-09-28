@@ -11,6 +11,8 @@
  * 4. The X only hides. «Salir» (footer, tray, Cmd+Q) quits after `core.shutdown`, which
  *    sends the extensions still waiting in the undo queue. Blocks stay active: the guardian
  *    enforces them.
+ * 5. Phase 5 (docs/DESKTOP.md §15): PLATFORM's services (surfaces, OSD, shortcuts, updater,
+ *    local statistics) start after the core; they are disposed before the final quit.
  */
 import { existsSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -30,7 +32,15 @@ import {
   systemLocaleFrom,
   type Locale,
 } from '../../shared/i18n/locale';
-import { primaryBlock, snapshotLocale, toPlatform, type UiSnapshot } from '../../shared/ui-state';
+import {
+  primaryBlock,
+  snapshotFeature,
+  snapshotLocale,
+  toPlatform,
+  type UiSnapshot,
+} from '../../shared/ui-state';
+import { createPlatformServices } from '../platform';
+import { runFile } from '../system/exec';
 import { TrayController } from '../tray/controller';
 import type { TrayAction } from '../tray/model';
 import { electronDisplaySource } from '../windows/display-source';
@@ -45,7 +55,6 @@ import { appLog as sharedAppLog, initAppLog } from '../logs/logger';
 import { appLog, type AppLog } from './log';
 import { resolveAppPaths } from './paths';
 import { hardenSessions } from './security';
-import { createShortcutRegistry } from './shortcuts';
 import { createThemeController } from './theme';
 
 export interface BootstrapDeps {
@@ -58,6 +67,8 @@ export interface BootstrapDeps {
 }
 
 const PRODUCT_NAME = 'Céntrate';
+/** The guardian relaunches the app with it during a Nuclear punishment (ARCHITECTURE §10.5). */
+const NUCLEAR_ARG = '--centrate-nuclear';
 
 export function startApp(deps: BootstrapDeps): void {
   const packaged = app.isPackaged;
@@ -168,7 +179,11 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
 
   setActiveLocale(snapshotLocale(core.getSnapshot()));
 
-  app.on('second-instance', () => windows.showMain('second-instance'));
+  app.on('second-instance', (_event, argv) => {
+    // The guardian's Nuclear relaunch finds us running: the overlay is already up.
+    if (argv.includes(NUCLEAR_ARG)) return;
+    windows.showMain('second-instance');
+  });
   // macOS: clicking the Dock icon. The `activate` sent while launching is ignored, or a
   // login-item start (`--hidden`) would open the window.
   let launched = false;
@@ -197,6 +212,13 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
   });
   const displays = resolved?.displays ?? electronDisplaySource();
 
+  // PLATFORM's services exist once the tray and the shell do (the tray calls them later).
+  let platformServices: ReturnType<typeof createPlatformServices> | null = null;
+  const osdOn = (): boolean => {
+    const snapshot = core.getSnapshot();
+    return snapshotFeature(snapshot, 'osd') && snapshot.prefs.osd;
+  };
+
   const runTrayAction = (action: TrayAction): void => {
     switch (action.type) {
       case 'open':
@@ -205,12 +227,21 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
       case 'quit':
         app.quit();
         return;
+      case 'mini-timer':
+        platformServices?.toggleMiniTimer(null);
+        return;
       case 'template':
         // The card is in the renderer before it measures itself for the show.
         windows.sendCommand({ type: 'confirm-template', templateId: action.templateId });
         windows.showMain('tray-menu', false);
         return;
       case 'extend': {
+        // With «Avisos grandes» the OSD says what happened (PROMPT §10); otherwise the window
+        // shows so «Deshacer» is visible.
+        if (platformServices && osdOn()) {
+          void platformServices.extendPrimary(action.minutes);
+          return;
+        }
         const block = primaryBlock(core.getSnapshot().state);
         if (!block) return;
         // Same 5 s undo queue as the tiles; the window shows so «Deshacer» is visible.
@@ -245,6 +276,34 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
   windows.attach({ core, displays, theme, trayBounds: () => tray.bounds() });
   theme.onChange(() => tray.refreshIcon());
 
+  const platformHost = createPlatformServices({
+    platform,
+    packaged,
+    env: process.env,
+    core,
+    shell: windows,
+    displays,
+    theme,
+    renderer,
+    preload: paths.preload,
+    userDataDir: paths.userDataDir,
+    soundsDir: paths.soundsDir,
+    harness: resolved?.fixture ?? null,
+    exec: runFile,
+    log: appLog('platform'),
+    openExternal: (url) => {
+      void electronShell.openExternal(url);
+    },
+    prepareQuit: () => {
+      quitting = true;
+    },
+    toggleMain: () => {
+      windows.toggleFromTray();
+    },
+    isQuitting: () => quitting,
+  });
+  platformServices = platformHost;
+
   deps.registerIpcHandlers(core, windows);
   registerWindowIpc({
     shell: windows,
@@ -254,6 +313,7 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
     openGuide: (guide) => {
       void electronShell.openExternal(GUIDE_URLS[guide]);
     },
+    platform: platformHost,
   });
 
   const autostart = createAutostart({
@@ -286,10 +346,6 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
     applyPrefs(snapshot);
   });
 
-  const shortcuts = createShortcutRegistry(appLog('shortcuts'));
-  // Phase 1 has no global shortcut («Atajo global» in Ajustes comes later).
-  shortcuts.apply([]);
-
   if (harnessModule && resolved) {
     windows.setHarnessLoad(harnessModule.initialHarnessLoad(resolved));
     harnessModule.installHarnessApi(
@@ -302,12 +358,18 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
         initial: resolved.fixture,
         customWorkArea: resolved.customWorkArea,
         lang: resolved.lang,
+        platform: platformHost,
       }),
     );
   }
 
+  // A Nuclear relaunch by the guardian shows the overlay, not the main window.
+  const nuclearLaunch = process.argv.includes(NUCLEAR_ARG);
   const startHidden =
-    launch.hidden || openedAtLogin(platform) || (launch.harness !== null && !launch.harness.show);
+    launch.hidden ||
+    nuclearLaunch ||
+    openedAtLogin(platform) ||
+    (launch.harness !== null && !launch.harness.show);
   windows.createMainWindow(() => {
     launched = true;
     if (!startHidden) windows.showMain('launch');
@@ -323,6 +385,7 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
   });
 
   core.start();
+  platformHost.start();
   powerMonitor.on('resume', () => core.refreshNow('resume'));
   powerMonitor.on('unlock-screen', () => core.refreshNow('resume'));
   // The OS is going away: let the windows close instead of hiding.
@@ -340,7 +403,7 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
       .catch((error: unknown) => log.error('shutdown_failed', { message: describe(error) }))
       .finally(() => {
         shutdownDone = true;
-        shortcuts.clear();
+        platformHost.dispose();
         tray.destroy();
         // Next macrotask, never inside this `before-quit`: a quit started natively (SIGTERM /
         // SIGINT on Linux, Cmd+Q on macOS) emits it with no JS on the stack, so a shutdown

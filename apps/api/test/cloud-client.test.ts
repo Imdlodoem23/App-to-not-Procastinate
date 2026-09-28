@@ -61,12 +61,14 @@ function clientFor(
   app: FastifyInstance,
   token: string | null,
   onUnauthorized?: () => void,
+  now?: () => Date,
 ): CloudClient {
   return createCloudClient({
     baseUrl: BASE,
     getToken: () => token,
     fetch: injectFetch(app),
     ...(onUnauthorized ? { onUnauthorized } : {}),
+    ...(now ? { now } : {}),
   });
 }
 
@@ -274,19 +276,28 @@ describe('with the real app', () => {
       at: new Date('2026-09-01T00:00:00.000Z'),
     });
 
+    // Ana's computer runs 10 minutes fast: the client stamps `sentAt` from the same clock, so
+    // the server still ends the approval 30 s before her real countdown.
+    const appNow = () => new Date(clock.now().getTime() + 10 * 60_000);
+    const ca = clientFor(app, ana.token, undefined, appNow);
+    const countdownEndsAt = new Date(appNow().getTime() + 10 * 60_000).toISOString();
     const request = {
       clientRef: newClientRef(),
       kind: 'emergency_requested' as const,
-      occurredAt: NOW,
-      countdownEndsAt: new Date(clock.now().getTime() + 10 * 60_000).toISOString(),
+      occurredAt: appNow().toISOString(),
+      countdownEndsAt,
     };
-    const first = await c.postAccountabilityEvent(request);
-    expect(first.approval?.status).toBe('pending');
-    const replay = await c.postAccountabilityEvent(request);
-    expect(replay.eventId).toBe(first.eventId);
+    const first = await ca.postAccountabilityEvent(request);
+    expect(first.approval).toMatchObject({
+      status: 'pending',
+      deadline: '2026-09-28T10:09:30.000Z',
+    });
+    const eventId = first.eventId ?? '';
+    const replay = await ca.postAccountabilityEvent(request);
+    expect(replay.eventId).toBe(eventId);
 
     // The outbox may send it again after a lost answer: still one event.
-    const outbox = createOutbox({ storage: memoryOutboxStorage(), client: c, now: clock.now });
+    const outbox = createOutbox({ storage: memoryOutboxStorage(), client: ca, now: appNow });
     await outbox.addEvent(request);
     await outbox.addEvent(request);
     expect(await outbox.flush()).toMatchObject({ status: 'done', sent: 1 });
@@ -296,28 +307,52 @@ describe('with the real app', () => {
       .where(eq(accountabilityEvents.ownerId, ana.userId));
     expect(n).toBe(1);
 
-    const owned = await c.getAccountabilityEvent(first.eventId);
-    expect(approvalOutcome(owned.approval, clock.now())).toBe('wait');
+    const owned = await c.getAccountabilityEvent(eventId);
+    expect(owned.occurredAt).toBe(NOW);
+    expect(approvalOutcome(owned.approval, appNow(), countdownEndsAt)).toBe('wait');
 
     const inbox = await cb.getInbox();
     expect(inbox.items).toEqual([
-      expect.objectContaining({ eventId: first.eventId, kind: 'emergency_requested' }),
+      expect.objectContaining({ eventId, kind: 'emergency_requested' }),
     ]);
-    const decided = await cb.decideApproval(first.eventId, { decision: 'deny', note: 'Tú puedes' });
+    const decided = await cb.decideApproval(eventId, { decision: 'deny', note: 'Tú puedes' });
     expect(decided.status).toBe('denied');
-    const again = await failure(
-      cb.decideApproval(first.eventId, { decision: 'approve', note: null }),
-    );
+    const again = await failure(cb.decideApproval(eventId, { decision: 'approve', note: null }));
     expect(again).toMatchObject({ status: 409, code: 'already_decided', retryable: false });
 
-    const polled = await c.getAccountabilityEvent(first.eventId);
-    expect(approvalOutcome(polled.approval, clock.now())).toBe('denied');
+    const polled = await c.getAccountabilityEvent(eventId);
+    expect(approvalOutcome(polled.approval, appNow(), countdownEndsAt)).toBe('denied');
     expect(polled.approval?.note).toBe('Tú puedes');
 
     // Removing an active partner as the owner waits 24 hours.
     const { links } = await c.listPartners();
     const ending = await c.removePartner(links[0]?.id ?? '');
     expect(ending?.endsAt).toEqual(expect.any(String));
+  });
+
+  it('sends an event nobody hears about, which the server does not keep', async () => {
+    const cn = clientFor(app, ana.token, undefined, clock.now);
+    const outbox = createOutbox({ storage: memoryOutboxStorage(), client: cn, now: clock.now });
+    await outbox.addEvent({
+      clientRef: newClientRef(),
+      kind: 'study_abandoned',
+      occurredAt: clock.now().toISOString(),
+      countdownEndsAt: null,
+    });
+    const direct = await cn.postAccountabilityEvent({
+      clientRef: newClientRef(),
+      kind: 'emergency_requested',
+      occurredAt: clock.now().toISOString(),
+      countdownEndsAt: new Date(clock.now().getTime() + 10 * 60_000).toISOString(),
+    });
+    expect(direct).toEqual({ eventId: null, approval: null });
+    expect(approvalOutcome(direct.approval, clock.now(), clock.now())).toBe('approved');
+    expect(await outbox.flush({ force: true })).toMatchObject({
+      status: 'done',
+      sent: 1,
+      remaining: 0,
+    });
+    expect(await t.db.select().from(accountabilityEvents)).toEqual([]);
   });
 
   it('removes a pending partner at once', async () => {

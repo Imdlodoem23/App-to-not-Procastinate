@@ -128,23 +128,54 @@ describe('analysis host', () => {
     await r.host.dispose();
   });
 
-  it('maps a camera failure to camera_failed with its code and answers queued messages', async () => {
+  it('a camera that cannot open at start keeps the session running without camera', async () => {
+    // The guardian session already runs: the job must never go idle without a report.
     const r = rig();
     r.camera.failWith = new CameraError('blocked_by_system');
     r.send(start());
     r.send({ type: 'context', context: WORK });
     r.send({ type: 'studying_feedback' });
+    await r.s.advance(2_500);
+    expect(r.ofType('error')).toEqual([]);
+    expect(r.ofType('event').map((m) => m.event)).toEqual([
+      { type: 'camera', at: expect.any(Number), status: 'error', error: 'blocked_by_system' },
+      { type: 'mode', at: expect.any(Number), mode: 'no-camera', reason: 'vision_failed' },
+    ]);
+    // The queued «¡Estaba estudiando!» is answered by the running session.
+    expect(r.ofType('feedback_result')).toEqual([
+      { type: 'feedback_result', outcome: { ok: false, reason: 'no_camera' } },
+    ]);
+    const reports = r.ofType('report');
+    expect(reports.length).toBeGreaterThanOrEqual(2);
+    expect(reports.every((m) => m.report.mode === 'no-camera' && !m.report.cameraOn)).toBe(true);
+    r.send({ type: 'session_stop' });
+    await r.s.advance(10);
+    expect(r.ofType('session_stopped')).toHaveLength(1);
+    await r.host.dispose();
+  });
+
+  it('answers messages queued behind a start that failed unexpectedly', async () => {
+    const r = rig();
+    const host = createAnalysisHost({
+      post: (message) => r.posted.push(message),
+      assets: ASSETS,
+      deps: {
+        clock: r.s,
+        timers: r.s,
+        randomId: () => {
+          throw new Error('no CSPRNG');
+        },
+      },
+    });
+    host.handle(start());
+    host.handle({ type: 'context', context: WORK });
+    host.handle({ type: 'studying_feedback' });
     await r.s.advance(10);
     expect(r.ofType('error')).toEqual([
-      { type: 'error', code: 'camera_failed', camera: 'blocked_by_system' },
+      { type: 'error', code: 'camera_failed', camera: 'unknown' },
       { type: 'error', code: 'not_running', camera: null },
     ]);
-    // Idle again after the failure.
-    r.camera.failWith = null;
-    r.send(start());
-    await r.s.advance(1_500);
-    expect(r.ofType('report').length).toBeGreaterThan(0);
-    await r.host.dispose();
+    await host.dispose();
   });
 
   it('a vision failure in a session becomes no-camera mode, not an error', async () => {
@@ -191,18 +222,24 @@ describe('analysis host', () => {
     expect(r.ofType('error').map((e) => e.code)).toEqual(['busy', 'busy', 'not_running']);
   });
 
-  it('maps calibration start failures', async () => {
+  it('maps calibration failures: vision at start, the camera at each recording', async () => {
     const r = rig(new VisionError('simd_unsupported'));
     r.send({ type: 'calibration_start', profileJson: null, cameraDeviceId: null });
     await r.s.advance(10);
     expect(r.ofType('error')).toEqual([{ type: 'error', code: 'vision_failed', camera: null }]);
+    expect(r.camera.calls).toHaveLength(0);
+
     const r2 = rig();
     r2.camera.failWith = new CameraError('permission_denied');
     r2.send({ type: 'calibration_start', profileJson: null, cameraDeviceId: null });
     await r2.s.advance(10);
+    expect(r2.ofType('error')).toEqual([]); // the camera is not opened until a recording
+    r2.send({ type: 'calibration_record', cls: 'screen' });
+    await r2.s.advance(10);
     expect(r2.ofType('error')).toEqual([
       { type: 'error', code: 'camera_failed', camera: 'permission_denied' },
     ]);
+    r2.send({ type: 'calibration_close' });
   });
 
   it('dispose stops the running session and ignores later messages', async () => {

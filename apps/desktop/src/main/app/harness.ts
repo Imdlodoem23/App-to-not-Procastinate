@@ -30,6 +30,7 @@ import {
   type DetailName,
   type DetailRequest,
 } from '../../shared/ui-state';
+import type { PlatformHost } from '../platform';
 import type { TrayController } from '../tray/controller';
 import { fakeDisplaySource, type FakeDisplaySource } from '../windows/fake-display';
 import type { WindowShell } from '../windows/shell';
@@ -84,6 +85,8 @@ export interface HarnessDeps {
   customWorkArea: boolean;
   /** Fake OS language of the launch (`--harness-lang`). */
   lang: Locale | null;
+  /** PLATFORM's services: the surface windows (mini timer, OSD, Nuclear overlay). */
+  platform: PlatformHost;
 }
 
 /** What renderers receive in `app:init` for the launch fixture. */
@@ -143,7 +146,10 @@ export function createHarnessApi(deps: HarnessDeps): HarnessApi {
       } else {
         shell.closeDetail();
       }
+      // Surfaces follow the new snapshot; a surface fixture's own window shows and renders.
+      const surfaces = deps.platform.harnessLoad(fixture);
       await shell.waitReady(id, HARNESS_READY_TIMEOUT_MS);
+      await surfaces;
     },
 
     async showMain() {
@@ -166,9 +172,10 @@ export function createHarnessApi(deps: HarnessDeps): HarnessApi {
       await shell.flushRenderers();
     },
 
-    // Phase 5 stub: PLATFORM shows its surface windows here (`PlatformServices.harnessLoad`).
-    openSurface(kind) {
-      return Promise.reject(new Error(`surface windows are not registered yet: ${kind}`));
+    // Phase 5: the mini timer, OSD or Nuclear overlay with the current snapshot, once rendered.
+    async openSurface(kind) {
+      await deps.platform.openSurface(kind);
+      await shell.flushRenderers();
     },
 
     async advance(ms: number) {

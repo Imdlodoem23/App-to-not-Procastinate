@@ -6,6 +6,7 @@ import type {
   PartnersResponse,
   PostAccountabilityEventResponse,
 } from '@centrate/shared/cloud-api';
+import { ACCOUNTABILITY_KINDS } from '@centrate/shared/cloud-api';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
@@ -76,6 +77,7 @@ describe('accountability partners', () => {
       kind: string;
       occurredAt: string;
       countdownEndsAt: string | null;
+      sentAt: string;
     }> = {},
   ) {
     return call(who, 'POST', '/v1/accountability/events', {
@@ -83,6 +85,7 @@ describe('accountability partners', () => {
       kind: 'emergency_requested',
       occurredAt: iso(),
       countdownEndsAt: null,
+      sentAt: iso(),
       ...body,
     });
   }
@@ -249,7 +252,7 @@ describe('accountability partners', () => {
       const created = first.json<PostAccountabilityEventResponse>();
       expect(created.approval).toEqual({
         status: 'pending',
-        deadline: '2026-09-28T10:10:00.000Z',
+        deadline: '2026-09-28T10:09:30.000Z',
         note: null,
         decidedAt: null,
       });
@@ -283,7 +286,7 @@ describe('accountability partners', () => {
       expect(deny.status).toBe(200);
       expect(deny.json<ApprovalState>()).toEqual({
         status: 'denied',
-        deadline: '2026-09-28T10:10:00.000Z',
+        deadline: '2026-09-28T10:09:30.000Z',
         note: 'Hoy no, que mañana tienes examen',
         decidedAt: '2026-09-28T10:02:00.000Z',
       });
@@ -333,8 +336,14 @@ describe('accountability partners', () => {
         { decision: 'approve', note: null },
       );
       expect(approve.json<ApprovalState>()).toMatchObject({ status: 'approved', note: null });
-      const short = await postEvent(ana, { countdownEndsAt: iso(59_000) });
+      // The partner gets at least a minute, and the deadline ends 30 s before the countdown.
+      const short = await postEvent(ana, { countdownEndsAt: iso(89_000) });
+      expect(short.status).toBe(201);
       expect(short.json<PostAccountabilityEventResponse>().approval).toBeNull();
+      const tight = await postEvent(ana, { countdownEndsAt: iso(90_000) });
+      expect(tight.json<PostAccountabilityEventResponse>().approval?.deadline).toBe(
+        '2026-09-28T10:01:00.000Z',
+      );
       const confirmed = await postEvent(ana, {
         kind: 'emergency_confirmed',
         countdownEndsAt: iso(minutes(10)),
@@ -365,6 +374,135 @@ describe('accountability partners', () => {
       );
       expect(noApproval.status).toBe(409);
       expect(errorCode(noApproval.body)).toBe('conflict');
+    });
+
+    it('keeps nothing when no partner hears about the event', async () => {
+      const dani = await person({ displayName: 'Dani' });
+      const eva = await person({ displayName: 'Eva', sharing: { partnerEmails: true } });
+      await befriend(t.db, dani, eva);
+      const notStored = { eventId: null, approval: null };
+
+      // No partner at all.
+      const alone = await postEvent(dani, { countdownEndsAt: iso(minutes(10)) });
+      expect(alone.status).toBe(200);
+      expect(alone.json<PostAccountabilityEventResponse>()).toEqual(notStored);
+
+      // A pending link does not listen yet: no kind is kept.
+      await t.db.insert(partnerLinks).values({
+        ownerId: dani.userId,
+        partnerId: eva.userId,
+        status: 'pending',
+        requireApproval: true,
+        createdAt: clock.now(),
+      });
+      const queuedRef = ref();
+      for (const kind of ACCOUNTABILITY_KINDS) {
+        const clientRef = kind === 'study_abandoned' ? queuedRef : ref();
+        const res = await postEvent(dani, { kind, clientRef, countdownEndsAt: iso(minutes(10)) });
+        expect(res.status).toBe(200);
+        expect(res.json<PostAccountabilityEventResponse>()).toEqual(notStored);
+      }
+
+      // Accepted after the event: the outbox replaying it later still stores nothing.
+      clock.advance(minutes(1));
+      await t.db
+        .update(partnerLinks)
+        .set({ status: 'active', acceptedAt: clock.now() })
+        .where(eq(partnerLinks.ownerId, dani.userId));
+      clock.advance(minutes(1));
+      const replay = await postEvent(dani, {
+        kind: 'study_abandoned',
+        clientRef: queuedRef,
+        occurredAt: T0,
+      });
+      expect(replay.status).toBe(200);
+      expect(replay.json<PostAccountabilityEventResponse>()).toEqual(notStored);
+
+      expect(await t.db.select().from(accountabilityEvents)).toEqual([]);
+      expect(mailer.sent.filter((m) => m.to === 'eva@example.com')).toEqual([]);
+      expect(
+        (await call(eva, 'GET', '/v1/accountability/inbox')).json<InboxResponse>().items,
+      ).toEqual([]);
+
+      // Once someone listens, the next event is kept.
+      const heard = await postEvent(dani, { kind: 'study_abandoned' });
+      expect(heard.status).toBe(201);
+      expect(heard.json<PostAccountabilityEventResponse>().eventId).toEqual(expect.any(String));
+    });
+
+    it('reads the app clock only relative to sentAt, fast or slow', async () => {
+      // Both links were accepted at T0 (beforeEach). The owner's computer is 10 minutes off.
+      for (const skew of [minutes(10), -minutes(10)]) {
+        const onApp = (offsetMs = 0) => iso(skew + offsetMs);
+        const res = await postEvent(ana, {
+          occurredAt: onApp(),
+          countdownEndsAt: onApp(minutes(10)),
+          sentAt: onApp(),
+        });
+        expect(res.status).toBe(201);
+        const { eventId, approval } = res.json<PostAccountabilityEventResponse>();
+        // Ends 30 s before the real countdown, not 10 minutes after or before it.
+        expect(approval?.deadline).toBe('2026-09-28T10:09:30.000Z');
+        // Placed on the server's clock: a slow computer does not hide it behind acceptedAt.
+        const owner = await call(ana, 'GET', `/v1/accountability/events/${eventId}`);
+        expect(owner.json<AccountabilityEventResponse>().occurredAt).toBe(T0);
+        const inbox = (await call(bea, 'GET', '/v1/accountability/inbox')).json<InboxResponse>();
+        expect(inbox.items.map((i) => i.eventId)).toContain(eventId);
+      }
+      expect(mailer.sent.map((m) => m.text.split('\n')[1])).toEqual([
+        expect.stringContaining('hasta las 12:09 '),
+        expect.stringContaining('hasta las 12:09 '),
+      ]);
+
+      // Queued offline for 2 hours on a clock 3 hours fast, sent 3 hours after T0.
+      clock.advance(minutes(180));
+      const queued = await postEvent(ana, {
+        kind: 'study_abandoned',
+        occurredAt: iso(minutes(180 - 120)),
+        sentAt: iso(minutes(180)),
+      });
+      expect(queued.status).toBe(201);
+      const queuedId = queued.json<PostAccountabilityEventResponse>().eventId;
+      const queuedRead = await call(ana, 'GET', `/v1/accountability/events/${queuedId}`);
+      expect(queuedRead.json<AccountabilityEventResponse>().occurredAt).toBe(
+        '2026-09-28T11:00:00.000Z',
+      );
+      // Six days before sending on a clock 10 hours fast: before the links, nobody hears.
+      const beforeLinks = await postEvent(ana, {
+        kind: 'study_abandoned',
+        occurredAt: iso(minutes(600) - 6 * 86_400_000),
+        sentAt: iso(minutes(600)),
+      });
+      expect(beforeLinks.status).toBe(200);
+      expect(beforeLinks.json<PostAccountabilityEventResponse>().eventId).toBeNull();
+
+      // The 7-day window is measured on the app's clock too.
+      for (const body of [
+        { occurredAt: iso(minutes(60) - 8 * 86_400_000), sentAt: iso(minutes(60)) },
+        { occurredAt: iso(-minutes(60) + minutes(6)), sentAt: iso(-minutes(60)) },
+      ]) {
+        const res = await postEvent(ana, { kind: 'study_abandoned', ...body });
+        expect(res.status).toBe(400);
+        expect(errorCode(res.body)).toBe('validation_failed');
+      }
+
+      // A partner cannot answer once the real countdown is over, whatever the app's clock says.
+      const fast = await postEvent(ana, {
+        occurredAt: iso(minutes(10)),
+        countdownEndsAt: iso(minutes(15)),
+        sentAt: iso(minutes(10)),
+      });
+      const created = fast.json<PostAccountabilityEventResponse>();
+      expect(created.approval?.deadline).toBe(iso(minutes(5) - 30_000));
+      clock.advance(minutes(5) - 30_000);
+      const tooLate = await call(
+        bea,
+        'POST',
+        `/v1/accountability/events/${created.eventId}/decision`,
+        { decision: 'deny', note: null },
+      );
+      expect(tooLate.status).toBe(409);
+      expect(errorCode(tooLate.body)).toBe('deadline_passed');
     });
 
     it('hides events from anyone who is not a listening partner', async () => {
@@ -427,6 +565,8 @@ describe('accountability partners', () => {
         { occurredAt: iso(-8 * 86_400_000) },
         { occurredAt: iso(minutes(6)) },
         { occurredAt: 'yesterday' },
+        { sentAt: 'now' },
+        { sentAt: undefined },
         { clientRef: 'short' },
         { clientRef: 'x'.repeat(65) },
         { clientRef: 'has spaces in it 1234' },
@@ -440,8 +580,13 @@ describe('accountability partners', () => {
         expect(res.status).toBe(400);
         expect(errorCode(res.body)).toBe('validation_failed');
       }
-      const ok = await postEvent(ana, { kind: 'punishment_started', occurredAt: iso(-86_400_000) });
-      expect(ok.status).toBe(201);
+      // Valid, but from before the partners accepted: nothing is kept.
+      const old = await postEvent(ana, {
+        kind: 'punishment_started',
+        occurredAt: iso(-86_400_000),
+      });
+      expect(old.status).toBe(200);
+      expect((await postEvent(ana, { kind: 'punishment_started' })).status).toBe(201);
 
       const event = await postEvent(ana, { countdownEndsAt: iso(minutes(10)) });
       const id = event.json<PostAccountabilityEventResponse>().eventId;
@@ -476,7 +621,7 @@ describe('accountability partners', () => {
           subject: 'Ana ha pedido el desbloqueo de emergencia',
           text: [
             'Ana ha pedido el desbloqueo de emergencia (12:00).',
-            'Puedes aprobarlo o rechazarlo hasta las 12:10 en Céntrate o en ' +
+            'Puedes aprobarlo o rechazarlo hasta las 12:09 en Céntrate o en ' +
               'http://localhost:3000/cuenta/avisos. Si no respondes, se aprueba solo.',
             '',
             'Recibes este correo porque eres compañero de responsabilidad de Ana en Céntrate y ' +

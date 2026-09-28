@@ -12,8 +12,8 @@ import { parseProfile, profileMatchesCamera, serializeProfile } from '../calibra
 import { createGenericClassifier } from '../classifier/generic';
 import { createPersonalClassifier } from '../classifier/personal';
 import { STUDY_AI_CONSTANTS, resolveStudyAiSettings } from '../config';
-import { openCamera } from '../perception/camera';
-import { createVisionPipeline } from '../perception/vision';
+import { CameraOpenError, openCamera } from '../perception/camera';
+import { createVisionPipeline, VisionLoadError } from '../perception/vision';
 import { CameraObserver, type CameraObserverOptions } from '../score/camera-observer';
 import { AttentionEngine } from '../state/engine';
 import type {
@@ -41,10 +41,12 @@ import type {
   StudyMode,
   StudySessionHandle,
   StudySessionOptions,
+  VisionAssets,
   VisionPipeline,
 } from '../types';
 import { MONOTONIC_CLOCK, REAL_TIMERS } from '../util/time';
-import { cameraErrorCodeOf } from './errors';
+import { CAMERA_OPEN_TIMEOUT_MS, VISION_LOAD_TIMEOUT_MS, withDeadline } from './deadline';
+import { cameraErrorCodeOf, isVisionContextLost } from './errors';
 import { FacadeHints, mergeHints, type HintChange } from './hints';
 import { analyseNextFrame, FrameCadence, stepCost } from './frame-step';
 import { CpuGovernor } from './governor';
@@ -59,8 +61,69 @@ import { NoCameraObserver } from './no-camera';
 export const CONTEXT_STALE_MS = 5_000;
 /** Consecutive `process` failures that switch the session to no-camera mode. */
 export const VISION_FAILURES_TO_FALLBACK = 5;
+/**
+ * A lost WebGL context (GPU reset, resume from sleep) rebuilds the pipeline, which takes
+ * 1–2 s. A rebuild that has not finished after this long gives up: well before the engine
+ * would count 10 s without frames as absence (`cameraLostMs`).
+ */
+export const VISION_REBUILD_TIMEOUT_MS = 8_000;
+/** A second context loss this soon after a rebuild is a broken GPU: no-camera mode. */
+export const VISION_REBUILD_MIN_INTERVAL_MS = 60_000;
 /** How often the optional process-CPU probe is read. */
 export const CPU_PROBE_EVERY_MS = 2_000;
+
+/**
+ * Reason of the `mode{no-camera}` event when the camera cannot be opened at start. The
+ * contract has no `camera_failed` reason yet (requested from the coordinator), so the start
+ * fallback reuses `vision_failed` («the camera analysis is unavailable»); the `camera{error}`
+ * event sent just before it carries the real cause.
+ */
+const CAMERA_FAILED_MODE_REASON: Extract<SessionEvent, { type: 'mode' }>['reason'] =
+  'vision_failed';
+
+/**
+ * `deps.openCamera` limited to `CAMERA_OPEN_TIMEOUT_MS`: a camera that never answers rejects
+ * with `CameraOpenError('unknown')`, and a stream that arrives later is stopped at once.
+ */
+export function openCameraWithin(deps: SessionDeps, deviceId: string | null): Promise<FrameSource> {
+  let opening: Promise<FrameSource>;
+  try {
+    opening = deps.openCamera({ deviceId });
+  } catch (error) {
+    opening = Promise.reject(error instanceof Error ? error : new Error(String(error)));
+  }
+  return withDeadline(
+    opening,
+    CAMERA_OPEN_TIMEOUT_MS,
+    deps.timers,
+    () => new CameraOpenError('unknown', 'the camera did not answer in time'),
+    (late) => late.stop(),
+  );
+}
+
+/**
+ * `deps.createVision` limited to `VISION_LOAD_TIMEOUT_MS`: a load that never settles rejects
+ * with `VisionLoadError('load_failed')` (the session then runs without camera), and a
+ * pipeline that arrives later is closed at once.
+ */
+export function createVisionWithin(
+  deps: SessionDeps,
+  assets: VisionAssets,
+): Promise<VisionPipeline> {
+  let loading: Promise<VisionPipeline>;
+  try {
+    loading = deps.createVision(assets, {});
+  } catch (error) {
+    loading = Promise.reject(error instanceof Error ? error : new Error(String(error)));
+  }
+  return withDeadline(
+    loading,
+    VISION_LOAD_TIMEOUT_MS,
+    deps.timers,
+    () => new VisionLoadError('load_failed', 'the vision pipeline did not load in time'),
+    (late) => late.close(),
+  );
+}
 
 /** A random run id (hex), from the platform CSPRNG (never `Math.random`). */
 export function randomRunId(): string {
@@ -124,8 +187,12 @@ export function startStudySession(options: StudySessionOptions): Promise<StudySe
 
 /**
  * `startStudySession` with DECISION's parts replaceable (tests; not part of the public entry).
- * Rejects with the `CameraOpenError` when the camera cannot be opened; a vision load failure
- * falls back to no-camera mode instead (`mode{vision_failed}`).
+ *
+ * Main starts the analysis only after the guardian accepted the session, so a start never
+ * fails for a camera or vision problem: the session runs in no-camera mode instead and reports
+ * keep flowing (heartbeats too). A camera that cannot be opened (or does not answer within
+ * 15 s) emits `camera{error}` then `mode{no-camera}`; a vision load that fails (or takes over
+ * 30 s) emits `mode{vision_failed}` and the `vision_failed` hint.
  */
 export async function startStudySessionWith(
   options: StudySessionOptions,
@@ -186,6 +253,10 @@ class StudySession implements StudySessionHandle {
   private nonWorkSince: MonoMs | null = null;
   private lastCameraEvent: CameraStatus | null = null;
   private visionFailures = 0;
+  /** A vision rebuild after a lost WebGL context is in flight (bumped to cancel it). */
+  private rebuildGeneration = 0;
+  private rebuildTimer: unknown = null;
+  private lastRebuildAt: MonoMs | null = null;
 
   private readonly governor = new CpuGovernor();
   private readonly cadence = new FrameCadence();
@@ -242,7 +313,9 @@ class StudySession implements StudySessionHandle {
     let observer: Observer;
     if (this.mode === 'camera') {
       const opened = await this.openCameraAndVision();
-      if (opened === null) {
+      if (opened.kind === 'camera_failed') {
+        observer = this.cameraFailedFallback(events, opened.error);
+      } else if (opened.kind === 'vision_failed') {
         observer = this.noCameraFallback(events);
       } else {
         const classifier = this.classifierFor(opened.identity);
@@ -268,30 +341,37 @@ class StudySession implements StudySessionHandle {
     for (const event of events) this.emit(event);
   }
 
-  /** Opens both in parallel; `null` when vision failed (the camera is released then). */
-  private async openCameraAndVision(): Promise<{ identity: CameraIdentity | null } | null> {
+  /**
+   * Opens both in parallel, each within its time limit. When one fails the other is released
+   * and the session starts without camera (a camera failure wins: it is the actionable one).
+   */
+  private async openCameraAndVision(): Promise<
+    | { kind: 'ok'; identity: CameraIdentity | null }
+    | { kind: 'camera_failed'; error: CameraErrorCode }
+    | { kind: 'vision_failed' }
+  > {
     const assets = this.options.assets;
     if (assets === null)
       throw new TypeError('startStudySession: assets are required in camera mode');
     const deviceId = this.options.cameraDeviceId ?? null;
     const [camera, vision] = await Promise.allSettled([
-      this.deps.openCamera({ deviceId }),
-      this.deps.createVision(assets, {}),
+      openCameraWithin(this.deps, deviceId),
+      createVisionWithin(this.deps, assets),
     ]);
     if (camera.status === 'rejected') {
       if (vision.status === 'fulfilled') vision.value.close();
-      throw camera.reason;
+      return { kind: 'camera_failed', error: cameraErrorCodeOf(camera.reason) };
     }
     if (vision.status === 'rejected') {
       camera.value.stop();
-      return null;
+      return { kind: 'vision_failed' };
     }
     this.source = camera.value;
     this.vision = vision.value;
     this.lastOpenAt = this.now();
     const identity = await camera.value.identity().catch(() => null);
     this.identity = identity;
-    return { identity };
+    return { kind: 'ok', identity };
   }
 
   private classifierFor(identity: CameraIdentity | null): AttentionClassifier {
@@ -303,6 +383,24 @@ class StudySession implements StudySessionHandle {
       return createPersonalClassifier(this.profile);
     }
     return createGenericClassifier();
+  }
+
+  /**
+   * The camera could not be opened at start (in use, blocked by the OS, unplugged, or no
+   * answer within 15 s). The guardian session is already running, so the analysis goes on
+   * without camera instead of failing: `camera{error}` tells the UI why (it offers «Seguir sin
+   * cámara» or «Terminar»), and reports and heartbeats keep flowing. Choosing no-camera mode at
+   * start is always allowed, so this opens no loophole; mid-session camera failures still fail
+   * closed (absence) until the user picks «Continuar sin cámara».
+   */
+  private cameraFailedFallback(events: SessionEvent[], error: CameraErrorCode): Observer {
+    this.mode = 'no-camera';
+    this.lastCameraError = error;
+    this.lastCameraEvent = 'error';
+    const at = this.now();
+    events.push({ type: 'camera', at, status: 'error', error });
+    events.push({ type: 'mode', at, mode: 'no-camera', reason: CAMERA_FAILED_MODE_REASON });
+    return new NoCameraObserver();
   }
 
   private noCameraFallback(events: SessionEvent[]): Observer {
@@ -322,6 +420,7 @@ class StudySession implements StudySessionHandle {
   /** Frees the camera and vision after a failed start. */
   release(): void {
     this.stopped = true;
+    this.cancelRebuild();
     this.openGeneration += 1;
     this.dropSource();
     this.vision?.close();
@@ -365,8 +464,15 @@ class StudySession implements StudySessionHandle {
     if (this.stopped) return null;
 
     if (outcome.kind === 'failed') {
-      this.visionFailures += 1;
       const at = this.now();
+      if (isVisionContextLost(outcome.error)) {
+        // Not a failing frame: the pipeline lost its GPU context. Rebuild it (frames are
+        // not analysed meanwhile, so nothing is counted as absent).
+        this.rebuildVision(at);
+        this.tick(at, null);
+        return null;
+      }
+      this.visionFailures += 1;
       if (this.visionFailures >= VISION_FAILURES_TO_FALLBACK) {
         this.switchToNoCamera('vision_failed', at);
       }
@@ -476,7 +582,9 @@ class StudySession implements StudySessionHandle {
     this.lastOpenAt = now;
     const generation = ++this.openGeneration;
     const deviceId = this.options.cameraDeviceId ?? null;
-    this.deps.openCamera({ deviceId }).then(
+    // Limited to 15 s: a hung `getUserMedia` must not leave `opening` set for good (the 10 s
+    // retries would stop); the stream of an open that answers too late is stopped.
+    openCameraWithin(this.deps, deviceId).then(
       (source) => {
         if (this.stopped || generation !== this.openGeneration || this.mode !== 'camera') {
           source.stop();
@@ -539,9 +647,66 @@ class StudySession implements StudySessionHandle {
     this.emit({ type: 'camera', at: this.now(), status, error });
   }
 
+  /**
+   * Replaces a pipeline whose WebGL context was lost (`deps.createVision`, 1–2 s). Until it
+   * is back the loop ticks without frames (the engine keeps the last presence). A rebuild
+   * that fails or takes over 8 s, or a second loss within 60 s, switches to no-camera mode
+   * at once instead of analysing empty pixels.
+   */
+  private rebuildVision(now: MonoMs): void {
+    if (this.stopped || this.mode !== 'camera' || this.rebuildTimer !== null) return;
+    const old = this.vision;
+    this.vision = null;
+    try {
+      old?.close();
+    } catch {
+      // A pipeline on a lost context may fail to close; it holds nothing else.
+    }
+    const assets = this.options.assets;
+    const tooSoon =
+      this.lastRebuildAt !== null && now - this.lastRebuildAt < VISION_REBUILD_MIN_INTERVAL_MS;
+    if (assets === null || tooSoon) {
+      this.switchToNoCamera('vision_failed', now);
+      return;
+    }
+    this.lastRebuildAt = now;
+    const generation = ++this.rebuildGeneration;
+    const done = (): boolean => {
+      if (generation !== this.rebuildGeneration) return false;
+      this.rebuildGeneration += 1;
+      if (this.rebuildTimer !== null) this.deps.timers.clear(this.rebuildTimer);
+      this.rebuildTimer = null;
+      return true;
+    };
+    this.rebuildTimer = this.deps.timers.set(() => {
+      if (done() && !this.stopped) this.switchToNoCamera('vision_failed', this.now());
+    }, VISION_REBUILD_TIMEOUT_MS);
+    this.deps.createVision(assets, {}).then(
+      (vision) => {
+        if (!done() || this.stopped || this.mode !== 'camera') {
+          vision.close();
+          return;
+        }
+        this.vision = vision;
+        this.visionFailures = 0;
+        this.cadence.reset();
+      },
+      () => {
+        if (done() && !this.stopped) this.switchToNoCamera('vision_failed', this.now());
+      },
+    );
+  }
+
+  private cancelRebuild(): void {
+    this.rebuildGeneration += 1;
+    if (this.rebuildTimer !== null) this.deps.timers.clear(this.rebuildTimer);
+    this.rebuildTimer = null;
+  }
+
   private switchToNoCamera(reason: 'user' | 'vision_failed', now: MonoMs): void {
     if (this.mode === 'no-camera') return;
     this.mode = 'no-camera';
+    this.cancelRebuild();
     this.openGeneration += 1;
     this.opening = false;
     this.dropSource();
@@ -705,7 +870,10 @@ class StudySession implements StudySessionHandle {
     if (this.stopped) return;
     const now = this.now();
     this.engine.resume(now);
-    this.vision?.reset();
+    // A suspend often resets the GPU: a pipeline whose context was lost is rebuilt now,
+    // not on its next frame.
+    if (this.vision?.contextLost === true) this.rebuildVision(now);
+    else this.vision?.reset();
     this.cadence.reset();
     // After a suspend the track often ended or froze: restart it unless it is healthy.
     if (this.mode === 'camera' && this.source !== null && this.source.status !== 'ok') {
@@ -739,6 +907,7 @@ class StudySession implements StudySessionHandle {
     }
     this.openGeneration += 1;
     this.opening = false;
+    this.cancelRebuild();
     this.dropSource();
     this.vision?.close();
     this.vision = null;

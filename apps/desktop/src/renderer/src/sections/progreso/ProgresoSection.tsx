@@ -1,16 +1,19 @@
 /**
- * Section 4 «Progreso»: the mascot as the header icon, «Nivel 7 · 1.240 puntos» · «Racha: 5
- * días», and the 4 px daily goal bar with «Hoy: 42 de 60 min». In «números rojos» the title is
- * red with the «Números rojos» pill. Its doors (Estadísticas… | Recompensas… | Logros…) join
- * with their feature flags; Phase 1 shows the header and the goal bar only.
+ * Section 4 «Progreso»: the mascot in its phase as the header icon, «Nivel 7 · 1.240 puntos» ·
+ * «Racha: 5 días», and the 4 px daily goal bar with «Hoy: 42 de 60 min». In «números rojos» the
+ * title is red with the «Números rojos» pill. Its 40 px doors (Estadísticas… | Recompensas… |
+ * Logros…) join with their feature flags and open their detail views; each has its Alt + letter
+ * and its help on the row's help line.
  */
 import type { LucideIcon } from 'lucide-react';
-import { ChartColumn, Gift, Leaf, Shrub, Sprout, TreeDeciduous, Trophy } from 'lucide-react';
+import { ChartColumn, Gift, Trophy } from 'lucide-react';
 import { useMemo } from 'react';
 import { Bar, DoorTile, Pill, Section, TileRow } from '../../components';
+import { mascotIcon } from '../../components/mascot';
 import { RENDERER } from '../../i18n/messages';
-import { useSnapshot } from '../../store/context';
-import { deriveProgresoView, type MascotPhase, type ProgresoDoor } from './view';
+import { useAppStore, useSnapshot } from '../../store/context';
+import { PROGRESO_DOORS_ROW, deriveProgresoView, type ProgresoDoor } from './view';
+import './progreso.css';
 
 const G = RENDERER.progreso;
 const DOOR_ICONS: Record<ProgresoDoor, LucideIcon> = {
@@ -19,22 +22,15 @@ const DOOR_ICONS: Record<ProgresoDoor, LucideIcon> = {
   achievements: Trophy,
 };
 
-/** Placeholder glyphs of the mascot's phases (lucide; the real mascot comes with `rewards`). */
-const MASCOT_ICONS: Record<MascotPhase, LucideIcon> = {
-  sprout: Sprout,
-  plant: Shrub,
-  tree: TreeDeciduous,
-  wilted: Leaf,
-};
-
 export function ProgresoSection(): React.JSX.Element | null {
   const snapshot = useSnapshot();
+  const bridge = useAppStore((s) => s.bridge);
   const view = useMemo(() => deriveProgresoView(snapshot), [snapshot]);
   if (!view) return null;
   return (
     <Section
       id="progreso"
-      icon={MASCOT_ICONS[view.phase]}
+      icon={mascotIcon(view.phase)}
       title={view.title}
       titleTone={view.negative ? 'red' : 'default'}
       pill={view.pill ? <Pill tone="red">{view.pill}</Pill> : undefined}
@@ -47,16 +43,22 @@ export function ProgresoSection(): React.JSX.Element | null {
         </span>
       </div>
       {view.doors.length > 0 ? (
-        // Their windows join with the same flags (stats, rewards, achievements).
-        <TileRow id="progreso-puertas" label={G.doorsLabel} columns={3}>
+        <TileRow
+          id={PROGRESO_DOORS_ROW}
+          label={G.doorsLabel}
+          columns={3}
+          className="progreso-doors"
+        >
           {view.doors.map((door) => (
             <DoorTile
-              key={door}
-              id={door}
-              label={G.doors[door]}
-              icon={DOOR_ICONS[door]}
+              key={door.id}
+              id={door.id}
+              label={door.label}
+              icon={DOOR_ICONS[door.id]}
               size="door"
-              help={G.doorsHelp[door]}
+              help={door.help}
+              mnemonic={door.mnemonic}
+              onPress={() => bridge.send('window:open-detail', door.request)}
             />
           ))}
         </TileRow>

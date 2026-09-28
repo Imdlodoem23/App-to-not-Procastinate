@@ -169,17 +169,35 @@ export class FakeCamera {
   readonly calls: OpenCameraOptions[] = [];
   failWith: unknown = null;
   identity: CameraIdentity = CAMERA_ID;
+  /** `open` never answers (a wedged driver) until `answerHung()`. */
+  hang = false;
+  private readonly hung: ((source: FrameSource) => void)[] = [];
 
   constructor(private readonly clock: Clock) {}
 
   readonly open = (options: OpenCameraOptions): Promise<FrameSource> => {
     this.calls.push(options);
+    if (this.hang) return new Promise((resolve) => this.hung.push(resolve));
     if (this.failWith !== null) return Promise.reject(this.failWith);
+    return Promise.resolve(this.make());
+  };
+
+  /** The hung opens finally answer (too late); returns their sources. */
+  answerHung(): FakeSource[] {
+    const answers = this.hung.splice(0);
+    return answers.map((resolve) => {
+      const source = this.make();
+      resolve(source);
+      return source;
+    });
+  }
+
+  private make(): FakeSource {
     const source = new FakeSource(this.clock);
     source.identityValue = this.identity;
     this.opened.push(source);
-    return Promise.resolve(source);
-  };
+    return source;
+  }
 
   get last(): FakeSource {
     const source = this.opened[this.opened.length - 1];
@@ -199,10 +217,12 @@ export class CameraError extends Error {
 
 export class VisionError extends Error {
   readonly code: string;
-  constructor(code: string) {
+  readonly contextLost: boolean;
+  constructor(code: string, contextLost = false) {
     super(code);
     this.name = 'VisionLoadError';
     this.code = code;
+    this.contextLost = contextLost;
   }
 }
 
@@ -262,6 +282,8 @@ export class FakeVision implements VisionPipeline {
   closed = 0;
   /** Number of upcoming `process` calls that throw. */
   failNext = 0;
+  /** The WebGL context was lost (`WEBGL_lose_context`): every `process` throws `contextLost`. */
+  contextLost = false;
   cost: VisionCost = { faceMs: 10, objectMs: 0, lumaMs: 0.5, totalMs: 10.5 };
   objectMs = 35;
   /** Features for a frame; defaults to a plain face. */
@@ -272,6 +294,7 @@ export class FakeVision implements VisionPipeline {
 
   process(frame: AnalysisFrame, options: VisionFrameOptions): VisionResult {
     this.calls.push({ frame, options });
+    if (this.contextLost) throw new VisionError('process_failed', true);
     if (this.failNext > 0) {
       this.failNext -= 1;
       throw new Error('process failed');
