@@ -13,6 +13,8 @@
  *   display's device-pixel grid (`PixelGrid`), moved 0–3 DIP inward to get there: an origin
  *   between two pixels makes the platform round the rect outwards (Linux/X11 converts it with
  *   an enclosing-pixel rounding), so a 440 DIP window became 441–442 DIP wide at 125/150 %.
+ *   The main window's free edge then grows 0–3 DIP onto the grid too, so its height is whole
+ *   pixels: Windows rounds a half-pixel height down (431 DIP at 150 % gave 430).
  */
 import { layout } from '@centrate/shared/design/tokens';
 import type { FrameInsets, Rect } from '../../shared/fixtures';
@@ -207,6 +209,29 @@ function snapY(
 }
 
 /**
+ * The main window's free edge (the one opposite the anchored edge, which is already on the
+ * grid) moved 0–3 DIP **outward** onto the grid (`outward` −1: up, +1: down), so the content
+ * height is whole device pixels too: the window grows by that much, never shrinks, and never
+ * goes past `limit`; the edge stays put when no pixel edge is within reach. A height between
+ * two pixels (431 DIP = 646.5 px at 150 %) is converted differently by each platform: Windows
+ * gave such a window 430 DIP of client area, one less than the content it was sized for.
+ */
+function growY(
+  edge: number,
+  grid: PixelGrid | null | undefined,
+  outward: 1 | -1,
+  limit: number,
+): number {
+  if (outward < 0 ? edge < limit : edge > limit) return edge;
+  return snapY(
+    edge,
+    grid,
+    outward,
+    outward < 0 ? { min: limit, max: edge } : { min: edge, max: limit },
+  );
+}
+
+/**
  * Whether a window set to `requested` came out at another width although `requested` is whole
  * pixels (left edge on the grid, width a whole number of pixels): the platform kept an older,
  * rounded-up pixel size. Electron on Linux does that when the DIP size did not change, e.g.
@@ -346,10 +371,20 @@ export interface MainPlacementInput {
   grid?: PixelGrid | null;
 }
 
+/** How far the free edge may grow: the work area's inset line (`growY`). */
+function insetTop(wa: Rect, frame: FrameInsets): number {
+  return Math.round(wa.y + SCREEN_INSET + frame.top);
+}
+
+function insetBottom(wa: Rect, frame: FrameInsets): number {
+  return Math.round(rectBottom(wa) - SCREEN_INSET - frame.bottom);
+}
+
 /**
  * Content rect of the main window at its corner: outer edges 10 DIP from the work area's
  * right edge and from the anchored edge, plus 0–3 DIP at fractional scales so the left and
- * anchored edges are pixel edges (never closer than 10 DIP).
+ * anchored edges are pixel edges (never closer than 10 DIP); the free edge then grows 0–3 DIP
+ * onto the grid as well (`growY`), within the work area's 10 DIP inset.
  */
 export function mainContentRect(input: MainPlacementInput): Rect {
   const { workArea: wa, frame, anchor, grid } = input;
@@ -357,21 +392,23 @@ export function mainContentRect(input: MainPlacementInput): Rect {
   const height = clampContentHeight(input.height, maxContentHeight(wa, frame));
   const x0 = Math.round(rectRight(wa) - SCREEN_INSET - frame.right - width);
   const x = snapX(x0, grid, -1, { max: x0 });
-  let y: number;
   if (anchor === 'bottom') {
-    const bottom0 = Math.round(rectBottom(wa) - SCREEN_INSET - frame.bottom);
-    y = snapY(bottom0, grid, -1, { max: bottom0 }) - height;
-  } else {
-    const y0 = Math.round(wa.y + SCREEN_INSET + frame.top);
-    y = snapY(y0, grid, 1, { min: y0 });
+    const bottom0 = insetBottom(wa, frame);
+    const bottom = snapY(bottom0, grid, -1, { max: bottom0 });
+    const y = growY(bottom - height, grid, -1, insetTop(wa, frame));
+    return { x, y, width, height: bottom - y };
   }
-  return { x, y, width, height };
+  const y0 = insetTop(wa, frame);
+  const y = snapY(y0, grid, 1, { min: y0 });
+  const bottom = growY(y + height, grid, 1, insetBottom(wa, frame));
+  return { x, y, width, height: bottom - y };
 }
 
 /**
  * Content rect of the main window centred in the work area: the onboarding (PROMPT §10 «con la
  * ventana principal centrada»). The height follows the renderer like at the corner; every
- * height change centres it again. With a grid, the left and top edges are pixel edges.
+ * height change centres it again. With a grid, the left and top edges are pixel edges and the
+ * bottom edge grows onto one (`growY`), inside the work area.
  */
 export function centredContentRect(input: MainPlacementInput): Rect {
   const { workArea: wa, frame, grid } = input;
@@ -383,19 +420,17 @@ export function centredContentRect(input: MainPlacementInput): Rect {
   const minY = Math.round(wa.y + frame.top);
   const x0 = Math.max(minX, Math.round(wa.x + (wa.width - outerWidth) / 2 + frame.left));
   const y0 = Math.max(minY, Math.round(wa.y + (wa.height - outerHeight) / 2 + frame.top));
-  return {
-    x: snapX(x0, grid, 1, { min: minX }),
-    y: snapY(y0, grid, 1, { min: minY }),
-    width,
-    height,
-  };
+  const y = snapY(y0, grid, 1, { min: minY });
+  const bottom = growY(y + height, grid, 1, Math.round(rectBottom(wa) - frame.bottom));
+  return { x: snapX(x0, grid, 1, { min: minX }), y, width, height: bottom - y };
 }
 
 /**
  * New content rect when the height changes while the window is shown: the anchored edge of
  * `current` stays where it is (bottom: `y = bottom − height`; top: `y` unchanged), then the
  * window is kept inside the work area. With a grid, the left and anchored edges go to the
- * nearest pixel edge (a no-op for a rect this module placed).
+ * nearest pixel edge (a no-op for a rect this module placed) and the free edge grows onto it
+ * like at the corner (`growY`).
  */
 export function resizeAnchored(
   current: Rect,
@@ -408,14 +443,15 @@ export function resizeAnchored(
   const h = clampContentHeight(height, maxContentHeight(workArea, frame));
   const minY = Math.round(workArea.y + frame.top);
   const maxY = Math.max(minY, Math.round(rectBottom(workArea) - frame.bottom - h));
-  let y: number;
-  if (anchor === 'bottom') {
-    y = snapY(rectBottom(current), grid, -1, { min: minY + h, max: maxY + h }) - h;
-  } else {
-    y = snapY(current.y, grid, 1, { min: minY, max: maxY });
-  }
   const x = snapX(current.x, grid, -1);
-  return { x, y, width: Math.round(current.width), height: h };
+  const width = Math.round(current.width);
+  if (anchor === 'bottom') {
+    const bottom = snapY(rectBottom(current), grid, -1, { min: minY + h, max: maxY + h });
+    const y = growY(bottom - h, grid, -1, insetTop(workArea, frame));
+    return { x, y, width, height: bottom - y };
+  }
+  const y = snapY(current.y, grid, 1, { min: minY, max: maxY });
+  return { x, y, width, height: growY(y + h, grid, 1, insetBottom(workArea, frame)) - y };
 }
 
 // ---------------------------------------------------------------------------------------
