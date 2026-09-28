@@ -335,7 +335,15 @@ test('emergency: phrase by hand (paste refused) → waiting → ready → «¿Se
       return tile?.dataset['tileId'] ?? (t.id || t.tagName.toLowerCase());
     };
     w.__unlockLog = [];
-    const types = ['pointerdown', 'click', 'mouseleave', 'focusout', 'blur', 'visibilitychange'];
+    const types = [
+      'pointerdown',
+      'click',
+      'mouseleave',
+      'focusin',
+      'focusout',
+      'blur',
+      'visibilitychange',
+    ];
     for (const type of types) {
       window.addEventListener(
         type,
@@ -375,32 +383,34 @@ test('emergency: phrase by hand (paste refused) → waiting → ready → «¿Se
       };
     }
   });
-  await unlock.click();
-  await expect(unlock).toHaveAccessibleName(/¿Seguro\?/);
-  expect(callsOf(await app.harness.guardianCalls(), 'confirmEmergency')).toHaveLength(0);
-  await unlock.click();
-  try {
-    await expect
-      .poll(async () => callsOf(await app!.harness.guardianCalls(), 'confirmEmergency').length)
-      .toBe(1);
-  } catch (error) {
+  const explain = async (error: unknown): Promise<never> => {
     const seen = await detail.evaluate(
       () => (window as unknown as { __unlockLog: string[] }).__unlockLog,
     );
-    const pushes = await app.electron.evaluate(
+    const pushes = await app!.electron.evaluate(
       () => (globalThis as unknown as { __detailPushes: string[] }).__detailPushes,
     );
-    const snap = await app.harness.snapshot();
-    const calls = (await app.harness.guardianCalls())
+    const snap = await app!.harness.snapshot();
+    const writes = (await app!.harness.guardianCalls())
       .map((c) => c.method)
       .filter((m) => !/^(get|health)/.test(m));
     throw new Error(
       `${error instanceof Error ? error.message : String(error)}\n` +
         `emergency ${snap.state?.emergency?.status}, frozen ${snap.harness?.frozenNowMs}, ` +
-        `writes ${calls.join(',')}\npage: ${seen.join(' | ')}\npushes: ${pushes.join(' | ')}`,
+        `writes ${writes.join(',')}\npage: ${seen.join(' | ')}\npushes: ${pushes.join(' | ')}`,
       { cause: error },
     );
-  }
+  };
+  await unlock.click();
+  await expect(unlock)
+    .toHaveAccessibleName(/¿Seguro\?/)
+    .catch(explain);
+  expect(callsOf(await app.harness.guardianCalls(), 'confirmEmergency')).toHaveLength(0);
+  await unlock.click();
+  await expect
+    .poll(async () => callsOf(await app!.harness.guardianCalls(), 'confirmEmergency').length)
+    .toBe(1)
+    .catch(explain);
   await expect(detail.getByText(/^Has perdido/)).toBeVisible();
   await expect(main.getByRole('heading', { name: /^Bloqueo: ninguno/ })).toBeVisible();
 });
