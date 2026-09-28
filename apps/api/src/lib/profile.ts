@@ -17,10 +17,10 @@ import { conflict, consentRequired, unauthorized } from './errors';
 export type ProfileRow = typeof profiles.$inferSelect;
 
 // C0 and C1 controls, bidi overrides and zero-width characters: never in names shown to others.
-// eslint-disable-next-line no-control-regex
-const CONTROL_RE = /[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩﻿]/;
-// eslint-disable-next-line no-control-regex
-const CONTROL_RE_GLOBAL = /[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩﻿]/g;
+const CONTROL_CLASS =
+  '[\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2066-\\u2069\\ufeff]';
+const CONTROL_RE = new RegExp(CONTROL_CLASS);
+const CONTROL_RE_GLOBAL = new RegExp(CONTROL_CLASS, 'g');
 
 /** True when `value` holds a control, bidi-override or zero-width character. */
 export function hasControlChars(value: string): boolean {

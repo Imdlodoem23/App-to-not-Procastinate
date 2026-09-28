@@ -9,6 +9,7 @@
  * (eyebrow, headline, lead, 0.15 s apart); the gallery track is revealed on its own.
  */
 import Gallery from './Gallery.astro';
+import Inline from '../pages/Inline.astro';
 import CardVisual from './CardVisual.astro';
 import FootnoteRef from './FootnoteRef.astro';
 import { fill } from '../../content/copy';
@@ -33,7 +34,7 @@ const headingId = `${chapter.id}-titulo`;
       {beats.map((beat, i) => (i > 0 ? <> <span>{beat}</span></> : <span>{beat}</span>))}
     </h2>
     <p class="chapter-lead text-lead text-secondary max-w-lead" data-reveal>
-      {chapter.lead}{
+      <Inline text={chapter.lead} />{
         chapter.leadNote && <FootnoteRef id={chapter.leadNote.id} k={chapter.leadNote.k} />
       }
     </p>
@@ -47,7 +48,7 @@ const headingId = `${chapter.id}-titulo`;
             <CardVisual visual={card.visual} />
           </div>
           <p class="chapter-card-caption text-body text-secondary">
-            <strong class="text-primary">{card.title}</strong> {card.text}{
+            <strong class="text-primary">{card.title}</strong> <Inline text={card.text} />{
               card.note && <FootnoteRef id={card.note.id} k={card.note.k} />
             }
           </p>

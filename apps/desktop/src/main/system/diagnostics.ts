@@ -9,7 +9,9 @@
  *   data by contract) and the app-log tail.
  *
  * Every line goes through `scrubLogText` (tokens, `Authorization`, the home directory), and
- * the snapshot contributes only counts and versions: never reasons, targets or codes.
+ * the snapshot contributes only counts and versions: never reasons, targets or codes. Section
+ * headers follow the app language (`./i18n`); `centrate-guardian status` and the guardian log
+ * come as the guardian writes them (Spanish).
  */
 import { posix, win32 } from 'node:path';
 import type { GuardianClient } from '@centrate/shared/guardian-api';
@@ -17,6 +19,7 @@ import { UI_TIMINGS, toUiError, type Platform, type UiSnapshot } from '../../sha
 import type { Clock } from '../contracts';
 import { withTimeout } from '../guardian/client';
 import { scrubLogText, type AppLogger } from '../logs/logger';
+import { DIAGNOSTICS as T } from './i18n';
 
 export const APP_LOG_TAIL_LINES = 20;
 export const GUARDIAN_LOG_TAIL_LINES = 200;
@@ -93,7 +96,7 @@ function scrubLines(text: string): string {
 }
 
 function tail(text: string | null, lines: number): string {
-  if (text === null) return '(no disponible)';
+  if (text === null) return T.unavailable;
   const all = text.split(/\r?\n/).filter((l) => l !== '');
   return all.slice(-lines).join('\n');
 }
@@ -101,8 +104,8 @@ function tail(text: string | null, lines: number): string {
 export async function buildDiagnostics(deps: DiagnosticsDeps): Promise<DiagnosticsResult> {
   const { client, clock, snapshot, appLog, runtime } = deps;
   const header = [
-    'Céntrate · diagnóstico',
-    `generado: ${new Date(clock.now()).toISOString()}`,
+    T.title,
+    T.generated(new Date(clock.now()).toISOString()),
     `app: ${JSON.stringify({
       version: snapshot.app.version,
       packaged: snapshot.app.packaged,
@@ -112,19 +115,19 @@ export async function buildDiagnostics(deps: DiagnosticsDeps): Promise<Diagnosti
       electron: runtime.electron,
       node: runtime.node,
     })}`,
-    `resumen: ${JSON.stringify(snapshotSummary(snapshot))}`,
+    T.summary(JSON.stringify(snapshotSummary(snapshot))),
   ];
-  const appTail = appLog.tail(APP_LOG_TAIL_LINES).join('\n') || '(vacío)';
+  const appTail = appLog.tail(APP_LOG_TAIL_LINES).join('\n') || T.empty;
 
   try {
     const diagnostics = await withTimeout(client.diagnostics(), clock, UI_TIMINGS.requestTimeoutMs);
     const text = [
       ...header,
       '',
-      '== guardián (/v1/diagnostics) ==',
+      T.guardian,
       JSON.stringify(diagnostics, null, 2),
       '',
-      `== registro de la app (últimas ${APP_LOG_TAIL_LINES} líneas) ==`,
+      T.appLog(APP_LOG_TAIL_LINES),
       appTail,
     ].join('\n');
     return { text: scrubLines(text), source: 'guardian' };
@@ -142,16 +145,16 @@ export async function buildDiagnostics(deps: DiagnosticsDeps): Promise<Diagnosti
     const text = [
       ...header,
       '',
-      '== guardián: sin respuesta ==',
+      T.guardianDown,
       healthLine,
       '',
       '== centrate-guardian status ==',
       await deps.guardianStatus().catch(() => 'status failed'),
       '',
-      `== guardian.log (últimas ${GUARDIAN_LOG_TAIL_LINES} líneas) ==`,
+      T.guardianLog(GUARDIAN_LOG_TAIL_LINES),
       tail(deps.readText(logFile), GUARDIAN_LOG_TAIL_LINES),
       '',
-      `== registro de la app (últimas ${APP_LOG_TAIL_LINES} líneas) ==`,
+      T.appLog(APP_LOG_TAIL_LINES),
       appTail,
     ].join('\n');
     return { text: scrubLines(text), source: 'fallback' };

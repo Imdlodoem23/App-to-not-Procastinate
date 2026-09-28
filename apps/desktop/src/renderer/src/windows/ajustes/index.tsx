@@ -22,7 +22,7 @@ import {
   Trash,
   Wrench,
 } from 'lucide-react';
-import { useLayoutEffect } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import {
   Countdown,
   Field,
@@ -38,6 +38,7 @@ import {
 } from '../../components';
 import type { ThemePreference } from '@centrate/shared/design/tokens';
 import type { LanguagePreference } from '../../../../shared/i18n/locale';
+import { useLocaleSwitch } from '../../app/Localized';
 import { useHelp } from '../../hooks/useHelp';
 import { useRepair } from '../../hooks/useRepair';
 import { RENDERER } from '../../i18n/messages';
@@ -450,16 +451,22 @@ export default function AjustesWindow(): React.JSX.Element {
 
   // «Detalles…» opens on Sistema; the fixtures open on Sistema and Datos.
   // Every door also puts the focus on a control (never <body>): the requested group's first tab
-  // stop, else the checked «Tema» tile.
+  // stop, else the checked «Tema» tile. Once per request: a language switch remounts the window
+  // with the same request, and then `Localized` puts the focus back on the «Idioma» tile (a
+  // jump to «Tema» would let the next arrow key change the theme).
+  const localeSwitch = useLocaleSwitch();
+  const doorFor = useRef<typeof request>(null);
   useLayoutEffect(() => {
-    if (!request) return;
+    if (!request || doorFor.current === request) return;
+    doorFor.current = request;
+    if (localeSwitch.current) return;
     const section = request.group
       ? document.querySelector<HTMLElement>(`[data-section="aj-${request.group}"]`)
       : null;
     section?.scrollIntoView({ block: 'start' });
     const target = section ? firstTabStop(section) : themeTabStop();
     target?.focus({ preventScroll: true });
-  }, [request]);
+  }, [request, localeSwitch]);
 
   return (
     <div className="aj">

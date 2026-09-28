@@ -11,6 +11,7 @@ import {
   APPS,
   CATEGORIES,
   SERVICES,
+  appName,
   findAppByProcessName,
   findServiceByDomain,
   getApp,
@@ -27,7 +28,7 @@ import {
 } from '@centrate/shared/catalog';
 import type { TargetSpec } from '@centrate/shared/domain';
 import { GUARDIAN_LIMITS } from '@centrate/shared/guardian-api';
-import { categoryName } from '../../../../shared/format';
+import { appLabel, categoryName } from '../../../../shared/format';
 import type { Platform } from '../../../../shared/ui-state';
 import { BLOQUEOS } from './i18n';
 
@@ -247,9 +248,15 @@ export function addCustomDomain(targets: TargetSpec, input: string): EntryResult
   };
 }
 
+/** An app's names to match what is typed: the catalog's (Spanish) and the English one. */
+function appNames(app: App): string[] {
+  const en = appName(app.id, 'en');
+  return en === app.name ? [app.name] : [app.name, en];
+}
+
 function appByName(name: string): App | undefined {
   const key = fold(name);
-  return APPS.find((a) => fold(a.name) === key);
+  return APPS.find((a) => appNames(a).some((n) => fold(n) === key));
 }
 
 /** Add a catalog app (by name or process name) or a plain process name. */
@@ -306,18 +313,18 @@ export function appSuggestions(
   const pushApp = (app: App): void => {
     if (seenApps.has(app.id)) return;
     seenApps.add(app.id);
-    out.push({ kind: 'app', id: app.id, label: app.name });
+    out.push({ kind: 'app', id: app.id, label: appLabel(app.id) });
   };
   if (q !== '') {
     for (const app of APPS) {
-      if (Number.isFinite(rank([app.name], q))) pushApp(app);
+      if (Number.isFinite(rank(appNames(app), q))) pushApp(app);
     }
   }
   for (const name of running) {
     if (!isValidProcessName(name) || isProtectedProcessName(name)) continue;
     const app = findAppByProcessName(name, platform);
     if (app) {
-      if (q === '' || Number.isFinite(rank([app.name, name], q))) pushApp(app);
+      if (q === '' || Number.isFinite(rank([...appNames(app), name], q))) pushApp(app);
       continue;
     }
     if (q === '' || !fold(name).includes(q)) continue;
@@ -344,7 +351,7 @@ export function customEntries(targets: TargetSpec): { domains: EntryView[]; apps
       ...targets.appIds.map((id): EntryView => ({
         kind: 'app',
         key: id,
-        label: getApp(id)?.name ?? id,
+        label: appLabel(id),
       })),
       ...targets.customProcesses.map((p): EntryView => ({ kind: 'process', key: p, label: p })),
     ],

@@ -24,9 +24,7 @@ export const SHARED_EN: SharedMessages = {
             ? 'Finish a Study Mode session'
             : `Finish ${n} Study Mode sessions`;
         case 'completedBlocks':
-          return threshold === 1
-            ? 'Complete a block to the end'
-            : `Complete ${n} blocks to the end`;
+          return threshold === 1 ? 'Complete a block' : `Complete ${n} blocks`;
         case 'bestStreakDays':
           return threshold === 1
             ? 'Meet your daily goal for a day'

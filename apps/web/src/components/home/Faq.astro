@@ -4,7 +4,7 @@
  * <details>/<summary> (no JavaScript), 840 px wide, with hairlines between questions. Each
  * question is an <h3> inside its <summary>; the + turns into − with a 0.3 s rotation when it
  * opens (a reply to the user's action; instant with reduced motion). Answers may contain
- * links, rendered from copy.ts with inline(). Only the headline is revealed.
+ * links and {es:phrases}, rendered from copy.ts with inline(). Only the headline is revealed.
  */
 import { inline } from '../../content/copy';
 import { copyFor } from '../../content/locale';
@@ -47,6 +47,8 @@ const items = faq.items.map((item) => ({ q: item.q, a: inline(item.a) }));
                 <strong>{token.text}</strong>
               ) : token.kind === 'code' ? (
                 <code>{token.text}</code>
+              ) : token.kind === 'phrase' ? (
+                <span lang={token.lang}>{token.text}</span>
               ) : (
                 token.text
               ),

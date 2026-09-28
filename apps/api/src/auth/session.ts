@@ -35,7 +35,7 @@ export function randomAlphanumeric(length: number): string {
   return out;
 }
 
-const RAW_TOKEN_RE = /^[A-Za-z0-9]{16,128}$/;
+const RAW_TOKEN_RE = /^[A-Za-z0-9_-]{16,128}$/;
 
 /** True when the request authenticates with a bearer header (exempt from the Origin check). */
 export function hasBearer(headers: IncomingHttpHeaders): boolean {

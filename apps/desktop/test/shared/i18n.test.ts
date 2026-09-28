@@ -2,6 +2,7 @@ import { CATEGORIES } from '@centrate/shared/catalog';
 import { emptyTargets } from '@centrate/shared/guardian-api';
 import { afterEach, describe, expect, it } from 'vitest';
 import { NOTIFY_EN, NOTIFY_ES } from '../../src/main/notifications/i18n';
+import { DIAGNOSTICS_EN, DIAGNOSTICS_ES } from '../../src/main/system/i18n';
 import { TRAY, TRAY_EN, TRAY_ES, capitalise } from '../../src/main/tray/i18n';
 import { WINDOWS_EN, WINDOWS_ES } from '../../src/main/windows/i18n';
 import { RENDERER_EN, RENDERER_ES } from '../../src/renderer/src/i18n/messages';
@@ -9,7 +10,7 @@ import { BLOQUEO_EN, BLOQUEO_ES } from '../../src/renderer/src/sections/bloqueo/
 import { AJUSTES_EN, AJUSTES_ES } from '../../src/renderer/src/windows/ajustes/i18n';
 import { BLOQUEOS_EN, BLOQUEOS_ES } from '../../src/renderer/src/windows/bloqueos/i18n';
 import { EMERGENCIA_EN, EMERGENCIA_ES } from '../../src/renderer/src/windows/emergencia/i18n';
-import { fixtureInLocale, harnessFixture } from '../../src/shared/fixtures';
+import { HARNESS_STATE_IDS, fixtureInLocale, harnessFixture } from '../../src/shared/fixtures';
 import {
   MINUS,
   categoryName,
@@ -44,6 +45,7 @@ const TABLES: Record<string, readonly [object, object]> = {
   tray: [TRAY_ES, TRAY_EN],
   notify: [NOTIFY_ES, NOTIFY_EN],
   windows: [WINDOWS_ES, WINDOWS_EN],
+  diagnostics: [DIAGNOSTICS_ES, DIAGNOSTICS_EN],
 };
 
 /** «a.b.c» of every leaf, with its kind (string, function, array). */
@@ -146,6 +148,34 @@ describe('locale resolution', () => {
     ).toBe('en');
   });
 
+  it('gives the English fixtures English sample text, keeping everything else', () => {
+    const plain = (value: unknown): boolean =>
+      typeof value !== 'object' ||
+      value === null ||
+      (Array.isArray(value)
+        ? value.every(plain)
+        : Object.getPrototypeOf(value) === Object.prototype && Object.values(value).every(plain));
+    for (const id of HARNESS_STATE_IDS) {
+      const fixture = harnessFixture(id);
+      // `fixtureInLocale` copies plain data only: anything else would lose its prototype.
+      expect(plain(fixture), id).toBe(true);
+      const en = JSON.stringify(fixtureInLocale(fixture, 'en'));
+      // The emergency preview keeps both phrases: only what the user typed is swapped.
+      for (const spanish of [
+        'Quiero aprobar',
+        '"Acepto romper mi compromiso"',
+        'Tardes de estudio',
+        '"mates"',
+      ]) {
+        expect(en, `${id}: ${spanish}`).not.toContain(spanish);
+      }
+      expect(fixtureInLocale(fixture, 'es')).toEqual(fixture);
+    }
+    const en = fixtureInLocale(harnessFixture('emergencia'), 'en');
+    expect(en.detail.emergencia.phrase).toBe('I accept breaking my commitment');
+    expect(en.snapshot.prefs.lastReason).toBe('I want to pass math');
+  });
+
   it('notifies listeners only on a real change', () => {
     const seen: string[] = [];
     const off = onLocaleChange((l) => seen.push(l));
@@ -228,7 +258,7 @@ describe('formatting per locale', () => {
     const [deberes] = DEFAULT_TEMPLATES;
     if (!deberes) throw new Error('no built-in template');
     expect(templateLabel(deberes)).toBe('Deberes 1 h');
-    expect(withLocale('en', () => templateLabel(deberes))).toBe('Study 1 h');
+    expect(withLocale('en', () => templateLabel(deberes))).toBe('Homework 1h');
     const renamed = { ...deberes, label: 'Mates' };
     expect(withLocale('en', () => templateLabel(renamed))).toBe('Mates');
     const mine = { ...deberes, id: 'tpl_abcdef', builtin: false, label: 'Deberes 1 h' };

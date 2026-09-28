@@ -11,11 +11,14 @@
  *   numbers («1.240»). A number and its unit are joined by a no-break space (\u00a0).
  * - Placeholders look like {name}; fill them with `fill()`, which type-checks the keys.
  * - Inline markup (only where a component renders it with `inline()`): **bold**, `code`,
- *   [text](href).
+ *   [text](href), and {es:phrase} for a phrase in another language than the page's (rendered
+ *   as <span lang="es">; lib/i18n.ts, PHRASE). Only translations need the last one.
  * - Footnote references use the ids of `notes`; their numbers follow the order of `notes`,
  *   which is the order in which they first appear on the home page.
  * - The only gradient text on the site is `scene.headline.gradient`.
  */
+
+import { PHRASE, type Lang } from '../lib/i18n';
 
 /** Section ids on the home page (anchors for the navigation, FAQ links and footnotes). */
 const ids = {
@@ -940,6 +943,8 @@ export const es = {
       headline: 'Novedades.',
       lead: 'Qué cambia en cada versión de Céntrate, tal y como se publica en GitHub.',
       version: 'Versión {version}',
+      /** Heading of the CHANGELOG.md changes that are not in any version yet. */
+      unreleased: 'Sin publicar',
       published: 'Publicada el {date}',
       latestPill: 'Última versión',
       viewOnGitHub: 'Ver en GitHub',
@@ -1255,21 +1260,28 @@ export function translationProblems(source: unknown, target: unknown, path = 'co
 
 export type InlineToken =
   | { readonly kind: 'text' | 'strong' | 'code'; readonly text: string }
-  | { readonly kind: 'link'; readonly text: string; readonly href: string };
+  | { readonly kind: 'link'; readonly text: string; readonly href: string }
+  | { readonly kind: 'phrase'; readonly text: string; readonly lang: Lang };
 
-const INLINE = /\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)/g;
+const MARKUP = /\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)/;
+const INLINE = new RegExp(`${MARKUP.source}|${PHRASE.source}`, 'g');
 
-/** Splits a string with **bold**, `code` and [text](href) into tokens a component can render. */
+/**
+ * Splits a string with **bold**, `code`, [text](href) and {es:phrase} into tokens a component
+ * can render.
+ */
 export function inline(source: string): InlineToken[] {
   const tokens: InlineToken[] = [];
   let last = 0;
   for (const match of source.matchAll(INLINE)) {
     const index = match.index ?? 0;
     if (index > last) tokens.push({ kind: 'text', text: source.slice(last, index) });
-    const [whole, strong, code, linkText, href] = match;
+    const [whole, strong, code, linkText, href, phraseLang, phrase] = match;
     if (strong !== undefined) tokens.push({ kind: 'strong', text: strong });
     else if (code !== undefined) tokens.push({ kind: 'code', text: code });
-    else tokens.push({ kind: 'link', text: linkText ?? '', href: href ?? '' });
+    else if (phrase !== undefined) {
+      tokens.push({ kind: 'phrase', text: phrase, lang: phraseLang as Lang });
+    } else tokens.push({ kind: 'link', text: linkText ?? '', href: href ?? '' });
     last = index + whole.length;
   }
   if (last < source.length) tokens.push({ kind: 'text', text: source.slice(last) });

@@ -545,6 +545,8 @@ export function isHarnessStateId(value: unknown): value is HarnessStateId {
 // ---------------------------------------------------------------------------------------
 
 const REASON = 'Quiero aprobar mates';
+/** The emergency phrase, typed halfway (fixture `emergencia`). */
+const EMERGENCY_TYPED_ES = 'Acepto romper mi compromiso';
 const FIXTURE_PREFS: UiPrefs = { ...DEFAULT_PREFS, lastReason: REASON };
 const INTENT = 'intent-fixture-0001';
 
@@ -1067,7 +1069,7 @@ const BUILDERS: Readonly<Record<HarnessStateId, Builder>> = {
       detailRequest: { name: 'emergencia', blockIds: null },
       detail: detailWith((d) => ({
         ...d,
-        emergencia: { ...d.emergencia, phrase: 'Acepto romper mi compromiso' },
+        emergencia: { ...d.emergencia, phrase: EMERGENCY_TYPED_ES },
       })),
     }),
 
@@ -1229,12 +1231,44 @@ export function harnessFixture(id: HarnessStateId, nowMs: number = HARNESS_NOW):
 }
 
 /**
+ * What a Spanish-speaking user typed in the fixtures (reasons, a Study Mode task, schedule
+ * names, the emergency phrase half typed), as an English-speaking user would have typed it.
+ * The phrases for the main field stay Spanish: the parser reads Spanish only.
+ */
+const SAMPLE_TEXT_EN: Readonly<Record<string, string>> = {
+  [REASON]: 'I want to pass math',
+  mates: 'math',
+  'Tardes de estudio': 'Study afternoons',
+  'Sábados sin juegos': 'Game-free Saturdays',
+  [EMERGENCY_TYPED_ES]: 'I accept breaking my commitment',
+};
+
+/** `value` with every string that is exactly a key of `table` swapped (plain data only). */
+function swapStrings<T>(value: T, table: Readonly<Record<string, string>>): T {
+  if (typeof value === 'string') {
+    return (Object.hasOwn(table, value) ? table[value] : value) as T;
+  }
+  if (Array.isArray(value)) return value.map((item: unknown) => swapStrings(item, table)) as T;
+  if (typeof value === 'object' && value !== null) {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) out[key] = swapStrings(item, table);
+    return out as T;
+  }
+  return value;
+}
+
+/**
  * The fixture as seen on an OS in `locale` (`--harness-lang`, `?lang=`): «Idioma» stays
- * «Sistema», so every surface shows that language. Returns a copy.
+ * «Sistema», so every surface shows that language. In English the user's own sample text is
+ * English too (`SAMPLE_TEXT_EN`). Returns a copy.
  */
 export function fixtureInLocale(fixture: HarnessFixture, locale: Locale): HarnessFixture {
-  const snapshot = fixture.snapshot;
-  return { ...fixture, snapshot: { ...snapshot, app: { ...snapshot.app, systemLocale: locale } } };
+  const localized = locale === 'en' ? swapStrings(fixture, SAMPLE_TEXT_EN) : fixture;
+  const snapshot = localized.snapshot;
+  return {
+    ...localized,
+    snapshot: { ...snapshot, app: { ...snapshot.app, systemLocale: locale } },
+  };
 }
 
 /** Every fixture, in `HARNESS_STATE_IDS` order. */

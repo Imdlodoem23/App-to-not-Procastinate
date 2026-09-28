@@ -33,6 +33,24 @@ export const PARSER_EXTRA_ALIASES: ReadonlyArray<{
   { alias: 'tick tock', kind: 'service', id: 'tiktok' },
   { alias: 'tick tok', kind: 'service', id: 'tiktok' },
   { alias: 'tik tock', kind: 'service', id: 'tiktok' },
+  // English category words.
+  { alias: 'social networks', kind: 'category', id: 'social' },
+  { alias: 'social network', kind: 'category', id: 'social' },
+  { alias: 'movies', kind: 'category', id: 'video' },
+  { alias: 'films', kind: 'category', id: 'video' },
+  { alias: 'tv shows', kind: 'category', id: 'video' },
+  { alias: 'shows', kind: 'category', id: 'video' },
+  { alias: 'livestreams', kind: 'category', id: 'video' },
+  { alias: 'live streams', kind: 'category', id: 'video' },
+  { alias: 'video games', kind: 'category', id: 'games' },
+  { alias: 'videogames', kind: 'category', id: 'games' },
+  { alias: 'game', kind: 'category', id: 'games' },
+  { alias: 'messages', kind: 'category', id: 'messaging' },
+  { alias: 'texting', kind: 'category', id: 'messaging' },
+  { alias: 'texts', kind: 'category', id: 'messaging' },
+  { alias: 'dms', kind: 'category', id: 'messaging' },
+  { alias: 'online stores', kind: 'category', id: 'shopping' },
+  { alias: 'newspapers', kind: 'category', id: 'news' },
 ]);
 
 function refFor(kind: 'service' | 'category', id: string): TargetRef | undefined {
@@ -114,6 +132,10 @@ const WEAK_KEYS: ReadonlySet<string> = new Set([
   'mine',
   'anime',
   'ajedrez',
+  // English words that are also category aliases.
+  'shows',
+  'game',
+  'texts',
 ]);
 const STRONG_SHORT_KEYS: ReadonlySet<string> = new Set(['yt', 'ig', 'fb']);
 

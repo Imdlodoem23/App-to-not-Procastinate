@@ -44,7 +44,9 @@ export const SHARED_EN: SharedMessages = {
     short: (amount: string): string => `${amount} pts`,
   },
   templates: {
-    deberes: 'Study 1 h',
+    // «Homework 1 h» (the website's mock) is 2 px wider than a main-window tile (83 px of text
+    // at 13 px): «1h» keeps the whole label visible.
+    deberes: 'Homework 1h',
     examen: 'Exam 3 h',
     leer: 'Read 30 min',
   },

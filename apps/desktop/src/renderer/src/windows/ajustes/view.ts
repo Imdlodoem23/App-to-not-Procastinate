@@ -61,20 +61,24 @@ interface AjustesKeys {
   delete: string;
 }
 
-/** Per language, so each letter is in its label (read at call time, like the copy). */
+/**
+ * Per language, so each letter is in its label (read at call time, like the copy). «Español»
+ * and «English» read the same in both languages, so they keep the same letters (Alt+P,
+ * Alt+G): someone who switched by mistake switches back with the key they just used.
+ */
 export const AJUSTES_KEYS: AjustesKeys = localized<AjustesKeys>({
   es: {
     theme: { system: 's', light: 'c', dark: 'o' },
-    language: { system: 't', es: 'l', en: 'g' },
+    language: { system: 't', es: 'p', en: 'g' },
     mode: { normal: 'n', strict: 'e', hardcore: 'h' },
     repair: 'r',
     pairingNew: 'u',
-    diagnostics: 'p',
+    diagnostics: 'd',
     delete: 'b',
   },
   en: {
     theme: { system: 's', light: 'l', dark: 'k' },
-    language: { system: 'y', es: 'p', en: 'e' },
+    language: { system: 'y', es: 'p', en: 'g' },
     mode: { normal: 'n', strict: 't', hardcore: 'h' },
     repair: 'r',
     pairingNew: 'w',

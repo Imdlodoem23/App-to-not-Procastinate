@@ -30,15 +30,46 @@ export const routes = {
 } as const satisfies Record<Lang, Record<Exclude<PageKey, 'not-found'>, string>>;
 export type Routes = (typeof routes)[Lang];
 
+/** Paths in English: /en and everything under /en/. */
+export const ENGLISH_PATH = /^\/en(?:\/|\.html$|$)/;
+
 /** The language of a path: /en and everything under /en/ is English, the rest Spanish. */
 export function langFromPath(pathname: string): Lang {
-  return /^\/en(?:\/|\.html$|$)/.test(pathname) ? 'en' : 'es';
+  return ENGLISH_PATH.test(pathname) ? 'en' : 'es';
 }
 
 /** The same page in another language (the home page for the 404). */
 export function pathFor(page: PageKey | undefined, lang: Lang): string {
   const map = routes[lang];
   return page && page !== 'not-found' ? map[page] : map.home;
+}
+
+/**
+ * A phrase in another language inside a copy string, like the Spanish phrases Céntrate reads on
+ * the English page: «Type “{es:no veo YouTube en una hora}”». Components render it as
+ * <span lang="es"> (inline() in copy.ts on the server, splitPhrases() in client scripts), so
+ * screen readers switch voice for it (WCAG 3.1.2); plain() keeps only its text.
+ */
+export const PHRASE = new RegExp(`\\{(${langs.join('|')}):([^{}]+)\\}`, 'g');
+
+/** A run of copy text, with its language when it differs from the page's. */
+export interface TextPart {
+  readonly text: string;
+  readonly lang?: Lang;
+}
+
+/** Splits copy text into plain runs and {es:…} phrases (see PHRASE). */
+export function splitPhrases(source: string): TextPart[] {
+  const parts: TextPart[] = [];
+  let last = 0;
+  for (const match of source.matchAll(PHRASE)) {
+    const index = match.index ?? 0;
+    if (index > last) parts.push({ text: source.slice(last, index) });
+    parts.push({ text: match[2] ?? '', lang: match[1] as Lang });
+    last = index + match[0].length;
+  }
+  if (last < source.length || parts.length === 0) parts.push({ text: source.slice(last) });
+  return parts;
 }
 
 const pad = (value: number): string => String(value).padStart(2, '0');

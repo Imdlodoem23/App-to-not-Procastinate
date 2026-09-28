@@ -13,6 +13,23 @@ export const MEDIAPIPE_WASM_FILES = [
 ] as const;
 
 /**
+ * Size and SHA-256 of the SIMD pair of `MEDIAPIPE_VERSION`, as published on npm. The
+ * fetch-models script refuses to copy anything else into the app's resources.
+ */
+export const MEDIAPIPE_WASM_DIGESTS: Readonly<
+  Record<(typeof MEDIAPIPE_WASM_FILES)[number], Readonly<{ sha256: string; bytes: number }>>
+> = Object.freeze({
+  'vision_wasm_internal.js': Object.freeze({
+    sha256: 'e170ee67dd4e16c1a6fcd8840a206687e5a59b22c20e4a902bc445b095454d73',
+    bytes: 323_377,
+  }),
+  'vision_wasm_internal.wasm': Object.freeze({
+    sha256: '8da277a733926eacd0474b8704b36742d6ec3231c57a860c5b889dff8f1df886',
+    bytes: 11_756_954,
+  }),
+});
+
+/**
  * Hosts the MediaPipe bundle can contact. Its usage logger POSTs task type, OS, version and
  * latency stats to this host every 60 s and cannot be disabled from code, so the analysis
  * window blocks all network (CSP + session.webRequest). A test fails if the bundle ever
@@ -22,6 +39,12 @@ export const MEDIAPIPE_NETWORK_HOSTS = ['odml.pa.googleapis.com'] as const;
 
 /** Repo-relative folder holding the committed model files and `manifest.json`. */
 export const MODELS_DIR = 'apps/desktop/resources/models';
+
+/**
+ * Sub-folder of `MODELS_DIR` where fetch-models copies the WASM pair from node_modules
+ * (git-ignored: 12 MB that npm already pins).
+ */
+export const MEDIAPIPE_WASM_SUBDIR = 'mediapipe';
 
 export const MODEL_MANIFEST: readonly ModelManifestEntry[] = Object.freeze([
   Object.freeze({

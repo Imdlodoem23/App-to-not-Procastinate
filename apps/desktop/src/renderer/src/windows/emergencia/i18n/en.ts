@@ -23,7 +23,7 @@ export const EMERGENCIA_EN: EmergenciaMessages = {
   lossShort: (signedPoints: string): string => signedPoints,
   listLabel: 'Affected blocks',
   row: (targets: string, mode: string): string => `${targets} · ${mode}`,
-  cancels: 'gets cancelled',
+  cancels: 'will end',
   stays: 'stays active',
 
   phrase: {
@@ -40,15 +40,15 @@ export const EMERGENCIA_EN: EmergenciaMessages = {
   actions: {
     rowLabel: 'What to do',
     request: (minutes: number): string => `Start the ${minutes} min wait`,
-    requestHelp: 'The block stays on while you wait, and you can cancel for free',
+    requestHelp: 'The block stays on while you wait, and you can stop at no cost',
     requestDisabled: 'First type the exact phrase',
     requesting: 'Requesting…',
     stay: 'Stay blocked',
     stayHelp: 'Closes this window without losing anything',
-    cancel: 'Cancel (recommended)',
+    cancel: 'Keep the block (recommended)',
     cancelHelp: 'You lose nothing and the block stays on',
     unlock: 'Unlock',
-    unlockHelp: 'Asks for confirmation before charging anything',
+    unlockHelp: 'Asks you to confirm before any points are taken',
     close: 'Close',
     closeHelp: 'Closes this window',
   },
@@ -63,7 +63,7 @@ export const EMERGENCIA_EN: EmergenciaMessages = {
   decideEnd: 'Time is up: the block stays on',
   readyLead: 'You have',
   readyTail: 'to decide; after that, the block stays on',
-  cancelled: 'Cancelled: you have lost nothing',
+  cancelled: 'Unlock stopped: you haven’t lost anything',
 
   announce: {
     stage: (title: string, datum: string | null): string => (datum ? `${title}, ${datum}` : title),

@@ -6,7 +6,7 @@ export const TRAY_EN: TrayMessages = {
   separator: ' · ',
   tooltip: {
     noBlocks: 'no blocks',
-    punishment: 'penalty',
+    punishment: 'punishment',
     blocks: (count: number): string => `${count} blocks`,
     checkingClock: 'checking the time',
     studying: 'studying',
@@ -19,7 +19,7 @@ export const TRAY_EN: TrayMessages = {
     incompatible: 'update the guardian',
   },
   title: {
-    punishment: (duration: string): string => `penalty ${duration}`,
+    punishment: (duration: string): string => `punishment ${duration}`,
     studying: 'studying',
     checkingClock: 'checking the time',
   },
@@ -28,7 +28,7 @@ export const TRAY_EN: TrayMessages = {
       noBlocks: 'No blocks',
       connecting: 'Connecting to the guardian…',
       checkingClock: 'Checking the time…',
-      punishment: 'Penalty',
+      punishment: 'Punishment',
       blocks: (count: number): string => `${count} blocks`,
     },
     extend: 'Extend',

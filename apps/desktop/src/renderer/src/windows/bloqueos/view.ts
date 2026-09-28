@@ -15,7 +15,7 @@
  * Every tile has an Alt + letter unique in the window (`BLOQUEOS_KEYS`, `allocateMnemonics`).
  * Components map this to the UI kit; everything a screenshot shows is derived here.
  */
-import { STUDY_WHITELIST } from '@centrate/shared/catalog';
+import { STUDY_WHITELIST, studySiteName } from '@centrate/shared/catalog';
 import type { Accent } from '@centrate/shared/design/tokens';
 import { BLOCK_MODES, type BlockMode, type Schedule } from '@centrate/shared/domain';
 import { durationLabel } from '@centrate/shared/parser';
@@ -42,7 +42,7 @@ import {
   type EntryView,
 } from './catalog';
 import { DURATION_PRESETS, durationFields, selectedPreset, type DurationFields } from './duration';
-import { localized } from '../../../../shared/i18n/locale';
+import { activeLocale, localized } from '../../../../shared/i18n/locale';
 import { BLOQUEOS } from './i18n';
 import { allocateMnemonics } from './mnemonics';
 import { scheduleRow, type ScheduleRowView } from './schedules';
@@ -264,12 +264,18 @@ export function fitLabel(label: string, max: number): string {
   return `${head.slice(0, room).trimEnd()}…${tail}`;
 }
 
+/** The study whitelist's site groups in the active language («Cuenta de Google», «Google Account»). */
+function studyWhitelistNames(): string[] {
+  const locale = activeLocale();
+  return STUDY_WHITELIST.map((site) => studySiteName(site.id, locale));
+}
+
 function targetsView(form: BlockDraft, state: UiState, data: BloqueosData): TargetsView {
   const local = state.detail.bloqueos;
   const exam = form.mode === 'exam' || form.whitelistOnly;
   const count = selectedCount(form.targets);
   const entries = customEntries(form.targets);
-  const names = STUDY_WHITELIST.map((site) => site.name);
+  const names = studyWhitelistNames();
   const shown = names.slice(0, 6);
   return {
     title: exam
@@ -430,7 +436,7 @@ function schedulesView(state: UiState, data: BloqueosData, nowMs: number): Sched
 }
 
 function examView(keys: readonly (string | undefined)[]): ExamView {
-  const names = STUDY_WHITELIST.map((site) => site.name);
+  const names = studyWhitelistNames();
   const shown = names.slice(0, 5);
   return {
     title: E.exam.title,

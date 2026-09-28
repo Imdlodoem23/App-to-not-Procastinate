@@ -5,7 +5,7 @@ export const WINDOWS_EN: WindowsMessages = {
   appName: 'Céntrate',
   detailTitles: {
     bloqueos: 'Blocks',
-    emergencia: 'Emergency',
+    emergencia: 'Emergency unlock',
     ajustes: 'Settings',
   },
   closeHint: {

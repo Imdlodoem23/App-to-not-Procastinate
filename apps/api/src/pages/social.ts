@@ -4,11 +4,11 @@
  * (the page is public, anyone with the link can open it). A malformed code gets a 404 page.
  */
 import type { FastifyPluginAsync } from 'fastify';
-import { html, page, registerPageAsset } from './layout';
 import { formatInviteCode, normalizeInviteCode } from '../social/codes';
+import { html, page, registerPageAsset, WEBSITE_URL } from './layout';
 
 /** The download page of the static site. */
-export const DOWNLOAD_URL = 'https://centrate.onrender.com/descargar';
+const DOWNLOAD_URL = `${WEBSITE_URL}/descargar`;
 
 /**
  * «Copiar» (no inline scripts under the CSP). The button stays hidden without JavaScript or
@@ -35,10 +35,11 @@ function invitePage(code: string): string {
     title: 'Te han invitado',
     scripts: ['invitacion.js'],
     body: html`<section class="card invite">
+      <p class="brand">Céntrate</p>
       <h1>Te han invitado a Céntrate</h1>
       <p>
-        Alguien quiere ser tu amigo en Céntrate para ver quién está concentrado ahora y
-        compararse en el ranking semanal. Solo verá lo que tú decidas compartir.
+        Alguien quiere ser tu amigo en Céntrate para ver quién está concentrado ahora y compararse
+        en el ranking semanal. Solo verá lo que tú decidas compartir.
       </p>
       <p class="invite-code-row">
         <code class="invite-code" id="codigo">${code}</code>
@@ -51,8 +52,8 @@ function invitePage(code: string): string {
         <li>Escribe o pega el código. Caduca a los 7 días.</li>
       </ol>
       <p class="muted">
-        ¿Aún no tienes Céntrate? <a href="${DOWNLOAD_URL}">Descárgalo gratis</a>. Para usar
-        amigos necesitas iniciar sesión en la app.
+        ¿Aún no tienes Céntrate? <a href="${DOWNLOAD_URL}">Descárgalo gratis</a>. Para usar amigos
+        necesitas iniciar sesión en la app.
       </p>
     </section>`,
   });
@@ -64,7 +65,7 @@ function invalidPage(): string {
     body: html`<section class="card invite">
       <h1>Este enlace de invitación no es válido</h1>
       <p>Revisa que lo has copiado entero o pide a tu amigo un código nuevo.</p>
-      <p class="muted"><a href="${DOWNLOAD_URL}">Ir a la web de Céntrate</a></p>
+      <p class="muted"><a href="${WEBSITE_URL}">Ir a la web de Céntrate</a></p>
     </section>`,
   });
 }

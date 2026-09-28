@@ -7,11 +7,7 @@
  *    http://127.0.0.1:<port>/callback?code&state, where the app listens.
  * 3. The app trades the code and its PKCE verifier for a bearer session (`token`).
  */
-import type {
-  AppTokenRequest,
-  AppTokenResponse,
-  CloudPlatform,
-} from '@centrate/shared/cloud-api';
+import type { AppTokenRequest, AppTokenResponse, CloudPlatform } from '@centrate/shared/cloud-api';
 import { CLOUD_LIMITS, CLOUD_PLATFORMS } from '@centrate/shared/cloud-api';
 import { and, count, eq } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
@@ -107,34 +103,38 @@ export const appAuthRoutes: FastifyPluginAsync = async (app) => {
   const limit = { rateLimit: { max: 20, timeWindow: '1 hour' } };
 
   // Cookie session + Origin check (app.ts); 303 to http://127.0.0.1:<port>/callback?code&state.
-  app.post<{ Body: AuthorizeForm }>('/app-auth/authorize', { config: limit }, async (request, reply) => {
-    const db = requireDb(ctx);
-    const form = parseBody(AuthorizeFormSchema, request);
-    if (!request.user) {
-      // The browser session ended between the page and the click: sign in and come back.
-      const back = new URLSearchParams({
+  app.post<{ Body: AuthorizeForm }>(
+    '/app-auth/authorize',
+    { config: limit },
+    async (request, reply) => {
+      const db = requireDb(ctx);
+      const form = parseBody(AuthorizeFormSchema, request);
+      if (!request.user) {
+        // The browser session ended between the page and the click: sign in and come back.
+        const back = new URLSearchParams({
+          challenge: form.challenge,
+          state: form.state,
+          port: String(form.port),
+          ...(form.device ? { device: form.device } : {}),
+        });
+        const volver = `/cuenta/conectar?${back.toString()}`;
+        return reply.redirect(`/cuenta?${new URLSearchParams({ volver }).toString()}`, 303);
+      }
+      // Only a browser session may link a computer, never another computer's bearer token.
+      if (hasBearer(request.headers)) throw forbidden('Use the browser to connect a computer');
+      const code = randomBytes(32).toString('base64url');
+      const now = ctx.now();
+      await db.insert(appAuthCodes).values({
+        codeHash: sha256Hex(code),
+        userId: request.user.userId,
         challenge: form.challenge,
-        state: form.state,
-        port: String(form.port),
-        ...(form.device ? { device: form.device } : {}),
+        port: form.port,
+        createdAt: now,
+        expiresAt: new Date(now.getTime() + CLOUD_LIMITS.appAuthCodeTtlSeconds * 1000),
       });
-      const volver = `/cuenta/conectar?${back.toString()}`;
-      return reply.redirect(`/cuenta?${new URLSearchParams({ volver }).toString()}`, 303);
-    }
-    // Only a browser session may link a computer, never another computer's bearer token.
-    if (hasBearer(request.headers)) throw forbidden('Use the browser to connect a computer');
-    const code = randomBytes(32).toString('base64url');
-    const now = ctx.now();
-    await db.insert(appAuthCodes).values({
-      codeHash: sha256Hex(code),
-      userId: request.user.userId,
-      challenge: form.challenge,
-      port: form.port,
-      createdAt: now,
-      expiresAt: new Date(now.getTime() + CLOUD_LIMITS.appAuthCodeTtlSeconds * 1000),
-    });
-    return reply.redirect(loopbackCallback(form.port, code, form.state), 303);
-  });
+      return reply.redirect(loopbackCallback(form.port, code, form.state), 303);
+    },
+  );
 
   app.post<{ Body: AppTokenRequest; Reply: AppTokenResponse }>(
     '/app-auth/token',

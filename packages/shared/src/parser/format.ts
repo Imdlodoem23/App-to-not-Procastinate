@@ -1,3 +1,4 @@
+import type { LanguageTags } from '../i18n/format';
 import { DEFAULT_LOCALE, type Locale } from '../i18n/locale';
 import { parserMessages } from './i18n/index';
 
@@ -20,16 +21,26 @@ function calendarDays(from: Date, to: Date): number {
 /**
  * «hasta 20:30», «hasta mañana 08:00», «hasta el 30/9 08:00» (local time); in English
  * «until 8:30 PM», «until tomorrow 8:00 AM», «until 9/30 8:00 AM». The midnight that ends
- * today reads «hasta 00:00» («until 12:00 AM»).
+ * today reads «hasta 00:00» («until midnight»), the one that ends tomorrow «hasta el 30/9
+ * 00:00» («until midnight tomorrow»). `tags` are the user's language tags, for the region's
+ * clock and dates (see `intlTag`; es-ES and en-US by default).
  */
-export function untilLabel(endsAt: Date, now: Date, locale: Locale = DEFAULT_LOCALE): string {
+export function untilLabel(
+  endsAt: Date,
+  now: Date,
+  locale: Locale = DEFAULT_LOCALE,
+  tags?: LanguageTags,
+): string {
   const t = parserMessages(locale);
-  const time = t.clock(endsAt);
   const days = calendarDays(now, endsAt);
   const midnight = endsAt.getHours() === 0 && endsAt.getMinutes() === 0;
+  if (midnight && t.untilMidnight && (days === 1 || days === 2)) {
+    return t.untilMidnight(days === 2);
+  }
+  const time = t.clock(endsAt, tags);
   if (days <= 0 || (days === 1 && midnight)) return t.until(time);
   if (days === 1) return t.untilTomorrow(time);
-  return t.untilDate(t.dayMonth(endsAt), time);
+  return t.untilDate(t.dayMonth(endsAt, tags), time);
 }
 
 /**

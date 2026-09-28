@@ -229,6 +229,8 @@ export interface RuntimeState {
   dbUp: boolean | null;
   /** The global daily AI budget is spent. */
   aiBudgetExhausted: boolean;
+  /** The runtime kill switch in Postgres is on (`meta.ai_kill_switch`, src/coach/budget.ts). */
+  aiKillSwitch?: boolean;
 }
 
 const on: CloudCapability = Object.freeze({ enabled: true, reason: null });
@@ -254,7 +256,7 @@ export function deriveCapabilities(
   let coach: CloudCapability;
   if (!accounts.enabled) coach = accounts;
   else if (!config.ai.apiKey) coach = off('missing_key');
-  else if (!config.ai.enabled) coach = off('kill_switch');
+  else if (!config.ai.enabled || state.aiKillSwitch) coach = off('kill_switch');
   else if (config.ai.limits.globalDailyBudgetUsd <= 0 || state.aiBudgetExhausted) {
     coach = off('budget');
   } else coach = on;

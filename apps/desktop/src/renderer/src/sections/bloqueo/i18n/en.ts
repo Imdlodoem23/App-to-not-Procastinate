@@ -23,8 +23,8 @@ export const BLOQUEO_EN: BloqueoMessages = {
       news: 'News',
     },
     whitelistShort: 'allowlist only',
-    punishment: (level: string, minutes: number): string => `Penalty: ${level} · ${minutes} min`,
-    punishmentShort: (what: string): string => `Penalty: ${what}`,
+    punishment: (level: string, minutes: number): string => `Punishment: ${level} · ${minutes} min`,
+    punishmentShort: (what: string): string => `Punishment: ${what}`,
     nextSchedule: (when: string): string => `Next schedule: ${when}`,
     finishedPoints: (points: string): string => `Done. ${points}`,
     finishedNoPoints: 'Done',
@@ -34,7 +34,7 @@ export const BLOQUEO_EN: BloqueoMessages = {
 
   field: {
     label: 'What do you want to do?',
-    hint: 'What do you want to do? Type it in Spanish for now and press Enter',
+    hint: 'Type it in Spanish for now, then press Enter',
     placeholder: (example: string): string => `e.g. ${example}`,
     // The parser is Spanish-only: these stay Spanish phrases it fully understands.
     examples: [
@@ -46,12 +46,12 @@ export const BLOQUEO_EN: BloqueoMessages = {
       'nada de Twitch ni Discord 30 min',
     ],
     notUnderstood: (fragments: readonly string[]): string =>
-      `Not understood: ${fragments.map((f) => `"${f}"`).join(', ')}`,
-    notUnderstoodAll: (text: string): string => `Not understood: "${text}"`,
+      `Not understood: ${fragments.map((f) => `“${f}”`).join(', ')}`,
+    notUnderstoodAll: (text: string): string => `Not understood: “${text}”`,
     understood: (parts: readonly string[]): string => `Understood: ${parts.join(', ')}`,
-    missingDuration: 'how long is missing',
-    missingTargets: 'what to block is missing',
-    chipHint: 'Correct this part of the phrase',
+    missingDuration: 'add how long',
+    missingTargets: 'add what to block',
+    chipHint: 'Fix this part',
     moreChips: (count: number): string => `+${count}`,
     hiddenTargets: (count: number, kind: 'web' | 'category' | 'mixed'): string =>
       kind === 'web'
@@ -76,19 +76,20 @@ export const BLOQUEO_EN: BloqueoMessages = {
     targetsLabel: 'What gets blocked',
     durationChip: 'Duration',
     endChip: 'End time',
-    editTargetsPlaceholder: 'YouTube, redes, marca.com…',
+    // Language-neutral examples the Spanish parser reads («hasta las 8:00 PM» parses).
+    editTargetsPlaceholder: 'YouTube, Instagram, marca.com…',
     editDurationPlaceholder: '45 min, 2 h, 1h30…',
-    editEndPlaceholder: '18:30, mañana a las 8…',
-    editHelp: 'Enter applies · Esc leaves it as it was',
+    editEndPlaceholder: '18:30, 8:00 PM…',
+    editHelp: 'Enter to apply · Esc to undo',
     modesLabel: 'Mode',
     modeHelp: {
-      normal: 'Normal: the emergency takes 10 min and costs at least 200 points',
-      strict: 'Strict: the emergency takes 30 min and costs at least 200 points',
+      normal: 'Normal: an emergency unlock takes 10 min and costs at least 200 points',
+      strict: 'Strict: an emergency unlock takes 30 min and costs at least 200 points',
       hardcore: 'Hardcore: cannot be cancelled in any way',
       exam: 'Exam: only study sites and apps, and cannot be cancelled',
     },
     reasonLabel: 'Your reason',
-    reasonPlaceholder: 'Your reason (optional): “I want to pass maths”',
+    reasonPlaceholder: 'Your reason (optional): “I want to pass math”',
     reminder: 'It can only be extended, never shortened',
     edit: 'Edit…',
     editHelp2: 'Opens Blocks with this block to change more',
@@ -115,8 +116,8 @@ export const BLOQUEO_EN: BloqueoMessages = {
       `You will not be able to cancel it in any way ${until}`,
     problem: {
       no_targets: 'Choose what to block: press a tile or Edit…',
-      too_short: '5 min at least',
-      too_long: '24 h at most',
+      too_short: 'At least 5 min',
+      too_long: 'Up to 24 h',
     },
     retry: 'Retry',
     retryHelp: 'Sends the same block again: it is never duplicated',
@@ -133,8 +134,8 @@ export const BLOQUEO_EN: BloqueoMessages = {
     other: 'Other…',
     extendHelp: 'It can only be extended, never shortened',
     extendTileHelp: (plus: string, ends: string): string => `${plus}: ends ${ends}`,
-    otherHelp: 'Extend by as much as you say',
-    maxReached: '24 h in total at most',
+    otherHelp: 'Extend by any amount',
+    maxReached: 'Up to 24 h in total',
     undoLine: (plus: string, ends: string): string => `${plus} · ends ${ends}`,
     undo: (seconds: number): string => `Undo (${seconds} s)`,
     undoLabel: (plus: string): string => `Undo the ${plus} extension`,
@@ -149,7 +150,7 @@ export const BLOQUEO_EN: BloqueoMessages = {
     otherLabel: 'How much you want to extend',
     otherApply: 'Extend',
     otherInvalid: 'Type how much: 20 min, 1 h, 1h30…',
-    otherTooMuch: (max: string): string => `${max} more at most`,
+    otherTooMuch: (max: string): string => `Up to ${max} more`,
     otherHelpLabel: 'Enter extends · Esc cancels',
     row: (targets: string, mode: string): string => `${targets} · ${mode}`,
     more: (count: number): string => `and ${count} more…`,
@@ -173,8 +174,8 @@ export const BLOQUEO_EN: BloqueoMessages = {
       nuclear: 'computer locked',
     },
     cause: (cause, task: string): string => {
-      if (cause === 'three_strikes') return task ? `3 strikes on "${task}"` : '3 strikes';
-      return task ? `Study Mode abandoned: "${task}"` : 'Study Mode abandoned';
+      if (cause === 'three_strikes') return task ? `3 strikes on “${task}”` : '3 strikes';
+      return task ? `Study Mode abandoned: “${task}”` : 'Study Mode abandoned';
     },
   },
 

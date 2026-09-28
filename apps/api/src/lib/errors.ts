@@ -87,14 +87,19 @@ export function fromZodError(error: ZodError, where: 'body' | 'query' | 'params'
 }
 
 /** Connection-level Postgres failures: the database is down or unreachable. */
-export function isDatabaseUnavailable(err: unknown): boolean {
+export function isDatabaseUnavailable(err: unknown, depth = 0): boolean {
   if (!err || typeof err !== 'object') return false;
   const code = (err as { code?: unknown }).code;
-  if (typeof code !== 'string') return false;
-  return (
-    ['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'ETIMEDOUT', 'EAI_AGAIN'].includes(code) ||
-    code.startsWith('08') || // connection exception
-    code === '57P01' || // admin shutdown
-    code === '57P03' // cannot connect now
-  );
+  if (
+    typeof code === 'string' &&
+    (['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'ETIMEDOUT', 'EAI_AGAIN'].includes(code) ||
+      code.startsWith('08') || // connection exception
+      code === '57P01' || // admin shutdown
+      code === '57P03') // cannot connect now
+  ) {
+    return true;
+  }
+  // Drizzle wraps driver errors (`DrizzleQueryError`, the original in `cause`).
+  const cause = (err as { cause?: unknown }).cause;
+  return depth < 3 && cause !== undefined && isDatabaseUnavailable(cause, depth + 1);
 }

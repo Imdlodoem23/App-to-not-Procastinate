@@ -22,7 +22,10 @@ export interface ReleaseEntry {
   readonly version: string | null;
   /** Release title when it says more than the version («Céntrate 1.2: modo examen»). */
   readonly name: string | null;
-  /** The changelog's own heading for an entry without a version («Sin publicar»). */
+  /**
+   * The changelog's own heading for an entry without a version («Sin publicar»). The page shows
+   * its translated word instead (copy.pages.novedades.unreleased).
+   */
   readonly label: string | null;
   /** ISO date or date-time, or null. */
   readonly date: string | null;

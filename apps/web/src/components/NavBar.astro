@@ -8,18 +8,19 @@
  * («Abrir menú» / «Cerrar menú»), so it works without JavaScript; the script only adds Escape,
  * close on link or outside click, and close when the viewport grows past the breakpoint.
  */
-import { copyFor } from '../content/locale';
-import { langFromPath, langNames, pathFor, routes, type PageKey } from '../lib/i18n';
-
-const copy = copyFor(Astro.url);
+import { getCopy } from '../content/locale';
+import { langFromPath, langNames, pathFor, routes, type Lang, type PageKey } from '../lib/i18n';
 
 interface Props {
   page?: PageKey;
+  /** The bar's language; by default the page's (from its URL). The 404 renders both. */
+  lang?: Lang;
 }
 
 const { page } = Astro.props;
+const lang = Astro.props.lang ?? langFromPath(Astro.url.pathname);
+const copy = getCopy(lang);
 const { nav, ids } = copy;
-const lang = langFromPath(Astro.url.pathname);
 const other = lang === 'es' ? 'en' : 'es';
 // The language switch opens the same page in the other language.
 const switchTo = { lang: other, label: langNames[other], href: pathFor(page, other) };
@@ -27,7 +28,7 @@ const switchTo = { lang: other, label: langNames[other], href: pathFor(page, oth
 const ctaHref = page === 'home' ? `#${ids.download}` : routes[lang].download;
 ---
 
-<header class="site-nav" data-surface="light">
+<header class="site-nav" data-surface="light" data-shell-part="nav">
   <nav class="site-nav__bar" aria-label={nav.ariaLabel}>
     <a class="site-nav__brand" href={routes[lang].home} aria-label={nav.brandAria}>{nav.brand}</a>
 

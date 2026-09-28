@@ -12,10 +12,11 @@
  *   the real time, and then on every change (250 ms after the last key).
  * - Nothing is sent anywhere and nothing is blocked; the note under the demo says so.
  * - The parser reads Spanish only. On the English page the examples stay Spanish (marked
- *   lang="es") and a line under the lead says so; the results are written in English.
+ *   lang="es") and a line under the lead says so; the results are written in English, and a
+ *   Spanish phrase quoted in them ({es:…} in the copy) is marked lang="es" too.
  */
 import { copyFor } from '../../content/locale';
-import { langFromPath } from '../../lib/i18n';
+import { langFromPath, splitPhrases } from '../../lib/i18n';
 import { describeIntent, type DemoStrings, type DemoView } from './live-demo';
 
 const copy = copyFor(Astro.url);
@@ -83,7 +84,13 @@ const view: DemoView = describeIntent(initialText, sampleNow, strings);
 
     <div class="demo-result bg-raised" data-status={view.status} data-demo-result>
       <h3 class="text-title font-semibold">{demo.result.title}</h3>
-      <p class="demo-sentence text-body" aria-live="polite" data-demo-sentence>{view.sentence}</p>
+      <p class="demo-sentence text-body" aria-live="polite" data-demo-sentence>
+        {
+          splitPhrases(view.sentence).map((part) =>
+            part.lang ? <span lang={part.lang}>{part.text}</span> : part.text,
+          )
+        }
+      </p>
       <dl class="demo-fields" data-demo-fields hidden={view.fields.length === 0}>
         {
           view.fields.map((field) => (
@@ -95,7 +102,15 @@ const view: DemoView = describeIntent(initialText, sampleNow, strings);
         }
       </dl>
       <div class="demo-notes" data-demo-notes>
-        {view.notes.map((note) => <p class="text-small text-secondary">{note}</p>)}
+        {
+          view.notes.map((note) => (
+            <p class="text-small text-secondary">
+              {splitPhrases(note).map((part) =>
+                part.lang ? <span lang={part.lang}>{part.text}</span> : part.text,
+              )}
+            </p>
+          ))
+        }
       </div>
     </div>
 
@@ -361,8 +376,27 @@ const view: DemoView = describeIntent(initialText, sampleNow, strings);
 
 <script>
   import type { DemoStrings, DemoView } from './live-demo';
+  import { splitPhrases } from '../../lib/i18n';
 
   const DEBOUNCE_MS = 250;
+
+  /** Copy text with its {es:…} phrases as <span lang>, like the server renders it. */
+  function phrases(text: string): (string | HTMLElement)[] {
+    return splitPhrases(text).map(({ text: run, lang }) => {
+      if (!lang) return run;
+      const span = document.createElement('span');
+      span.lang = lang;
+      span.textContent = run;
+      return span;
+    });
+  }
+
+  /** What `phrases(text)` shows, without the markers. */
+  function visible(text: string): string {
+    return splitPhrases(text)
+      .map((part) => part.text)
+      .join('');
+  }
 
   function setup(root: HTMLElement): void {
     const input = root.querySelector<HTMLInputElement>('[data-demo-input]');
@@ -397,7 +431,10 @@ const view: DemoView = describeIntent(initialText, sampleNow, strings);
           return li;
         }),
       );
-      if (sentence!.textContent !== view.sentence) sentence!.textContent = view.sentence;
+      // Same text: leave the live region alone, so it is not announced again.
+      if (sentence!.textContent?.trim() !== visible(view.sentence)) {
+        sentence!.replaceChildren(...phrases(view.sentence));
+      }
       fields!.hidden = view.fields.length === 0;
       fields!.replaceChildren(
         ...view.fields.map(({ label, value }) => {
@@ -416,7 +453,7 @@ const view: DemoView = describeIntent(initialText, sampleNow, strings);
         ...view.notes.map((text) => {
           const p = document.createElement('p');
           p.className = 'text-small text-secondary';
-          p.textContent = text;
+          p.append(...phrases(text));
           return p;
         }),
       );

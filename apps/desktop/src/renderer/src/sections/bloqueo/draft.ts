@@ -35,8 +35,8 @@ import {
 } from '../../../../shared/ui-state';
 import type { BlockMode } from '@centrate/shared/domain';
 import { durationLabel } from '@centrate/shared/parser';
-import { intlLocale, targetNames } from '../../../../shared/format';
-import { withLocale } from '../../../../shared/i18n/locale';
+import { formatClock, intlLocale, targetNames } from '../../../../shared/format';
+import { activeLocale, withLocale } from '../../../../shared/i18n/locale';
 import { BLOQUEO } from './i18n';
 import { untilShort } from './time';
 
@@ -290,11 +290,20 @@ export function draftEndLabels(
 
 /**
  * Text the inline editor starts with. It is parser input, and the parser reads Spanish only,
- * so it is always written in Spanish («Redes sociales», «mañana 08:00»), whatever the app
- * language.
+ * so it is written in Spanish («Redes sociales», «mañana 08:00») whatever the app language.
+ * The one exception: an English end time today is the English clock («6:00 PM»), which the
+ * parser reads too, so the editor matches the chip.
  */
 export function chipEditText(draft: BlockDraft, field: CardField, nowMs: number): string {
+  if (field === 'end' && activeLocale() === 'en') {
+    const endsAtMs = draftEndsAtMs(draft, nowMs);
+    if (sameLocalDay(endsAtMs, nowMs)) return formatClock(endsAtMs).replace(/\s+/g, ' ');
+  }
   return withLocale('es', () => spanishChipEditText(draft, field, nowMs));
+}
+
+function sameLocalDay(a: number, b: number): boolean {
+  return new Date(a).toDateString() === new Date(b).toDateString();
 }
 
 function spanishChipEditText(draft: BlockDraft, field: CardField, nowMs: number): string {

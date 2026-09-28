@@ -10,6 +10,8 @@ import {
   type HarnessStateId,
 } from '../../../src/shared/fixtures';
 import { withMode, type UiState } from '../../../src/shared/ui-state';
+import { formatClock, targetsLabel } from '../../../src/shared/format';
+import { withLocale } from '../../../src/shared/i18n/locale';
 import {
   addCustomDomain,
   addProcessEntry,
@@ -434,6 +436,80 @@ describe('Bloqueos duration', () => {
     });
     expect(selectedPreset(draft)).toBe(60);
     expect(selectedPreset(until)).toBeNull();
+  });
+});
+
+describe('Bloqueos in English', () => {
+  it('names the study allowlist in English', () => {
+    const view = withLocale('en', () => deriveBloqueosView(detailState('bloqueos'), NOW, READY));
+    expect(view.exam.allowed).toContain(
+      'Google Docs, Drive, Slides and Sheets · Google Account · Google Scholar',
+    );
+    expect(view.exam.allowed).toMatch(/ and \d+ more$/);
+    expect(view.mode.datum).toBe('unlock: 10 min');
+  });
+
+  it('names catalog apps in English and finds them by either name', () => {
+    const games = { ...emptyTargets(), appIds: ['popular-pc-games'] };
+    expect(targetsLabel(games, false)).toBe('Juegos de PC populares');
+    withLocale('en', () => {
+      expect(targetsLabel(games, false)).toBe('Popular PC games');
+      expect(customEntries(games).apps.map((e) => e.label)).toEqual(['Popular PC games']);
+      expect(appSuggestions('popular', [], emptyTargets(), 'win')).toEqual([
+        { kind: 'app', id: 'popular-pc-games', label: 'Popular PC games' },
+      ]);
+    });
+    for (const name of ['Popular PC games', 'juegos de pc populares']) {
+      expect(addProcessEntry(emptyTargets(), name, 'win'), name).toMatchObject({
+        ok: true,
+        targets: { appIds: ['popular-pc-games'] },
+      });
+    }
+  });
+
+  it('shows «Until» on the English clock and reads it back (AM, PM, midnight)', () => {
+    withLocale('en', () => {
+      const draft = detailState('bloqueos').detail.bloqueos.form;
+      expect(durationFields(draft, NOW).untilText).toMatch(/^6:00\sPM$/u);
+      for (const endsAt of [
+        '2026-09-28T16:30:00.000Z',
+        '2026-09-29T06:00:00.000Z',
+        '2026-09-28T22:00:00.000Z',
+      ]) {
+        const text = formatClock(Date.parse(endsAt));
+        expect(parseUntilText(text, NOW), text).toEqual({
+          ok: true,
+          end: { kind: 'until', endsAt },
+        });
+      }
+    });
+  });
+
+  it('reads a bare English «6:30» as the next 6:30, and «06:30» as the morning', () => {
+    withLocale('en', () => {
+      expect(parseUntilText('6:30', NOW)).toEqual({
+        ok: true,
+        end: { kind: 'until', endsAt: '2026-09-28T16:30:00.000Z' },
+      });
+      expect(parseUntilText('06:30', NOW)).toEqual({
+        ok: true,
+        end: { kind: 'until', endsAt: '2026-09-29T04:30:00.000Z' },
+      });
+      expect(parseUntilText('18:30', NOW)).toEqual(parseUntilText('6:30', NOW));
+      expect(parseUntilText('7 am', NOW)).toEqual({
+        ok: true,
+        end: { kind: 'until', endsAt: '2026-09-29T05:00:00.000Z' },
+      });
+      expect(parseUntilText('nope', NOW)).toEqual({
+        ok: false,
+        error: 'Type a time like 6:30 PM or 18:30',
+      });
+    });
+    // Spanish keeps the 24-hour clock.
+    expect(parseUntilText('6:30', NOW)).toEqual({
+      ok: true,
+      end: { kind: 'until', endsAt: '2026-09-29T04:30:00.000Z' },
+    });
   });
 });
 

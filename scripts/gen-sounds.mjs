@@ -23,7 +23,7 @@
 //
 // Format: 16-bit PCM WAV, mono, TPDF dither. There is no audio encoder in node_modules and no
 // ffmpeg in CI, and each file must stay <= 1.2 MB. Rain and noise use 22.05 kHz (27 s and 24 s);
-// lo-fi uses 16 kHz so its 36 s loop fits (its master low-pass is at 6 kHz, so nothing is lost).
+// lo-fi uses 16 kHz so its 36 s loop fits (the music is low-passed at 6.5 kHz anyway).
 //
 // Loudness: -20 LUFS integrated per ITU-R BS.1770-4 (K-weighting, 400 ms blocks, absolute gate
 // -70 LUFS, relative gate -10 LU), measured on the loop itself (circularly) after quantization,
@@ -32,6 +32,11 @@
 //   node scripts/gen-sounds.mjs            write the three files and print the loudness table
 //   node scripts/gen-sounds.mjs --check    write nothing; exit 1 if a file is missing or differs
 //   node scripts/gen-sounds.mjs --out DIR  write to DIR instead (previews)
+//
+// Playback (see the README next to the files): decode each file at its own sample rate (an
+// OfflineAudioContext at 22050 or 16000 Hz) and loop it with an AudioBufferSourceNode, which
+// resamples across the loop point. decodeAudioData in a 48 kHz context resamples the file as a
+// one-shot and pads its ends with silence; lo-fi starts at a quiet moment to soften that case.
 //
 // Output is deterministic (seeded PRNG, V8's own Math functions), byte for byte on the same Node
 // major; --check is meant for that.
@@ -319,6 +324,38 @@ function poissonLoop(rng, fs, rate, shape, power, emit) {
   }
 }
 
+/** Largest absolute sample. @param {ArrayLike<number>} x */
+function peakOf(x) {
+  let p = 0;
+  for (let i = 0; i < x.length; i++) p = Math.max(p, Math.abs(x[i]));
+  return p;
+}
+
+/**
+ * Rotates a loop so it starts at the quietest sample between `from` and `to` seconds from its
+ * start (negative: before it, from the end), judged by the energy of the signal and of its slope
+ * over ±2 ms. The loop is unchanged; the seam just lands where a player that resamples the file
+ * as a one-shot (Web Audio's decodeAudioData pads it with silence) has least to smooth over.
+ * @param {Float64Array} x @param {number} fs @param {number} from @param {number} to
+ */
+function startAtQuietest(x, fs, from, to) {
+  const n = x.length;
+  const at = (/** @type {number} */ i) => x[((i % n) + n) % n];
+  const r = Math.round(0.002 * fs);
+  let best = 0;
+  let bestCost = Infinity;
+  for (let i = Math.round(from * fs); i <= Math.round(to * fs); i++) {
+    let cost = 0;
+    for (let k = -r; k <= r; k++) {
+      const v = at(i + k);
+      const slope = (v - at(i + k - 1)) * 4;
+      cost += v * v + slope * slope;
+    }
+    if (cost < bestCost) [best, bestCost] = [i, cost];
+  }
+  return Float64Array.from({ length: n }, (_, i) => at(i + best));
+}
+
 /** Sums loops of equal length. @param {...Float64Array} bufs */
 function mix(...bufs) {
   const out = new Float64Array(bufs[0].length);
@@ -433,7 +470,7 @@ const dB = (/** @type {number} */ v) => 20 * Math.log10(v);
 function rain(fs, seconds, seed) {
   const n = Math.round(fs * seconds);
   const rng = makeRng(seed);
-  // Gusts: slow swells of ±2 dB at most, with 2, 3, 7 and 13 cycles per loop.
+  // Gusts: slow swells of a couple of dB, with 2, 3, 7 and 13 cycles per loop.
   const gust = loopLfo(n, rng.fork(), [
     [2, 0.1],
     [3, 0.07],
@@ -461,20 +498,19 @@ function rain(fs, seconds, seed) {
   );
   for (let i = 0; i < n; i++) rumble[i] *= gust[i];
 
-  // Close drops on leaves and sills: noise ticks through a random surface resonance. Many quiet
-  // ones, few louder; denser in the gusts.
+  // Close drops on leaves and sills: noise ticks through a random surface resonance, each scaled
+  // to its own peak so none sticks out. Many quiet ones, some louder; denser in the gusts.
   const ticks = new Float64Array(n);
   const tr = rng.fork();
-  poissonLoop(tr, fs, 70, gust, 2, (at) => {
+  poissonLoop(tr, fs, 120, gust, 2, (at) => {
     const tau = tr.logRange(0.0006, 0.004);
-    const q = tr.range(1.2, 4.5);
     const s = new Float64Array(Math.ceil((tau * 7 + 0.012) * fs));
     for (let k = 0; k < s.length; k++) {
       const t = k / fs;
       s[k] = tr.gauss() * (1 - Math.exp(-t / 0.00015)) * Math.exp(-t / tau);
     }
-    shotFilter(s, bq('bandpass', fs, tr.logRange(900, 7200), q));
-    addWrapped(ticks, s, at, (0.04 + 0.96 * Math.pow(tr.next(), 3.5)) * Math.sqrt(q));
+    shotFilter(s, bq('bandpass', fs, tr.logRange(900, 7200), tr.range(1.2, 4.5)));
+    addWrapped(ticks, s, at, (0.12 + 0.88 * Math.pow(tr.next(), 3)) / peakOf(s));
   });
 
   // Drops on a puddle: a bubble whose pitch rises as it decays (van den Doel's model, damping
@@ -625,7 +661,7 @@ function hat(
     const t = k / fs;
     s[k] = vel * rng.gauss() * Math.min(1, t / 0.0005) * Math.exp(-t / tau);
   }
-  return shotFilter(s, bq('highpass', fs, 5200, 0.7), bq('highpass', fs, 4000, 0.7));
+  return shotFilter(s, bq('highpass', fs, 4500, 0.7), bq('highpass', fs, 3500, 0.7));
 }
 
 /** Vibraphone-like mallet: fundamental, the 4th partial of a tuned bar, a short strike. */
@@ -780,7 +816,7 @@ function tape(x, rng, mods) {
   const out = new Float64Array(n);
   const at = (/** @type {number} */ i) => x[((i % n) + n) % n];
   for (let i = 0; i < n; i++) {
-    let d = 32;
+    let d = 32; // fixed offset, larger than the wow and flutter swing
     for (const m of ms) d += m.amp * Math.sin(m.w * i + m.ph);
     const pos = i - d;
     const i0 = Math.floor(pos);
@@ -872,7 +908,7 @@ function lofi(fs, seed) {
       addWrapped(kicks, kick(fs, v, dr), start);
       // Side-chain: the keys, bass and melody dip under each kick.
       for (let k = 0; k < ms(400); k++) {
-        const i = (Math.round(start) + k) % n;
+        const i = (((Math.round(start) + k) % n) + n) % n;
         duck[i] *= 1 - 0.22 * v * (1 - Math.exp(-k / ms(4))) * Math.exp(-k / ms(110));
       }
     }
@@ -898,12 +934,13 @@ function lofi(fs, seed) {
   }
 
   bassBus = loopFilter(bassBus, bq('lowpass', fs, 900, 0.7));
-  atLoudness(keys, fs, -20);
-  atLoudness(bassBus, fs, -23);
-  atLoudness(melody, fs, -22.5);
-  atLoudness(kicks, fs, -23);
-  atLoudness(snares, fs, -25.5);
-  atLoudness(hats, fs, -31);
+  // Balance by K-weighted loudness; the bass sits higher because K-weighting overstates lows.
+  atLoudness(keys, fs, -21);
+  atLoudness(bassBus, fs, -21.5);
+  atLoudness(melody, fs, -21.5);
+  atLoudness(kicks, fs, -21.5);
+  atLoudness(snares, fs, -24.5);
+  atLoudness(hats, fs, -34);
 
   const tonal = mix(keys, bassBus, melody);
   for (let i = 0; i < n; i++) tonal[i] *= duck[i];
@@ -931,9 +968,10 @@ function lofi(fs, seed) {
   atLoudness(music, fs, -17);
   const drive = 1.25;
   for (let i = 0; i < n; i++) music[i] = Math.tanh(drive * music[i]) / drive;
-  music = loopFilter(music, bq('lowpass', fs, 6000, 0.6), bq('highpass', fs, 30, 0.7));
+  music = loopFilter(music, bq('lowpass', fs, 6500, 0.6), bq('highpass', fs, 30, 0.7));
 
-  // Vinyl: faint hiss, sparse crackle and the odd softer pop.
+  // Vinyl: faint hiss, sparse crackle and the odd pop, each click scaled to its own peak. Pops
+  // peak 27 dB under the music and crackle 4 to 16 dB under the pops: present, never a distraction.
   const vr = rng.fork();
   const hiss = atLoudness(
     loopFilter(gaussianNoise(vr, n), bq('highpass', fs, 1000, 0.7), bq('lowpass', fs, 5000, 0.7)),
@@ -942,20 +980,23 @@ function lofi(fs, seed) {
   );
   const crackle = new Float64Array(n);
   const flat = new Float64Array(n).fill(1);
+  const popPeak = peakOf(music) * Math.pow(10, -27 / 20);
+  /** A click band-passed between `lo` and `hi` Hz, `amp` relative to a pop. */
   const click =
     (/** @type {number} */ lo, /** @type {number} */ hi, /** @type {number} */ amp) =>
     (/** @type {number} */ i) => {
       const s = new Float64Array(Math.ceil(0.006 * fs));
-      s[0] = amp * (vr.next() < 0.5 ? -1 : 1);
+      s[0] = 1;
       shotFilter(s, bq('bandpass', fs, vr.logRange(lo, hi), 0.9));
-      addWrapped(crackle, s, i);
+      addWrapped(crackle, s, i, ((vr.next() < 0.5 ? -1 : 1) * amp * popPeak) / peakOf(s));
     };
-  poissonLoop(vr, fs, 9, flat, 1, (i) =>
-    click(1500, 5000, 0.05 + 0.95 * Math.pow(vr.next(), 5))(i),
+  poissonLoop(vr, fs, 8, flat, 1, (i) =>
+    click(1500, 5000, 0.15 + 0.45 * Math.pow(vr.next(), 3))(i),
   );
-  poissonLoop(vr, fs, 0.35, flat, 1, (i) => click(300, 1200, 1.5 + vr.next())(i));
+  poissonLoop(vr, fs, 0.35, flat, 1, (i) => click(300, 1200, 1)(i));
 
-  return { music, hiss, crackle, n };
+  // Start the file just before the downbeat, at its quietest moment rather than on the kick.
+  return startAtQuietest(mix(music, hiss, crackle), fs, -0.1, -0.015);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1018,8 +1059,8 @@ function wavFile(pcm, fs, info) {
 }
 
 /**
- * Normalizes a float loop to the target loudness, checks its peak, quantizes it and measures the
- * result as written.
+ * Normalizes a float loop to the target loudness, quantizes it and measures the result as
+ * written.
  * @param {Float64Array} x @param {number} fs @param {number} seed
  */
 function master(x, fs, seed) {
@@ -1043,26 +1084,19 @@ const SOUNDS = [
     file: 'lluvia.wav',
     title: 'Lluvia',
     fs: 22050,
-    render: () => rain(22050, 27, 0x6c6c7576),
+    render: (/** @type {number} */ fs) => rain(fs, 27, 0x6c6c7576),
   },
   {
     file: 'ruido-blanco.wav',
     title: 'Ruido blanco',
     fs: 22050,
-    render: () => whiteNoise(22050, 24, 0x72756964),
+    render: (/** @type {number} */ fs) => whiteNoise(fs, 24, 0x72756964),
   },
   {
     file: 'lo-fi.wav',
     title: 'Lo-fi',
     fs: 16000,
-    render: () => {
-      const { music, hiss, crackle } = lofi(16000, 0x6c6f6669);
-      // Crackle sits 30 dB under the music's peaks: present, never a distraction.
-      const peak = music.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
-      const cpeak = crackle.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
-      scale(crackle, (peak * Math.pow(10, -30 / 20)) / cpeak);
-      return mix(music, hiss, crackle);
-    },
+    render: (/** @type {number} */ fs) => lofi(fs, 0x6c6f6669),
   },
 ];
 
@@ -1070,10 +1104,10 @@ const outDir = resolve(root, args.out ?? OUT_DIR);
 const rows = [];
 let stale = 0;
 for (const sound of SOUNDS) {
-  const x = sound.render();
+  const x = sound.render(sound.fs);
   const m = master(x, sound.fs, 0x64697468 ^ x.length);
   const bytes = wavFile(m.pcm, sound.fs, {
-    INAM: `Centrate - ${sound.title.replace('é', 'e')} (seamless loop)`,
+    INAM: `Centrate - ${sound.title} (seamless loop)`,
     IART: 'Centrate contributors',
     ICOP: 'CC0 1.0 Universal (public domain dedication)',
     ICMT: `Procedurally synthesized, no samples. ${TARGET_LUFS} LUFS integrated (BS.1770-4).`,

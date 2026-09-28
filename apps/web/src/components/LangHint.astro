@@ -1,0 +1,119 @@
+---
+/**
+ * The language hint (Base.astro): a one-line floating bar, hidden by default, that offers the
+ * same page in the other language when the browser prefers it and the visitor has not chosen a
+ * language yet (scripts/language.ts, LANG_CHOICE_KEY). It never redirects. It speaks the
+ * language it offers.
+ */
+import { getCopy } from '../content/locale';
+import { langNames, pathFor, type Lang, type PageKey } from '../lib/i18n';
+
+interface Props {
+  /** The page's language (the hint offers the other one). */
+  lang: Lang;
+  page?: PageKey;
+}
+
+const { lang, page } = Astro.props;
+const other: Lang = lang === 'es' ? 'en' : 'es';
+const hint = getCopy(other).language.hint;
+---
+
+<aside
+  class="lang-hint"
+  data-surface="light"
+  data-shell-part="lang-hint"
+  lang={other}
+  aria-label={langNames[other]}
+  data-lang-hint={other}
+  hidden
+>
+  <a class="lang-hint__link" href={pathFor(page, other)} hreflang={other} data-lang-switch={other}
+    >{hint.text}</a
+  >
+  <button
+    type="button"
+    class="lang-hint__close"
+    aria-label={hint.dismissAria}
+    data-lang-hint-dismiss={lang}
+  >
+    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true" focusable="false">
+      <path d="M2.5 2.5l7 7M9.5 2.5l-7 7"></path>
+    </svg>
+  </button>
+</aside>
+
+<style>
+  /* A small floating bar at the bottom, over the page (it never pushes the layout), shown by
+     scripts/language.ts. */
+  .lang-hint {
+    position: fixed;
+    inset-inline: 0;
+    bottom: 16px;
+    z-index: var(--z-nav);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: max-content;
+    max-width: calc(100% - 2 * var(--page-gutter));
+    margin-inline: auto;
+    padding: 4px 4px 4px 20px;
+    border: 1px solid var(--palette-nav-border);
+    border-radius: var(--shape-pill);
+    background-color: var(--surface);
+    color: var(--text);
+    box-shadow: var(--shadow-window);
+    font-size: var(--type-small-size);
+    line-height: var(--type-small-lh);
+    letter-spacing: var(--type-small-ls);
+  }
+
+  .lang-hint[hidden] {
+    display: none;
+  }
+
+  .lang-hint__link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    color: var(--link);
+    text-underline-offset: 0.18em;
+    text-decoration-thickness: 1px;
+  }
+
+  .lang-hint__link:hover {
+    text-decoration-line: underline;
+  }
+
+  .lang-hint__close {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border: 0;
+    border-radius: var(--shape-pill);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .lang-hint__close:hover {
+    background-color: var(--fill-hover);
+    color: var(--text);
+  }
+
+  .lang-hint__close svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+  }
+
+  @media print {
+    .lang-hint {
+      display: none;
+    }
+  }
+</style>

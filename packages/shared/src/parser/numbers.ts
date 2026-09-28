@@ -71,13 +71,54 @@ const HUNDREDS: ReadonlyMap<string, number> = new Map([
   ['novecientas', 900],
 ]);
 
+const EN_UNITS: ReadonlyMap<string, number> = new Map([
+  ['one', 1],
+  ['two', 2],
+  ['three', 3],
+  ['four', 4],
+  ['five', 5],
+  ['six', 6],
+  ['seven', 7],
+  ['eight', 8],
+  ['nine', 9],
+]);
+
+const EN_TEENS: ReadonlyMap<string, number> = new Map([
+  ['ten', 10],
+  ['eleven', 11],
+  ['twelve', 12],
+  ['thirteen', 13],
+  ['fourteen', 14],
+  ['fifteen', 15],
+  ['sixteen', 16],
+  ['seventeen', 17],
+  ['eighteen', 18],
+  ['nineteen', 19],
+]);
+
+const EN_TENS: ReadonlyMap<string, number> = new Map([
+  ['twenty', 20],
+  ['thirty', 30],
+  ['forty', 40],
+  ['fourty', 40],
+  ['fifty', 50],
+  ['sixty', 60],
+  ['seventy', 70],
+  ['eighty', 80],
+  ['ninety', 90],
+]);
+
 /** Every word that can be part of a number, for callers that skip known words. */
 export const NUMBER_WORDS: ReadonlySet<string> = new Set([
   ...UNITS.keys(),
   ...TEENS.keys(),
   ...TENS.keys(),
   ...HUNDREDS.keys(),
+  ...EN_UNITS.keys(),
+  ...EN_TEENS.keys(),
+  ...EN_TENS.keys(),
   'par',
+  'couple',
 ]);
 
 export interface NumberMatch {
@@ -87,10 +128,28 @@ export interface NumberMatch {
 }
 
 /**
- * A Spanish number written in words starting at `tokens[k]`, from «cero» to
- * «novecientos noventa y nueve»: «una», «quince», «cuarenta y cinco», «ciento veinte».
+ * An English number written in words starting at `tokens[k]`, from «one» to «ninety-nine»:
+ * «one», «fifteen», «forty-five», «forty five» (a hyphen does not split tokens apart).
+ */
+function parseEnglishWordNumber(tokens: readonly Token[], k: number): NumberMatch | null {
+  const word = normAt(tokens, k);
+  const ten = EN_TENS.get(word);
+  if (ten !== undefined) {
+    const unit = EN_UNITS.get(nextNorm(tokens, k + 1));
+    return unit === undefined ? { value: ten, end: k + 1 } : { value: ten + unit, end: k + 2 };
+  }
+  const small = EN_TEENS.get(word) ?? EN_UNITS.get(word);
+  return small === undefined ? null : { value: small, end: k + 1 };
+}
+
+/**
+ * A number written in words starting at `tokens[k]`: Spanish from «cero» to «novecientos
+ * noventa y nueve» («una», «quince», «cuarenta y cinco», «ciento veinte») or English from
+ * «one» to «ninety-nine».
  */
 export function parseWordNumber(tokens: readonly Token[], k: number): NumberMatch | null {
+  const english = parseEnglishWordNumber(tokens, k);
+  if (english) return english;
   let j = k;
   let value = 0;
   let found = false;
@@ -127,8 +186,9 @@ const INTEGER_RE = /^\d{1,6}$/;
 const DECIMAL_RE = /^(\d{1,4})[.,](\d{1,2})$/;
 
 /**
- * An amount starting at `tokens[k]`: digits («90»), a decimal («1,5»), «par de» or a
- * number in words. Digits are capped at six so durations stay far from Date limits.
+ * An amount starting at `tokens[k]`: digits («90»), a decimal («1,5»), «par de», «couple
+ * (of)» or a number in words. Digits are capped at six so durations stay far from Date
+ * limits.
  */
 export function parseAmount(tokens: readonly Token[], k: number): NumberMatch | null {
   const token = tokens[k];
@@ -140,5 +200,8 @@ export function parseAmount(tokens: readonly Token[], k: number): NumberMatch | 
     return null;
   }
   if (token.norm === 'par' && nextNorm(tokens, k + 1) === 'de') return { value: 2, end: k + 2 };
+  if (token.norm === 'couple') {
+    return { value: 2, end: nextNorm(tokens, k + 1) === 'of' ? k + 2 : k + 1 };
+  }
   return parseWordNumber(tokens, k);
 }

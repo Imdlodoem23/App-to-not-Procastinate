@@ -6,9 +6,9 @@
  * instead of being clipped. Pure module.
  */
 import type { CategoryId } from '@centrate/shared/catalog';
-import { getApp, getCategory, getService } from '@centrate/shared/catalog';
+import { getCategory, getService } from '@centrate/shared/catalog';
 import { durationLabel, type ParseResult } from '@centrate/shared/parser';
-import { categoryName } from '../../../../shared/format';
+import { appLabel, categoryName } from '../../../../shared/format';
 import { SHARED } from '../../../../shared/i18n';
 import type { BlockDraft, CardField } from '../../../../shared/ui-state';
 import { draftEndLabels } from './draft';
@@ -155,9 +155,7 @@ export function draftChips(draft: BlockDraft, nowMs: number): ChipView[] {
       );
     }
     for (const id of t.appIds) {
-      out.push(
-        chip({ key: `app:${id}`, kind: 'app', label: getApp(id)?.name ?? id, field: 'targets' }),
-      );
+      out.push(chip({ key: `app:${id}`, kind: 'app', label: appLabel(id), field: 'targets' }));
     }
     for (const domain of t.customDomains) {
       out.push(chip({ key: `domain:${domain}`, kind: 'domain', label: domain, field: 'targets' }));

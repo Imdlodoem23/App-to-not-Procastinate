@@ -34,7 +34,8 @@ export function initLanguage(): void {
 
   const hint = document.querySelector<HTMLElement>('[data-lang-hint]');
   const target = hint?.dataset.langHint;
-  // The 404 can switch itself to English after load (pages/404.astro).
+  // Never offer the language the page is already in (the 404 may have swapped in its English
+  // shell, hint included, before this runs: Base.astro).
   if (!hint || !target || document.documentElement.lang === target) return;
 
   const preferred = (navigator.language || '').toLowerCase();

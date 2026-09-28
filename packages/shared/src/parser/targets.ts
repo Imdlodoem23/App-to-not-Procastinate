@@ -23,6 +23,7 @@ import {
   TRIGGER_BRIDGE,
   TRIGGERS,
   TRIGGERS_BEFORE_DE,
+  TRIGGERS_BEFORE_T,
 } from './vocabulary';
 
 export type TargetHit = (TargetRef | { readonly kind: 'domain'; readonly id: string }) & {
@@ -43,10 +44,37 @@ const MAX_NGRAM = 4;
 const MAX_WEAK_FUZZY_LENGTH = 5;
 /** At most this many `TRIGGER_BRIDGE` words between a block word and a weak alias. */
 const MAX_BRIDGE = 4;
-export const LIST_CONNECTORS: ReadonlySet<string> = new Set(['y', 'e', 'o', 'u', 'ni']);
-/** «vídeos de YouTube», «juegos en Steam», «jugar al LoL»: the category only describes. */
-const DESCRIPTOR_LINKS: ReadonlySet<string> = new Set(['de', 'del', 'en', 'a', 'al']);
-const DESCRIPTOR_FILLERS: ReadonlySet<string> = new Set(['el', 'la', 'los', 'las']);
+export const LIST_CONNECTORS: ReadonlySet<string> = new Set([
+  'y',
+  'e',
+  'o',
+  'u',
+  'ni',
+  'and',
+  'or',
+  'nor',
+]);
+/** «ni» and «nor»: list connectors that are also block words. */
+export const NEGATIVE_CONNECTORS: ReadonlySet<string> = new Set(['ni', 'nor']);
+/** «o», «or»: a choice, never a list of targets to block together. */
+export const CHOICE_CONNECTORS: ReadonlySet<string> = new Set(['o', 'or']);
+/**
+ * «vídeos de YouTube», «juegos en Steam», «jugar al LoL», «videos on YouTube», «games on
+ * Steam»: the category only describes.
+ */
+const DESCRIPTOR_LINKS: ReadonlySet<string> = new Set([
+  'de',
+  'del',
+  'en',
+  'a',
+  'al',
+  'on',
+  'of',
+  'in',
+  'at',
+  'from',
+]);
+const DESCRIPTOR_FILLERS: ReadonlySet<string> = new Set(['el', 'la', 'los', 'las', 'the', 'my']);
 /** Skipped when looking at what comes right before or after a target («ni el insta»). */
 const ARTICLES: ReadonlySet<string> = new Set([
   'el',
@@ -64,8 +92,20 @@ const ARTICLES: ReadonlySet<string> = new Set([
   'tus',
   'su',
   'sus',
+  // Not «a»: in Spanish it is «to» («jugar a lol»).
+  'the',
+  'an',
+  'my',
+  'your',
+  'his',
+  'her',
+  'our',
+  'their',
+  'any',
+  'some',
+  'all',
 ]);
-/** «jugar al LoL», «no juego lol», «nada de lol»: after these, «lol» is the game. */
+/** «jugar al LoL», «no juego lol», «nada de lol», «play lol»: after these, «lol» is the game. */
 const LOL_LEADS: ReadonlySet<string> = new Set([
   'al',
   'a',
@@ -76,6 +116,8 @@ const LOL_LEADS: ReadonlySet<string> = new Set([
   'juegues',
   'juegue',
   'jugando',
+  'play',
+  'playing',
 ]);
 /**
  * Everyday phrases whose words are also aliases: «no tengo vida social», «examen de
@@ -88,12 +130,29 @@ const NON_TARGET_PHRASES: ReadonlyArray<readonly string[]> = [
   ['educacion', 'social'],
   ['seguridad', 'social'],
   ['redes', 'neuronales'],
+  ['social', 'life'],
+  ['social', 'studies'],
+  ['social', 'skills'],
+  ['social', 'science'],
+  ['social', 'sciences'],
+  ['social', 'work'],
+  ['social', 'worker'],
+  ['social', 'security'],
+  ['neural', 'networks'],
 ];
 
-/** True when `tokens[k]` says «block this» («no», «sin», «bloquea», «paso de»…). */
+/**
+ * True when `tokens[k]` says «block this» («no», «sin», «bloquea», «paso de», «block»,
+ * «without», the «don» of «don't»…).
+ */
 export function isTriggerAt(tokens: readonly Token[], k: number): boolean {
   const word = tokens[k]?.norm ?? '';
-  return TRIGGERS.has(word) || (TRIGGERS_BEFORE_DE.has(word) && isDe(nextNorm(tokens, k + 1)));
+  const next = nextNorm(tokens, k + 1);
+  return (
+    TRIGGERS.has(word) ||
+    (TRIGGERS_BEFORE_DE.has(word) && isDe(next)) ||
+    (TRIGGERS_BEFORE_T.has(word) && next === 't')
+  );
 }
 
 /** «nada de x»: block words that govern a weak alias only through «de». */
@@ -167,6 +226,7 @@ function isKnownWord(word: string): boolean {
     isFiller(word) ||
     TRIGGERS.has(word) ||
     TRIGGERS_BEFORE_DE.has(word) ||
+    TRIGGERS_BEFORE_T.has(word) ||
     OTHER_KNOWN.has(word) ||
     NUMBER_WORDS.has(word) ||
     UNIT_WORDS.has(word) ||

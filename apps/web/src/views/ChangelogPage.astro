@@ -55,7 +55,9 @@ const builtVersion =
 const articles = entries.map((entry) => ({
   ...entry,
   headingId: `${entry.anchor}-titulo`,
-  title: entry.version ? fill(n.version, { version: entry.version }) : (entry.label ?? ''),
+  // Changes without a version get the page's own word, not CHANGELOG.md's heading («[Sin
+  // publicar]»), which is Spanish on every page.
+  title: entry.version ? fill(n.version, { version: entry.version }) : n.unreleased,
   published: entry.date ? fill(n.published, { date: formatDate(entry.date) }) : null,
 }));
 ---

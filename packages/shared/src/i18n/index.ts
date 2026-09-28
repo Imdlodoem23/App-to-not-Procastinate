@@ -13,7 +13,14 @@ export {
   localeFromLanguages,
   toLocale,
 } from './locale';
-export { MINUS, formatClock, formatInteger, formatSignedInteger } from './format';
+export type { LanguageTags } from './format';
+export {
+  MINUS,
+  formatClock,
+  formatDayMonth,
+  formatInteger,
+  formatSignedInteger,
+} from './format';
 export type { SharedMessages } from './es';
 export { SHARED_EN } from './en';
 export { SHARED_ES } from './es';

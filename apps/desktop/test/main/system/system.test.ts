@@ -25,6 +25,7 @@ import {
   parseTasklistCsv,
 } from '../../../src/main/system/processes';
 import { HARNESS_NOW, harnessFixture } from '../../../src/shared/fixtures';
+import { setActiveLocale } from '../../../src/shared/i18n/locale';
 
 const result = (patch: Partial<ExecResult>): ExecResult => ({
   code: 0,
@@ -258,11 +259,36 @@ describe('«Copiar diagnóstico»', () => {
       runtime: { os: 'linux 6', arch: 'x64', electron: null, node: '24' },
     });
     expect(r.source).toBe('fallback');
+    expect(r.text).toContain('== guardián: sin respuesta ==');
     expect(r.text).toContain('health: unreachable');
     expect(r.text).toContain('"running":false');
     expect(r.text).toContain('line 1');
     expect(r.text).not.toContain('leakedtoken');
     expect(r.text).not.toContain('secretsecret');
     expect(new GuardianApiError(0, 'x', 'y')).toBeInstanceOf(Error);
+  });
+
+  it('writes its section headers in the app language', async () => {
+    const clock = createManualClock(HARNESS_NOW);
+    setActiveLocale('en');
+    try {
+      const r = await buildDiagnostics({
+        client: new MockGuardian({ clock }),
+        clock,
+        snapshot: harnessFixture('one-block').snapshot,
+        appLog: createMemoryLogger(),
+        sysDir: '/var/lib/centrate',
+        platform: 'linux',
+        guardianStatus: async () => '{}',
+        readText: () => null,
+        runtime: { os: 'linux 6', arch: 'x64', electron: '44', node: '24' },
+      });
+      expect(r.text.split('\n')[0]).toBe('Céntrate · diagnostics');
+      expect(r.text).toContain('== app log (last 20 lines) ==');
+      expect(r.text).toContain('(empty)');
+      expect(r.text).not.toContain('registro de la app');
+    } finally {
+      setActiveLocale('es');
+    }
   });
 });

@@ -3,12 +3,14 @@
  * fields stay in sync: typing a duration makes the end follow the clock; typing a time fixes
  * the end («hasta las 18:30») and the duration follows. Words are read with the shared parser
  * («45 min», «2 h», «1h30», «hora y media»), so the form understands what the main field does.
+ * «Hasta» shows the locale's clock («18:30», «6:30 PM»), which the parser reads back.
  * Pure: no DOM, Node or Electron imports.
  */
 import type { IsoUtc } from '@centrate/shared/domain';
 import { GUARDIAN_LIMITS } from '@centrate/shared/guardian-api';
 import { durationLabel, parseIntent } from '@centrate/shared/parser';
-import { formatClock24 } from '../../../../shared/format';
+import { formatClock } from '../../../../shared/format';
+import { activeLocale } from '../../../../shared/i18n/locale';
 import {
   draftEndsAtMs,
   draftMinutes,
@@ -55,15 +57,32 @@ export function nextClockTime(hours: number, minutes: number, nowMs: number): nu
   return date.getTime();
 }
 
-/** «18:30», «18.30», «1830», «18», or the parser's «mañana a las 8». */
+/**
+ * Hours a bare «h:mm» can mean. Spanish reads the 24-hour clock («6:30» is 06:30). English
+ * reads the 12-hour one: an unpadded «6:30» is 6:30 AM or PM, whichever comes first (the
+ * parser's own rule for «hasta las 6:30»), so «6:30» typed at 5 PM is not tomorrow morning.
+ */
+function clockHours(hour: string): number[] {
+  const h = Number(hour);
+  if (activeLocale() !== 'en' || hour.startsWith('0') || h < 1 || h > 12) return [h];
+  return [h % 12, (h % 12) + 12];
+}
+
+/**
+ * «18:30», «18.30», «1830», «18», the English «6:30 PM» (and a bare «6:30»: the next one), or
+ * the parser's «mañana a las 8».
+ */
 export function parseUntilText(text: string, nowMs: number): EndParse {
-  const trimmed = text.trim();
+  // `Intl` may write «6:30 PM» with a narrow no-break space: plain spaces for the parser.
+  const trimmed = text.replace(/\s+/g, ' ').trim();
   const clock = /^(\d{1,2})(?:[:.h]?(\d{2}))?$/.exec(trimmed);
   let endsAtMs: number | null = null;
-  if (clock) {
-    const h = Number(clock[1]);
+  if (clock?.[1] !== undefined) {
     const m = clock[2] === undefined ? 0 : Number(clock[2]);
-    if (h <= 23 && m <= 59) endsAtMs = nextClockTime(h, m, nowMs);
+    const hours = clockHours(clock[1]);
+    if (hours.every((h) => h <= 23) && m <= 59) {
+      endsAtMs = Math.min(...hours.map((h) => nextClockTime(h, m, nowMs)));
+    }
   } else if (trimmed !== '') {
     for (const phrase of [`hasta las ${trimmed}`, `hasta ${trimmed}`]) {
       const parse = parseIntent(phrase, { now: new Date(nowMs) });
@@ -84,7 +103,7 @@ export function parseUntilText(text: string, nowMs: number): EndParse {
 export interface DurationFields {
   /** «1 h 30 min». */
   minutesText: string;
-  /** «18:30». */
+  /** «18:30», «6:30 PM». */
   untilText: string;
   minutes: number;
   endsAtMs: number;
@@ -96,7 +115,7 @@ export function durationFields(draft: BlockDraft, nowMs: number): DurationFields
   const endsAtMs = draftEndsAtMs(draft, nowMs);
   return {
     minutesText: durationLabel(minutes),
-    untilText: formatClock24(endsAtMs),
+    untilText: formatClock(endsAtMs),
     minutes,
     endsAtMs,
   };

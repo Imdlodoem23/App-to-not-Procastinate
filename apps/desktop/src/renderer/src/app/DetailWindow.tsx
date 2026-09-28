@@ -49,7 +49,7 @@ export function DetailWindow(): React.JSX.Element {
   useEffect(() => preloadDetailViews(DETAIL_NAMES), []);
 
   return (
-    <div ref={shellRef} className="detail-shell">
+    <div ref={shellRef} className="detail-shell" data-keep-scroll="detail">
       <main className="detail-main" aria-labelledby="detail-title">
         <h1 id="detail-title" className="sr-only">
           {title}

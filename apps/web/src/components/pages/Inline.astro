@@ -1,8 +1,9 @@
 ---
 /**
- * Renders inline tokens: **bold**, `code` and [links](…), either from a copy.ts string
- * (`text`, parsed with inline()) or already parsed (`tokens`, from markdown-lite). Everything
- * is text for Astro, so it is escaped; hrefs that are not safe render as plain text.
+ * Renders inline tokens: **bold**, `code`, [links](…) and {es:phrases} (a <span lang>), either
+ * from a copy.ts string (`text`, parsed with inline()) or already parsed (`tokens`, from
+ * markdown-lite). Everything is text for Astro, so it is escaped; hrefs that are not safe
+ * render as plain text.
  *
  * Put it on the same line as the surrounding text: the markup adds no whitespace.
  */
@@ -32,6 +33,8 @@ const parts = (tokens ?? inline(text ?? '')).map((token) =>
       <strong class="text-primary">{part.text}</strong>
     ) : part.kind === 'code' ? (
       <code class="doc-code">{part.text}</code>
+    ) : part.kind === 'phrase' ? (
+      <span lang={part.lang}>{part.text}</span>
     ) : (
       part.text
     ),

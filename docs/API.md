@@ -95,14 +95,14 @@ Rules (`config.ts`):
 `deriveCapabilities(config, runtime)` computes `CloudCapabilities`, one entry per feature,
 `{ enabled, reason }` with `reason ∈ missing_key | kill_switch | budget | database_down`:
 
-| Feature          | Needs                                                                             |
-| ---------------- | --------------------------------------------------------------------------------- |
-| `accounts`       | database + `BETTER_AUTH_SECRET` + `BETTER_AUTH_URL` + at least one sign-in method |
-| `googleLogin`    | `accounts` + Google pair                                                          |
-| `emailLogin`     | `accounts` + Resend pair                                                          |
-| `sync`, `social` | `accounts`                                                                        |
-| `partnerEmails`  | `accounts` + Resend pair                                                          |
-| `coach`          | `accounts` + `ANTHROPIC_API_KEY` + `AI_ENABLED` + global budget left today        |
+| Feature          | Needs                                                                                          |
+| ---------------- | ---------------------------------------------------------------------------------------------- |
+| `accounts`       | database + `BETTER_AUTH_SECRET` + `BETTER_AUTH_URL` + at least one sign-in method              |
+| `googleLogin`    | `accounts` + Google pair                                                                       |
+| `emailLogin`     | `accounts` + Resend pair                                                                       |
+| `sync`, `social` | `accounts`                                                                                     |
+| `partnerEmails`  | `accounts` + Resend pair                                                                       |
+| `coach`          | `accounts` + `ANTHROPIC_API_KEY` + `AI_ENABLED` + no `meta.ai_kill_switch` + budget left today |
 
 `GET /health` reports them with the live database state and budget. A disabled feature answers
 `503 { error: { code: 'feature_disabled', feature, reason } }`. Without a database (or with
@@ -131,7 +131,11 @@ apps/api/
     lib/guards.ts        requireUser/Db/Feature/FreshSession, zod parsing     architect (shared)
     lib/profile.ts       getProfile, requireConsent, requireDisplayName       CORE (shared use)
     lib/mailer.ts        Resend via fetch                                     CORE
-    auth/                better-auth instance, resolveSession, /api/auth/*    CORE
+    lib/gdpr.ts          export, account deletion, USER_DATA_COVERAGE         CORE
+    auth/index.ts        better-auth instance, /api/auth/* routes             CORE
+    auth/session.ts      resolveSession (cookie or bearer), createSessionRow  CORE
+    auth/csrf.ts         Origin rule for cookie writes                        CORE
+    auth/email.ts        the sign-in code email                               CORE
     routes/health.ts     GET /health                                          architect
     routes/app-auth.ts   desktop loopback login                               CORE
     routes/me.ts         account, consent, devices, export, delete            CORE
@@ -142,9 +146,10 @@ apps/api/
     routes/accountability.ts  partners, events, approvals, inbox              SOCIAL
     routes/coach.ts      coach endpoints                                      COACH
     coach/               model seam, Anthropic client, prompts, schemas,
-                         quota, budget                                        COACH
+                         service, quota, budget, one module per endpoint      COACH
     pages/layout.ts      HTML shell, escaping, asset registry                 CORE (shared use)
     pages/account.ts     /cuenta, /cuenta/codigo, /cuenta/conectar, assets    CORE
+    pages/assets.ts      tokens.css, pages.css, cuenta.js                     CORE
     pages/panel.ts       /cuenta/panel, /cuenta/avisos                        CLIENT
     pages/social.ts      /i/:code                                             SOCIAL
     jobs/janitor.ts      retention sweep                                      CORE
@@ -192,37 +197,61 @@ npm packages external). Scripts: `build`, `start` (`node dist/server.mjs`), `dev
 - **Privacy**: `telemetry: { enabled: false }`, `advanced.ipAddress.disableIpTracking: true`,
   user agents not stored (session `create.before` hook), the Google picture not stored
   (`image` always null).
-- `databaseHooks.user.create.after` inserts the `profiles` row: every switch off, `displayName`
-  = first word of the Google name, or null for email sign-ups.
-- `createAuth(ctx)` returns `{ resolveSession, routes }`. `resolveSession(headers)` returns
-  `AuthedUser { userId, sessionId, sessionCreatedAt, deviceId }` (device = the `devices` row
-  whose `session_id` is this session) or null.
-- **CSRF**: besides `SameSite=Lax`, a state-changing request (not GET/HEAD) authenticated by
-  **cookie** must carry an `Origin` equal to the API origin or one in `APP_ORIGINS`, else 403
-  `forbidden`. Bearer requests are exempt (not ambient credentials).
+- `databaseHooks.user.create.before` keeps only the first word of the name in `user.name` and
+  sets `image` null; `user.create.after` inserts the `profiles` row (`ensureProfile`): every
+  switch off, `displayName` = that first name, or null for email sign-ups. `getProfile` creates
+  the row lazily too. `account` hooks drop the Google access, refresh and id tokens before they
+  are stored (we never call Google APIs).
+- **Reachable endpoints** (everything else better-auth offers answers our 404), one Fastify
+  route each that builds a `Request` and returns `auth.handler(request)`:
+  - always: `GET /api/auth/get-session`, `POST /api/auth/sign-out`;
+  - with Google: `POST /api/auth/sign-in/social`, `GET /api/auth/callback/google` (errors
+    redirect to `/cuenta?error=…`);
+  - with email: `POST /api/auth/email-otp/send-verification-otp` (`type: 'sign-in'` only,
+    else 400) and `POST /api/auth/sign-in/email-otp`.
+- `createAuth(ctx, log)` returns `{ resolveSession, routes }`. `resolveSession(headers)`
+  (`src/auth/session.ts`) reads the session straight from the table on every request: the
+  bearer token (raw, or better-auth's signed `token.signature`) or the signed cookie
+  `centrate.session_token` (`__Secure-` prefixed over https; signature checked with
+  `BETTER_AUTH_SECRET`). Expired or deleted sessions fail at once; the expiry slides at most
+  once a day. It returns `AuthedUser { userId, sessionId, sessionCreatedAt, deviceId }` (device =
+  the `devices` row whose `session_id` is this session) or null. better-auth's own messages are
+  logged with email addresses scrubbed.
+- **CSRF** (`src/auth/csrf.ts`, called from the session hook in app.ts): besides
+  `SameSite=Lax`, a state-changing request (not GET/HEAD/OPTIONS) authenticated by **cookie**
+  must carry an `Origin` equal to the API origin or one in `APP_ORIGINS`, or
+  `Sec-Fetch-Site: same-origin`, else 403 `forbidden`. Bearer requests are exempt (not ambient
+  credentials). The API sends `Referrer-Policy: no-referrer`, under which browsers send
+  `Origin: null` on same-origin form posts, so every page carries a `referrer` meta tag with
+  `same-origin` (layout.ts); the `Sec-Fetch-Site` rule covers the rest.
 
 ### 4.2 Desktop login: loopback redirect + PKCE (RFC 8252, RFC 7636)
 
 1. The Electron main process listens on `127.0.0.1:<random port>`, creates `codeVerifier`
-   (43–128 chars), `challenge = base64url(sha256(verifier))` and a random `state`.
+   (43–128 chars), `challenge = base64url(sha256(verifier))` and a random `state` (16–128
+   chars of `[A-Za-z0-9._~-]`).
 2. It opens the system browser at
    `{API}/cuenta/conectar?challenge=…&state=…&port=…&device=<name>`.
 3. Not signed in → redirect to `/cuenta?volver=<that URL>` (only relative `/cuenta…` paths are
    accepted as `volver`). The user signs in with Google or an email code and comes back.
 4. Signed in → «¿Conectar este ordenador («{device}») a tu cuenta?» with a **Conectar** button.
    The explicit click prevents login CSRF and silent linking.
-5. The button posts a form to `POST /v1/app-auth/authorize` (`challenge`, `state`, `port`;
-   cookie session + Origin check). The server stores a one-time code (32 random bytes, only its
+5. The button posts a form to `POST /v1/app-auth/authorize` (`challenge`, `state`, `port`,
+   `device`; cookie session + Origin check; a bearer token gets 403, a signed-out browser a 303
+   back to `/cuenta?volver=…`). The server stores a one-time code (32 random bytes, only its
    SHA-256 in `app_auth_codes`, valid 60 s) and answers
    `303 Location: http://127.0.0.1:<port>/callback?code=…&state=…`. Only the literal
    `127.0.0.1`, a port 1024–65535 and that fixed path are ever produced (no open redirect).
 6. The app checks `state` and calls `POST /v1/app-auth/token` (`AppTokenRequest`). The server
    deletes the code row and reads it in one statement (single use), checks expiry and
-   `base64url(sha256(codeVerifier)) === challenge` (timing-safe), creates a session with
-   better-auth's internal adapter, and upserts the device on `(user_id, install_id)`: logging in
+   `base64url(sha256(codeVerifier)) === challenge` (timing-safe), inserts a session row in
+   better-auth's format (`createSessionRow`: 32-char id and token, 60 days, no IP or user
+   agent), and upserts the device on `(user_id, install_id)`: logging in
    again on the same machine reuses the device (its stats are not double-counted) and revokes
    its previous session. At most 10 devices (409 `limit_reached`).
-   Response: `AppTokenResponse { token, expiresAt, deviceId, me }`.
+   Response: `AppTokenResponse { token, expiresAt, deviceId, me }`. An unknown, expired or
+   already used code, or a wrong verifier, answers 400 `validation_failed` (path `body.code`);
+   the code is burnt either way, so a verifier cannot be guessed.
 7. The app stores the token with `safeStorage` and sends it as a bearer token from the main
    process only.
 8. `POST /v1/app-auth/logout` deletes the calling session (204); the device row and its stats
@@ -538,82 +567,145 @@ Hardcore and Exam modes have no emergency unlock, so they never reach this flow.
 ## 10. Coach (COACH, Claude API)
 
 The Anthropic key lives only in the backend environment. Model choice and SDK usage follow the
-`claude-api` skill (2026-09):
+`claude-api` skill (2026-09). Code: `src/routes/coach.ts` and `src/coach/` (`model.ts` seam,
+`anthropic.ts` client, `prompts.ts`, `schemas.ts`, `service.ts` gates and call flow,
+`quota.ts`, `budget.ts`, one module per endpoint, `text.ts` hygiene).
 
-| Endpoint         | Model (env override)                      | Settings                                                            | `max_tokens` |
-| ---------------- | ----------------------------------------- | ------------------------------------------------------------------- | ------------ |
-| `interpret`      | `claude-haiku-4-5` (`AI_MODEL_INTERPRET`) | no thinking, no effort (Haiku 4.5 rejects it), `temperature: 0`     | 1024         |
-| `split-task`     | `claude-opus-5` (`AI_MODEL_COACH`)        | adaptive thinking (Opus 5's default: omit `thinking`), effort `low` | 8000         |
-| `study-plan`     | `claude-opus-5`                           | effort `medium`                                                     | 16000        |
-| `weekly-summary` | `claude-opus-5`                           | effort `low`                                                        | 4000         |
+| Endpoint         | Model (env override)                      | Settings                                                            | `max_tokens` | Deadline |
+| ---------------- | ----------------------------------------- | ------------------------------------------------------------------- | ------------ | -------- |
+| `interpret`      | `claude-haiku-4-5` (`AI_MODEL_INTERPRET`) | no thinking, no effort (Haiku 4.5 rejects it), `temperature: 0`     | 1024         | 20 s     |
+| `split-task`     | `claude-opus-5` (`AI_MODEL_COACH`)        | adaptive thinking (Opus 5's default: omit `thinking`), effort `low` | 8000         | 60 s     |
+| `study-plan`     | `claude-opus-5`                           | effort `medium`                                                     | 16000        | 80 s     |
+| `weekly-summary` | `claude-opus-5`                           | effort `low`                                                        | 4000         | 45 s     |
 
-- **One client**: `new Anthropic({ apiKey, timeout: 60_000, maxRetries: 1 })`, created only
-  when the key is set and `AI_ENABLED` is true, behind the `CoachModel` seam
-  (`src/coach/model.ts`) so tests inject a fake.
-- **Structured outputs**: `messages.parse` with `output_config: { format: zodOutputFormat(schema) }`
-  (`@anthropic-ai/sdk/helpers/zod`); Opus calls add `effort` to the same `output_config`.
-  Non-streaming (all `max_tokens` ≤ 16 000).
-- **Refusal fallbacks (Opus)**: per the skill, enabled by default: the beta namespace with
-  `betas: ['server-side-fallback-2026-07-01']` and `fallbacks: 'default'`. It changes
-  behaviour: a refused request may be answered by a fallback model. If SDK 0.128 lacks it,
-  drop it and note it here.
-- **Always check `stop_reason`** before reading output: `refusal` → 422 `coach_refused`;
-  `max_tokens` or a null `parsed_output` → 502 `coach_incomplete`.
-- **SDK errors**, most specific first: `RateLimitError`, `APIConnectionError`, 5xx/overloaded →
-  503 `coach_unavailable`; `AuthenticationError`/`PermissionDeniedError` → 503
-  `coach_unavailable` and an error log (misconfigured key, by class name only);
-  `BadRequestError` → 500 `internal_error`, logged by class only.
+- **One client** (`createAnthropicCoachModel`, wired as the default `coachModel` in `buildApp`):
+  created only when the key is set and `AI_ENABLED` is true, with every option explicit
+  (`apiKey`, `authToken: null`, `baseURL`, `logLevel: 'off'`, `maxRetries: 1`) so no stray
+  `ANTHROPIC_*` variable changes where the key goes or what gets logged. Each call carries its
+  deadline as both the SDK `timeout` and an `AbortSignal`, so the retry never outlives it (the
+  app waits 90 s for coach calls). Tests inject a fake behind the `CoachModel` seam.
+- **Structured outputs**: `output_config.format = betaZodOutputFormat(schema)` on
+  `client.beta.messages.create` (the beta namespace is needed for fallbacks), parsed by us with
+  the same zod schema **after** checking `stop_reason`. `messages.parse` is not used: it throws
+  on truncated JSON before the usage can be read, and a truncated answer must still be billed.
+  Model schemas hold only types and enums (the API cannot enforce lengths or ranges); the
+  server clamps lengths, counts and minutes afterwards. Non-streaming (all `max_tokens`
+  ≤ 16 000).
+- **Refusal fallbacks**: SDK 0.128 supports them. Requests to `claude-opus-5` (and
+  `claude-fable-5-1`) send `betas: ['server-side-fallback-2026-07-01']` and
+  `fallbacks: 'default'`: a request the model declines may be answered by the fallback model
+  Anthropic picks for that refusal category (Opus 4.8 for cyber). Other model ids run without
+  it. Every attempt in `usage.iterations` is billed at its own model's price.
+- **Always check `stop_reason`** before reading output: `refusal` (the whole chain declined) →
+  422 `coach_refused`; `max_tokens`, any other stop, unparseable JSON, a schema mismatch or an
+  answer that fails the server checks (for example fewer than 2 steps) → 502
+  `coach_incomplete`. Both are billed.
+- **SDK errors**, most specific first: 401/403 → 503 `coach_unavailable` plus an error log
+  (misconfigured key, by class name and status only); 429, 5xx, 529 overloaded, 408/409,
+  timeouts, network errors and our deadline → 503 `coach_unavailable` (warn log); other 4xx
+  → 500 `internal_error`, logged by class only. The provider's message is never logged or
+  returned (it can quote the key or the input).
 - **Prompt caching**: each endpoint has one frozen Spanish system prompt with
   `cache_control: { type: 'ephemeral' }` (deterministic: no dates, ids or unsorted data).
   Everything variable goes in the user message, the user's text wrapped in
-  `<datos_usuario>…</datos_usuario>` and treated as data, never instructions. Opus 5 caches
-  prefixes from 512 tokens; Haiku 4.5 needs 4096, so the interpret prompt may silently not
-  cache — acceptable at this size. A unit test checks `cache_control` is set.
+  `<datos_usuario>…</datos_usuario>` as one line with `<` `>` replaced by `‹` `›`, so it can
+  never close the wrapper, and treated as data, never instructions. The Opus prompts pass
+  Opus 5's 512-token minimum; the interpret prompt (with the catalog) is about 3 000 tokens,
+  under Haiku 4.5's 4 096, so it silently does not cache. Padding it would make every
+  uncached call dearer, and calls are rare. Tests check the request shape.
 - **`metadata.user_id`** = first 32 hex chars of HMAC-SHA256(`BETTER_AUTH_SECRET`,
   `anthropic:` + userId). Never the id or email.
-- **Tone**: Spanish (Spain), sentence case, typographic «−», encouraging, never shaming. If the
-  text suggests distress, the answer is kind and mentions the 024 line (Spain).
+- **Model overrides are safe**: `temperature` is only sent to Haiku models, `effort` never to
+  Haiku or Sonnet 4.5, `fallbacks` only to the models above.
+- **Tone**: Spanish (Spain), sentence case, typographic «−» (the server also rewrites `-5` to
+  `−5` in answers), encouraging, never shaming, no emojis. If the text suggests distress, the
+  answer is kind and mentions the 024 line (Spain).
 - **Nothing the model returns is executed**; every output is validated again on the server.
+- **Logs**: one `coach call` line per call (endpoint, served model, outcome, attempts, token
+  counts, cost in micro-USD, time). Never the prompt, the answer or the user id.
 
 ### 10.1 Endpoint behaviour
 
-- **interpret** runs only when the user taps «Preguntar al coach» under «No he entendido: …»,
-  or turned on «Usar IA cuando no entienda la frase» in the app. The model rewrites the phrase
-  into the local grammar (`canonicalText`, e.g. «no veo youtube ni instagram durante 90
-  minutos») or asks back (`clarification`). The server accepts `canonicalText` only if the
-  shared `parseIntent` reads it with `kind ≠ 'unknown'` and nothing unparsed, using a clock
-  shifted so `now.getHours()` reads the user's wall time in `timeZone` (the parser reads local
-  time; the server runs in UTC). Otherwise `canonicalText: null` and a generic Spanish
-  clarification. The prompt forbids adding targets or durations the text does not imply. The
-  **desktop re-parses `canonicalText` locally** (correct zone) and always shows the
-  confirmation card; nothing goes straight to a block.
-- **split-task**: 2–12 steps, titles ≤ 80, minutes 5–120, tip ≤ 200. Each `suggestedPhrase`
-  must parse locally with `complete: true`, else it becomes null (one-tap «Empezar»).
-- **study-plan**: the server clamps days to `[today, examDate − 1]` (≤ 60 days), drops
-  `daysOff` weekdays, scales each day to `dailyMinutes`, keeps topics ≤ 80 chars and advice
-  ≤ 5 items. `examDate` must be after `today` (400).
-- **weekly-summary**: with `syncStats` on, the input is built on the server from `daily_stats`
-  (the week plus the previous 3 week totals, numbers only); otherwise `stats` is required and
-  processed, not stored. No summary text is stored (the app caches its own).
+Order of checks on every POST: capability (503) → session (401) → `sharing.coach` (403) →
+database kill switch (503 `kill_switch`) → body (400) → quota and budget (429 / 503) → model.
+Nothing is reserved for a request that fails validation.
 
-### 10.2 Quotas and budget
+- **interpret** runs only when the user taps «Preguntar al coach» under «No he entendido: …»,
+  or turned on «Usar IA cuando no entienda la frase» in the app. `now` must be within 24 h of
+  the server clock. The model gets the phrase, the user's local date and time and the catalog
+  (service ids with names and common forms, category ids), and returns a structured intent:
+  `kind` (`block` / `study` / `unclear`), `serviceIds` and `categoryIds` (enums of catalog ids,
+  so an invented service is impossible), `domains`, `durationMinutes`, `untilTime` («HH:MM»)
+  with `untilTomorrow`, `task`, `clarification`. **The server writes `canonicalText` itself**
+  («bloquear youtube y instagram durante 75 minutos», «estudiar física durante 40 minutos»),
+  using for each id a word the local parser is known to read as exactly that id (built once
+  from the catalog; 88 of 90 services, all categories; `juegos-com` and `minijuegos-com` read
+  as the Juegos category, so they are dropped). Durations are clamped to 5–1440 minutes; a
+  domain is kept only if the user typed it; at most 10 targets. The phrase is accepted only if
+  the shared `parseIntent` reads it back to the same kind and targets with nothing unparsed
+  and a duration within 5–1440, using a clock shifted so `now.getHours()` reads the user's wall
+  time in `timeZone` (the parser reads local time; the server runs in UTC). Otherwise
+  `canonicalText: null` and the model's clarification (for `unclear`) or a generic Spanish one.
+  The **desktop re-parses `canonicalText` locally** (correct zone) and always shows the
+  confirmation card; nothing goes straight to a block.
+- **split-task**: 2–12 steps (extra steps dropped; fewer → 502), titles ≤ 80, minutes clamped
+  to 5–120, tip ≤ 200. A `suggestedPhrase` survives only if `parseIntent` reads it with
+  `complete: true`, nothing unparsed, no domains and exactly the step's minutes; else null.
+- **study-plan**: `today` within a day of the server's UTC date, `examDate` 1–366 days after
+  it, at least one study day left (400 otherwise). The server computes the study days
+  (`[today, examDate − 1]`, at most 60, minus `daysOff`) and gives the model that exact list;
+  it then keeps only listed days, once each, in order, at most 6 items a day of at least
+  5 minutes, scales each day down to `dailyMinutes` (dropping the last items if still over),
+  keeps topics ≤ 80 chars and advice ≤ 5 items of ≤ 200.
+- **weekly-summary**: the week must be a valid ISO week that has started in the profile's
+  zone. With `syncStats` on, the input is built on the server from `daily_stats` (the week,
+  summed across devices with focus capped at 1440 and study at focus, plus the previous 3
+  weeks' totals; numbers only, `stats` ignored); otherwise `stats` is required, its days must
+  fall inside the week, and it is processed, not stored. No user text reaches this prompt. No
+  summary text is stored (the app caches its own). Headline ≤ 120, ≤ 4 highlights of ≤ 160,
+  suggestion ≤ 240.
+- **quota** (`GET /v1/coach/quota`, capability only): requests left per bucket and
+  `tokensLeft` = `AI_USER_DAILY_TOKENS` − (used + reserved), `resetsAt` = next 00:00 UTC.
+
+### 10.2 Quotas, budget and kill switch
 
 - Per user per UTC day: `interpret` requests, `coach` requests (split-task, study-plan,
-  weekly-summary) and tokens (input + output of both). Global: estimated spend per UTC day
-  against `AI_GLOBAL_DAILY_BUDGET_USD`.
-- **Reserve, call, settle.** Before calling, one atomic statement reserves a request and the
-  worst-case tokens (`INSERT … ON CONFLICT (user_id, day, feature) DO UPDATE SET requests =
-  requests + 1, reserved_tokens = reserved_tokens + $w WHERE requests < $max AND used + reserved
-  - $w ≤ $maxTokens RETURNING`); no row → 429 `quota_exceeded`with`resetsAt`(next 00:00
-UTC). The same pattern on`ai_global_daily`with the worst-case cost; no row → 503`feature_disabled` (`reason: 'budget'`) and `/health`shows it. After the call the reservation
-is replaced by the real`usage` (input, output, cache read/write) and its cost; a provider
-    error releases the tokens but keeps the request counted. 20 parallel requests with a limit of
-    10 must yield exactly 10 calls (tested).
-- **Prices** (micro-USD per token, in `src/coach/`): `claude-haiku-4-5` 1 in / 5 out,
-  `claude-opus-5` 5 in / 25 out; cache writes 1.25× input, cache reads 0.1× input; an unknown
-  model is billed at the Opus rate (conservative).
-- No prompt or answer text is stored or logged; only `ai_usage` counters change (tested by
-  scanning every table after each coach test).
+  weekly-summary) and tokens (input + output + cache reads + cache writes, both buckets
+  together). Global: spend per UTC day against `AI_GLOBAL_DAILY_BUDGET_USD`.
+- **Reserve, call, settle** (`src/coach/quota.ts`). Before calling, one transaction takes a
+  per-user advisory lock (`pg_advisory_xact_lock`: the token limit spans both buckets, so a
+  row lock is not enough), checks requests and used + reserved + worst case against the
+  limits (else 429 `quota_exceeded` with `resetsAt`, the next 00:00 UTC), then reserves the
+  worst-case cost globally with a conditional upsert on `ai_global_daily` (applied only while
+  `cost + reserved + $c ≤ budget`; no row → 503 `feature_disabled`, `reason: 'budget'`, and
+  `/health` shows it) and finally the request and worst-case tokens on the user row. Worst
+  case = estimated input (characters / 3 + 1 500 for the schema and framing) + `max_tokens`;
+  its cost assumes every input token is a cache write. After the call the reservation is
+  replaced by the real usage of every attempt and its cost; a provider error releases the
+  tokens and the cost but keeps the request counted. Tested: 20 parallel reservations with a
+  limit of 10 give exactly 10; 8 parallel calls with a limit of 5 give 5 model calls.
+- Consequences of worst-case reservations: with `AI_USER_DAILY_TOKENS` below about 19 000 a
+  study plan never fits, and with `AI_GLOBAL_DAILY_BUDGET_USD` below about 0.43 neither does
+  its worst-case cost. The defaults (150 000 tokens, 2 USD) leave room.
+- **Prices** (micro-USD per token, `MODEL_PRICES` in `src/coach/budget.ts`, skill 2026-09):
+  `claude-haiku-4-5` 1 / 5, `claude-sonnet-5` 2 / 10, `claude-opus-5` 5 / 25, `claude-opus-4-8`
+  5 / 25, `claude-opus-5-5` 4 / 20, `claude-fable-5-1` 10 / 50, …; cache writes 1.25× input,
+  cache reads 0.1× input. An unknown model id is billed at the most expensive listed rate
+  (conservative).
+- **Kill switches**: `AI_ENABLED=false` (environment, needs a restart) or, at once and without
+  a redeploy, the `meta` row `ai_kill_switch = 'on'` (delete the row to undo):
+
+  ```sql
+  INSERT INTO meta (key, value) VALUES ('ai_kill_switch', 'on')
+    ON CONFLICT (key) DO UPDATE SET value = excluded.value;
+  ```
+
+  Both answer 503 `feature_disabled` with `reason: 'kill_switch'` and `/health` reports it
+  (`RuntimeState.aiKillSwitch`). `AI_GLOBAL_DAILY_BUDGET_USD=0` also turns the coach off
+  (`budget`).
+
+- No prompt or answer text is stored or logged; only `ai_usage` / `ai_global_daily` counters
+  change (tested by scanning every table and the captured logs after coach calls).
 
 ## 11. Web pages
 
@@ -650,19 +742,20 @@ anything that must hold across restarts, AI quotas and partner emails, lives in 
 Key: `u:<userId>` when a session resolved, else `ip:<client ip>` (`TRUST_PROXY_HOPS=1` on
 Render). 429 carries `retryAfterSeconds` and `Retry-After`.
 
-| Scope                                       | Limit                                     |
-| ------------------------------------------- | ----------------------------------------- |
-| Everything (default)                        | 120 per minute                            |
-| `/health`                                   | not limited                               |
-| Email code send (better-auth `customRules`) | 5 per 15 min per IP, 3 per hour per email |
-| `POST /v1/app-auth/authorize`, `/token`     | 20 per hour                               |
-| `PUT /v1/sync/days`                         | 60 per hour                               |
-| `PUT /v1/presence`                          | 4 per minute                              |
-| `POST /v1/friends/invites`                  | 10 per day                                |
-| Invite preview and accept                   | 20 per hour                               |
-| Accountability events and decisions         | 30 per hour                               |
-| `/v1/coach/*` (plus the daily quotas)       | 10 per minute                             |
-| `GET /v1/me/export`, `DELETE /v1/me`        | 3 per hour                                |
+| Scope                                                           | Limit                                      |
+| --------------------------------------------------------------- | ------------------------------------------ |
+| Everything (default)                                            | 120 per minute                             |
+| `/health`                                                       | not limited                                |
+| Email code send (Fastify route + in-memory per-address counter) | 5 per 15 min per IP, 3 per hour per email  |
+| Email code sign-in (`/api/auth/sign-in/email-otp`)              | 20 per 15 min per IP (5 attempts per code) |
+| `POST /v1/app-auth/authorize`, `/token`                         | 20 per hour                                |
+| `PUT /v1/sync/days`                                             | 60 per hour                                |
+| `PUT /v1/presence`                                              | 4 per minute                               |
+| `POST /v1/friends/invites`                                      | 10 per day                                 |
+| Invite preview and accept                                       | 20 per hour                                |
+| Accountability events and decisions                             | 30 per hour                                |
+| `/v1/coach/*` (plus the daily quotas)                           | 10 per minute                              |
+| `GET /v1/me/export`, `DELETE /v1/me`                            | 3 per hour                                 |
 
 Body limits: 32 KB by default, 256 KB for `PUT /v1/sync/days`, 16 KB for coach routes, 4 KB
 for urlencoded forms.
@@ -680,12 +773,18 @@ for urlencoded forms.
   headers, query strings, bodies, emails or tokens; serializers and `redact` enforce it, and a
   test scans captured output. Errors are logged by type and code (plus stack for 5xx), never
   by message (messages can quote values). Prompts and answers are never logged.
+- **Error logs** keep only the stack frames (`at …` lines): a stack's first lines repeat the
+  message, and a failed query's message lists its SQL parameters (tokens, emails). Driver errors
+  wrapped by Drizzle are still recognised as `database_unavailable` through their `cause`.
 - **Security headers:** helmet (strict CSP above, `Referrer-Policy: no-referrer`, HSTS in
   production); `Cache-Control: no-store` on every response.
 - **GDPR:** `GET /v1/me/export` (every row about the user; other people only as id and display
   name; no tokens or hashes) and `DELETE /v1/me` (hard delete by cascade, plus the user's
-  `verification` rows by identifier). A test enumerates every table with a user column from the
-  schema, so a new table fails until export and deletion cover it.
+  `verification` rows by identifier; the answer expires the session cookie). The export also
+  carries `usageCounters`. `src/lib/gdpr.ts` keeps `USER_DATA_COVERAGE`, which names where each
+  table with user data goes; the social part comes from SOCIAL's `exportSocialData`.
+  test/gdpr.test.ts enumerates every table with a user column from the schema, so a new table
+  fails until it is listed there, exported and deleted.
 - **Retention:** §6. **Region:** Frankfurt (EU).
 - **Age:** Spain requires 14 to consent (LOPDGDD art. 7); the sign-in page says so.
 - `PRIVACY.md` (another team) must gain: what each switch shares, the Anthropic processing
@@ -741,7 +840,12 @@ retryAfterMs }`): retry network errors, timeouts, 429 (honouring `Retry-After`) 
   grace period before deletion) and has 1 GB. When it is recreated, `serverEpoch` changes and
   the app re-uploads stats (§7); social data is lost. For a durable service, upgrade the
   database (a `PENDIENTE_PARA_MI` item).
-- Migrations run at boot (no pre-deploy command on the free plan).
+- Migrations run at boot (no pre-deploy command on the free plan). When Postgres does not
+  answer at boot (an expired free database, a network blip) the server starts anyway: `/health`
+  says `db: down`, `/v1` answers 503 `database_unavailable`, and migrations, the server epoch
+  and the janitor are retried every 60 s. Other migration errors stop the process.
+- `SIGTERM`/`SIGINT` close the server gracefully: in-flight requests finish, new ones get 503,
+  the pool closes; a forced exit follows after 10 s.
 - The Render account is at its 25-service limit (DECISIONS.md), so deploying needs a free slot:
   a `PENDIENTE_PARA_MI` item, like creating the Google OAuth client (redirect
   `{API}/api/auth/callback/google`), verifying a Resend domain and adding the Anthropic key and
@@ -759,6 +863,13 @@ sessionCreatedAt… })` (user + profile + bearer session), `tokenSessionResolver
   better-auth; CORE tests the real better-auth flows.
 - Existing tests: config and capabilities, ISO weeks and local days, health with and without a
   database, the error envelope, log hygiene.
+- CORE's tests: `auth` (email code end to end, cookies and bearer on the real resolver, CSRF,
+  sign-in methods per configuration, unreachable better-auth endpoints), `app-auth` (connect
+  page, authorize, PKCE token, reuse, limits, logout), `me`, `sync`, `gdpr` (schema-driven),
+  `janitor`, `mailer`, `account-pages`, `errors`. `test/helpers/core.ts` signs cookies like
+  better-auth and builds the app on the real resolver.
+- `vitest.config.ts` gives hooks 60 s: every file starts its own PGlite, which takes seconds
+  on a busy machine.
 
 Each builder adds the tests listed in §17. Gates for every builder: `npm run typecheck -w
 apps/api`, `npx eslint apps/api` (and `packages/shared` for CLIENT), `npm test -w apps/api`,

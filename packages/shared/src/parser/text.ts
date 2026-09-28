@@ -40,10 +40,13 @@ const PLAIN_RE = new RegExp(`(${NUM_SRC})|(${WORD_SRC})|(\\+)`, 'giu');
 const BREAK_RE = /[,;.:!?¿¡()[\]{}/\\|…]/;
 /** A word with digits glued to it: «youtube1h», «tiktok30min». */
 const GLUED_RE = /^(\p{L}[\p{L}\p{M}]*)(\d[\p{L}\p{N}\p{M}]*)$/u;
-/** Compact durations that may be glued to an alias («1h», «30min», «1h30», «2horas»). */
+/**
+ * Compact durations that may be glued to an alias («1h», «30min», «1h30», «2horas»,
+ * «1hour»).
+ */
 const GLUED_DURATION_RE = new RegExp(
-  String.raw`^(?:\d{1,4}(?:h|hr|hrs|hs|horas?|oras?|m|min|mins|minutos?)` +
-    String.raw`|\d{1,3}h\d{1,2}(?:m|min|mins|minutos?)?)$`,
+  String.raw`^(?:\d{1,4}(?:h|hr|hrs|hs|horas?|oras?|hours?|m|min|mins|minutos?|minutes?)` +
+    String.raw`|\d{1,3}h\d{1,2}(?:m|min|mins|minutos?|minutes?)?)$`,
 );
 const SCHEME_RE = /^[a-z][a-z0-9+.-]*:\/\//i;
 

@@ -1,4 +1,10 @@
-import { aliasEndsAt, followsTrigger, isTriggerAt, LIST_CONNECTORS } from './targets';
+import {
+  aliasEndsAt,
+  followsTrigger,
+  isTriggerAt,
+  LIST_CONNECTORS,
+  NEGATIVE_CONNECTORS,
+} from './targets';
 import { nextNorm, type Token } from './text';
 import { isFiller } from './vocabulary';
 
@@ -35,7 +41,10 @@ const POR_AFTER_X: ReadonlySet<string> = new Set([
   'aqui',
 ]);
 
-/** Qualifiers typed after a duration: «2h máx», «1 hora más o menos», «una hora entera». */
+/**
+ * Qualifiers typed after a duration: «2h máx», «1 hora más o menos», «una hora entera»,
+ * «2 hours max», «an hour or so», «1 hour straight».
+ */
 const AFTER_QUALIFIERS: ReadonlyArray<readonly string[]> = [
   ['mas', 'o', 'menos'],
   ['o', 'por', 'ahi'],
@@ -57,9 +66,25 @@ const AFTER_QUALIFIERS: ReadonlyArray<readonly string[]> = [
   ['seguidas'],
   ['seguido'],
   ['seguidos'],
+  ['more', 'or', 'less'],
+  ['or', 'so'],
+  ['or', 'something'],
+  ['at', 'most'],
+  ['at', 'least'],
+  ['in', 'a', 'row'],
+  ['in', 'total'],
+  ['tops'],
+  ['total'],
+  ['maximum'],
+  ['minimum'],
+  ['straight'],
+  ['ish'],
 ];
 
-/** Qualifiers typed before a duration: «máx. 2h», «como máximo 1 hora», «al menos 1h». */
+/**
+ * Qualifiers typed before a duration: «máx. 2h», «como máximo 1 hora», «al menos 1h», «at
+ * least 1h», «up to 2 hours».
+ */
 const BEFORE_QUALIFIERS: ReadonlyArray<readonly string[]> = [
   ['mas', 'o', 'menos'],
   ['por', 'lo', 'menos'],
@@ -71,6 +96,11 @@ const BEFORE_QUALIFIERS: ReadonlyArray<readonly string[]> = [
   ['maximo'],
   ['max'],
   ['minimo'],
+  ['at', 'most'],
+  ['at', 'least'],
+  ['up', 'to'],
+  ['maximum'],
+  ['minimum'],
 ];
 
 /**
@@ -154,14 +184,29 @@ export function markQualifiers(
   }
 }
 
-/** «bloquea todo menos WhatsApp», «sin redes excepto WhatsApp», «salvo», «quitando». */
+/**
+ * «bloquea todo menos WhatsApp», «sin redes excepto WhatsApp», «salvo», «quitando», «block
+ * everything except WhatsApp», «excluding», «besides».
+ */
 const EXCEPTION_MARKERS: ReadonlySet<string> = new Set([
   'menos',
   'excepto',
   'exceptuando',
   'salvo',
   'quitando',
+  'except',
+  'excluding',
+  'besides',
 ]);
+/** Two-word English markers: «apart from WhatsApp», «other than WhatsApp». */
+const EXCEPTION_PAIRS: ReadonlyMap<string, string> = new Map([
+  ['apart', 'from'],
+  ['other', 'than'],
+]);
+/** «but not WhatsApp», «but let me use WhatsApp», «but leave WhatsApp», «but keep…». */
+const LEAVE_AFTER_BUT: ReadonlySet<string> = new Set(['not', 'let', 'leave', 'keep', 'allow']);
+/** «everything but WhatsApp», «all but WhatsApp». */
+const ALL_BEFORE_BUT: ReadonlySet<string> = new Set(['all', 'everything', 'anything']);
 /** «pero déjame WhatsApp», «pero deja el WhatsApp». */
 const LEAVE_AFTER_PERO: ReadonlySet<string> = new Set([
   'deja',
@@ -171,17 +216,53 @@ const LEAVE_AFTER_PERO: ReadonlySet<string> = new Set([
   'dejas',
   'dejanos',
 ]);
-/** «estudiar 1h y después YouTube», «sin redes 1h, luego ya veremos». */
-const LATER: ReadonlySet<string> = new Set(['luego', 'despues']);
+/**
+ * «estudiar 1h y después YouTube», «sin redes 1h, luego ya veremos», «study 1h and then
+ * YouTube», «block Instagram and later TikTok».
+ */
+const LATER: ReadonlySet<string> = new Set([
+  'luego',
+  'despues',
+  'then',
+  'later',
+  'afterwards',
+  'after',
+]);
+/** «y», «e», «and» before a later plan: part of it. */
+const LATER_JOINERS: ReadonlySet<string> = new Set(['y', 'e', 'and']);
+
+/**
+ * Where an exception marker at `tokens[k]` ends («menos», «pero déjame», «but not», «apart
+ * from», «everything but», «…, not WhatsApp»), or -1 when there is none. `content` says
+ * whether something meaningful came before it.
+ */
+function exceptionMarkerEnd(tokens: readonly Token[], k: number, content: boolean): number {
+  const token = tokens[k];
+  if (!token) return -1;
+  const word = token.norm;
+  const next = nextNorm(tokens, k + 1);
+  if (EXCEPTION_MARKERS.has(word)) return next === 'for' && word === 'except' ? k + 2 : k + 1;
+  if (word === 'pero' && LEAVE_AFTER_PERO.has(next)) return k + 1;
+  if (EXCEPTION_PAIRS.get(word) === next) return k + 2;
+  if (word === 'but') {
+    if (LEAVE_AFTER_BUT.has(next)) return k + 2;
+    const previous = tokens[k - 1];
+    if (previous && !token.breakBefore && ALL_BEFORE_BUT.has(previous.norm)) return k + 1;
+  }
+  // «block social media, not WhatsApp».
+  if (word === 'not' && token.breakBefore && content) return k + 1;
+  return -1;
+}
 
 /**
  * Tokens that must never become targets or a study task, as a mask over `tokens`. They
  * stay unread, so they end up in `unparsed` and the result is never complete:
- * - an exception, from its marker to punctuation or the next block word other than «ni»:
- *   «bloquea todo menos WhatsApp», «sin redes excepto WhatsApp 1h», «pero déjame WhatsApp».
- * - a later plan, from «(y) luego/después» to punctuation, when something came before it:
- *   «estudiar 1h y después YouTube». A phrase that starts with «después de cenar…» is
- *   left alone.
+ * - an exception, from its marker to punctuation or the next block word other than «ni» or
+ *   «nor»: «bloquea todo menos WhatsApp», «sin redes excepto WhatsApp 1h», «pero déjame
+ *   WhatsApp», «block everything except WhatsApp», «no social media but not WhatsApp».
+ * - a later plan, from «(y) luego/después», «(and) then/later/after» to punctuation, when
+ *   something came before it: «estudiar 1h y después YouTube», «study 1h and then YouTube».
+ *   A phrase that starts with «después de cenar…» or «after dinner…» is left alone.
  * Words already read (times, qualifiers) end both.
  */
 export function findExcluded(tokens: readonly Token[], used: readonly boolean[]): boolean[] {
@@ -197,15 +278,14 @@ export function findExcluded(tokens: readonly Token[], used: readonly boolean[])
     const word = token.norm;
     let start = -1;
     let later = false;
-    if (EXCEPTION_MARKERS.has(word)) {
-      start = k;
-    } else if (word === 'pero' && LEAVE_AFTER_PERO.has(nextNorm(tokens, k + 1))) {
+    const markerEnd = exceptionMarkerEnd(tokens, k, content);
+    if (markerEnd > k) {
       start = k;
     } else if (LATER.has(word) && content) {
       later = true;
       const previous = tokens[k - 1];
       const joined =
-        previous && !token.breakBefore && !used[k - 1] && ['y', 'e'].includes(previous.norm);
+        previous && !token.breakBefore && !used[k - 1] && LATER_JOINERS.has(previous.norm);
       start = joined ? k - 1 : k;
     }
     if (start < 0) {
@@ -216,7 +296,8 @@ export function findExcluded(tokens: readonly Token[], used: readonly boolean[])
     for (; j < tokens.length; j += 1) {
       if (j > start && tokens[j]?.breakBefore) break;
       if (used[j]) break;
-      if (!later && j > k && isTriggerAt(tokens, j) && tokens[j]?.norm !== 'ni') break;
+      const trigger = isTriggerAt(tokens, j) && !NEGATIVE_CONNECTORS.has(tokens[j]?.norm ?? '');
+      if (!later && j >= markerEnd && trigger) break;
       excluded[j] = true;
     }
     k = j - 1;

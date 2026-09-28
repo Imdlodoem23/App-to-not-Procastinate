@@ -5,6 +5,9 @@
  * - Spanish copy, sentence case; colors only from the shared design tokens (served as CSS).
  * - Strict CSP (see app.ts): no inline scripts or styles. Page scripts are registered assets.
  * - Every interpolated value goes through `html` (escaped). Never put secrets in a page.
+ * - `<meta name="referrer" content="same-origin">` overrides the API's `no-referrer` header for
+ *   pages, so their same-origin form posts and fetches carry a real `Origin` (the CSRF rule for
+ *   cookie sessions, auth/csrf.ts); other sites still get no referrer at all.
  */
 
 /** Text that is already safe HTML. Only `html` and `raw` create it. */
@@ -66,6 +69,8 @@ export function page({ title, body, scripts = [] }: PageOptions): string {
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="robots" content="noindex" />
+        <meta name="referrer" content="same-origin" />
+        <link rel="icon" href="data:," />
         <title>${title} · Céntrate</title>
         <link rel="stylesheet" href="${ASSET_PREFIX}tokens.css" />
         <link rel="stylesheet" href="${ASSET_PREFIX}pages.css" />
@@ -78,6 +83,10 @@ export function page({ title, body, scripts = [] }: PageOptions): string {
 }
 
 export const ASSET_PREFIX = '/cuenta/assets/';
+
+/** The static website (download and privacy pages). */
+export const WEBSITE_URL = 'https://centrate.onrender.com';
+export const PRIVACY_URL = `${WEBSITE_URL}/privacidad`;
 
 export interface PageAsset {
   contentType: 'text/css; charset=utf-8' | 'text/javascript; charset=utf-8' | 'image/svg+xml';

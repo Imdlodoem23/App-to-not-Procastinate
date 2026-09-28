@@ -338,8 +338,24 @@ describe('chip corrections', () => {
     const d = { ...draft(), targets: { ...draft().targets, categoryIds: ['social' as const] } };
     withLocale('en', () => {
       expect(chipEditText(d, 'targets', NOW)).toBe('YouTube, Redes sociales');
-      expect(chipEditText(d, 'end', NOW)).toBe('18:00');
       expect(draftEndLabels(d, NOW).until).toMatch(/^until 6:00\sPM$/u);
+    });
+  });
+
+  it('starts an English end time today on the English clock, and reads it back', () => {
+    withLocale('en', () => {
+      const today = draft();
+      expect(chipEditText(today, 'end', NOW)).toBe('6:00 PM');
+      const result = applyChipEdit(today, 'end', chipEditText(today, 'end', NOW), NOW, PREFS);
+      expect(result.ok && result.draft.end).toEqual({
+        kind: 'until',
+        endsAt: '2026-09-28T16:00:00.000Z',
+      });
+      const tomorrow: BlockDraft = { ...draft(), end: { kind: 'duration', minutes: 15 * 60 } };
+      expect(chipEditText(tomorrow, 'end', NOW)).toBe('mañana 08:00');
+      for (const text of ['8:00 PM', '8 PM', '18:30']) {
+        expect(applyChipEdit(today, 'end', text, NOW, PREFS).ok, text).toBe(true);
+      }
     });
   });
 
@@ -361,6 +377,10 @@ describe('chip corrections', () => {
   it('refuses targets it does not understand', () => {
     const result = applyChipEdit(draft(), 'targets', 'mañana tarde', NOW, PREFS);
     expect(result).toEqual({ ok: false, message: 'No he entendido: "mañana tarde"' });
+    const english = withLocale('en', () =>
+      applyChipEdit(draft(), 'targets', 'mañana tarde', NOW, PREFS),
+    );
+    expect(english).toEqual({ ok: false, message: 'Not understood: “mañana tarde”' });
   });
 
   it('leaves Examen when targets are chosen', () => {

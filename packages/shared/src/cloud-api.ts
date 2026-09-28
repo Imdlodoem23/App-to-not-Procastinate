@@ -815,5 +815,1108 @@ export function isoWeekRange(week: IsoWeek): { from: LocalDay; to: LocalDay } | 
 }
 
 // ---------------------------------------------------------------------------------------
-// Client and offline outbox (owned by the CLIENT builder, see docs/API.md §13)
+// Client and offline outbox (owned by the CLIENT builder, see docs/API.md §14)
 // ---------------------------------------------------------------------------------------
+//
+// Only the desktop main process calls the API. Every call is optional: short timeouts, typed
+// errors that say whether a retry makes sense, and an outbox for what must eventually arrive
+// (daily totals, accountability events). Pure TypeScript on web-platform globals (`fetch`,
+// `AbortController`, `URL`), no Node imports, so it runs in Node, Electron and tests alike.
+
+/**
+ * How a call failed:
+ * - `offline`: no answer at all (no network, DNS, TLS, refused connection, a redirect).
+ * - `timeout`: no answer within the call's timeout (a cold start takes about a minute).
+ * - `aborted`: the caller cancelled it through its `signal`.
+ * - `http`: the server answered with an error status. `code` is set when the body is our error
+ *   envelope; a proxy or gateway page (Render while it deploys) has `code: null`.
+ * - `invalid_response`: a 2xx answer that is not the expected JSON (a captive portal, a proxy).
+ */
+export type CloudErrorKind = 'offline' | 'timeout' | 'aborted' | 'http' | 'invalid_response';
+
+export interface CloudErrorInit {
+  kind: CloudErrorKind;
+  /** The client method, e.g. `putDays`. Safe to log (never a URL, code or token). */
+  operation: string;
+  status?: number | null;
+  details?: CloudErrorBody['error'] | null;
+  retryAfterMs?: number | null;
+  cause?: unknown;
+}
+
+/**
+ * The only error the client throws for a call. `retryable` says whether sending the same
+ * request later can succeed: network errors, timeouts, bad gateways, 429 `rate_limited` and
+ * 5xx answers, except `feature_disabled` (a configuration, unless the database is down),
+ * `not_implemented` and `coach_incomplete`. Never other 4xx. On 401 the app signs out and
+ * keeps every local data (`isUnauthorized`).
+ */
+export class CloudError extends Error {
+  readonly kind: CloudErrorKind;
+  readonly operation: string;
+  readonly status: number | null;
+  readonly code: CloudErrorCode | null;
+  /** The error envelope's extras (`feature`, `reason`, `consent`, `issues`, `resetsAt`…). */
+  readonly details: CloudErrorBody['error'] | null;
+  readonly retryable: boolean;
+  /** How long the server asked us to wait (`Retry-After`, or until `resetsAt`). */
+  readonly retryAfterMs: number | null;
+
+  constructor(init: CloudErrorInit) {
+    const status = init.status ?? null;
+    const details = init.details ?? null;
+    const what = init.kind === 'http' ? `HTTP ${status ?? '?'} ${details?.code ?? ''}` : init.kind;
+    super(`Cloud ${init.operation} failed: ${what.trim()}`, { cause: init.cause });
+    this.name = 'CloudError';
+    this.kind = init.kind;
+    this.operation = init.operation;
+    this.status = status;
+    this.code = details?.code ?? null;
+    this.details = details;
+    this.retryAfterMs = init.retryAfterMs ?? null;
+    this.retryable = isRetryable(init.kind, status, details);
+  }
+
+  /** The session is gone (expired, revoked, account deleted): sign out, keep local data. */
+  get isUnauthorized(): boolean {
+    return this.status === 401;
+  }
+}
+
+export function isCloudError(value: unknown): value is CloudError {
+  return value instanceof CloudError;
+}
+
+function isRetryable(
+  kind: CloudErrorKind,
+  status: number | null,
+  details: CloudErrorBody['error'] | null,
+): boolean {
+  if (kind === 'offline' || kind === 'timeout' || kind === 'invalid_response') return true;
+  if (kind === 'aborted' || status === null) return false;
+  const code = details?.code ?? null;
+  if (status === 408) return true;
+  if (status === 429) return code !== 'quota_exceeded';
+  if (status >= 500) {
+    if (code === 'feature_disabled') return details?.reason === 'database_down';
+    return code !== 'not_implemented' && code !== 'coach_incomplete';
+  }
+  return false;
+}
+
+/** Which timeout a call uses by default (see `CLOUD_TIMEOUTS`). */
+export type CloudCallClass = 'background' | 'interactive' | 'coach';
+
+export interface CloudCallOptions {
+  /** Overrides the call's default timeout, in milliseconds. */
+  timeoutMs?: number;
+  /** Cancels the call (`CloudError` with kind `aborted`). */
+  signal?: AbortSignal;
+}
+
+/** What the client needs from `fetch`. The global `fetch` and Electron's `net.fetch` fit. */
+export type CloudFetch = (
+  url: string,
+  init: {
+    method: string;
+    headers: Record<string, string>;
+    body?: string;
+    signal: AbortSignal;
+    credentials: 'omit';
+    cache: 'no-store';
+    redirect: 'error';
+  },
+) => Promise<{
+  status: number;
+  headers: { get(name: string): string | null };
+  text(): Promise<string>;
+}>;
+
+export interface CloudClientOptions {
+  /** The API origin, e.g. `https://centrate-api.onrender.com`. */
+  baseUrl: string;
+  /** The bearer token (kept in Electron `safeStorage`), or null when signed out. */
+  getToken: () => string | null | Promise<string | null>;
+  /** Defaults to the global `fetch`. */
+  fetch?: CloudFetch;
+  timeouts?: Partial<Record<'backgroundMs' | 'interactiveMs' | 'coachMs', number>>;
+  /** Called when the server answers 401 to a signed-in call: sign out, keep local data. */
+  onUnauthorized?: () => void;
+  /** Clock for `Retry-After` dates and `resetsAt` (tests pass a fake one). */
+  now?: () => Date;
+}
+
+/** One typed method per endpoint of docs/API.md §5. Every method rejects with `CloudError`. */
+export interface CloudClient {
+  readonly baseUrl: string;
+
+  /** GET /health (public). Also wakes a sleeping server: call it at app start. */
+  health(options?: CloudCallOptions): Promise<HealthResponse>;
+  /** POST /v1/app-auth/token (public): trades the loopback code for a bearer token. */
+  exchangeLoginCode(body: AppTokenRequest, options?: CloudCallOptions): Promise<AppTokenResponse>;
+  /** POST /v1/app-auth/logout: ends this session. The device and its stats stay. */
+  logout(options?: CloudCallOptions): Promise<void>;
+
+  getMe(options?: CloudCallOptions): Promise<MeResponse>;
+  updateMe(body: PatchMeRequest, options?: CloudCallOptions): Promise<MeResponse>;
+  /** GET /v1/me/export: every row about the user (GDPR). */
+  exportData(options?: CloudCallOptions): Promise<CloudExport>;
+  /** DELETE /v1/me. `reauth_required` (403) when the session is older than 15 minutes. */
+  deleteAccount(options?: CloudCallOptions): Promise<void>;
+  listDevices(options?: CloudCallOptions): Promise<DevicesResponse>;
+  renameDevice(deviceId: string, name: string, options?: CloudCallOptions): Promise<CloudDevice>;
+  /** DELETE /v1/devices/:id: the device, its stats and its session. */
+  removeDevice(deviceId: string, options?: CloudCallOptions): Promise<void>;
+
+  getSyncState(deviceId: string, options?: CloudCallOptions): Promise<SyncStateResponse>;
+  /** PUT /v1/sync/days. Use the outbox (`createOutbox`) rather than calling it directly. */
+  putDays(body: PutDaysRequest, options?: CloudCallOptions): Promise<PutDaysResponse>;
+  /** DELETE /v1/sync/days: this user's cloud stats (all devices, or one). */
+  deleteSyncedDays(deviceId?: string | null, options?: CloudCallOptions): Promise<void>;
+  getStats(from: LocalDay, to: LocalDay, options?: CloudCallOptions): Promise<StatsResponse>;
+
+  createInvite(
+    body?: CreateInviteRequest,
+    options?: CloudCallOptions,
+  ): Promise<CreateInviteResponse>;
+  listInvites(options?: CloudCallOptions): Promise<InvitesResponse>;
+  revokeInvite(inviteId: string, options?: CloudCallOptions): Promise<void>;
+  previewInvite(code: string, options?: CloudCallOptions): Promise<InvitePreviewResponse>;
+  acceptInvite(code: string, options?: CloudCallOptions): Promise<AcceptInviteResponse>;
+  listFriends(options?: CloudCallOptions): Promise<FriendsResponse>;
+  removeFriend(userId: string, options?: CloudCallOptions): Promise<void>;
+  listBlocks(options?: CloudCallOptions): Promise<BlocksResponse>;
+  blockUser(userId: string, options?: CloudCallOptions): Promise<void>;
+  unblockUser(userId: string, options?: CloudCallOptions): Promise<void>;
+  /** GET /v1/ranking. Without `week`, the current ISO week in the profile's zone. */
+  getRanking(week?: IsoWeek | null, options?: CloudCallOptions): Promise<RankingResponse>;
+  /** PUT /v1/presence: a heartbeat every 60 s. Never queue it. */
+  putPresence(body: PutPresenceRequest, options?: CloudCallOptions): Promise<PutPresenceResponse>;
+  clearPresence(options?: CloudCallOptions): Promise<void>;
+  getFriendsPresence(options?: CloudCallOptions): Promise<FriendsPresenceResponse>;
+
+  listPartners(options?: CloudCallOptions): Promise<PartnersResponse>;
+  proposePartner(body: CreatePartnerRequest, options?: CloudCallOptions): Promise<PartnerLink>;
+  acceptPartner(linkId: string, options?: CloudCallOptions): Promise<PartnerLink>;
+  updatePartner(
+    linkId: string,
+    body: PatchPartnerRequest,
+    options?: CloudCallOptions,
+  ): Promise<PartnerLink>;
+  /** DELETE /v1/partners/:id: null when removed now, the link when it ends in 24 h. */
+  removePartner(linkId: string, options?: CloudCallOptions): Promise<PartnerLink | null>;
+  /** POST /v1/accountability/events. Use the outbox; a replayed `clientRef` is harmless. */
+  postAccountabilityEvent(
+    body: PostAccountabilityEventRequest,
+    options?: CloudCallOptions,
+  ): Promise<PostAccountabilityEventResponse>;
+  /** The owner polls it every 15 s while an approval is pending (never queue it). */
+  getAccountabilityEvent(
+    eventId: string,
+    options?: CloudCallOptions,
+  ): Promise<AccountabilityEventResponse>;
+  getInbox(options?: CloudCallOptions): Promise<InboxResponse>;
+  decideApproval(
+    eventId: string,
+    body: ApprovalDecisionRequest,
+    options?: CloudCallOptions,
+  ): Promise<ApprovalState>;
+
+  getCoachQuota(options?: CloudCallOptions): Promise<CoachQuotaResponse>;
+  interpret(body: InterpretRequest, options?: CloudCallOptions): Promise<InterpretResponse>;
+  splitTask(body: SplitTaskRequest, options?: CloudCallOptions): Promise<SplitTaskResponse>;
+  studyPlan(body: StudyPlanRequest, options?: CloudCallOptions): Promise<StudyPlanResponse>;
+  weeklySummary(
+    body: WeeklySummaryRequest,
+    options?: CloudCallOptions,
+  ): Promise<WeeklySummaryResponse>;
+}
+
+type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+interface CallSpec {
+  operation: string;
+  method: HttpMethod;
+  /** Path with its parameters already encoded (`seg`). */
+  path: string;
+  query?: Record<string, string | null | undefined>;
+  body?: unknown;
+  /** Sends the bearer token. Public routes: /health and the login code exchange. */
+  auth: boolean;
+  timeout: CloudCallClass;
+}
+
+interface CallResult {
+  status: number;
+  /** Parsed JSON, or null for an empty answer (204). */
+  data: unknown;
+}
+
+/** Longest wait a `Retry-After` or `resetsAt` may ask for (a day). */
+const RETRY_AFTER_CAP_MS = 86_400_000;
+
+/** A path segment from a caller value (ids, invite codes). */
+const seg = (value: string): string => encodeURIComponent(value);
+
+function defaultFetch(): CloudFetch {
+  if (typeof fetch !== 'function') {
+    throw new TypeError('createCloudClient: no fetch implementation available');
+  }
+  return (url, init) => fetch(url, init);
+}
+
+function normalizeBaseUrl(baseUrl: string): string {
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    throw new TypeError('createCloudClient: baseUrl must be an absolute http(s) URL');
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new TypeError('createCloudClient: baseUrl must be an absolute http(s) URL');
+  }
+  if (url.search || url.hash || url.username || url.password) {
+    throw new TypeError('createCloudClient: baseUrl cannot carry a query, fragment or login');
+  }
+  return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+}
+
+function parseRetryAfter(header: string | null, now: Date): number | null {
+  if (!header) return null;
+  const trimmed = header.trim();
+  if (/^\d+$/.test(trimmed)) return Math.min(Number(trimmed) * 1000, RETRY_AFTER_CAP_MS);
+  const at = Date.parse(trimmed);
+  if (Number.isNaN(at)) return null;
+  return Math.min(Math.max(0, at - now.getTime()), RETRY_AFTER_CAP_MS);
+}
+
+function errorEnvelope(data: unknown): CloudErrorBody['error'] | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const error = (data as { error?: unknown }).error;
+  if (typeof error !== 'object' || error === null) return null;
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  if (typeof code !== 'string' || !(CLOUD_ERROR_CODES as readonly string[]).includes(code)) {
+    return null;
+  }
+  return {
+    ...(error as CloudErrorBody['error']),
+    message: typeof message === 'string' ? message : '',
+  };
+}
+
+function retryAfterOf(
+  headers: { get(name: string): string | null },
+  details: CloudErrorBody['error'] | null,
+  now: Date,
+): number | null {
+  const fromHeader = parseRetryAfter(headers.get('retry-after'), now);
+  if (fromHeader !== null) return fromHeader;
+  if (details?.retryAfterSeconds !== undefined && Number.isFinite(details.retryAfterSeconds)) {
+    return Math.min(Math.max(0, details.retryAfterSeconds * 1000), RETRY_AFTER_CAP_MS);
+  }
+  if (details?.resetsAt) {
+    const at = Date.parse(details.resetsAt);
+    if (!Number.isNaN(at)) return Math.min(Math.max(0, at - now.getTime()), RETRY_AFTER_CAP_MS);
+  }
+  return null;
+}
+
+/**
+ * The typed client of the Céntrate API (docs/API.md §5 and §14). One method per endpoint; each
+ * uses the timeout of its class (background 10 s, interactive 60 s, coach 90 s) unless the call
+ * passes `timeoutMs`. It never retries by itself: background work goes through the outbox.
+ */
+export function createCloudClient(options: CloudClientOptions): CloudClient {
+  const baseUrl = normalizeBaseUrl(options.baseUrl);
+  const doFetch: CloudFetch = options.fetch ?? defaultFetch();
+  const timeouts = {
+    background: options.timeouts?.backgroundMs ?? CLOUD_TIMEOUTS.backgroundMs,
+    interactive: options.timeouts?.interactiveMs ?? CLOUD_TIMEOUTS.interactiveMs,
+    coach: options.timeouts?.coachMs ?? CLOUD_TIMEOUTS.coachMs,
+  };
+  const now = options.now ?? (() => new Date());
+
+  async function call(spec: CallSpec, callOptions: CloudCallOptions = {}): Promise<CallResult> {
+    const { operation } = spec;
+    const headers: Record<string, string> = { accept: 'application/json' };
+    if (spec.auth) {
+      const token = await options.getToken();
+      if (!token) {
+        throw new CloudError({
+          kind: 'http',
+          operation,
+          status: 401,
+          details: { code: 'unauthorized', message: 'Not signed in' },
+        });
+      }
+      headers.authorization = `Bearer ${token}`;
+    }
+    let body: string | undefined;
+    if (spec.body !== undefined) {
+      headers['content-type'] = 'application/json';
+      body = JSON.stringify(spec.body);
+    }
+    let url = `${baseUrl}${spec.path}`;
+    const query = Object.entries(spec.query ?? {}).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    );
+    if (query.length > 0) url += `?${new URLSearchParams(query).toString()}`;
+
+    const signal = callOptions.signal;
+    if (signal?.aborted) throw new CloudError({ kind: 'aborted', operation });
+    const controller = new AbortController();
+    let timedOut = false;
+    const timeoutMs = callOptions.timeoutMs ?? timeouts[spec.timeout];
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    const forward = (): void => controller.abort();
+    signal?.addEventListener('abort', forward, { once: true });
+    // Settles on abort even if a fetch implementation ignores its signal.
+    const abandoned = new Promise<never>((_resolve, reject) => {
+      controller.signal.addEventListener('abort', () => reject(new Error('aborted')), {
+        once: true,
+      });
+    });
+
+    let status: number;
+    let responseHeaders: { get(name: string): string | null };
+    let text: string;
+    try {
+      const exchange = (async () => {
+        const res = await doFetch(url, {
+          method: spec.method,
+          headers,
+          body,
+          signal: controller.signal,
+          credentials: 'omit',
+          cache: 'no-store',
+          redirect: 'error',
+        });
+        return { status: res.status, headers: res.headers, text: await res.text() };
+      })();
+      const answer = await Promise.race([exchange, abandoned]);
+      status = answer.status;
+      responseHeaders = answer.headers;
+      text = answer.text;
+    } catch (cause) {
+      if (timedOut) throw new CloudError({ kind: 'timeout', operation, cause });
+      if (signal?.aborted) throw new CloudError({ kind: 'aborted', operation, cause });
+      throw new CloudError({ kind: 'offline', operation, cause });
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', forward);
+      abandoned.catch(() => undefined);
+    }
+
+    let data: unknown = null;
+    let parsed = true;
+    if (text.length > 0) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        parsed = false;
+      }
+    }
+    if (status >= 200 && status < 300) {
+      const empty = status === 204 || text.length === 0;
+      if (!parsed || (!empty && (typeof data !== 'object' || data === null))) {
+        throw new CloudError({ kind: 'invalid_response', operation, status });
+      }
+      return { status, data: empty ? null : data };
+    }
+    const details = parsed ? errorEnvelope(data) : null;
+    const error = new CloudError({
+      kind: 'http',
+      operation,
+      status,
+      details,
+      retryAfterMs: retryAfterOf(responseHeaders, details, now()),
+    });
+    if (status === 401 && spec.auth && options.onUnauthorized) {
+      try {
+        options.onUnauthorized();
+      } catch {
+        // The app's handler must not turn one failed call into another error.
+      }
+    }
+    throw error;
+  }
+
+  /** A call whose success carries a JSON body of type T. */
+  async function json<T>(spec: CallSpec, callOptions?: CloudCallOptions): Promise<T> {
+    const { status, data } = await call(spec, callOptions);
+    if (data === null) {
+      throw new CloudError({ kind: 'invalid_response', operation: spec.operation, status });
+    }
+    return data as T;
+  }
+
+  /** A call whose success carries nothing we need (204). */
+  async function empty(spec: CallSpec, callOptions?: CloudCallOptions): Promise<void> {
+    await call(spec, callOptions);
+  }
+
+  const get = (operation: string, path: string, timeout: CloudCallClass): CallSpec => ({
+    operation,
+    method: 'GET',
+    path,
+    auth: true,
+    timeout,
+  });
+  const send = (
+    operation: string,
+    method: HttpMethod,
+    path: string,
+    body: unknown,
+    timeout: CloudCallClass,
+  ): CallSpec => ({ operation, method, path, body, auth: true, timeout });
+
+  return {
+    baseUrl,
+
+    health: (o) =>
+      json(
+        { operation: 'health', method: 'GET', path: '/health', auth: false, timeout: 'background' },
+        o,
+      ),
+    exchangeLoginCode: (body, o) =>
+      json(
+        {
+          operation: 'exchangeLoginCode',
+          method: 'POST',
+          path: '/v1/app-auth/token',
+          body,
+          auth: false,
+          timeout: 'interactive',
+        },
+        o,
+      ),
+    logout: (o) => empty(send('logout', 'POST', '/v1/app-auth/logout', undefined, 'background'), o),
+
+    getMe: (o) => json(get('getMe', '/v1/me', 'interactive'), o),
+    updateMe: (body, o) => json(send('updateMe', 'PATCH', '/v1/me', body, 'interactive'), o),
+    exportData: (o) => json(get('exportData', '/v1/me/export', 'interactive'), o),
+    deleteAccount: (o) => {
+      const body: DeleteAccountRequest = { confirm: 'BORRAR' };
+      return empty(send('deleteAccount', 'DELETE', '/v1/me', body, 'interactive'), o);
+    },
+    listDevices: (o) => json(get('listDevices', '/v1/devices', 'interactive'), o),
+    renameDevice: (deviceId, name, o) => {
+      const body: PatchDeviceRequest = { name };
+      return json(
+        send('renameDevice', 'PATCH', `/v1/devices/${seg(deviceId)}`, body, 'interactive'),
+        o,
+      );
+    },
+    removeDevice: (deviceId, o) =>
+      empty(
+        send('removeDevice', 'DELETE', `/v1/devices/${seg(deviceId)}`, undefined, 'interactive'),
+        o,
+      ),
+
+    getSyncState: (deviceId, o) =>
+      json({ ...get('getSyncState', '/v1/sync/state', 'background'), query: { deviceId } }, o),
+    putDays: (body, o) => json(send('putDays', 'PUT', '/v1/sync/days', body, 'background'), o),
+    deleteSyncedDays: (deviceId, o) =>
+      empty(
+        {
+          ...send('deleteSyncedDays', 'DELETE', '/v1/sync/days', undefined, 'interactive'),
+          query: { deviceId },
+        },
+        o,
+      ),
+    getStats: (from, to, o) =>
+      json({ ...get('getStats', '/v1/stats', 'interactive'), query: { from, to } }, o),
+
+    createInvite: (body, o) =>
+      json(send('createInvite', 'POST', '/v1/friends/invites', body ?? {}, 'interactive'), o),
+    listInvites: (o) => json(get('listInvites', '/v1/friends/invites', 'interactive'), o),
+    revokeInvite: (inviteId, o) =>
+      empty(
+        send(
+          'revokeInvite',
+          'DELETE',
+          `/v1/friends/invites/${seg(inviteId)}`,
+          undefined,
+          'interactive',
+        ),
+        o,
+      ),
+    previewInvite: (code, o) =>
+      json(get('previewInvite', `/v1/friends/invites/${seg(code)}`, 'interactive'), o),
+    acceptInvite: (code, o) =>
+      json(
+        send('acceptInvite', 'POST', `/v1/friends/invites/${seg(code)}/accept`, {}, 'interactive'),
+        o,
+      ),
+    listFriends: (o) => json(get('listFriends', '/v1/friends', 'interactive'), o),
+    removeFriend: (userId, o) =>
+      empty(
+        send('removeFriend', 'DELETE', `/v1/friends/${seg(userId)}`, undefined, 'interactive'),
+        o,
+      ),
+    listBlocks: (o) => json(get('listBlocks', '/v1/blocks', 'interactive'), o),
+    blockUser: (userId, o) => {
+      const body: BlockUserRequest = { userId };
+      return empty(send('blockUser', 'POST', '/v1/blocks', body, 'interactive'), o);
+    },
+    unblockUser: (userId, o) =>
+      empty(
+        send('unblockUser', 'DELETE', `/v1/blocks/${seg(userId)}`, undefined, 'interactive'),
+        o,
+      ),
+    getRanking: (week, o) =>
+      json({ ...get('getRanking', '/v1/ranking', 'interactive'), query: { week } }, o),
+    putPresence: (body, o) =>
+      json(send('putPresence', 'PUT', '/v1/presence', body, 'background'), o),
+    clearPresence: (o) =>
+      empty(send('clearPresence', 'DELETE', '/v1/presence', undefined, 'background'), o),
+    getFriendsPresence: (o) =>
+      json(get('getFriendsPresence', '/v1/friends/presence', 'background'), o),
+
+    listPartners: (o) => json(get('listPartners', '/v1/partners', 'interactive'), o),
+    proposePartner: (body, o) =>
+      json(send('proposePartner', 'POST', '/v1/partners', body, 'interactive'), o),
+    acceptPartner: (linkId, o) =>
+      json(
+        send('acceptPartner', 'POST', `/v1/partners/${seg(linkId)}/accept`, {}, 'interactive'),
+        o,
+      ),
+    updatePartner: (linkId, body, o) =>
+      json(send('updatePartner', 'PATCH', `/v1/partners/${seg(linkId)}`, body, 'interactive'), o),
+    removePartner: async (linkId, o) => {
+      const { data } = await call(
+        send('removePartner', 'DELETE', `/v1/partners/${seg(linkId)}`, undefined, 'interactive'),
+        o,
+      );
+      return data === null ? null : (data as PartnerLink);
+    },
+    postAccountabilityEvent: (body, o) =>
+      json(
+        send('postAccountabilityEvent', 'POST', '/v1/accountability/events', body, 'background'),
+        o,
+      ),
+    getAccountabilityEvent: (eventId, o) =>
+      json(
+        get('getAccountabilityEvent', `/v1/accountability/events/${seg(eventId)}`, 'background'),
+        o,
+      ),
+    getInbox: (o) => json(get('getInbox', '/v1/accountability/inbox', 'background'), o),
+    decideApproval: (eventId, body, o) =>
+      json(
+        send(
+          'decideApproval',
+          'POST',
+          `/v1/accountability/events/${seg(eventId)}/decision`,
+          body,
+          'interactive',
+        ),
+        o,
+      ),
+
+    getCoachQuota: (o) => json(get('getCoachQuota', '/v1/coach/quota', 'interactive'), o),
+    interpret: (body, o) =>
+      json(send('interpret', 'POST', '/v1/coach/interpret', body, 'coach'), o),
+    splitTask: (body, o) =>
+      json(send('splitTask', 'POST', '/v1/coach/split-task', body, 'coach'), o),
+    studyPlan: (body, o) =>
+      json(send('studyPlan', 'POST', '/v1/coach/study-plan', body, 'coach'), o),
+    weeklySummary: (body, o) =>
+      json(send('weeklySummary', 'POST', '/v1/coach/weekly-summary', body, 'coach'), o),
+  };
+}
+
+// ---------------------------------------------------------------------------------------
+// Accountability approvals and re-uploads (pure)
+// ---------------------------------------------------------------------------------------
+
+/**
+ * What the app does with an emergency request's approval (docs/API.md §9):
+ * - `wait` while a partner can still answer (the guardian's countdown keeps running anyway);
+ * - `denied` only after an explicit «no»: the app cancels this request, the block stays;
+ * - `approved` for everything else: approved, no approval needed (`null`), or the deadline
+ *   passed without an answer. The flow fails open: when polling fails (offline, timeout, 5xx)
+ *   the app keeps the last state it knew, and because the deadline never runs past the local
+ *   countdown, a `pending` state turns into `approved` by the time the countdown ends.
+ */
+export function approvalOutcome(
+  approval: ApprovalState | null,
+  now: Date,
+): 'wait' | 'approved' | 'denied' {
+  if (approval === null) return 'approved';
+  if (approval.status === 'denied') return 'denied';
+  if (approval.status !== 'pending') return 'approved';
+  const deadline = Date.parse(approval.deadline);
+  return Number.isNaN(deadline) || deadline <= now.getTime() ? 'approved' : 'wait';
+}
+
+/**
+ * The local days the server is missing or holds at a lower `rev`: what to re-upload after the
+ * cloud was reset (`serverEpoch` changed) or on first sign-in. Pass `GET /v1/sync/state`.
+ */
+export function daysToReupload(
+  local: readonly CloudDayStats[],
+  server: Pick<SyncStateResponse, 'revs'>,
+): CloudDayStats[] {
+  const revs = new Map(server.revs.map((r) => [r.day, r.rev]));
+  return local.filter((d) => {
+    const rev = revs.get(d.day);
+    return rev === undefined || rev < d.rev;
+  });
+}
+
+/** A random `clientRef` for an accountability event (36 hex characters). */
+export function newClientRef(): string {
+  const bytes = new Uint8Array(18);
+  globalThis.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// ---------------------------------------------------------------------------------------
+// Offline outbox
+// ---------------------------------------------------------------------------------------
+
+export const CLOUD_OUTBOX = Object.freeze({
+  /** Backoff after a failed flush: 30 s, growing with jitter up to 30 min. */
+  retryMinMs: 30_000,
+  retryMaxMs: 30 * 60_000,
+  /** Longest server-requested wait honoured (`Retry-After` of the hourly sync limit). */
+  retryAfterMaxMs: 6 * 3_600_000,
+  /** The server rejects events older than this (`occurredAt`), so the outbox drops them. */
+  eventMaxAgeMs: 7 * 86_400_000,
+  /** Safety bound on requests per flush. */
+  maxRequestsPerFlush: 200,
+});
+
+const OPAQUE_ID_RE = /^[A-Za-z0-9_-]{16,64}$/;
+
+/** Absolute totals of one local day of one device (collapsed by device and day). */
+export interface OutboxDayItem {
+  type: 'day';
+  deviceId: string;
+  stats: CloudDayStats;
+}
+
+/** An accountability event, kept with its `clientRef` until the server has it. */
+export interface OutboxEventItem {
+  type: 'event';
+  event: PostAccountabilityEventRequest;
+}
+
+export type OutboxItem = OutboxDayItem | OutboxEventItem;
+
+/** What the app persists (in its SQLite). Presence heartbeats and polls are never queued. */
+export interface OutboxState {
+  version: 1;
+  items: OutboxItem[];
+  /** Consecutive failed flushes; drives the backoff. */
+  failures: number;
+  /** No flush before this instant (backoff or `Retry-After`) unless forced. */
+  notBefore: IsoUtc | null;
+}
+
+export interface OutboxStorage {
+  /** The saved state, or null the first time. Anything malformed is ignored item by item. */
+  load(): OutboxState | null | Promise<OutboxState | null>;
+  save(state: OutboxState): void | Promise<void>;
+}
+
+export const emptyOutboxState = (): OutboxState => ({
+  version: 1,
+  items: [],
+  failures: 0,
+  notBefore: null,
+});
+
+/** Keeps the items that are well formed (a hand-edited or older database cannot poison it). */
+export function normalizeOutboxState(raw: unknown): OutboxState {
+  if (typeof raw !== 'object' || raw === null) return emptyOutboxState();
+  const r = raw as Partial<Record<keyof OutboxState, unknown>>;
+  const items = Array.isArray(r.items) ? r.items.filter(isOutboxItem) : [];
+  const failures =
+    typeof r.failures === 'number' && Number.isInteger(r.failures) && r.failures > 0
+      ? Math.min(r.failures, 1000)
+      : 0;
+  const notBefore =
+    typeof r.notBefore === 'string' && !Number.isNaN(Date.parse(r.notBefore)) ? r.notBefore : null;
+  return { version: 1, items: coalesceOutbox(items), failures, notBefore };
+}
+
+function isDayStats(value: unknown): value is CloudDayStats {
+  if (typeof value !== 'object' || value === null) return false;
+  const d = value as Record<string, unknown>;
+  if (!isLocalDay(d.day)) return false;
+  return DAY_NUMBER_KEYS.every((k) => typeof d[k] === 'number' && Number.isInteger(d[k]));
+}
+
+const DAY_NUMBER_KEYS = [
+  'rev',
+  'focusMinutes',
+  'studyMinutes',
+  'blocksCompleted',
+  'studySessions',
+  'attempts',
+  'emergencyUnlocks',
+  'punishments',
+  'pointsEarned',
+  'pointsLost',
+] as const satisfies ReadonlyArray<keyof CloudDayStats>;
+
+function isEvent(value: unknown): value is PostAccountabilityEventRequest {
+  if (typeof value !== 'object' || value === null) return false;
+  const e = value as Record<string, unknown>;
+  return (
+    typeof e.clientRef === 'string' &&
+    OPAQUE_ID_RE.test(e.clientRef) &&
+    typeof e.kind === 'string' &&
+    (ACCOUNTABILITY_KINDS as readonly string[]).includes(e.kind) &&
+    typeof e.occurredAt === 'string' &&
+    !Number.isNaN(Date.parse(e.occurredAt)) &&
+    (e.countdownEndsAt === null ||
+      (typeof e.countdownEndsAt === 'string' && !Number.isNaN(Date.parse(e.countdownEndsAt))))
+  );
+}
+
+function isOutboxItem(value: unknown): value is OutboxItem {
+  if (typeof value !== 'object' || value === null) return false;
+  const item = value as Record<string, unknown>;
+  if (item.type === 'day') {
+    return typeof item.deviceId === 'string' && item.deviceId !== '' && isDayStats(item.stats);
+  }
+  return item.type === 'event' && isEvent(item.event);
+}
+
+/**
+ * Collapses a queue: day items by `(deviceId, day)` keeping the highest `rev` (the later one on
+ * a tie, as the server lets an equal `rev` overwrite); events by `clientRef`, keeping the first
+ * (the same event queued twice). Events come first, in queue order (a partner is waiting for
+ * them); then days by device and ascending day.
+ */
+export function coalesceOutbox(items: readonly OutboxItem[]): OutboxItem[] {
+  const events: OutboxEventItem[] = [];
+  const refs = new Set<string>();
+  const days = new Map<string, OutboxDayItem>();
+  for (const item of items) {
+    if (item.type === 'event') {
+      if (refs.has(item.event.clientRef)) continue;
+      refs.add(item.event.clientRef);
+      events.push(item);
+    } else {
+      const key = `${item.deviceId}\u0000${item.stats.day}`;
+      const kept = days.get(key);
+      if (!kept || item.stats.rev >= kept.stats.rev) days.set(key, item);
+    }
+  }
+  const sortedDays = [...days.values()].sort((a, b) =>
+    a.deviceId === b.deviceId
+      ? a.stats.day < b.stats.day
+        ? -1
+        : a.stats.day > b.stats.day
+          ? 1
+          : 0
+      : a.deviceId < b.deviceId
+        ? -1
+        : 1,
+  );
+  return [...events, ...sortedDays];
+}
+
+/**
+ * Wait before the next flush after `failures` consecutive failures (≥ 1): exponential from
+ * 30 s, capped at 30 min, with «equal jitter» (between half and all of the step), never under
+ * 30 s. A server `Retry-After` (capped at 6 h) wins when it is longer.
+ */
+export function nextRetryDelay(
+  failures: number,
+  random: () => number = Math.random,
+  retryAfterMs: number | null = null,
+): number {
+  const { retryMinMs, retryMaxMs, retryAfterMaxMs } = CLOUD_OUTBOX;
+  const n = Math.min(Math.max(1, Math.floor(failures)), 30);
+  const step = Math.min(retryMaxMs, retryMinMs * 2 ** (n - 1));
+  const r = Math.min(Math.max(random(), 0), 1);
+  const delay = Math.max(retryMinMs, Math.round(step / 2 + (r * step) / 2));
+  if (retryAfterMs !== null && retryAfterMs > delay) return Math.min(retryAfterMs, retryAfterMaxMs);
+  return delay;
+}
+
+export interface OutboxFlushResult {
+  /**
+   * - `empty`: nothing was queued.
+   * - `waiting`: backing off; nothing sent (see `nextFlushAt`).
+   * - `done`: everything that was queued went out or was dropped.
+   * - `retry_later`: the server or the network failed; the rest waits until `nextFlushAt`.
+   * - `signed_out`: the server answered 401; the queue was emptied (local data stays).
+   */
+  status: 'empty' | 'waiting' | 'done' | 'retry_later' | 'signed_out';
+  /** Items the server now has. */
+  sent: number;
+  /** Items dropped because the server can never accept them (old, invalid, sync turned off). */
+  dropped: number;
+  remaining: number;
+  nextFlushAt: Date | null;
+  error: CloudError | null;
+}
+
+export interface CloudOutbox {
+  /** Queues absolute day totals (a newer `rev` of a queued day replaces it). */
+  addDays(deviceId: string, days: readonly CloudDayStats[]): Promise<void>;
+  /** Queues an accountability event (create its `clientRef` with `newClientRef`). */
+  addEvent(event: PostAccountabilityEventRequest): Promise<void>;
+  /**
+   * Sends what is queued: events one by one, then days in batches of 100 per device. Runs
+   * one at a time (a second call joins the running one). `force` ignores the backoff (the user
+   * pressed «Sincronizar ahora», or the network just came back).
+   */
+  flush(options?: { force?: boolean }): Promise<OutboxFlushResult>;
+  pending(): Promise<number>;
+  /** When the backoff ends; null when a flush may run now. */
+  nextFlushAt(): Promise<Date | null>;
+  /** Empties the queue (sign-out, or the user turned sync off). */
+  clear(): Promise<void>;
+}
+
+export interface OutboxOptions {
+  storage: OutboxStorage;
+  client: Pick<CloudClient, 'putDays' | 'postAccountabilityEvent'>;
+  now?: () => Date;
+  random?: () => number;
+}
+
+/** An in-memory `OutboxStorage` (tests, or before the app's database is open). */
+export function memoryOutboxStorage(initial: OutboxState | null = null): OutboxStorage & {
+  readonly state: OutboxState | null;
+} {
+  let state = initial ? structuredClone(initial) : null;
+  return {
+    get state() {
+      return state;
+    },
+    load: () => (state ? structuredClone(state) : null),
+    save: (next) => {
+      state = structuredClone(next);
+    },
+  };
+}
+
+/** Days of a batch that a `validation_failed` answer points at (`body.days.<i>.…`). */
+function rejectedDayIndexes(error: CloudError, batchSize: number): Set<number> {
+  const out = new Set<number>();
+  for (const issue of error.details?.issues ?? []) {
+    const m = /^body\.days\.(\d+)(?:\.|$)/.exec(issue.path);
+    if (m && Number(m[1]) < batchSize) out.add(Number(m[1]));
+  }
+  return out;
+}
+
+/** Errors that will not go away by resending the same item: drop it. */
+function isPermanent(error: CloudError): boolean {
+  if (error.retryable || error.status === 401) return false;
+  if (error.kind !== 'http' || error.status === null) return false;
+  // A server without the feature (missing key) may get it later: keep the items and wait.
+  if (error.code === 'feature_disabled' || error.code === 'not_implemented') return false;
+  return error.status >= 400 && error.status < 500;
+}
+
+/**
+ * The offline outbox (docs/API.md §14). What must eventually reach the server waits here,
+ * persisted through `storage`, and survives restarts: day totals (collapsed per device and
+ * day) and accountability events (never merged away, idempotent on `clientRef`). Presence
+ * heartbeats and approval polls are never queued: an old one means nothing.
+ */
+export function createOutbox(options: OutboxOptions): CloudOutbox {
+  const { storage, client } = options;
+  const now = options.now ?? (() => new Date());
+  const random = options.random ?? Math.random;
+  let lock: Promise<unknown> = Promise.resolve();
+  let running: Promise<OutboxFlushResult> | null = null;
+
+  /** Runs `fn` on the saved state under a lock and saves what it leaves. */
+  function mutate<T>(fn: (state: OutboxState) => T): Promise<T> {
+    const next = lock.then(async () => {
+      const state = normalizeOutboxState(await storage.load());
+      const result = fn(state);
+      state.items = coalesceOutbox(state.items);
+      await storage.save(state);
+      return result;
+    });
+    lock = next.catch(() => undefined);
+    return next;
+  }
+
+  function read(): Promise<OutboxState> {
+    const next = lock.then(async () => normalizeOutboxState(await storage.load()));
+    lock = next.catch(() => undefined);
+    return next;
+  }
+
+  const until = (state: OutboxState): Date | null => {
+    if (!state.notBefore) return null;
+    const at = new Date(state.notBefore);
+    return at.getTime() > now().getTime() ? at : null;
+  };
+
+  async function flushOnce(force: boolean): Promise<OutboxFlushResult> {
+    let sent = 0;
+    let dropped = 0;
+    const result = (
+      status: OutboxFlushResult['status'],
+      state: OutboxState,
+      error: CloudError | null = null,
+    ): OutboxFlushResult => ({
+      status,
+      sent,
+      dropped,
+      remaining: state.items.length,
+      nextFlushAt: until(state),
+      error,
+    });
+
+    const start = await read();
+    if (start.items.length === 0) return result('empty', start);
+    if (!force && until(start)) return result('waiting', start);
+
+    // Events the server would reject as too old.
+    const oldest = now().getTime() - CLOUD_OUTBOX.eventMaxAgeMs;
+    let state = await mutate((s) => {
+      const before = s.items.length;
+      s.items = s.items.filter(
+        (i) => i.type !== 'event' || Date.parse(i.event.occurredAt) >= oldest,
+      );
+      dropped += before - s.items.length;
+      return s;
+    });
+
+    for (let requests = 0; requests < CLOUD_OUTBOX.maxRequestsPerFlush; requests += 1) {
+      const event = state.items.find((i): i is OutboxEventItem => i.type === 'event');
+      const deviceId = state.items.find((i): i is OutboxDayItem => i.type === 'day')?.deviceId;
+      if (!event && deviceId === undefined) break;
+      const batch = event
+        ? []
+        : state.items
+            .filter((i): i is OutboxDayItem => i.type === 'day' && i.deviceId === deviceId)
+            .slice(0, CLOUD_LIMITS.syncBatchMax);
+      try {
+        if (event) {
+          await client.postAccountabilityEvent(event.event);
+          state = await mutate((s) => {
+            s.items = s.items.filter(
+              (i) => i.type !== 'event' || i.event.clientRef !== event.event.clientRef,
+            );
+            sent += 1;
+            return s;
+          });
+        } else {
+          await client.putDays({ deviceId: deviceId ?? '', days: batch.map((i) => i.stats) });
+          // Accepted and stale days both leave the queue (the server holds that rev or a
+          // higher one); a newer rev queued meanwhile stays.
+          state = await mutate((s) => {
+            s.items = s.items.filter((i) => !batch.some((b) => sameDayAtMostRev(i, b)));
+            sent += batch.length;
+            return s;
+          });
+        }
+      } catch (error) {
+        if (!isCloudError(error)) throw error;
+        if (error.status === 401) {
+          state = await mutate((s) => {
+            s.items = [];
+            s.failures = 0;
+            s.notBefore = null;
+            return s;
+          });
+          return result('signed_out', state, error);
+        }
+        if (!isPermanent(error)) {
+          state = await mutate((s) => {
+            s.failures += 1;
+            const wait = nextRetryDelay(s.failures, random, error.retryAfterMs);
+            s.notBefore = new Date(now().getTime() + wait).toISOString();
+            return s;
+          });
+          return result('retry_later', state, error);
+        }
+        // Permanent: drop what the server will never take (only the rejected days when the
+        // answer says which ones).
+        const rejected = event ? new Set<number>() : rejectedDayIndexes(error, batch.length);
+        const drop: OutboxItem[] = event
+          ? [event]
+          : rejected.size > 0 && error.code === 'validation_failed'
+            ? batch.filter((_item, index) => rejected.has(index))
+            : batch;
+        state = await mutate((s) => {
+          s.items = s.items.filter((i) => !drop.some((d) => sameItem(i, d)));
+          dropped += drop.length;
+          return s;
+        });
+      }
+    }
+
+    state = await mutate((s) => {
+      s.failures = 0;
+      s.notBefore = null;
+      return s;
+    });
+    return result('done', state);
+  }
+
+  return {
+    addDays: async (deviceId, days) => {
+      if (typeof deviceId !== 'string' || deviceId === '') {
+        throw new RangeError('addDays: deviceId is required');
+      }
+      for (const d of days) {
+        if (!isDayStats(d)) throw new RangeError('addDays: malformed day stats');
+      }
+      if (days.length === 0) return;
+      await mutate((s) => {
+        for (const stats of days) s.items.push({ type: 'day', deviceId, stats: { ...stats } });
+      });
+    },
+    addEvent: async (event) => {
+      if (!isEvent(event)) throw new RangeError('addEvent: malformed accountability event');
+      await mutate((s) => {
+        s.items.push({ type: 'event', event: { ...event } });
+      });
+    },
+    flush: (flushOptions) => {
+      if (!running) {
+        running = flushOnce(flushOptions?.force === true).finally(() => {
+          running = null;
+        });
+      }
+      return running;
+    },
+    pending: async () => (await read()).items.length,
+    nextFlushAt: async () => until(await read()),
+    clear: async () => {
+      await mutate((s) => {
+        s.items = [];
+        s.failures = 0;
+        s.notBefore = null;
+      });
+    },
+  };
+}
+
+function sameDayAtMostRev(item: OutboxItem, sent: OutboxDayItem): boolean {
+  return (
+    item.type === 'day' &&
+    item.deviceId === sent.deviceId &&
+    item.stats.day === sent.stats.day &&
+    item.stats.rev <= sent.stats.rev
+  );
+}
+
+function sameItem(item: OutboxItem, other: OutboxItem): boolean {
+  if (item.type === 'event' || other.type === 'event') {
+    return (
+      item.type === 'event' &&
+      other.type === 'event' &&
+      item.event.clientRef === other.event.clientRef
+    );
+  }
+  return sameDayAtMostRev(item, other);
+}

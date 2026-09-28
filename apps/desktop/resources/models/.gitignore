@@ -1,0 +1,5 @@
+# MediaPipe WASM runtime (12 MB): copied from node_modules/@mediapipe/tasks-vision by
+# packages/study-ai/scripts/fetch-models.mjs, SHA-256 checked. npm already pins it, so it is
+# not committed. The two models and manifest.json in this folder are committed.
+/mediapipe/
+*.tmp-*

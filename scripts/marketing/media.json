@@ -1,0 +1,126 @@
+{
+  "$comment": "What scripts/marketing captures and encodes (PROMPT.md §11 «Material visual»). Stills: harness states of the desktop app at scale 2 in both themes. Videos: frame-by-frame flows (specs *.desktop.ts and *.extension.ts, one per video id). Budgets in bytes; the encoder raises the CRF until a file fits and fails if it never does. Alt texts go to the web through apps/web/public/media/manifest.json.",
+  "scaleFactor": 2,
+  "display": "1920x1080@100",
+  "fps": 30,
+  "budgets": {
+    "heroAv1": 400000,
+    "heroOther": 1200000,
+    "loop": 500000,
+    "image": 120000
+  },
+  "stills": [
+    {
+      "state": "idle",
+      "alt": {
+        "es": "Ventana de Céntrate en reposo: el campo «¿Qué quieres hacer?» y las plantillas de bloqueo.",
+        "en": "Céntrate window at rest: the «What do you want to do?» field and the block templates."
+      }
+    },
+    {
+      "state": "typing",
+      "alt": {
+        "es": "Céntrate entiende la frase «no veo YouTube en una hora» mientras la escribes.",
+        "en": "Céntrate understands the phrase «no veo YouTube en una hora» as you type it."
+      }
+    },
+    {
+      "state": "confirm-normal",
+      "alt": {
+        "es": "Tarjeta de confirmación: YouTube durante 1 h en modo Normal, lista para pulsar Enter.",
+        "en": "Confirmation card: YouTube for 1 h in Normal mode, ready for Enter."
+      }
+    },
+    {
+      "state": "confirm-hardcore",
+      "alt": {
+        "es": "Confirmación en modo Hardcore: avisa de que no se podrá cancelar.",
+        "en": "Hardcore confirmation: it warns that the block cannot be cancelled."
+      }
+    },
+    {
+      "state": "one-block",
+      "alt": {
+        "es": "Un bloqueo activo con la cuenta atrás grande y los botones para ampliarlo.",
+        "en": "An active block with the big countdown and the buttons to extend it."
+      }
+    },
+    {
+      "state": "three-blocks",
+      "alt": {
+        "es": "Tres bloqueos a la vez: el principal con su cuenta atrás y los otros dos en filas.",
+        "en": "Three blocks at once: the main one with its countdown and the other two as rows."
+      }
+    },
+    {
+      "state": "extend-undo",
+      "alt": {
+        "es": "Ampliar 15 minutos con la opción de deshacer durante 5 segundos.",
+        "en": "Extending by 15 minutes, with 5 seconds to undo it."
+      }
+    },
+    {
+      "state": "finished",
+      "alt": {
+        "es": "Bloqueo terminado: «Hecho» y los puntos ganados.",
+        "en": "Block finished: «Done» and the points earned."
+      }
+    },
+    {
+      "state": "punishment",
+      "alt": {
+        "es": "Castigo activo por no estudiar, con su cuenta atrás.",
+        "en": "An active punishment for not studying, with its countdown."
+      }
+    },
+    {
+      "state": "emergency-waiting",
+      "alt": {
+        "es": "Desbloqueo de emergencia en espera: cuánto falta y cuántos puntos cuesta.",
+        "en": "Emergency unlock waiting: how long is left and how many points it costs."
+      }
+    },
+    {
+      "state": "bloqueos-prefilled",
+      "alt": {
+        "es": "Ventana Bloqueos con lo que se entendió de la frase: qué bloquear, duración, modo y motivo.",
+        "en": "Blocks window with what was understood from the phrase: what to block, duration, mode and reason."
+      }
+    }
+  ],
+  "videos": [
+    {
+      "id": "hero",
+      "kind": "hero",
+      "theme": "light",
+      "backdrop": "light",
+      "stillAt": "typed",
+      "alt": {
+        "es": "Escribes «no veo YouTube en una hora», pulsas Enter dos veces y empieza la cuenta atrás.",
+        "en": "You type «no veo YouTube en una hora», press Enter twice and the countdown starts."
+      }
+    },
+    {
+      "id": "extend-undo",
+      "kind": "loop",
+      "theme": "light",
+      "backdrop": "light",
+      "stillAt": "undo",
+      "alt": {
+        "es": "Amplías el bloqueo 15 minutos y lo deshaces antes de que pasen 5 segundos.",
+        "en": "You extend the block by 15 minutes and undo it before 5 seconds pass."
+      }
+    },
+    {
+      "id": "blocked-page",
+      "kind": "loop",
+      "theme": "light",
+      "backdrop": "light",
+      "stillAt": "counted",
+      "alt": {
+        "es": "Página de bloqueo: «YouTube: bloqueado», cuánto queda, tu motivo y «−10 puntos».",
+        "en": "Blocked page: «YouTube: blocked», the time left, your reason and «−10 points»."
+      }
+    }
+  ]
+}

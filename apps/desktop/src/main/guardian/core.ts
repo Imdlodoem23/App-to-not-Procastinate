@@ -58,6 +58,7 @@ import type { Notifier } from '../notifications/types';
 import { createRecordingNotifier } from '../notifications/types';
 import { buildDiagnostics, type DiagnosticsDeps } from '../system/diagnostics';
 import { runFile, type ExecRunner } from '../system/exec';
+import { DIAGNOSTICS } from '../system/i18n';
 import { GuardianInstaller } from '../system/installer';
 import { listProcessNames } from '../system/processes';
 import { withTimeout, createPortAwareClient } from './client';
@@ -628,7 +629,7 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
           guardianStatus: () =>
             mode === 'real'
               ? installer.statusText()
-              : Promise.resolve(`(${mode}: sin guardián real)`),
+              : Promise.resolve(DIAGNOSTICS.noRealGuardian(mode)),
           readText: (path) => {
             try {
               return readFileSync(path, 'utf8');

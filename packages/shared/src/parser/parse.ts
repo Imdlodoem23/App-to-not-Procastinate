@@ -8,9 +8,11 @@ import { hasPositiveDesire, hasUnblockIntent } from './intent';
 import { scanStudy } from './study';
 import {
   aliasEndsAt,
+  CHOICE_CONNECTORS,
   followsTrigger,
   isTriggerAt,
   LIST_CONNECTORS,
+  NEGATIVE_CONNECTORS,
   scanTargets,
   type TargetHit,
 } from './targets';
@@ -67,14 +69,14 @@ function isSilent(token: Token): boolean {
  * minutos») nor next to «o» («20 minutos o 30 minutos»).
  */
 function isTargetSlot(tokens: readonly Token[], start: number, end: number): boolean {
-  if (nextNorm(tokens, end) === 'o') return false;
+  if (CHOICE_CONNECTORS.has(nextNorm(tokens, end))) return false;
   let k = start - 1;
   while (k >= 0 && !tokens[k + 1]?.breakBefore && tokens[k]?.norm === 'el') k -= 1;
   if (k < 0) return false;
   if (tokens[k + 1]?.breakBefore) return aliasEndsAt(tokens, k + 1);
   const word = tokens[k]?.norm ?? '';
-  if (word === 'o' || aliasEndsAt(tokens, k + 1)) return false;
-  if (word === 'ni' || isTriggerAt(tokens, k)) return true;
+  if (CHOICE_CONNECTORS.has(word) || aliasEndsAt(tokens, k + 1)) return false;
+  if (NEGATIVE_CONNECTORS.has(word) || isTriggerAt(tokens, k)) return true;
   if (LIST_CONNECTORS.has(word)) return !tokens[k]?.breakBefore && aliasEndsAt(tokens, k);
   return followsTrigger(tokens, start);
 }
@@ -121,16 +123,20 @@ function leftoverSpans(
  * Parses what the user typed in «¿Qué quieres hacer?» (PROMPT.md section 4), locally and
  * without inventing anything: «no veo YouTube en una hora», «nada de TikTok ni Instagram
  * durante 45 minutos», «bloquea las redes sociales hasta las 20:30», «sin juegos hora y
- * media», «no quiero ver Netflix 2h», «estudiar mates 1 hora».
+ * media», «no quiero ver Netflix 2h», «estudiar mates 1 hora». English phrases are read the
+ * same way, whatever the UI locale: «no YouTube for an hour», «block TikTok and Instagram
+ * for 45 minutes», «block social media until 8:30 pm», «no games for an hour and a half»,
+ * «I don't want to watch Netflix for 2h», «study math for 1 hour».
  *
  * Accents and case do not matter; services and categories come from the catalog aliases
  * (plus a one-typo fallback for words of 5+ letters). When several durations or end
  * times are typed, the first one wins and the others go to `unparsed`.
  *
- * Never a block: unblock requests («desbloquea YouTube», «no bloquees TikTok»), phrases
- * that want to use something («ver Netflix 2h», «necesito el WhatsApp»), exceptions
- * («todo menos WhatsApp», which stay in `unparsed`) and later plans («y después
- * YouTube»).
+ * Never a block: unblock requests («desbloquea YouTube», «no bloquees TikTok», «unblock
+ * YouTube», «don't block TikTok»), phrases that want to use something («ver Netflix 2h»,
+ * «necesito el WhatsApp», «I want to watch YouTube»), exceptions («todo menos WhatsApp»,
+ * «everything except WhatsApp», which stay in `unparsed`) and later plans («y después
+ * YouTube», «and then YouTube»).
  */
 export function parseIntent(text: string, opts: ParseOptions): ParseResult {
   const now = opts?.now;
@@ -261,7 +267,7 @@ export function parseIntent(text: string, opts: ParseOptions): ParseResult {
             }
           : {
               kind: 'until',
-              label: untilLabel(endsAt, now, locale),
+              label: untilLabel(endsAt, now, locale, opts.languages),
               value: endsAt.toISOString(),
               start: first.start,
               end: last.end,

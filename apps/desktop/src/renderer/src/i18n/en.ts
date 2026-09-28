@@ -9,7 +9,7 @@ export const RENDERER_EN: RendererMessages = {
     appName: 'Céntrate',
     detailTitles: {
       bloqueos: 'Blocks',
-      emergencia: 'Emergency',
+      emergencia: 'Emergency unlock',
       ajustes: 'Settings',
     },
     crashed: 'Something went wrong in this window',
@@ -33,8 +33,8 @@ export const RENDERER_EN: RendererMessages = {
     notApplied: 'The block is not fully applied',
     extensionMissing: (browsers: string, plural: boolean): string =>
       plural
-        ? `${browsers} do not have the extension: blocking there may be slow`
-        : `${browsers} does not have the extension: blocking there may be slow`,
+        ? `${browsers} don’t have the extension: blocks may take a while there`
+        : `${browsers} doesn’t have the extension: blocks may take a while there`,
     browsers: {
       chrome: 'Chrome',
       edge: 'Edge',
@@ -43,7 +43,7 @@ export const RENDERER_EN: RendererMessages = {
       vivaldi: 'Vivaldi',
       chromium: 'Chromium',
       firefox: 'Firefox',
-      other: 'Another browser',
+      other: 'Other browser',
     },
     and: ' and ',
     rowLabel: 'What to do',
@@ -127,9 +127,9 @@ export const RENDERER_EN: RendererMessages = {
     notInstalled: 'The guardian is not installed',
     outdated: 'Update the guardian',
     readOnly: 'The guardian can only read right now',
-    extensionExceedsMax: '24 h in total at most',
+    extensionExceedsMax: 'Up to 24 h in total',
     blockNotActive: 'The block has already finished',
-    notExtendable: 'A penalty cannot be extended',
+    notExtendable: 'A punishment block can’t be extended',
     durationOutOfRange: 'Between 5 min and 24 h',
     tooManyTargets: 'Too many active blocks at once',
     protectedTarget: 'That cannot be blocked: the system needs it',
@@ -137,14 +137,14 @@ export const RENDERER_EN: RendererMessages = {
     phraseMismatch: 'The phrase does not match',
     confirmWordMismatch: 'Type DELETE',
     emergencyNotReady: 'Not yet: wait for the countdown to finish',
-    emergencyExpired: 'The time ran out: request the emergency again',
-    emergencyInProgress: 'An emergency is already in progress',
-    emergencyNotAvailable: 'That block does not allow an emergency',
-    emergencyMoot: 'The blocks already finished: nothing was charged',
+    emergencyExpired: 'Time’s up: request the emergency unlock again',
+    emergencyInProgress: 'An emergency unlock is already in progress',
+    emergencyNotAvailable: 'That block has no emergency unlock',
+    emergencyMoot: 'The blocks already ended: no points were taken',
     dataDeleteBlocked: 'Cannot delete right now',
     dataDeleteReasons: {
       study_active: 'a Study Mode session is running',
-      emergency_pending: 'an emergency is in progress',
+      emergency_pending: 'an emergency unlock is in progress',
       clock_unverified: 'the guardian is still checking the time',
     },
     withReason: (text: string, reason: string): string => `${text}: ${reason}`,

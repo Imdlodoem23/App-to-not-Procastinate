@@ -16,6 +16,22 @@ export interface UntilMatch {
 type Period = 'manana' | 'tarde' | 'noche' | 'madrugada' | 'mediodia' | 'am' | 'pm';
 
 const PERIODS: ReadonlySet<string> = new Set(['manana', 'tarde', 'noche', 'madrugada']);
+/** English parts of the day and the Spanish period each one reads like. */
+const EN_PERIODS: ReadonlyMap<string, Period> = new Map([
+  ['morning', 'manana'],
+  ['afternoon', 'tarde'],
+  ['evening', 'tarde'],
+  ['night', 'noche'],
+]);
+/** «tomorrow» and its common misspellings. */
+const EN_TOMORROW: ReadonlySet<string> = new Set([
+  'tomorrow',
+  'tmrw',
+  'tmr',
+  'tomorow',
+  'tommorow',
+  'tommorrow',
+]);
 const HOUR_SUFFIXES: ReadonlySet<string> = new Set(['h', 'hs', 'hrs', 'hora', 'horas']);
 
 // «18:00», «8.30», «18h», «18h30», «18:30h», «6pm».
@@ -32,17 +48,28 @@ interface Clock {
   readonly end: number;
 }
 
-function parseClock(tokens: readonly Token[], j: number, hasArticle: boolean): Clock | null {
+/**
+ * A clock time at `tokens[j]`. A bare hour («8», «ocho») needs `hasArticle` («hasta las 8»):
+ * «hasta 8» is too vague in Spanish and «hasta 2 horas» is not a time. After an English
+ * «until» a bare hour is the usual way to say it («until 8», «until eight»), unless a unit
+ * follows it («until 2 hours» is not a time either).
+ */
+function parseClock(
+  tokens: readonly Token[],
+  j: number,
+  hasArticle: boolean,
+  english = false,
+): Clock | null {
   const token = tokens[j];
   if (!token || token.breakBefore) return null;
+  const bareOk = hasArticle || (english && !UNIT_WORDS.has(nextNorm(tokens, j + 1)));
   if (token.type === 'num') {
     const match = CLOCK_RE.exec(token.norm);
     if (!match || match[1] === undefined) return null;
     const hour = Number(match[1]);
     const minute = match[2] === undefined ? 0 : Number(match[2]);
     if (hour > 24 || minute > 59 || (hour === 24 && minute > 0)) return null;
-    // «hasta 8» (no «las», no «:00») is too vague; «hasta 2 horas» is not a time.
-    if (!hasArticle && match[2] === undefined && match[3] === undefined && !match[4]) return null;
+    if (!bareOk && match[2] === undefined && match[3] === undefined && !match[4]) return null;
     return {
       hour,
       minute,
@@ -53,9 +80,10 @@ function parseClock(tokens: readonly Token[], j: number, hasArticle: boolean): C
       end: j + 1,
     };
   }
-  if (!hasArticle) return null;
+  if (!bareOk) return null;
   const number = parseWordNumber(tokens, j);
   if (!number || number.value > 24) return null;
+  if (!hasArticle && UNIT_WORDS.has(nextNorm(tokens, number.end))) return null;
   return {
     hour: number.value,
     minute: 0,
@@ -85,8 +113,16 @@ function spokenMinutes(tokens: readonly Token[], j: number): { offset: number; e
   return { offset: amount.value * sign, end };
 }
 
-/** «de la tarde», «por la mañana», «del mediodía», «esta noche». */
-function periodAt(tokens: readonly Token[], j: number): { period?: Period; end: number } {
+/**
+ * «de la tarde», «por la mañana», «del mediodía», «esta noche», «am», «pm»; in English «in
+ * the evening», «at night», «this morning», «tonight», «a.m.», «p.m.». After «tomorrow»
+ * (`afterDay`) a bare part of the day counts too: «8 tomorrow morning».
+ */
+function periodAt(
+  tokens: readonly Token[],
+  j: number,
+  afterDay = false,
+): { period?: Period; end: number } {
   const a = nextNorm(tokens, j);
   const b = nextNorm(tokens, j + 1);
   const c = nextNorm(tokens, j + 2);
@@ -97,6 +133,23 @@ function periodAt(tokens: readonly Token[], j: number): { period?: Period; end: 
   if (a === 'esta' && PERIODS.has(b)) return { period: b as Period, end: j + 2 };
   if (a === 'del' && b === 'mediodia') return { period: 'mediodia', end: j + 2 };
   if (a === 'am' || a === 'pm') return { period: a, end: j + 1 };
+  // «a.m.», «p.m.»: the period splits the letters into two tokens.
+  const first = tokens[j];
+  const second = tokens[j + 1];
+  if (
+    (a === 'a' || a === 'p') &&
+    second?.norm === 'm' &&
+    first !== undefined &&
+    second.start === first.end + 1
+  ) {
+    return { period: a === 'a' ? 'am' : 'pm', end: j + 2 };
+  }
+  const english = EN_PERIODS.get(c);
+  if (a === 'in' && b === 'the' && english) return { period: english, end: j + 3 };
+  if (a === 'at' && b === 'night') return { period: 'noche', end: j + 2 };
+  if (a === 'this' && EN_PERIODS.has(b)) return { period: EN_PERIODS.get(b), end: j + 2 };
+  if (a === 'tonight') return { period: 'noche', end: j + 1 };
+  if (afterDay && EN_PERIODS.has(a)) return { period: EN_PERIODS.get(a), end: j + 1 };
   return { end: j };
 }
 
@@ -165,12 +218,15 @@ function resolve(
   return { endsAt: best.at, warnings };
 }
 
-/** «de hoy», «hoy», «mañana», «de mañana» after the time. */
+/**
+ * «de hoy», «hoy», «mañana», «de mañana» after the time; in English «today», «tonight»,
+ * «tomorrow».
+ */
 function trailingDay(tokens: readonly Token[], j: number): { tomorrow: boolean; end: number } {
   const a = nextNorm(tokens, j);
   const b = nextNorm(tokens, j + 1);
-  if (a === 'hoy') return { tomorrow: false, end: j + 1 };
-  if (a === 'manana') return { tomorrow: true, end: j + 1 };
+  if (a === 'hoy' || a === 'today' || a === 'tonight') return { tomorrow: false, end: j + 1 };
+  if (a === 'manana' || EN_TOMORROW.has(a)) return { tomorrow: true, end: j + 1 };
   if (a === 'de' && b === 'hoy') return { tomorrow: false, end: j + 2 };
   if (a === 'de' && b === 'manana') return { tomorrow: true, end: j + 2 };
   return { tomorrow: false, end: j };
@@ -179,21 +235,113 @@ function trailingDay(tokens: readonly Token[], j: number): { tomorrow: boolean; 
 /** «hasta que sean las 8», «hasta q den las 8». */
 const UNTIL_VERBS: ReadonlySet<string> = new Set(['sean', 'sea', 'den', 'dan']);
 
-/** «hasta», its texting spelling «asta», and «de aquí a». Returns the index after it. */
-function untilWordEnd(tokens: readonly Token[], i: number): number | null {
+/**
+ * English words that start an end time: «until», «till», «til» («'til»), the typo
+ * «untill», and «before» («no games before 6»).
+ */
+const EN_UNTIL: ReadonlySet<string> = new Set(['until', 'till', 'til', 'untill', 'before']);
+
+/**
+ * «hasta», its texting spelling «asta», «de aquí a» and the English `EN_UNTIL` words.
+ * Returns the index after it and whether it was English.
+ */
+function untilWordEnd(
+  tokens: readonly Token[],
+  i: number,
+): { end: number; english: boolean } | null {
   const word = normAt(tokens, i);
+  if (EN_UNTIL.has(word)) return { end: i + 1, english: true };
   if (word === 'hasta' || word === 'asta') {
     const que = nextNorm(tokens, i + 1);
     if ((que === 'que' || que === 'q' || que === 'k') && UNTIL_VERBS.has(nextNorm(tokens, i + 2))) {
-      return i + 3;
+      return { end: i + 3, english: false };
     }
-    return i + 1;
+    return { end: i + 1, english: false };
   }
   const here = nextNorm(tokens, i + 1);
   if (word === 'de' && (here === 'aqui' || here === 'aki') && nextNorm(tokens, i + 2) === 'a') {
-    return i + 3;
+    return { end: i + 3, english: false };
   }
   return null;
+}
+
+/** Minutes of the day of `mediodía`, `noon`, `medianoche`, `midnight`… */
+const NAMED_TIMES: ReadonlyMap<string, number> = new Map([
+  ['mediodia', 12 * 60],
+  ['noon', 12 * 60],
+  ['midday', 12 * 60],
+  ['medianoche', MINUTES_PER_DAY],
+  ['midnight', MINUTES_PER_DAY],
+]);
+
+/** «end of the day», «the end of day»: the index after it, or null. */
+function endOfDayEnd(tokens: readonly Token[], k: number): number | null {
+  let j = k;
+  if (nextNorm(tokens, j) === 'the') j += 1;
+  if (nextNorm(tokens, j) !== 'end' || nextNorm(tokens, j + 1) !== 'of') return null;
+  j += 2;
+  if (nextNorm(tokens, j) === 'the') j += 1;
+  return nextNorm(tokens, j) === 'day' ? j + 1 : null;
+}
+
+/**
+ * English minutes said before the hour: «half past 8», «(a) quarter to 9», «10 past 8»,
+ * «twenty to nine», «5 minutes to 8». Returns the minutes to add and where the hour is.
+ */
+function spokenBeforeHour(
+  tokens: readonly Token[],
+  j: number,
+): { offset: number; hourAt: number } | null {
+  let k = j;
+  if (nextNorm(tokens, k) === 'a' && nextNorm(tokens, k + 1) === 'quarter') k += 1;
+  const word = nextNorm(tokens, k);
+  let minutes: number;
+  let end = k + 1;
+  if (word === 'half') minutes = 30;
+  else if (word === 'quarter') minutes = 15;
+  else {
+    if (word === '') return null;
+    const amount = parseAmount(tokens, k);
+    if (!amount || !Number.isInteger(amount.value) || amount.value < 1 || amount.value > 59) {
+      return null;
+    }
+    minutes = amount.value;
+    end = amount.end;
+    if (isMinuteUnit(nextNorm(tokens, end))) end += 1;
+  }
+  const link = nextNorm(tokens, end);
+  const sign =
+    link === 'past' || link === 'after' ? 1 : ['to', 'til', 'till'].includes(link) ? -1 : 0;
+  if (sign === 0 || (word === 'half' && sign < 0)) return null;
+  return { offset: minutes * sign, hourAt: end + 1 };
+}
+
+/**
+ * A part of the day said before the clock: «until tonight at 11», «until tomorrow morning
+ * at 8», «until this evening at 9». Returns the period and the index after it (and after
+ * «at»), or null.
+ */
+function periodBefore(
+  tokens: readonly Token[],
+  j: number,
+  tomorrow: boolean,
+): { period: Period; end: number } | null {
+  const found = periodAt(tokens, j, tomorrow);
+  if (!found.period || found.end === j) return null;
+  // Only the English forms: «esta noche a las 11» is not a Spanish word order we read.
+  if (
+    !['tonight', 'this', 'morning', 'afternoon', 'evening', 'night'].includes(normAt(tokens, j))
+  ) {
+    return null;
+  }
+  const end = nextNorm(tokens, found.end) === 'at' ? found.end + 1 : found.end;
+  return { period: found.period, end };
+}
+
+/** «o'clock» (split by the apostrophe) or «oclock» after an English hour. */
+function oclockEnd(tokens: readonly Token[], j: number): number {
+  if (nextNorm(tokens, j) === 'oclock') return j + 1;
+  return nextNorm(tokens, j) === 'o' && nextNorm(tokens, j + 1) === 'clock' ? j + 2 : j;
 }
 
 const TWO_DIGITS_RE = /^\d{2}$/;
@@ -213,64 +361,116 @@ function bareMinutes(tokens: readonly Token[], j: number): { minute: number; end
 }
 
 /**
+ * «until eight thirty», «until nine fifteen»: minutes in words after an hour in words.
+ * Returns the minute and the index after it, or null.
+ */
+function wordMinutes(tokens: readonly Token[], j: number): { minute: number; end: number } | null {
+  const token = tokens[j];
+  if (!token || token.breakBefore || token.type !== 'word') return null;
+  const number = parseWordNumber(tokens, j);
+  if (!number || number.value < 1 || number.value > 59) return null;
+  if (UNIT_WORDS.has(nextNorm(tokens, number.end))) return null;
+  return { minute: number.value, end: number.end };
+}
+
+interface ClockRead {
+  readonly clock: Clock;
+  /** Minutes after `clock.hour` (negative for «menos cuarto», «quarter to»). */
+  readonly offset: number;
+  readonly end: number;
+}
+
+/**
+ * The hour and minutes of an end time from `tokens[j]`: «las 8 y media», «las 20 30»,
+ * «8:30», «half past 8», «quarter to 9», «eight thirty». English minutes said before the
+ * hour are tried first; «until 8 to be safe» falls back to a plain «8».
+ */
+function readClock(tokens: readonly Token[], j: number, english: boolean): ClockRead | null {
+  const spoken = english ? spokenBeforeHour(tokens, j) : null;
+  if (spoken) {
+    const clock = parseClock(tokens, spoken.hourAt, true, true);
+    if (clock && !clock.explicitMinutes && clock.hour <= 12) {
+      return { clock, offset: spoken.offset, end: clock.end };
+    }
+  }
+  let k = j;
+  const article = nextNorm(tokens, k);
+  const hasArticle = article === 'las' || article === 'la';
+  if (hasArticle) k += 1;
+  const clock = parseClock(tokens, k, hasArticle, english);
+  if (!clock) return null;
+  const numeric = tokens[k]?.type === 'num';
+  k = clock.end;
+  if (clock.explicitMinutes) return { clock, offset: clock.minute, end: k };
+  const plain = !clock.hasSuffix && !clock.meridiem;
+  const bare = (hasArticle || english) && numeric && plain ? bareMinutes(tokens, k) : null;
+  if (bare) return { clock, offset: bare.minute, end: bare.end };
+  const words = english && !numeric && plain ? wordMinutes(tokens, k) : null;
+  if (words) return { clock, offset: words.minute, end: words.end };
+  const said = spokenMinutes(tokens, k);
+  k = said.end;
+  if (nextNorm(tokens, k) === 'en' && nextNorm(tokens, k + 1) === 'punto') k += 2;
+  return { clock, offset: said.offset, end: k };
+}
+
+/**
  * An end time starting at `tokens[i]` («hasta …», «asta …», «de aquí a …», «hasta que
  * sean …»): «hasta las 18:00», «hasta las 8 y media», «hasta las 9 menos cuarto», «hasta las
  * 6 de la tarde», «hasta mañana a las 8», «hasta mediodía», «hasta medianoche», «hasta la
- * una», «hasta las 20 30». A time that already passed today means tomorrow.
+ * una», «hasta las 20 30». In English («until», «till», «before»): «until 8:30 pm», «until
+ * 8», «until eight», «till 20:30», «until 6 in the evening», «until 11 tonight», «until
+ * tomorrow at 8», «until 8 am tomorrow», «until noon», «until midnight», «until the end of
+ * the day», «until half past 8», «until quarter to 9», «until 8 o'clock». A time that
+ * already passed today means tomorrow.
  */
 export function matchUntil(tokens: readonly Token[], i: number, now: Date): UntilMatch | null {
   const after = untilWordEnd(tokens, i);
   if (after === null) return null;
-  let j = after;
+  const { english } = after;
+  let j = after.end;
   let tomorrow = false;
-  if (nextNorm(tokens, j) === 'manana') {
+  const first = nextNorm(tokens, j);
+  if (first === 'manana' || EN_TOMORROW.has(first)) {
     tomorrow = true;
     j += 1;
-    if (nextNorm(tokens, j) === 'a') j += 1;
+    if (nextNorm(tokens, j) === 'a' || nextNorm(tokens, j) === 'at') j += 1;
   }
 
   let k = j;
-  if (nextNorm(tokens, k) === 'el' || nextNorm(tokens, k) === 'la') k += 1;
-  const special = nextNorm(tokens, k);
-  if (special === 'mediodia' || special === 'medianoche') {
-    const day = trailingDay(tokens, k + 1);
-    const minuteOfDay = special === 'mediodia' ? 12 * 60 : MINUTES_PER_DAY;
+  if (['el', 'la', 'the'].includes(nextNorm(tokens, k))) k += 1;
+  const named = NAMED_TIMES.get(nextNorm(tokens, k));
+  const endOfDay = named === undefined ? endOfDayEnd(tokens, j) : null;
+  if (named !== undefined || endOfDay !== null) {
+    const day = trailingDay(tokens, endOfDay ?? k + 1);
+    const minuteOfDay = named ?? MINUTES_PER_DAY;
     const { endsAt, warnings } = resolve(now, [minuteOfDay], tomorrow || day.tomorrow);
     return { start: i, end: day.end, endsAt, warnings };
   }
 
-  const article = nextNorm(tokens, j);
-  const hasArticle = article === 'las' || article === 'la';
-  if (hasArticle) j += 1;
-  const clock = parseClock(tokens, j, hasArticle);
-  if (!clock) return null;
-  const numeric = tokens[j]?.type === 'num';
-  j = clock.end;
-
-  let offset = clock.minute;
-  const bare =
-    hasArticle && numeric && !clock.explicitMinutes && !clock.hasSuffix && !clock.meridiem
-      ? bareMinutes(tokens, j)
-      : null;
-  if (bare) {
-    offset = bare.minute;
-    j = bare.end;
-  } else if (!clock.explicitMinutes) {
-    const spoken = spokenMinutes(tokens, j);
-    offset = spoken.offset;
-    j = spoken.end;
-    if (nextNorm(tokens, j) === 'en' && nextNorm(tokens, j + 1) === 'punto') j += 2;
-  }
+  const before = english ? periodBefore(tokens, j, tomorrow) : null;
+  if (before) j = before.end;
+  const read = readClock(tokens, j, english);
+  if (!read) return null;
+  const { clock } = read;
+  const { offset } = read;
+  j = read.end;
+  if (english) j = oclockEnd(tokens, j);
   if (!clock.hasSuffix && HOUR_SUFFIXES.has(nextNorm(tokens, j))) j += 1;
-  const period = periodAt(tokens, j);
+  let period = periodAt(tokens, j);
   j = period.end;
   const day = trailingDay(tokens, j);
   j = day.end;
+  if (!period.period && day.end > period.end) {
+    // «8 tomorrow morning», «8 tomorrow night».
+    period = periodAt(tokens, j, true);
+    j = period.end;
+  }
+  const namedPeriod = period.period ?? before?.period;
 
-  const hours = candidateHours(clock, period.period);
+  const hours = candidateHours(clock, namedPeriod);
   const minutesOfDay = hours.map((hour) => hour * 60 + offset);
-  const named = period.period ?? clock.meridiem;
-  const earlyPeriod = named !== undefined && EARLY_PERIODS.has(named);
+  const said = namedPeriod ?? clock.meridiem;
+  const earlyPeriod = said !== undefined && EARLY_PERIODS.has(said);
   const { endsAt, warnings } = resolve(now, minutesOfDay, tomorrow || day.tomorrow, earlyPeriod);
   return { start: i, end: j, endsAt, warnings };
 }

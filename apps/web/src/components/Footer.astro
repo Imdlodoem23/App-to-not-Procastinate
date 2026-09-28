@@ -5,15 +5,18 @@
  * home page), a hairline, the links (the last one switches to the same page in the other
  * language), and the legal lines. Padding 40 on top and 32 below.
  */
-import { copyFor } from '../content/locale';
+import { getCopy } from '../content/locale';
 import { site } from '../lib/site';
-import { langFromPath, langNames, pathFor, type PageKey } from '../lib/i18n';
+import { langFromPath, langNames, pathFor, type Lang, type PageKey } from '../lib/i18n';
 
 interface Props {
   page?: PageKey;
+  /** The footer's language; by default the page's (from its URL). The 404 renders both. */
+  lang?: Lang;
 }
 
-const copy = copyFor(Astro.url);
+const lang = Astro.props.lang ?? langFromPath(Astro.url.pathname);
+const copy = getCopy(lang);
 
 const { footer } = copy;
 const links = [
@@ -23,12 +26,12 @@ const links = [
   { label: footer.links.source.label, href: site.repoUrl },
   { label: footer.links.issues.label, href: site.issuesUrl },
 ];
-const other = langFromPath(Astro.url.pathname) === 'es' ? 'en' : 'es';
+const other = lang === 'es' ? 'en' : 'es';
 const switchTo = { lang: other, label: langNames[other], href: pathFor(Astro.props.page, other) };
 const hasNotes = Astro.slots.has('footnotes');
 ---
 
-<footer class="site-footer" data-surface="alt">
+<footer class="site-footer" data-surface="alt" data-shell-part="footer">
   {
     hasNotes && (
       <div class="site-footer__notes">

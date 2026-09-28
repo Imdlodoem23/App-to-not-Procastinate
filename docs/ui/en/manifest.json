@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-28T12:12:41.953Z",
+  "generatedAt": "2026-09-28T13:25:20.994Z",
   "fonts": [
     {
       "family": "Ubuntu",
@@ -17,7 +17,7 @@
       },
       "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
       "platform": "linux",
-      "shots": 18
+      "shots": 36
     }
   ],
   "entries": [
@@ -468,6 +468,474 @@
           "window": "main",
           "width": 440,
           "height": 348
+        }
+      ],
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
+    },
+    {
+      "state": "idle",
+      "label": "Reposo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "idle-light-1366x768@125.png",
+          "window": "main",
+          "width": 550,
+          "height": 435
+        }
+      ],
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
+    },
+    {
+      "state": "confirm-normal",
+      "label": "Confirmación",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-normal-light-1366x768@125.png",
+          "window": "main",
+          "width": 550,
+          "height": 575
+        }
+      ],
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
+    },
+    {
+      "state": "one-block",
+      "label": "Un bloqueo",
+      "window": "main",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "one-block-light-1366x768@125.png",
+          "window": "main",
+          "width": 550,
+          "height": 455
+        }
+      ],
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
+    },
+    {
+      "state": "bloqueos",
+      "label": "Ventana Bloqueos",
+      "window": "bloqueos",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "bloqueos-light-1366x768@125.png",
+          "window": "detail",
+          "width": 750,
+          "height": 600
+        },
+        {
+          "file": "bloqueos-light-1366x768@125.main.png",
+          "window": "main",
+          "width": 550,
+          "height": 455
+        }
+      ],
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
+    },
+    {
+      "state": "emergencia",
+      "label": "Ventana Emergencia",
+      "window": "emergencia",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergencia-light-1366x768@125.png",
+          "window": "detail",
+          "width": 750,
+          "height": 600
+        },
+        {
+          "file": "emergencia-light-1366x768@125.main.png",
+          "window": "main",
+          "width": 550,
+          "height": 455
+        }
+      ],
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
+    },
+    {
+      "state": "ajustes",
+      "label": "Ventana Ajustes",
+      "window": "ajustes",
+      "theme": "light",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-light-1366x768@125.png",
+          "window": "detail",
+          "width": 750,
+          "height": 600
+        },
+        {
+          "file": "ajustes-light-1366x768@125.main.png",
+          "window": "main",
+          "width": 550,
+          "height": 435
+        }
+      ],
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
+    },
+    {
+      "state": "idle",
+      "label": "Reposo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "idle-dark-1366x768@125.png",
+          "window": "main",
+          "width": 550,
+          "height": 435
+        }
+      ],
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
+    },
+    {
+      "state": "confirm-normal",
+      "label": "Confirmación",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "confirm-normal-dark-1366x768@125.png",
+          "window": "main",
+          "width": 550,
+          "height": 575
+        }
+      ],
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
+    },
+    {
+      "state": "one-block",
+      "label": "Un bloqueo",
+      "window": "main",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "one-block-dark-1366x768@125.png",
+          "window": "main",
+          "width": 550,
+          "height": 455
+        }
+      ],
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
+    },
+    {
+      "state": "bloqueos",
+      "label": "Ventana Bloqueos",
+      "window": "bloqueos",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "bloqueos-dark-1366x768@125.png",
+          "window": "detail",
+          "width": 750,
+          "height": 600
+        },
+        {
+          "file": "bloqueos-dark-1366x768@125.main.png",
+          "window": "main",
+          "width": 550,
+          "height": 455
+        }
+      ],
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
+    },
+    {
+      "state": "emergencia",
+      "label": "Ventana Emergencia",
+      "window": "emergencia",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "emergencia-dark-1366x768@125.png",
+          "window": "detail",
+          "width": 750,
+          "height": 600
+        },
+        {
+          "file": "emergencia-dark-1366x768@125.main.png",
+          "window": "main",
+          "width": 550,
+          "height": 455
+        }
+      ],
+      "settled": true,
+      "font": {
+        "family": "Ubuntu",
+        "standsInFor": null,
+        "inStack": true,
+        "weights": {
+          "400": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          },
+          "600": {
+            "family": "Ubuntu",
+            "postScriptName": "Ubuntu-Regular"
+          }
+        },
+        "source": "Linux: system-ui → Ubuntu via a private fontconfig file",
+        "platform": "linux"
+      }
+    },
+    {
+      "state": "ajustes",
+      "label": "Ventana Ajustes",
+      "window": "ajustes",
+      "theme": "dark",
+      "preset": "1366x768@125",
+      "presetLabel": "1366×768 al 125 %",
+      "scaleFactor": 1.25,
+      "density": "regular",
+      "shots": [
+        {
+          "file": "ajustes-dark-1366x768@125.png",
+          "window": "detail",
+          "width": 750,
+          "height": 600
+        },
+        {
+          "file": "ajustes-dark-1366x768@125.main.png",
+          "window": "main",
+          "width": 550,
+          "height": 435
         }
       ],
       "settled": true,

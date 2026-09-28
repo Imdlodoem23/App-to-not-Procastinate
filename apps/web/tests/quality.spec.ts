@@ -417,9 +417,69 @@ test.describe('i18n: English hint for an English browser', () => {
   test('the 404 under /en is in English', async ({ page }) => {
     await page.goto('/en/this-page-does-not-exist');
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    await expect(page).toHaveTitle('Page not found · Céntrate');
     await expect(page.locator('h1')).toHaveText('This page doesn’t exist.');
+    // The whole shell is English (Render serves one 404.html for every path), not only the message.
+    await expect(page.locator('.skip-link')).toHaveText('Skip to content');
+    await expect(page.locator('header nav')).toContainText('Download');
+    await expect(page.locator('header nav')).not.toContainText('Descargar');
+    await expect(page.locator('header [data-lang-switch]').first()).toHaveText('Español');
+    await expect(page.locator('footer')).toContainText('Privacy');
+    await expect(page.locator('footer')).not.toContainText('Privacidad');
+    await expect(page.locator('main')).toHaveCount(1);
+    await expect(page.locator('template')).toHaveCount(0);
     await expect(page.locator('[data-lang-hint]')).toBeHidden();
   });
+});
+
+test('i18n: the 404 elsewhere is in Spanish', async ({ page }) => {
+  await page.goto('/esta-pagina-no-existe');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'es');
+  await expect(page.locator('h1')).toHaveText('Esta página no existe.');
+  await expect(page.locator('header nav')).toContainText('Descargar');
+  await expect(page.locator('footer')).toContainText('Privacidad');
+  await expect(page.locator('main')).toHaveCount(1);
+  await expect(page.locator('template')).toHaveCount(0);
+});
+
+test('i18n: the English 404 bar works like any other on a phone', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/en/this-page-does-not-exist');
+  const menu = page.locator('[data-nav-menu]');
+  await menu.locator('summary').click();
+  await expect(menu).toHaveAttribute('open', '');
+  await expect(menu.locator('summary')).toContainText('Close menu');
+  // Escape comes from the bar's script, bound after the English bar was swapped in.
+  await page.keyboard.press('Escape');
+  await expect(menu).not.toHaveAttribute('open', '');
+});
+
+test('i18n: Spanish phrases on English pages are marked lang="es"', async ({ page }) => {
+  await page.goto('/en');
+  const phrase = (section: string, text: string) =>
+    page.locator(`#${section} [lang="es"]`, { hasText: text }).first();
+  await expect(phrase('features', 'no veo YouTube en una hora')).toBeAttached();
+  await expect(phrase('blocking', 'nada de TikTok ni Instagram durante 45 minutos')).toBeAttached();
+  await expect(phrase('blocking', 'hasta mañana a las 8')).toBeAttached();
+  expect(await page.evaluate(() => document.body.innerText)).not.toContain('{es:');
+
+  // The demo's hint, written by the page's script.
+  await page.locator('[data-demo-input]').fill('hola');
+  await expect(page.locator('[data-demo-result] [lang="es"]').first()).toHaveText(
+    'no quiero ver Netflix 2h',
+  );
+  expect(await page.locator('[data-demo-result]').innerText()).not.toContain('{es:');
+});
+
+test('i18n: the English changelog has no Spanish headings', async ({ page }) => {
+  await page.goto('/en/changelog');
+  const headings = await page.locator('h1, h2').allTextContents();
+  expect(headings.length).toBeGreaterThan(0);
+  for (const heading of headings) expect(heading).not.toMatch(/Sin publicar|Versión|Novedades/);
+  // The release notes themselves are Spanish, and say so.
+  for (const notes of await page.locator('.release-notes').all()) {
+    await expect(notes).toHaveAttribute('lang', 'es');
+  }
 });
 
 test('i18n: no hint for a Spanish browser', async ({ page }) => {

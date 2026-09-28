@@ -80,7 +80,12 @@ export function MainWindow(): React.JSX.Element {
 
   return (
     <div ref={rootRef} className="main-shell">
-      <main className="main-column" aria-labelledby="app-title" data-scroll-root="">
+      <main
+        className="main-column"
+        aria-labelledby="app-title"
+        data-scroll-root=""
+        data-keep-scroll="main"
+      >
         <h1 id="app-title" className="sr-only">
           {RENDERER.shell.appName}
         </h1>

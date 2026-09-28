@@ -6,7 +6,7 @@ import type { HealthResponse } from '@centrate/shared/cloud-api';
 import { eq } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { API_VERSION, deriveCapabilities } from '../config';
-import { isGlobalBudgetExhausted } from '../coach/budget';
+import { readAiRuntime } from '../coach/budget';
 import { meta } from '../db/schema';
 
 export const healthRoutes: FastifyPluginAsync = async (app) => {
@@ -15,7 +15,7 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
     const now = ctx.now();
     let db: HealthResponse['db'] = 'unconfigured';
     let serverEpoch: string | null = null;
-    let aiBudgetExhausted = false;
+    let ai = { aiKillSwitch: false, aiBudgetExhausted: false };
     if (ctx.db) {
       db = (await ctx.pingDb()) ? 'up' : 'down';
       if (db === 'up') {
@@ -26,7 +26,7 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
             .where(eq(meta.key, 'server_epoch'))
             .limit(1);
           serverEpoch = rows[0]?.value ?? null;
-          aiBudgetExhausted = await isGlobalBudgetExhausted(ctx.db, ctx.config, now);
+          ai = await readAiRuntime(ctx.db, ctx.config, now);
         } catch {
           db = 'down';
         }
@@ -40,7 +40,7 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
       serverEpoch,
       capabilities: deriveCapabilities(ctx.config, {
         dbUp: db === 'unconfigured' ? null : db === 'up',
-        aiBudgetExhausted,
+        ...ai,
       }),
     };
   });

@@ -11,7 +11,7 @@
  * Clock times use the process time zone (the OS zone; tests and screenshots run with
  * `TZ=Europe/Madrid`). Pure module: no DOM, Node or Electron imports.
  */
-import { getApp, getCategory, getService } from '@centrate/shared/catalog';
+import { appName, getCategory, getService } from '@centrate/shared/catalog';
 import type { BlockMode, TargetSpec } from '@centrate/shared/domain';
 import { durationLabel } from '@centrate/shared/parser';
 import type { CategoryId } from '@centrate/shared/catalog';
@@ -87,12 +87,6 @@ export function formatPointsShort(value: number): string {
 /** «17:42» in Spanish, «5:42 PM» in English (local time). */
 export function formatClock(ms: number): string {
   return clockFormat().format(new Date(ms));
-}
-
-/** «17:42» whatever the locale: what the Spanish parser reads back from an input field. */
-export function formatClock24(ms: number): string {
-  const d = new Date(ms);
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
 /** Short weekday of `ms` without a trailing dot («jue», «Thu»). */
@@ -180,6 +174,11 @@ export function countdownAnnouncement(prevMs: number, nextMs: number): string | 
   return null;
 }
 
+/** Display name of a catalog app in the active locale («Juegos de PC populares», «Popular PC games»). */
+export function appLabel(id: string): string {
+  return appName(id, activeLocale());
+}
+
 /** «Normal», «Estricto», «Hardcore», «Examen». */
 export function modeLabel(mode: BlockMode): string {
   return SHARED.modes[mode];
@@ -191,7 +190,7 @@ export function targetNames(targets: TargetSpec, whitelistOnly: boolean): string
   return [
     ...targets.serviceIds.map((id) => getService(id)?.name ?? id),
     ...targets.categoryIds.map((id) => categoryName(id)),
-    ...targets.appIds.map((id) => getApp(id)?.name ?? id),
+    ...targets.appIds.map((id) => appLabel(id)),
     ...targets.customDomains,
     ...targets.customProcesses,
   ];

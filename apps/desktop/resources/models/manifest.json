@@ -1,0 +1,43 @@
+{
+  "$comment": "Written by packages/study-ai/scripts/fetch-models.mjs from packages/study-ai/src/assets.ts. Do not edit by hand.",
+  "format": "centrate-study-ai-models",
+  "version": 1,
+  "models": [
+    {
+      "id": "face",
+      "name": "MediaPipe Face Landmarker (float16, v1)",
+      "file": "face_landmarker.task",
+      "url": "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+      "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff",
+      "bytes": 3758596,
+      "license": "Apache-2.0"
+    },
+    {
+      "id": "objects",
+      "name": "EfficientDet-Lite0 (int8, v1, COCO 2017)",
+      "file": "efficientdet_lite0_int8.tflite",
+      "url": "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/int8/1/efficientdet_lite0.tflite",
+      "sha256": "0720bf247bd76e6594ea28fa9c6f7c5242be774818997dbbeffc4da460c723bb",
+      "bytes": 4602795,
+      "license": "Apache-2.0"
+    }
+  ],
+  "wasm": {
+    "package": "@mediapipe/tasks-vision",
+    "version": "1.0.1",
+    "dir": "mediapipe",
+    "committed": false,
+    "files": [
+      {
+        "file": "vision_wasm_internal.js",
+        "sha256": "e170ee67dd4e16c1a6fcd8840a206687e5a59b22c20e4a902bc445b095454d73",
+        "bytes": 323377
+      },
+      {
+        "file": "vision_wasm_internal.wasm",
+        "sha256": "8da277a733926eacd0474b8704b36742d6ec3231c57a860c5b889dff8f1df886",
+        "bytes": 11756954
+      }
+    ]
+  }
+}

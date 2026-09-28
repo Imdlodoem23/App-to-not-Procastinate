@@ -5,36 +5,41 @@
  * language hint.
  *
  * Language: the page's own (from its URL: /en… is English) sets <html lang>, the copy and the
- * Open Graph locale. The hint is a one-line banner, hidden by default, that offers the same page
- * in the other language when the browser prefers it and the visitor has not chosen a language
- * yet (lib/i18n.ts, LANG_CHOICE_KEY). It never redirects.
+ * Open Graph locale. The hint (LangHint.astro) offers the same page in the other language when
+ * the browser prefers it and the visitor has not chosen a language yet. It never redirects.
+ *
+ * The 404 is one file for every missing path (Render serves dist/404.html), so it carries both
+ * languages (`alternate`): the other language's whole shell (skip link, bar, content, footer and
+ * hint) waits in an inert <template>, and a tiny inline script swaps it in, part by part
+ * ([data-shell-part]), before any other script runs, when the missing path is in that language.
  *
  * Slots:
  * - default: the page content, inside <main>. Each section sets data-surface.
  * - `head`: extra tags for <head> (structured data, a preload for a page's hero image…).
  * - `footnotes`: the page's numbered notes, rendered at the top of the footer.
+ * - `alternate`: with `alternate`, the content in the other language.
  */
 import '../styles/global.css';
 import interLatinUrl from '@fontsource-variable/inter/files/inter-latin-opsz-normal.woff2?url';
 import NavBar from '../components/NavBar.astro';
 import Footer from '../components/Footer.astro';
+import LangHint from '../components/LangHint.astro';
 import { copyFor, getCopy } from '../content/locale';
 import { site } from '../lib/site';
 import {
+  ENGLISH_PATH,
   langFromPath,
   langs,
   ogLocale,
-  langNames,
   pathFor,
   defaultLang,
+  type Lang,
   type PageKey,
 } from '../lib/i18n';
 
 const copy = copyFor(Astro.url);
 const lang = langFromPath(Astro.url.pathname);
-const other = lang === 'es' ? 'en' : 'es';
-/** The hint speaks the language it offers. */
-const hint = getCopy(other).language.hint;
+const other: Lang = lang === 'es' ? 'en' : 'es';
 
 interface Props {
   /** <title>, from copy.meta.<page>.title. */
@@ -50,9 +55,14 @@ interface Props {
   page?: PageKey;
   /** Keep the page out of search results, without a canonical URL (the 404). */
   noindex?: boolean;
+  /**
+   * The 404 only: the <title> and description of the page in the other language, whose content
+   * goes in the `alternate` slot.
+   */
+  alternate?: { title: string; description: string };
 }
 
-const { title, description, ogTitle, page, noindex = false } = Astro.props;
+const { title, description, ogTitle, page, noindex = false, alternate } = Astro.props;
 
 const siteUrl = Astro.site ?? new URL(Astro.url.origin);
 // Canonical URLs never end in a slash (except the home page), like every internal link.
@@ -121,9 +131,13 @@ const hasFootnotes = Astro.slots.has('footnotes');
     <slot name="head" />
   </head>
   <body>
-    <a class="skip-link button-pill button-pill-compact" href="#contenido">{copy.ui.skipLink}</a>
+    <a
+      class="skip-link button-pill button-pill-compact"
+      href="#contenido"
+      data-shell-part="skip-link">{copy.ui.skipLink}</a
+    >
     <NavBar page={page} />
-    <main id="contenido" tabindex="-1">
+    <main id="contenido" tabindex="-1" data-shell-part="main">
       <slot />
     </main>
     {
@@ -135,27 +149,49 @@ const hasFootnotes = Astro.slots.has('footnotes');
         <Footer page={page} />
       )
     }
-    <aside
-      class="lang-hint"
-      data-surface="light"
-      lang={other} aria-label={langNames[other]} data-lang-hint={other} hidden>
-      <a
-        class="lang-hint__link"
-        href={pathFor(page, other)}
-        hreflang={other}
-        data-lang-switch={other}>{hint.text}</a
-      >
-      <button
-        type="button"
-        class="lang-hint__close"
-        aria-label={hint.dismissAria}
-        data-lang-hint-dismiss={lang}
-      >
-        <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true" focusable="false">
-          <path d="M2.5 2.5l7 7M9.5 2.5l-7 7"></path>
-        </svg>
-      </button>
-    </aside>
+    <LangHint lang={lang} page={page} />
+    {
+      alternate && (
+        <template
+          data-shell={other}
+          data-title={alternate.title}
+          data-description={alternate.description}
+        >
+          <a
+            class="skip-link button-pill button-pill-compact"
+            href="#contenido"
+            data-shell-part="skip-link">{getCopy(other).ui.skipLink}</a
+          >
+          <NavBar page={page} lang={other} />
+          <main id="contenido" tabindex="-1" data-shell-part="main">
+            <slot name="alternate" />
+          </main>
+          <Footer page={page} lang={other} />
+          <LangHint lang={other} page={page} />
+        </template>
+      )
+    }
+    {
+      alternate && (
+        <script is:inline define:vars={{ englishPath: ENGLISH_PATH.source }}>
+          var shell = document.querySelector('template[data-shell]');
+          var lang = new RegExp(englishPath).test(location.pathname) ? 'en' : 'es';
+          if (shell && shell.getAttribute('data-shell') === lang) {
+            var parts = shell.content.querySelectorAll('[data-shell-part]');
+            for (var i = 0; i < parts.length; i++) {
+              var name = parts[i].getAttribute('data-shell-part');
+              var live = document.querySelector('[data-shell-part="' + name + '"]');
+              if (live) live.replaceWith(parts[i]);
+            }
+            document.documentElement.lang = lang;
+            document.title = shell.getAttribute('data-title') || document.title;
+            var meta = document.querySelector('meta[name="description"]');
+            if (meta) meta.setAttribute('content', shell.getAttribute('data-description') || '');
+          }
+          if (shell) shell.remove();
+        </script>
+      )
+    }
     <script>
       import { initReveal } from '../scripts/reveal';
       import { initLanguage } from '../scripts/language';
@@ -165,78 +201,3 @@ const hasFootnotes = Astro.slots.has('footnotes');
     </script>
   </body>
 </html>
-
-<style>
-  /* The language hint: a small floating bar at the bottom, over the page (it never pushes the
-     layout), shown by scripts/language.ts. */
-  .lang-hint {
-    position: fixed;
-    inset-inline: 0;
-    bottom: 16px;
-    z-index: var(--z-nav);
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    width: max-content;
-    max-width: calc(100% - 2 * var(--page-gutter));
-    margin-inline: auto;
-    padding: 4px 4px 4px 20px;
-    border: 1px solid var(--palette-nav-border);
-    border-radius: var(--shape-pill);
-    background-color: var(--surface);
-    color: var(--text);
-    box-shadow: var(--shadow-window);
-    font-size: var(--type-small-size);
-    line-height: var(--type-small-lh);
-    letter-spacing: var(--type-small-ls);
-  }
-
-  .lang-hint[hidden] {
-    display: none;
-  }
-
-  .lang-hint__link {
-    display: inline-flex;
-    align-items: center;
-    min-height: 44px;
-    color: var(--link);
-    text-underline-offset: 0.18em;
-    text-decoration-thickness: 1px;
-  }
-
-  .lang-hint__link:hover {
-    text-decoration-line: underline;
-  }
-
-  .lang-hint__close {
-    display: inline-flex;
-    flex: none;
-    align-items: center;
-    justify-content: center;
-    width: 44px;
-    height: 44px;
-    border: 0;
-    border-radius: var(--shape-pill);
-    background: transparent;
-    color: var(--text-secondary);
-    cursor: pointer;
-  }
-
-  .lang-hint__close:hover {
-    background-color: var(--fill-hover);
-    color: var(--text);
-  }
-
-  .lang-hint__close svg {
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.5;
-    stroke-linecap: round;
-  }
-
-  @media print {
-    .lang-hint {
-      display: none;
-    }
-  }
-</style>

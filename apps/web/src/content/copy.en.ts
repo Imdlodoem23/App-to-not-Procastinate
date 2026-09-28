@@ -5,10 +5,15 @@
  * Conventions, the English side of the ones in copy.ts:
  * - Sentence case. Headlines end with a period; labels do not.
  * - Typographic minus «−» for negative points, curly quotes “ ”, ellipsis «…», 12-hour clock
- *   («5:42 PM»), en-US numbers («1,240»). A number and its unit are joined by a no-break space.
+ *   («5:42 PM»), en-US numbers («1,240»). A number and its unit are joined by a no-break space,
+ *   except the percent sign, which is attached («100%»). Compound adjectives take a no-break
+ *   hyphen (U+2011) in visible text, so they never wrap («7‑day streak»).
+ * - Mode names are capitalized like in the app: Normal, Strict, Hardcore, Exam («Exam mode»).
  * - The phrases Céntrate reads (demo examples, the phrase typed in the window mock) stay in
  *   Spanish: the parser understands Spanish today, and the page says so instead of pretending.
- *   An English gloss follows them where it helps.
+ *   An English gloss follows them where it helps. Inside English text they are marked
+ *   {es:…} (rendered as <span lang="es">) wherever a component renders the string with
+ *   inline(); attributes (aria-label, placeholder) cannot carry that mark.
  * - Same tone as the Spanish: calm and precise, humor only on the blocked page and empty
  *   states, penalties stated as data, never as guilt.
  */
@@ -32,7 +37,7 @@ const ids = {
 /** Footnotes of the home page, in the order of copy.ts. */
 const notes = {
   admin:
-    'On a computer you are an administrator of, no block is 100\u00a0% impossible to get around. Céntrate makes it as hard as it can, without hiding and without ever stopping you from uninstalling it.',
+    'On a computer you are an administrator of, no block is 100% impossible to get around. Céntrate makes it as hard as it can, without hiding and without ever stopping you from uninstalling it.',
   attempts:
     'If you try again within 5\u00a0minutes, the penalty doubles (−10, −20, −40…) up to −80\u00a0points per attempt. If several layers catch the same service at once, or it comes back within 30\u00a0seconds, it counts as one attempt. Your balance can go below zero.',
   webcam:
@@ -40,11 +45,11 @@ const notes = {
   blockedPage:
     'The blocked page, with your reason and the points you lose, needs the Céntrate extension for Chrome, Edge, Brave or Firefox. Without it, the guardian still blocks across the whole system, but the browser will only tell you the site does not load.',
   emergency:
-    'An emergency unlock costs 200\u00a0points or half your balance, whichever is higher, plus your streak. You can cancel the wait. It does not exist in Hardcore or in exam mode.',
+    'An emergency unlock costs 200\u00a0points or half your balance, whichever is higher, plus your streak. You can cancel the wait. It does not exist in Hardcore or Exam mode.',
   punishment:
     'The punishment lasts 60\u00a0minutes by default (15 to 120 in Settings) and blocks all your distractions; if you want, you can make it stricter and allow only your study sites. It takes 100\u00a0points when it starts, and each strike takes 15. Pomodoro breaks and pauses do not count.',
   rewards:
-    'Reward shop prices are an example. Earned breaks cannot be redeemed during a Hardcore block, exam mode or a punishment.',
+    'Reward shop prices are an example. Earned breaks cannot be redeemed during a Hardcore block, in Exam mode or during a punishment.',
   unsigned:
     'The installers are not signed with a certificate yet, so Windows and macOS show a warning the first time. The install guide explains how to open them and how to check their SHA-256.',
 } as const;
@@ -141,7 +146,7 @@ export const en: Copy = {
     cards: [
       {
         title: 'Type it and you’re done.',
-        text: 'Type “no veo YouTube en una hora” (no YouTube for an hour) and press Enter twice: once to review it, once to block. Céntrate reads Spanish phrases for now.',
+        text: 'Type “{es:no veo YouTube en una hora}” (no YouTube for an hour) and press Enter twice: once to review it, once to block. Céntrate reads Spanish phrases for now.',
       },
       {
         title: 'Still blocked when you close the app.',
@@ -167,7 +172,7 @@ export const en: Copy = {
     headline: 'Try it without installing anything.',
     lead: 'Type what you want to avoid, the way you’d say it, and see what Céntrate would do.',
     languageNote:
-      'The app understands Spanish phrases today; English phrases are coming. Try one of the examples below.',
+      'For now, the app only understands phrases in Spanish. Try one of the examples below.',
     label: 'What do you want to do?',
     inputHint: 'For example, “no veo YouTube en una hora”.',
     clear: 'Clear',
@@ -198,7 +203,7 @@ export const en: Copy = {
         'I understood {understood}, but not “{rest}”. The app would open the advanced form with that already filled in.',
       none: 'I didn’t understand “{text}”. The app wouldn’t make anything up: it would open the advanced form so you can choose.',
       tryHint:
-        'Try a service and a time, like “no quiero ver Netflix 2h” (no Netflix for 2 hours).',
+        'Try a service and a time, like “{es:no quiero ver Netflix 2h}” (no Netflix for 2 hours).',
       empty: 'Type a phrase or pick an example.',
       restSeparator: '”, “',
       untilToday: 'until {time}',
@@ -260,11 +265,11 @@ export const en: Copy = {
       id: ids.block,
       eyebrow: 'Blocking',
       headline: 'You write the phrase. Céntrate sets the limit.',
-      lead: 'Type “nada de TikTok ni Instagram durante 45 minutos” (no TikTok or Instagram for 45 minutes) and Céntrate works out what to block, for how long and until when. You confirm with Enter and, from then on, it can only be extended.',
+      lead: 'Type “{es:nada de TikTok ni Instagram durante 45 minutos}” (no TikTok or Instagram for 45 minutes) and Céntrate works out what to block, for how long and until when. You confirm with Enter and, from then on, it can only be extended.',
       cards: [
         {
           title: 'Type the way you talk.',
-          text: 'It gets “yt”, “insta”, “hora y media” or “hasta mañana a las 8”, no internet needed. Spanish only for now; English is on the way.',
+          text: 'It gets “yt”, “insta”, “{es:hora y media}” or “{es:hasta mañana a las 8}”, no internet needed. Spanish only, for now.',
           visual: 'typing',
         },
         {
@@ -439,7 +444,7 @@ export const en: Copy = {
       },
       {
         name: 'Achievements',
-        text: 'Your first session, a 7\u00a0day streak, 10\u00a0hours of Study Mode, a week without attempts…',
+        text: 'Your first session, a 7\u2011day streak, 10\u00a0hours of Study Mode, a week without attempts…',
       },
     ],
     spare: [
@@ -464,11 +469,11 @@ export const en: Copy = {
       },
       {
         q: 'Can a block be bypassed?',
-        a: 'Closing the app, ending it from Task Manager, restarting or changing your computer’s clock won’t lift it. Still, let’s be clear: on a computer you are an administrator of, no block is 100\u00a0% impossible to get around. Céntrate makes it hard and charges you for every attempt, because it’s built to help you, not to lock anyone in.',
+        a: 'Closing the app, ending it from Task Manager, restarting or changing your computer’s clock won’t lift it. Still, let’s be clear: on a computer you are an administrator of, no block is 100% impossible to get around. Céntrate makes it hard and charges you for every attempt, because it’s built to help you, not to lock anyone in.',
       },
       {
         q: 'What if I really need to get in?',
-        a: 'In Normal and Strict you have the emergency unlock: you type “I accept breaking my commitment and losing my points” by hand, wait 10\u00a0minutes (30 in Strict) and lose 200\u00a0points or half your balance, whichever is more, plus your streak. In Hardcore and exam mode there is no way to cancel, and Céntrate tells you so before you confirm.',
+        a: 'In Normal and Strict you have the emergency unlock: you type “I accept breaking my commitment and losing my points” by hand, wait 10\u00a0minutes (30 in Strict) and lose 200\u00a0points or half your balance, whichever is more, plus your streak. In Hardcore and Exam mode there is no way to cancel, and Céntrate tells you so before you confirm.',
       },
       {
         q: 'Does the camera record or send anything?',
@@ -629,8 +634,8 @@ export const en: Copy = {
       meta: '42\u00a0min left',
       motive: 'I want to pass math',
       points: '−10\u00a0points',
-      quip: 'YouTube will still be here in 42\u00a0minutes. Your homework won’t.',
-      back: 'Back to my stuff',
+      quip: 'YouTube will still be there in 42\u00a0minutes. Your homework won’t.',
+      back: 'Back to my work',
     },
     aria: {
       idle: 'The Céntrate window at rest, with the “What do you want to do?” field and the templates Homework 1\u00a0h, Exam 3\u00a0h and Read 30\u00a0min.',
@@ -643,7 +648,7 @@ export const en: Copy = {
       study:
         'The Céntrate window in Study Mode, studying history, with the camera on and the meter at “Focused”.',
       progress:
-        'Progress in Céntrate: level 7, 1,240\u00a0points, a 5\u00a0day streak and 42 of 60\u00a0minutes today.',
+        'Progress in Céntrate: level 7, 1,240\u00a0points, a 5-day streak and 42 of 60\u00a0minutes today.',
       'blocked-page':
         'Céntrate’s blocked page: YouTube blocked, 42\u00a0minutes left, reason “I want to pass math” and −10\u00a0points.',
     },
@@ -893,6 +898,7 @@ export const en: Copy = {
       headline: 'What’s new.',
       lead: 'What changes in each version of Céntrate, as published on GitHub. Release notes are written in Spanish.',
       version: 'Version {version}',
+      unreleased: 'Unreleased',
       published: 'Released {date}',
       latestPill: 'Latest version',
       viewOnGitHub: 'View on GitHub',
@@ -914,7 +920,7 @@ export const en: Copy = {
         title: 'In short',
         items: [
           'Everything the app uses is stored on your computer. We don’t receive it and can’t see it.',
-          'The camera is processed 100\u00a0% on your computer: no image is saved, uploaded or leaves the device.',
+          'The camera is processed 100% on your computer: no image is saved, uploaded or leaves the device.',
           'No account, no telemetry, no ads and no tracking cookies.',
         ],
       },
@@ -948,7 +954,7 @@ export const en: Copy = {
         },
         {
           id: 'camera',
-          title: 'The camera, 100\u00a0% on your computer.',
+          title: 'The camera, 100% on your computer.',
           blocks: [
             {
               list: [
@@ -1083,7 +1089,7 @@ export const en: Copy = {
       title: 'Céntrate: the free app to stop procrastinating',
       ogTitle: 'Céntrate. Type it. Forget it.',
       description:
-        'Type what you want to avoid and for how long, and Céntrate blocks it even if you close the app. With Study Mode and points. Free, no account, for Windows, macOS and Linux.',
+        'Type what you want to avoid and for how long (in Spanish, for now), and Céntrate blocks it even if you close the app. With Study Mode and points. Free, no account, for Windows, macOS and Linux.',
     },
     descargar: {
       title: 'Download Céntrate for Windows, macOS and Linux',
@@ -1097,7 +1103,7 @@ export const en: Copy = {
     privacidad: {
       title: 'Privacy policy · Céntrate',
       description:
-        'What Céntrate stores and where: everything on your computer, the camera 100\u00a0% local, and no account or tracking cookies. GDPR compliant.',
+        'What Céntrate stores and where: everything on your computer, the camera 100% local, and no account or tracking cookies. GDPR compliant.',
     },
     notFound: {
       title: 'Page not found · Céntrate',

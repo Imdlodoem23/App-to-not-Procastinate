@@ -23,6 +23,7 @@ import type { Config } from './config';
 import { deriveCapabilities } from './config';
 import type { AppContext, Mailer, SessionResolver } from './context';
 import type { CoachModel } from './coach/model';
+import { createAnthropicCoachModel } from './coach/anthropic';
 import { pingDb, type Db } from './db/client';
 import { ApiError, featureDisabled, isDatabaseUnavailable } from './lib/errors';
 import { createResendMailer } from './lib/mailer';
@@ -101,11 +102,22 @@ function loggerOptions(
       }),
       res: (res: { statusCode?: number }) => ({ statusCode: res.statusCode }),
       // Messages can quote values (a database error, a parse error): keep type, code, stack.
-      err: (err: { name?: string; code?: unknown; stack?: string; statusCode?: number }) => ({
+      // The stack keeps only its `at …` frames: its first lines repeat the message, and a
+      // failed query's message lists the SQL parameters (tokens, emails).
+      err: (err: {
+        name?: string;
+        code?: unknown;
+        stack?: string;
+        statusCode?: number;
+        cause?: unknown;
+      }) => ({
         type: err.name ?? 'Error',
         message: '',
-        stack: err.stack ?? '',
-        code: err.code,
+        stack: (err.stack ?? '')
+          .split('\n')
+          .filter((line) => /^\s+at /.test(line))
+          .join('\n'),
+        code: err.code ?? (err.cause as { code?: unknown } | undefined)?.code,
         statusCode: err.statusCode,
       }),
     },
@@ -134,7 +146,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     return503OnClosing: true,
   });
 
-  // Placeholder until the auth module (CORE) is wired: no session resolves.
+  // `resolveSession` is set below, once the auth module (which needs this context) exists.
   const ctx: AppContext = {
     config,
     db,
@@ -144,7 +156,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       options.mailer === undefined
         ? createResendMailer(config.email, { log: app.log })
         : options.mailer,
-    coachModel: options.coachModel ?? null,
+    coachModel:
+      options.coachModel === undefined ? createAnthropicCoachModel(config.ai) : options.coachModel,
     resolveSession: async () => null,
   };
   const auth = createAuth(ctx, app.log);

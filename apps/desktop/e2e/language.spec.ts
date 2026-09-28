@@ -1,7 +1,8 @@
 /**
  * Language (Ajustes › Idioma): «Sistema» follows the OS language, «English» and «Español»
  * switch every surface at once, without a restart: the main window, the open detail window
- * and its title, the main window title and the tray (tooltip and menu).
+ * and its title, the main window title and the tray (tooltip and menu). Switching from the
+ * keyboard keeps the focus on the «Idioma» row (the window remounts in the new language).
  */
 import { launchApp, type LaunchedApp } from './support/app';
 import { expect, test } from './support/test';
@@ -55,4 +56,30 @@ test('«Idioma» switches every surface live, and back', async () => {
   await expect(detail.getByText('General: tema del sistema')).toBeVisible();
   await expect(main.getByRole('heading', { name: /^Bloqueo: YouTube/ })).toBeVisible();
   await expect.poll(() => app?.harness.windowTitle()).toMatch(/quedan?/);
+});
+
+test('switching the language from the keyboard keeps the focus on «Idioma»', async () => {
+  app = await launchApp({ state: 'ajustes', show: true });
+  const detail = await app.page('detail');
+  const spanish = detail.getByRole('radio', { name: 'Español' });
+  await spanish.click();
+  await expect(spanish).toBeChecked();
+  await expect(spanish).toBeFocused();
+
+  // Selection follows focus: → selects English, and the remounted window keeps the focus there.
+  await detail.keyboard.press('ArrowRight');
+  const english = detail.getByRole('radio', { name: 'English' });
+  await expect(english).toBeChecked();
+  await expect(detail.getByText('General: system theme')).toBeVisible();
+  await expect(english).toBeFocused();
+  const theme = detail.getByRole('radiogroup', { name: 'Theme' });
+  await expect(theme.getByRole('radio', { name: 'System' })).toBeChecked();
+
+  // The next arrow key moves within «Idioma» again: back to Español, the theme untouched.
+  await detail.keyboard.press('ArrowLeft');
+  await expect(spanish).toBeChecked();
+  await expect(detail.getByText('General: tema del sistema')).toBeVisible();
+  await expect(spanish).toBeFocused();
+  const tema = detail.getByRole('radiogroup', { name: 'Tema' });
+  await expect(tema.getByRole('radio', { name: 'Sistema' })).toBeChecked();
 });

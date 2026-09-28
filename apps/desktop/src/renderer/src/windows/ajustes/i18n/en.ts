@@ -45,14 +45,15 @@ export const AJUSTES_EN: AjustesMessages = {
     title: (mode: string): string => `Blocking: ${mode} by default`,
     defaultModeLabel: 'Default mode',
     modeHelp: {
-      normal: 'Normal: 10 min emergency and at least 200 points',
-      strict: 'Strict: 30 min emergency and at least 200 points',
+      // One line beside the three tiles (56 characters at most, like the Spanish).
+      normal: 'Normal: 10 min emergency unlock, at least 200 points',
+      strict: 'Strict: 30 min emergency unlock, at least 200 points',
       hardcore: 'Hardcore: cannot be cancelled in any way',
     },
     modeRowHelp: 'The mode the confirmation opens with',
     closeBrowsers: 'Close browsers without the extension',
     closeBrowsersDesc: 'During a block, closes browsers that do not have it active',
-    penalties: 'Penalties',
+    penalties: 'Attempt penalties',
     penaltiesDesc: 'Each attempt to open something blocked costs points',
   },
   sistema: {
@@ -92,7 +93,7 @@ export const AJUSTES_EN: AjustesMessages = {
       ok: 'Connected',
       disconnected: 'Disconnected',
       permission: 'No permission',
-      incognito: 'Incognito missing',
+      incognito: 'Not allowed in incognito',
     },
     extensionDesc: {
       ok: 'Blocks instantly, in incognito too',
@@ -101,7 +102,7 @@ export const AJUSTES_EN: AjustesMessages = {
       incognito: 'It needs to be allowed in incognito windows',
     },
     browserMissing: (browser: string): string => `${browser} does not have the extension`,
-    browserMissingDesc: 'Blocking there may be slow: install it',
+    browserMissingDesc: 'Blocks may take a while to apply there: install it',
     guide: 'Guide',
     pairing: 'Pairing code',
     pairingDesc: 'Type it into the extension the first time',
@@ -125,13 +126,13 @@ export const AJUSTES_EN: AjustesMessages = {
     },
     guidesRowHelp: 'Step by step, in your browser',
     diagnostics: 'Diagnostics',
-    diagnosticsDesc: 'To ask for help: without your sites, reasons or name',
+    diagnosticsDesc: 'For support requests. Leaves out your sites, reasons and name',
     diagnosticsCopy: 'Copy diagnostics',
     diagnosticsCopied: 'Copied to the clipboard',
-    diagnosticsFallback: 'Copied: the guardian is not responding, so it has what the app sees',
+    diagnosticsFallback: 'Copied (guardian not responding: app data only)',
     diagnosticsSpoken: {
       guardian: 'Diagnostics copied to the clipboard',
-      fallback: 'Diagnostics copied: the guardian is not responding, so it has what the app sees',
+      fallback: 'Diagnostics copied. The guardian isn’t responding, so only app data is included',
     },
   },
   datos: {

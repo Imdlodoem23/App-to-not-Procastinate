@@ -180,8 +180,9 @@ describe('Ajustes view per fixture', () => {
       ['Extensión en Edge', 'Sin permiso', 'extension-chromium'],
       ['Extensión en Brave', 'Falta incógnito', 'extension-incognito'],
     ]);
-    // Three «Guía…» tiles, three different keys, none taken by another tile («English» has g).
-    expect(rows.map((r) => r.guideKey)).toEqual(['a', 'd', 'j']);
+    // Three «Guía…» tiles, three different keys, none taken by another tile («English» has g,
+    // «Copiar diagnóstico» d).
+    expect(rows.map((r) => r.guideKey)).toEqual(['a', 'j', 'k']);
     expect(duplicateKeys(ajustesKeys(view))).toEqual([]);
   });
 
@@ -278,7 +279,7 @@ describe('Ajustes Alt + letter', () => {
     ]);
     expect(view.general.languageOptions.map((o) => [o.label, o.mnemonic])).toEqual([
       ['Sistema', 't'],
-      ['Español', 'l'],
+      ['Español', 'p'],
       ['English', 'g'],
     ]);
     expect(view.bloqueo.modeOptions.map((o) => o.mnemonic)).toEqual(['n', 'e', 'h']);
@@ -296,7 +297,7 @@ describe('Ajustes Alt + letter', () => {
     expect(view.general.languageOptions.map((o) => [o.label, o.mnemonic])).toEqual([
       ['System', 'y'],
       ['Español', 'p'],
-      ['English', 'e'],
+      ['English', 'g'],
     ]);
     for (const o of [
       ...view.general.themeOptions,
@@ -319,13 +320,15 @@ describe('Ajustes Alt + letter', () => {
   });
 
   it('keeps the description beside the tiles to one line of help per option', () => {
-    const view = deriveAjustesView(detailState('ajustes'), NOW);
-    for (const o of [
-      ...view.general.themeOptions,
-      ...view.general.languageOptions,
-      ...view.bloqueo.modeOptions,
-    ]) {
-      expect(o.help.length, o.label).toBeLessThanOrEqual(56);
+    for (const locale of ['es', 'en'] as const) {
+      const view = withLocale(locale, () => deriveAjustesView(detailState('ajustes'), NOW));
+      for (const o of [
+        ...view.general.themeOptions,
+        ...view.general.languageOptions,
+        ...view.bloqueo.modeOptions,
+      ]) {
+        expect(o.help.length, `${locale}: ${o.label}`).toBeLessThanOrEqual(56);
+      }
     }
   });
 });

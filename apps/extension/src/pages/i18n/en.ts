@@ -244,8 +244,8 @@ export const PAGES_EN: PagesMessages = {
     blockNoneHelp: 'Create blocks in the Céntrate app: they apply here on their own.',
     /** «Block: YouTube, Instagram · Strict». */
     block: (targets: string, mode: string): string => `Block: ${targets} · ${mode}`,
-    /** «Penalty: all distractions». */
-    punishment: (level: string): string => `Penalty: ${level}`,
+    /** «Punishment: all distractions». */
+    punishment: (level: string): string => `Punishment: ${level}`,
     row: (targets: string, mode: string): string => `${targets} · ${mode}`,
     /** «Break: YouTube». */
     allowance: (name: string): string => `Break: ${name}`,

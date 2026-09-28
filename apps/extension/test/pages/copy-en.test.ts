@@ -75,7 +75,7 @@ describe('English copy', () => {
     const header = PAGES_EN.popup.block(PAGES_EN.common.targets.whitelistShort, 'Exam');
     expect(header).toBe('Block: allowlist only · Exam');
     for (const level of Object.values(PAGES_EN.common.punishmentLevels)) {
-      expect(PAGES_EN.popup.punishment(level)).toMatch(/^Penalty: [a-z]/);
+      expect(PAGES_EN.popup.punishment(level)).toMatch(/^Punishment: [a-z]/);
     }
   });
 

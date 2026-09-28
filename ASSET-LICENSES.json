@@ -135,9 +135,11 @@
       "files": ["apps/desktop/resources/models/face_landmarker.task"],
       "usedBy": [
         "packages/study-ai/src/assets.ts (MODEL_MANIFEST: url, size, sha256)",
-        "packages/study-ai/src/perception/vision.ts (FaceLandmarker, loaded offline)",
-        "packages/study-ai/scripts/fetch-models.mjs (download + sha256 check)"
-      ]
+        "packages/study-ai/src/perception/vision.ts (loaded offline from the app's asset scheme; size and sha256 checked before MediaPipe sees it)",
+        "packages/study-ai/scripts/fetch-models.mjs (download or --from copy, sha256 check, atomic write; --check in tests)",
+        "apps/desktop/resources/models/manifest.json (written by fetch-models)"
+      ],
+      "committed": "Yes: both models together weigh 8.4 MB (under the 15 MB budget for committed binaries), so the app builds and runs offline with no download. apps/desktop/resources/models/manifest.json lists them with the same size and sha256."
     },
     {
       "name": "EfficientDet-Lite0 object detector (int8)",
@@ -155,9 +157,11 @@
       "files": ["apps/desktop/resources/models/efficientdet_lite0_int8.tflite"],
       "usedBy": [
         "packages/study-ai/src/assets.ts (MODEL_MANIFEST: url, size, sha256)",
-        "packages/study-ai/src/perception/vision.ts (ObjectDetector, loaded offline)",
-        "packages/study-ai/scripts/fetch-models.mjs (download + sha256 check)"
-      ]
+        "packages/study-ai/src/perception/vision.ts (loaded offline from the app's asset scheme; size and sha256 checked before MediaPipe sees it)",
+        "packages/study-ai/scripts/fetch-models.mjs (download or --from copy, sha256 check, atomic write; --check in tests)",
+        "apps/desktop/resources/models/manifest.json (written by fetch-models)"
+      ],
+      "committed": "Yes: both models together weigh 8.4 MB (under the 15 MB budget for committed binaries), so the app builds and runs offline with no download. apps/desktop/resources/models/manifest.json lists them with the same size and sha256."
     },
     {
       "name": "MediaPipe Tasks Vision (JS + WASM runtime)",
@@ -171,12 +175,31 @@
       "exception": "Apache-2.0: exception to the CC0/OFL rule (PROMPT.md §11), to be recorded in DECISIONS.md like Lucide. Ship the Apache-2.0 text and this notice in the app third-party notices.",
       "privacy": "The bundle contains a usage logger that POSTs to odml.pa.googleapis.com; the analysis window blocks all network (packages/study-ai HANDOFF.md).",
       "files": [
-        "node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_internal.js (copied at desktop build time)",
-        "node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_internal.wasm (copied at desktop build time)"
+        "node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_internal.js (sha256 e170ee67dd4e16c1a6fcd8840a206687e5a59b22c20e4a902bc445b095454d73, 323377 bytes)",
+        "node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_internal.wasm (sha256 8da277a733926eacd0474b8704b36742d6ec3231c57a860c5b889dff8f1df886, 11756954 bytes)",
+        "apps/desktop/resources/models/mediapipe/ (both files copied and sha256-checked by packages/study-ai/scripts/fetch-models.mjs; git-ignored, not committed: 12 MB that npm already pins)"
       ],
       "usedBy": [
-        "packages/study-ai/src/perception/vision.ts (dynamic import, FilesetResolver.forVisionTasks)",
-        "packages/study-ai/src/assets.ts (MEDIAPIPE_WASM_FILES, MEDIAPIPE_NETWORK_HOSTS)"
+        "packages/study-ai/src/perception/vision.ts (dynamic import, SIMD fileset built from the local base URL)",
+        "packages/study-ai/src/assets.ts (MEDIAPIPE_WASM_FILES, MEDIAPIPE_WASM_DIGESTS, MEDIAPIPE_NETWORK_HOSTS)",
+        "packages/study-ai/scripts/fetch-models.mjs (copies the SIMD pair after checking the pinned digests)"
+      ]
+    },
+    {
+      "name": "Céntrate focus sounds (lluvia, ruido blanco, lo-fi)",
+      "kind": "sounds",
+      "source": "original work of the Céntrate project, procedurally synthesized from fixed seeds by scripts/gen-sounds.mjs (filtered noise, FM and additive synthesis written in plain JS). No samples, recordings, loops or other third-party audio.",
+      "license": "CC0-1.0",
+      "copyright": "No rights reserved: dedicated to the public domain by the Céntrate contributors under CC0 1.0 Universal",
+      "licenseText": "https://creativecommons.org/publicdomain/zero/1.0/legalcode",
+      "generator": "scripts/gen-sounds.mjs (node scripts/gen-sounds.mjs; --check for freshness). Deterministic output; 16-bit PCM WAV, mono, -20 LUFS integrated (ITU-R BS.1770-4), true peak <= -1 dBTP. The WAV LIST/INFO metadata repeats the CC0 dedication.",
+      "files": [
+        "apps/desktop/resources/sounds/lluvia.wav (rain, 22.05 kHz, 27 s seamless loop)",
+        "apps/desktop/resources/sounds/ruido-blanco.wav (gentle white/pink noise, 22.05 kHz, 24 s seamless loop)",
+        "apps/desktop/resources/sounds/lo-fi.wav (lo-fi beat, 80 bpm, 16 kHz, 36 s seamless loop)"
+      ],
+      "usedBy": [
+        "apps/desktop/resources/sounds/README.md (contents, loudness table, playback and packaging notes)"
       ]
     }
   ]

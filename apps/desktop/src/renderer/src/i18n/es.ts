@@ -138,7 +138,7 @@ export const RENDERER_ES = {
     },
     help: {
       miniTimer: 'Un reloj pequeño, siempre visible, que puedes mover',
-      settings: 'Tema, arranque, modo por defecto, guardián, extensión y datos',
+      settings: 'Tema, idioma, arranque, modo por defecto, guardián, extensión y datos',
       quit: 'Los bloqueos siguen activos aunque salgas',
     },
   },

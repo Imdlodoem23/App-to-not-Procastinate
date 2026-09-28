@@ -13,6 +13,8 @@ const HOUR_UNITS: ReadonlySet<string> = new Set([
   // Texting spelling: «1 ora».
   'ora',
   'oras',
+  'hour',
+  'hours',
 ]);
 const MINUTE_UNITS: ReadonlySet<string> = new Set([
   'm',
@@ -22,9 +24,11 @@ const MINUTE_UNITS: ReadonlySet<string> = new Set([
   'minutos',
   'minutito',
   'minutitos',
+  'minute',
+  'minutes',
 ]);
-const DAY_UNITS: ReadonlySet<string> = new Set(['dia', 'dias']);
-const WEEK_UNITS: ReadonlySet<string> = new Set(['semana', 'semanas']);
+const DAY_UNITS: ReadonlySet<string> = new Set(['dia', 'dias', 'day', 'days']);
+const WEEK_UNITS: ReadonlySet<string> = new Set(['semana', 'semanas', 'week', 'weeks']);
 
 /** Every duration unit word, for callers that skip known words. */
 export const UNIT_WORDS: ReadonlySet<string> = new Set([
@@ -54,9 +58,26 @@ export function isLongUnit(word: string): boolean {
 }
 
 const isSingularHour = (word: string): boolean =>
-  word === 'hora' || word === 'horita' || word === 'ora';
+  word === 'hora' || word === 'horita' || word === 'ora' || word === 'hour' || word === 'hr';
 
-/** Words that may precede a duration: «durante 45 minutos», «en una hora», «unos 20 min». */
+/** English articles that count as one unit: «an hour», «a minute», «another hour». */
+const EN_ARTICLES: ReadonlySet<string> = new Set(['a', 'an', 'another']);
+/** Minutes in the singular English units an article can count: «an hour», «a day». */
+const EN_SINGULAR_UNITS: ReadonlyMap<string, number> = new Map([
+  ['hour', 60],
+  ['hr', 60],
+  ['minute', 1],
+  ['min', 1],
+  ['day', 24 * 60],
+  ['week', 7 * 24 * 60],
+]);
+/** After an article, these start their own duration: «a half hour», «a couple of hours». */
+const EN_AFTER_ARTICLE: ReadonlySet<string> = new Set(['half', 'quarter', 'couple']);
+
+/**
+ * Words that may precede a duration: «durante 45 minutos», «en una hora», «unos 20 min»,
+ * «for 45 minutes», «in an hour», «for about the next hour».
+ */
 const PREFIXES: ReadonlySet<string> = new Set([
   'durante',
   'por',
@@ -78,15 +99,32 @@ const PREFIXES: ReadonlySet<string> = new Set([
   'proximas',
   'proximos',
   'siguientes',
+  'for',
+  'in',
+  'about',
+  'around',
+  'roughly',
+  'like',
+  'just',
+  'only',
+  'the',
+  'next',
+  'over',
+  'during',
 ]);
 const MAX_PREFIXES = 4;
-/** «la próxima hora», «el siguiente cuarto de hora»: a bare «hora» after them is one hour. */
-const SINGULAR_NEXT: ReadonlySet<string> = new Set(['proxima', 'proximo', 'siguiente']);
+/** Prefixes after which «1:30» is a duration: «durante 1:30», «for 1:30». */
+const DURING: ReadonlySet<string> = new Set(['durante', 'for', 'during']);
+/**
+ * «la próxima hora», «el siguiente cuarto de hora», «the next hour»: a bare «hora» or
+ * «hour» after them is one hour.
+ */
+const SINGULAR_NEXT: ReadonlySet<string> = new Set(['proxima', 'proximo', 'siguiente', 'next']);
 /** «las 2 próximas horas»: between the amount and the unit. */
 const PLURAL_NEXT: ReadonlySet<string> = new Set(['proximas', 'proximos', 'siguientes']);
 
 const COMPACT_RE =
-  /^(\d{1,4}(?:[.,]\d{1,2})?)(h|hr|hrs|hs|horas?|horitas?|oras?|m|min|mins|minutos?|d|dias?)$/;
+  /^(\d{1,4}(?:[.,]\d{1,2})?)(h|hr|hrs|hs|horas?|horitas?|oras?|hours?|m|min|mins|minutos?|minutes?|d|dias?|days?)$/;
 const COMPACT_HOURS_MINUTES_RE = /^(\d{1,3})h(\d{1,2})(?:m|min|mins|minutos?)?$/;
 const COMPACT_MINUTES_RE = /^(\d{1,2})(?:m|min|mins|minutos?)$/;
 const CLOCK_WITH_UNIT_RE = /^(\d{1,2}):(\d{2})(?:h|hs|hrs|horas?)$/;
@@ -104,14 +142,40 @@ interface Core {
   readonly minutes: number;
 }
 
-/** «y media», «y cuarto», «y tres cuartos» after an hour. */
+/** «y», «and»: joins an hour and its minutes. */
+const isAnd = (word: string): boolean => word === 'y' || word === 'and';
+
+/**
+ * «y media», «y cuarto», «y tres cuartos» after an hour; in English «and a half», «and a
+ * quarter», «and three quarters».
+ */
 function fractionAfterY(tokens: readonly Token[], j: number): Core | null {
-  if (nextNorm(tokens, j) !== 'y') return null;
-  const word = nextNorm(tokens, j + 1);
-  if (word === 'media') return { end: j + 2, minutes: 30 };
-  if (word === 'cuarto') return { end: j + 2, minutes: 15 };
-  if (word === 'tres' && nextNorm(tokens, j + 2) === 'cuartos') return { end: j + 3, minutes: 45 };
+  if (!isAnd(nextNorm(tokens, j))) return null;
+  let k = j + 1;
+  // «and a half», «and a quarter».
+  if (nextNorm(tokens, k) === 'a' && ['half', 'quarter'].includes(nextNorm(tokens, k + 1))) {
+    k += 1;
+  }
+  const word = nextNorm(tokens, k);
+  if (word === 'media' || word === 'half') return { end: k + 1, minutes: 30 };
+  if (word === 'cuarto' || word === 'quarter') return { end: k + 1, minutes: 15 };
+  const quarters = nextNorm(tokens, k + 1);
+  if (
+    (word === 'tres' && quarters === 'cuartos') ||
+    (word === 'three' && quarters === 'quarters')
+  ) {
+    return { end: k + 2, minutes: 45 };
+  }
   return null;
+}
+
+/** «de hora», «of an hour», «of hour» after a quarter: the index after it, or null. */
+function ofHourEnd(tokens: readonly Token[], j: number): number | null {
+  const link = nextNorm(tokens, j);
+  if (link !== 'de' && link !== 'of') return null;
+  let k = j + 1;
+  if (link === 'of' && (nextNorm(tokens, k) === 'an' || nextNorm(tokens, k) === 'a')) k += 1;
+  return isSingularHour(nextNorm(tokens, k)) ? k + 1 : null;
 }
 
 /** Minutes after an hour amount: «y media», «y 20», «30min», «y cuarenta minutos». */
@@ -119,7 +183,7 @@ function minutesAfterHours(tokens: readonly Token[], j: number): Core | null {
   const fraction = fractionAfterY(tokens, j);
   if (fraction) return fraction;
   let p = j;
-  if (nextNorm(tokens, p) === 'y') p += 1;
+  if (isAnd(nextNorm(tokens, p))) p += 1;
   const token = tokens[p];
   if (!token || token.breakBefore) return null;
   if (token.type === 'num') {
@@ -172,6 +236,35 @@ function compactCore(
   return perUnit === 60 ? withHourMinutes(tokens, k + 1, minutes) : { end: k + 1, minutes };
 }
 
+/**
+ * English durations that start with an article or a fraction: «an hour (and a half)», «a
+ * minute», «another hour», «half an hour», «half hour», «a half hour», «a quarter of an
+ * hour», «quarter hour», «a couple of hours» (the amount itself is read by `parseAmount`).
+ */
+function englishCore(tokens: readonly Token[], k: number, durante: boolean): Core | null {
+  const word = normAt(tokens, k);
+  if (EN_ARTICLES.has(word)) {
+    const next = nextNorm(tokens, k + 1);
+    const perUnit = EN_SINGULAR_UNITS.get(next);
+    if (perUnit !== undefined) {
+      const end = k + 2;
+      return perUnit === 60 ? withHourMinutes(tokens, end, 60) : { end, minutes: perUnit };
+    }
+    return EN_AFTER_ARTICLE.has(next) ? matchCore(tokens, k + 1, durante) : null;
+  }
+  if (word === 'half') {
+    let j = k + 1;
+    if (nextNorm(tokens, j) === 'an' || nextNorm(tokens, j) === 'a') j += 1;
+    return isSingularHour(nextNorm(tokens, j)) ? { end: j + 1, minutes: 30 } : null;
+  }
+  if (word === 'quarter') {
+    if (isSingularHour(nextNorm(tokens, k + 1))) return { end: k + 2, minutes: 15 };
+    const end = ofHourEnd(tokens, k + 1);
+    return end === null ? null : { end, minutes: 15 };
+  }
+  return null;
+}
+
 /** A duration that starts exactly at `tokens[k]` (no prefixes). */
 function matchCore(tokens: readonly Token[], k: number, durante: boolean): Core | null {
   const token = tokens[k];
@@ -187,39 +280,56 @@ function matchCore(tokens: readonly Token[], k: number, durante: boolean): Core 
   if (word === 'cuarto' && nextNorm(tokens, k + 1) === 'de') {
     return isSingularHour(nextNorm(tokens, k + 2)) ? { end: k + 3, minutes: 15 } : null;
   }
+  const english = englishCore(tokens, k, durante);
+  if (english) return english;
   if (token.type === 'num') {
     const compact = compactCore(token, tokens, k, durante);
     if (compact) return compact;
   }
   const amount = parseAmount(tokens, k);
   if (!amount) return null;
+  let value = amount.value;
+  let unitAt = amount.end;
   // «2 próximas horas»: skip the word between the amount and its unit.
-  const unitAt =
-    PLURAL_NEXT.has(nextNorm(tokens, amount.end)) &&
-    unitMinutes(nextNorm(tokens, amount.end + 1)) !== undefined
-      ? amount.end + 1
-      : amount.end;
-  const unit = nextNorm(tokens, unitAt);
   if (
-    (unit === 'cuarto' || unit === 'cuartos') &&
-    nextNorm(tokens, unitAt + 1) === 'de' &&
-    isSingularHour(nextNorm(tokens, unitAt + 2))
+    PLURAL_NEXT.has(nextNorm(tokens, unitAt)) &&
+    unitMinutes(nextNorm(tokens, unitAt + 1)) !== undefined
   ) {
-    return { end: unitAt + 3, minutes: amount.value * 15 };
+    unitAt += 1;
+  }
+  // «one and a half hours», «2 and a half hours».
+  if (
+    nextNorm(tokens, unitAt) === 'and' &&
+    nextNorm(tokens, unitAt + 1) === 'a' &&
+    nextNorm(tokens, unitAt + 2) === 'half' &&
+    unitMinutes(nextNorm(tokens, unitAt + 3)) !== undefined
+  ) {
+    value += 0.5;
+    unitAt += 3;
+  }
+  const unit = nextNorm(tokens, unitAt);
+  if (['cuarto', 'cuartos', 'quarter', 'quarters'].includes(unit)) {
+    // «tres cuartos de hora», «three quarters of an hour».
+    const end = ofHourEnd(tokens, unitAt + 1);
+    return end === null ? null : { end, minutes: value * 15 };
   }
   const perUnit = unitMinutes(unit);
   if (perUnit === undefined) return null;
-  const minutes = Math.round(amount.value * perUnit);
+  const minutes = Math.round(value * perUnit);
   const end = unitAt + 1;
-  return perUnit === 60 ? withHourMinutes(tokens, end, minutes) : { end, minutes };
+  return perUnit === 60 && value === amount.value
+    ? withHourMinutes(tokens, end, minutes)
+    : { end, minutes };
 }
 
 /**
  * A duration starting at `tokens[i]`, prefixes included: «una hora», «media hora», «hora y
  * media», «un cuarto de hora», «tres cuartos de hora», «90 min», «2h», «1h30», «1h 30min»,
  * «dos horas y media», «un par de horas», «2 días», «en una hora» (read as «for one hour»),
- * «durante la próxima hora», «las 2 próximas horas». «1:30» is a duration only after
- * «durante».
+ * «durante la próxima hora», «las 2 próximas horas». In English: «an hour», «for 45
+ * minutes», «half an hour», «an hour and a half», «one and a half hours», «a quarter of an
+ * hour», «three quarters of an hour», «a couple of hours», «2 hrs», «for the next hour»,
+ * «in an hour». «1:30» is a duration only after «durante», «for» or «during».
  */
 export function matchDuration(tokens: readonly Token[], i: number): DurationMatch | null {
   let durante = false;
@@ -233,7 +343,7 @@ export function matchDuration(tokens: readonly Token[], i: number): DurationMatc
     const word = normAt(tokens, k);
     if (singularNext && isSingularHour(word)) return { start: i, end: k + 1, minutes: 60 };
     if (!PREFIXES.has(word)) return null;
-    if (word === 'durante') durante = true;
+    if (DURING.has(word)) durante = true;
     if (SINGULAR_NEXT.has(word)) singularNext = true;
   }
   return null;
