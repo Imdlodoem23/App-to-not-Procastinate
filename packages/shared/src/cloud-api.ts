@@ -712,6 +712,8 @@ export interface CloudExport {
     inputTokens: number;
     outputTokens: number;
   }>;
+  /** Small daily anti-abuse counters (e.g. partner emails received), kept 7 days. */
+  usageCounters: Array<{ day: LocalDay; key: string; count: number }>;
 }
 
 // ---------------------------------------------------------------------------------------

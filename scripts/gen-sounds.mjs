@@ -558,7 +558,12 @@ function epiano(fs, freq, vel, dur, rng) {
 }
 
 /** Round bass: sine with a little 2nd and a plucked 3rd harmonic, softly saturated. */
-function bass(/** @type {number} */ fs, /** @type {number} */ freq, /** @type {number} */ vel, /** @type {number} */ dur) {
+function bass(
+  /** @type {number} */ fs,
+  /** @type {number} */ freq,
+  /** @type {number} */ vel,
+  /** @type {number} */ dur,
+) {
   const s = new Float64Array(Math.ceil((dur + 0.25) * fs));
   const norm = Math.tanh(1.6);
   for (let k = 0; k < s.length; k++) {
@@ -566,7 +571,8 @@ function bass(/** @type {number} */ fs, /** @type {number} */ freq, /** @type {n
     const ph = TAU * freq * t;
     const env =
       Math.min(1, t / 0.008) * Math.exp(-t / 1.5) * (t < dur ? 1 : Math.exp(-(t - dur) / 0.05));
-    const y = Math.sin(ph) + 0.18 * Math.sin(2 * ph) + 0.25 * Math.exp(-t / 0.04) * Math.sin(3 * ph);
+    const y =
+      Math.sin(ph) + 0.18 * Math.sin(2 * ph) + 0.25 * Math.exp(-t / 0.04) * Math.sin(3 * ph);
     s[k] = (vel * env * Math.tanh(1.6 * y)) / norm;
   }
   return s;
@@ -607,7 +613,12 @@ function snare(/** @type {number} */ fs, /** @type {number} */ vel, /** @type {R
 }
 
 /** Hi-hat: high-passed noise, closed or open. */
-function hat(/** @type {number} */ fs, /** @type {number} */ vel, /** @type {boolean} */ open, /** @type {Rng} */ rng) {
+function hat(
+  /** @type {number} */ fs,
+  /** @type {number} */ vel,
+  /** @type {boolean} */ open,
+  /** @type {Rng} */ rng,
+) {
   const tau = open ? 0.15 : 0.03;
   const s = new Float64Array(Math.ceil((tau * 6 + 0.01) * fs));
   for (let k = 0; k < s.length; k++) {
@@ -618,7 +629,12 @@ function hat(/** @type {number} */ fs, /** @type {number} */ vel, /** @type {boo
 }
 
 /** Vibraphone-like mallet: fundamental, the 4th partial of a tuned bar, a short strike. */
-function vibe(/** @type {number} */ fs, /** @type {number} */ freq, /** @type {number} */ vel, /** @type {number} */ dur) {
+function vibe(
+  /** @type {number} */ fs,
+  /** @type {number} */ freq,
+  /** @type {number} */ vel,
+  /** @type {number} */ dur,
+) {
   const s = new Float64Array(Math.ceil((dur + 1.2) * fs));
   const nyq = fs / 2 - 1000;
   for (let k = 0; k < s.length; k++) {
@@ -795,7 +811,7 @@ function lofi(fs, seed) {
   const ms = (/** @type {number} */ v) => (v * fs) / 1000;
 
   const keys = new Float64Array(n);
-  const bassBus = new Float64Array(n);
+  let bassBus = new Float64Array(n);
   const melody = new Float64Array(n);
   const kicks = new Float64Array(n);
   const snares = new Float64Array(n);
@@ -881,7 +897,7 @@ function lofi(fs, seed) {
     melody[i] *= 1 - 0.18 * (0.5 + 0.5 * Math.sin((TAU * Math.round(5 * seconds) * i) / n));
   }
 
-  shotFilter(bassBus, bq('lowpass', fs, 900, 0.7));
+  bassBus = loopFilter(bassBus, bq('lowpass', fs, 900, 0.7));
   atLoudness(keys, fs, -20);
   atLoudness(bassBus, fs, -23);
   atLoudness(melody, fs, -22.5);
@@ -891,9 +907,18 @@ function lofi(fs, seed) {
 
   const tonal = mix(keys, bassBus, melody);
   for (let i = 0; i < n; i++) tonal[i] *= duck[i];
-  const send = mix(scale(keys.slice(), 0.22), scale(melody.slice(), 0.3), scale(snares.slice(), 0.35), scale(hats.slice(), 0.1));
+  const send = mix(
+    scale(keys.slice(), 0.22),
+    scale(melody.slice(), 0.3),
+    scale(snares.slice(), 0.35),
+    scale(hats.slice(), 0.1),
+  );
   const room = atLoudness(
-    loopFilter(send, roomProc(fs, { size: 0.9, feedback: 0.78, damp: 0.35 }), bq('lowpass', fs, 4000, 0.7)),
+    loopFilter(
+      send,
+      roomProc(fs, { size: 0.9, feedback: 0.78, damp: 0.35 }),
+      bq('lowpass', fs, 4000, 0.7),
+    ),
     fs,
     -28,
   );
@@ -917,13 +942,17 @@ function lofi(fs, seed) {
   );
   const crackle = new Float64Array(n);
   const flat = new Float64Array(n).fill(1);
-  const click = (/** @type {number} */ lo, /** @type {number} */ hi, /** @type {number} */ amp) => (/** @type {number} */ i) => {
-    const s = new Float64Array(Math.ceil(0.006 * fs));
-    s[0] = amp * (vr.next() < 0.5 ? -1 : 1);
-    shotFilter(s, bq('bandpass', fs, vr.logRange(lo, hi), 0.9));
-    addWrapped(crackle, s, i);
-  };
-  poissonLoop(vr, fs, 9, flat, 1, (i) => click(1500, 5000, 0.05 + 0.95 * Math.pow(vr.next(), 5))(i));
+  const click =
+    (/** @type {number} */ lo, /** @type {number} */ hi, /** @type {number} */ amp) =>
+    (/** @type {number} */ i) => {
+      const s = new Float64Array(Math.ceil(0.006 * fs));
+      s[0] = amp * (vr.next() < 0.5 ? -1 : 1);
+      shotFilter(s, bq('bandpass', fs, vr.logRange(lo, hi), 0.9));
+      addWrapped(crackle, s, i);
+    };
+  poissonLoop(vr, fs, 9, flat, 1, (i) =>
+    click(1500, 5000, 0.05 + 0.95 * Math.pow(vr.next(), 5))(i),
+  );
   poissonLoop(vr, fs, 0.35, flat, 1, (i) => click(300, 1200, 1.5 + vr.next())(i));
 
   return { music, hiss, crackle, n };
@@ -994,7 +1023,10 @@ function wavFile(pcm, fs, info) {
  * @param {Float64Array} x @param {number} fs @param {number} seed
  */
 function master(x, fs, seed) {
-  const y = scale(Float64Array.from(x), Math.pow(10, (TARGET_LUFS - integratedLoudness(x, fs)) / 20));
+  const y = scale(
+    Float64Array.from(x),
+    Math.pow(10, (TARGET_LUFS - integratedLoudness(x, fs)) / 20),
+  );
   const pcm = quantize(y, seed);
   const f = Float64Array.from(pcm, (v) => v / 32767);
   return {
@@ -1051,7 +1083,9 @@ for (const sound of SOUNDS) {
     throw new Error(`${sound.file}: ${bytes.length} bytes, over the ${MAX_BYTES} byte budget`);
   }
   if (m.truePeak > MAX_TRUE_PEAK_DBTP) {
-    throw new Error(`${sound.file}: true peak ${m.truePeak.toFixed(2)} dBTP, over ${MAX_TRUE_PEAK_DBTP}`);
+    throw new Error(
+      `${sound.file}: true peak ${m.truePeak.toFixed(2)} dBTP, over ${MAX_TRUE_PEAK_DBTP}`,
+    );
   }
   const path = join(outDir, sound.file);
   if (args.check) {
@@ -1072,8 +1106,11 @@ for (const sound of SOUNDS) {
   });
 }
 
-const num = (/** @type {number} */ v, /** @type {number} */ d) => v.toFixed(d).replace('-', '−').replace('.', ',');
-console.log('| Archivo | Muestreo | Bucle | Tamaño | Sonoridad integrada | Pico real | Pico de muestra | RMS |');
+const num = (/** @type {number} */ v, /** @type {number} */ d) =>
+  v.toFixed(d).replace('-', '−').replace('.', ',');
+console.log(
+  '| Archivo | Muestreo | Bucle | Tamaño | Sonoridad integrada | Pico real | Pico de muestra | RMS |',
+);
 console.log('| --- | --- | --- | --- | --- | --- | --- | --- |');
 for (const r of rows) {
   console.log(
