@@ -11,6 +11,12 @@
 - **En curso (3 workflows):** motor + API HTTP del guardián (`guardian-engine`), app de escritorio (`desktop-app`) y extensión del navegador (`browser-extension`, adelanto de la Fase 3).
 - **Siguiente paso:** integrar los tres, PR de la Fase 1 a `main`, y release `v0.1.0` (Fase 2).
 
+## Presupuesto (importante para cualquier sesión)
+
+- El 2026-09-28 a las 06:13 UTC el usuario tenía el 98 % de su uso semanal gastado y pidió **gastar como máximo 250 $ de sus créditos** a partir de ese momento.
+- Referencia: esta sesión (`session_012PJDvMugShYc55h2Ah94ea`) marcaba entonces `cost_usd` = 850,71 $ (estimación a precio de API). Comprueba el gasto con `get_session` del conector de Claude Code Remote y para antes de superar 850,71 $ + 250 $.
+- Reglas mientras dure el límite: nada de sesiones en la nube adicionales, workflows pequeños (pocos agentes y una sola ronda de revisión) y prioridad absoluta al camino crítico: Fase 1 integrada en `main` → release `v0.1.0` → Fase 3.
+
 ## Fase 0 · Esqueleto
 
 - [x] Monorepo con npm workspaces (`packages/shared`, `apps/desktop`, `apps/extension`, `apps/web`, `guardian/`)
