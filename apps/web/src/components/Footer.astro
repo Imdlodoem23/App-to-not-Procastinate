@@ -98,8 +98,9 @@ const hasNotes = Astro.slots.has('footnotes');
       gap: 0;
     }
 
+    /* One link per row on phones: full 44 px touch targets. */
     .site-footer__link {
-      min-height: 32px;
+      min-height: 44px;
     }
   }
 </style>

@@ -43,12 +43,14 @@ const { ui } = copy;
     margin-bottom: 8px;
   }
 
+  /* The box is 56 tall around one line of code and the 44 px «Copiar» button (a full touch
+     target): 6 px around the button, 18 px above and below the text. */
   .command-box {
     display: flex;
     align-items: center;
     gap: 16px;
     min-height: 56px;
-    padding: 12px 12px 12px 20px;
+    padding: 6px 6px 6px 20px;
     border-radius: var(--shape-tile);
     background-color: var(--surface-raised);
   }
@@ -56,6 +58,7 @@ const { ui } = copy;
   .command-code {
     flex: 1;
     min-width: 0;
+    padding-block: 12px;
     font-family: var(--family-mono);
     font-size: var(--type-small-size);
     line-height: var(--type-small-lh);
@@ -67,8 +70,8 @@ const { ui } = copy;
   .command-copy {
     flex: none;
     min-width: 76px;
-    min-height: 32px;
-    padding-inline: 14px;
+    min-height: 44px;
+    padding-inline: 16px;
     /* Transparent border: Windows high contrast paints it, so the pill keeps its shape. */
     border: 1px solid transparent;
     border-radius: var(--shape-pill);

@@ -2,7 +2,8 @@
 /**
  * /privacidad: the privacy policy, adapted to the GDPR (design plan § 5). All text comes from
  * copy.pages.privacidad: the summary in a raised card (radius 28), then one section per topic
- * with its <h2> in the lead size, next to the same sticky index as /descargar.
+ * with its <h2> in the shared document scale (DocSection), next to the same sticky index as
+ * /descargar.
  */
 import Base from '../layouts/Base.astro';
 import DocPage from '../components/pages/DocPage.astro';
@@ -37,7 +38,7 @@ const summaryId = 'resumen';
 
     {
       p.sections.map((section) => (
-        <DocSection id={section.id} title={section.title} size="lead">
+        <DocSection id={section.id} title={section.title}>
           {section.blocks.map((block) =>
             typeof block === 'string' ? (
               <p class="policy-text">

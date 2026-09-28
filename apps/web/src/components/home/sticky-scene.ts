@@ -10,13 +10,16 @@
  * table the CSS engine uses.
  *
  * - One passive scroll listener; at most one requestAnimationFrame per frame.
- * - It only works while the track is near the viewport (IntersectionObserver), and never with
- *   reduced motion (the scene is then a static sequence and ignores `--progress`).
+ * - It only works while the track is near the viewport (IntersectionObserver), and never while
+ *   the scene is static (reduced motion, or a viewport under 520 px tall: the scene is then a
+ *   vertical sequence of stills and ignores `--progress`).
  * - It reads layout first and writes one custom property after, so it never forces a
  *   synchronous layout.
  */
 
 const TRACK = '[data-scene-track]';
+/** When the scene is animated; the same query as the animated block of StickyScene.astro. */
+const ANIMATED = '(prefers-reduced-motion: no-preference) and (min-height: 520px)';
 
 function clamp01(value: number): number {
   return Math.min(Math.max(value, 0), 1);
@@ -29,7 +32,7 @@ export function initStickyScene(): void {
   // scene into its static version rather than leave it stuck at the first frame).
   track.dataset.sceneReady = '';
 
-  const motion = window.matchMedia('(prefers-reduced-motion: no-preference)');
+  const motion = window.matchMedia(ANIMATED);
   let near = false;
   let frame = 0;
 

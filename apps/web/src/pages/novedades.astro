@@ -6,9 +6,16 @@
  *
  * One article per version: on large screens the version, date, «Última versión» pill and
  * actions sit on the left (sticky) and the notes on the right, in the content columns of the
- * other document pages. Empty and error states are one sentence with a way forward.
+ * other document pages. Version titles use the document h2 size (`text-lead` in 600, like
+ * DocSection), under the hero-size page headline. Empty and error states are one sentence
+ * with a way forward.
+ *
+ * The build only knows the releases that existed when the site was published, so a small
+ * script (novedades-page.ts) asks GitHub for the latest one and, if it is newer, shows a
+ * one-line notice under the lead that links to it.
  */
 import Base from '../layouts/Base.astro';
+import ActionLink from '../components/pages/ActionLink.astro';
 import DocPage from '../components/pages/DocPage.astro';
 import Markdown from '../components/pages/Markdown.astro';
 import { loadReleaseHistory, type ReleaseEntry } from '../components/pages/release-history';
@@ -36,6 +43,10 @@ const entries: ReleaseEntry[] = [
 const state =
   history.releases.length > 0 ? 'list' : history.source === 'none' ? 'error' : 'empty';
 
+// Newest version the page shows (the notice compares GitHub's latest release against it).
+const builtVersion =
+  (history.releases.find((entry) => entry.latest) ?? history.releases[0])?.version ?? '';
+
 const articles = entries.map((entry) => ({
   ...entry,
   headingId: `${entry.anchor}-titulo`,
@@ -50,13 +61,24 @@ const articles = entries.map((entry) => ({
   page="novedades"
 >
   <DocPage headline={n.headline} lead={n.lead}>
+    <p
+      slot="header"
+      class="newer text-body"
+      data-newer-release
+      data-built-version={builtVersion}
+      hidden
+    >
+      <span data-newer-text data-template={n.newRelease}></span>
+      <ActionLink href={site.latestReleaseUrl}>{n.viewOnGitHub}</ActionLink>
+    </p>
+
     {
       state !== 'list' && (
-        <div class="status">
+        <div class="status" data-stale-when-newer>
           <p class="text-lead">{state === 'error' ? n.error : n.empty}</p>
           {state === 'error' && (
             <p class="status-action text-body">
-              <a class="link" href={site.releasesUrl}>{n.errorAction}</a>
+              <ActionLink href={site.releasesUrl}>{n.errorAction}</ActionLink>
             </p>
           )}
         </div>
@@ -68,13 +90,17 @@ const articles = entries.map((entry) => ({
         <article class="release" id={release.anchor} aria-labelledby={release.headingId}>
           <header class="release-head">
             <div class="release-sticky">
-              <h2 id={release.headingId} class="text-section">
+              <h2 id={release.headingId} class="text-lead font-semibold">
                 {release.title}
               </h2>
               {release.name && <p class="release-name text-title">{release.name}</p>}
               {(release.latest || release.published) && (
                 <p class="release-meta text-small text-secondary">
-                  {release.latest && <span class="pill">{n.latestPill}</span>}
+                  {release.latest && (
+                    <span class="pill" data-stale-when-newer>
+                      {n.latestPill}
+                    </span>
+                  )}
                   {release.published && <time datetime={release.date}>{release.published}</time>}
                 </p>
               )}
@@ -84,7 +110,9 @@ const articles = entries.map((entry) => ({
                     <a class="button-pill" href={routes.download}>{n.cta}</a>
                   )}
                   {release.url && (
-                    <a class="link text-body" href={release.url}>{n.viewOnGitHub}</a>
+                    <ActionLink class="text-body" href={release.url}>
+                      {n.viewOnGitHub}
+                    </ActionLink>
                   )}
                 </p>
               )}
@@ -100,7 +128,7 @@ const articles = entries.map((entry) => ({
     {
       state === 'list' && (
         <p class="all-releases text-body">
-          <a class="link" href={site.releasesUrl}>{copy.pages.descargar.closing.releases}</a>
+          <ActionLink href={site.releasesUrl}>{copy.pages.descargar.closing.releases}</ActionLink>
         </p>
       )
     }
@@ -108,6 +136,20 @@ const articles = entries.map((entry) => ({
 </Base>
 
 <style>
+  /* A newer release than the build: one line on the raised surface, under the lead. */
+  .newer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 16px;
+    width: fit-content;
+    max-width: 100%;
+    margin-top: 32px;
+    padding: 12px 20px;
+    border-radius: var(--shape-tile);
+    background-color: var(--surface-raised);
+  }
+
   .status {
     max-width: var(--measure-lead);
     padding-bottom: var(--space-doc-section);
@@ -203,3 +245,9 @@ const articles = entries.map((entry) => ({
     }
   }
 </style>
+
+<script>
+  import { initNewerReleaseNotice } from '../components/pages/novedades-page';
+
+  void initNewerReleaseNotice();
+</script>

@@ -96,15 +96,24 @@ const ctaHref = page === 'home' ? `#${ids.download}` : routes.download;
     border-bottom: 1px solid var(--palette-nav-border);
   }
 
+  /* 52 px at any normal setting. With user text spacing at 320 px (WCAG 1.4.10 and 1.4.12)
+     brand, menu and pill no longer fit in one row: the pill drops to a second row and the bar
+     grows taller instead of spilling sideways. */
   .site-nav__bar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 24px;
-    height: var(--nav-height);
+    column-gap: 24px;
+    row-gap: 0;
+    min-height: var(--nav-height);
     padding-inline: var(--page-gutter);
   }
 
   .site-nav__brand {
+    /* 44 px tall hit area inside the 52 px bar, like the links. */
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
     margin-inline-end: auto;
     font-size: var(--type-nav-brand-size);
     line-height: 1.14286;
@@ -146,7 +155,17 @@ const ctaHref = page === 'home' ? `#${ids.download}` : routes.download;
   }
 
   .site-nav__cta {
+    position: relative;
     flex: none;
+  }
+
+  /* The pill stays 28 px tall (the Apple-like proportion), but its hit area grows to 44 px
+     inside the 52 px bar: 8 px more on each side, plus the 1 px border, which `inset` does not
+     count (it is measured from the padding box). */
+  .site-nav__cta::after {
+    content: '';
+    position: absolute;
+    inset: -9px -5px;
   }
 
   /* Mobile disclosure: only at 734 px and below. */
@@ -233,7 +252,7 @@ const ctaHref = page === 'home' ? `#${ids.download}` : routes.download;
 
   @media (max-width: 734px) {
     .site-nav__bar {
-      gap: 16px;
+      column-gap: 16px;
     }
 
     .site-nav__links {
@@ -242,6 +261,13 @@ const ctaHref = page === 'home' ? `#${ids.download}` : routes.download;
 
     .site-nav__menu {
       display: block;
+    }
+  }
+
+  /* At 320 px, 16 px gaps leave brand, «Cerrar menú» and the pill 2 px short of one row. */
+  @media (max-width: 359px) {
+    .site-nav__bar {
+      column-gap: 8px;
     }
   }
 

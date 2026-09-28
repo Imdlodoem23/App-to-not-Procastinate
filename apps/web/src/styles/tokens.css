@@ -355,9 +355,12 @@
   }
 }
 
-/* Narrow phones (< 360 px): the 440 px mock must still fit the 87.5 % column. */
+/* Narrow phones (< 360 px): the 440 px mock must still fit the 87.5 % column, and so must the
+   hero pill («Descargar gratis para Windows» is 284 px wide with 22 px padding; the column at
+   320 px is 280). */
 @media (max-width: 359px) {
   :root {
+    --button-pad-inline: 16px;
     --aw-zoom-hero: 0.62;
     --aw-zoom-highlight: 0.62;
     --aw-zoom-card: 0.56;

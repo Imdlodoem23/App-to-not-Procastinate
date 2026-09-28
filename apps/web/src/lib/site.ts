@@ -37,8 +37,12 @@ export const site = {
     /** GET, newest first (`?per_page=`), same limits. */
     releases: `${apiUrl}/releases`,
   },
-  /** Open Graph image, generated from copy.ts by src/pages/og.svg.ts (1200 × 630). */
-  ogImage: { path: '/og.svg', type: 'image/svg+xml', width: 1200, height: 630 },
+  /**
+   * Open Graph image (1200 × 630). A PNG, because most social networks do not show SVG
+   * previews: scripts/render-og.mjs draws public/og.png from /og.svg (src/pages/og.svg.ts, built
+   * from copy.ts). Re-run `npm run og -w apps/web` after a build when the hero copy changes.
+   */
+  ogImage: { path: '/og.png', type: 'image/png', width: 1200, height: 630 },
   /**
    * Browser UI color (<meta name="theme-color">). Same value as --palette-white in
    * src/styles/tokens.css: the page is light, with no automatic dark mode.

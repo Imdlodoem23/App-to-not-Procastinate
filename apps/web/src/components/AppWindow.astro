@@ -843,7 +843,11 @@ const a11y = decorative
     color: var(--aw-red-text);
   }
 
+  /* Flex: the line break between the two spans in the markup is not a word space («42:18»,
+     never «42 :18»). */
   .aw-countdown {
+    display: flex;
+    align-items: baseline;
     height: 56px;
     font-size: var(--aw-font-48);
     font-weight: var(--weight-semibold);

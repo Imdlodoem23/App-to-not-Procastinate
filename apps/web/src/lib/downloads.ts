@@ -160,6 +160,11 @@ export interface ReleaseAsset {
   size: number;
   /** Direct download URL on github.com. */
   url: string;
+  /**
+   * «sha256:<64 hex>» (lower case), as GitHub computes it for every uploaded asset, or null
+   * when the API gives none or something malformed.
+   */
+  digest: string | null;
 }
 
 export interface LatestRelease {
@@ -185,6 +190,7 @@ export const LATEST_RELEASE_API = site.api.latestRelease;
 const CACHE_KEY = `centrate:latest-release:${repo.owner}/${repo.name}`;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,31}$/;
+const DIGEST_RE = /^sha256:[0-9a-f]{64}$/i;
 
 let pending: Promise<LatestRelease | null> | undefined;
 
@@ -288,7 +294,16 @@ export function parseRelease(data: unknown): LatestRelease | null {
         typeof asset.browser_download_url === 'string' &&
         asset.browser_download_url.startsWith('https://github.com/')
       ) {
-        assets.push({ name: asset.name, size: asset.size, url: asset.browser_download_url });
+        const digest =
+          typeof asset.digest === 'string' && DIGEST_RE.test(asset.digest.trim())
+            ? asset.digest.trim().toLowerCase()
+            : null;
+        assets.push({
+          name: asset.name,
+          size: asset.size,
+          url: asset.browser_download_url,
+          digest,
+        });
       }
     }
   }
@@ -327,6 +342,7 @@ function writeCache(release: LatestRelease): void {
       name: a.name,
       size: a.size,
       browser_download_url: a.url,
+      digest: a.digest,
     })),
   };
   try {

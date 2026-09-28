@@ -62,15 +62,21 @@ const headingId = `${footnotes.id}-titulo`;
     color: var(--text);
   }
 
+  /* Always underlined: blue on the notes' grey differs by hue alone (WCAG 1.4.1). The
+     pseudo-element makes a 44 px tall target without growing the line. */
   .footnotes-back {
+    position: relative;
     color: var(--link);
     white-space: nowrap;
+    text-decoration-line: underline;
     text-decoration-thickness: 1px;
     text-underline-offset: 0.18em;
   }
 
-  .footnotes-back:hover {
-    text-decoration-line: underline;
+  .footnotes-back::after {
+    content: '';
+    position: absolute;
+    inset: -14px -8px;
   }
 </style>
 

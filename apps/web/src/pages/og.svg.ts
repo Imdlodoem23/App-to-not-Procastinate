@@ -3,8 +3,9 @@
  * twice. It echoes the hero: the name, the headline, and the Céntrate window with YouTube
  * blocked and the countdown (copy.meta.ogImageAlt), entering from the bottom edge.
  *
- * Most social networks do not render SVG previews; the marketing-assets workflow will add a
- * PNG (satori + resvg) and site.ogImage will point to it. The colors below are copies of
+ * Most social networks do not render SVG previews, so site.ogImage points to public/og.png,
+ * drawn from this SVG by scripts/render-og.mjs (`npm run og -w apps/web` after a build; the
+ * marketing-assets workflow may regenerate it later). The colors below are copies of
  * src/styles/tokens.css (--palette-* and the --aw-* dark theme): a standalone image cannot read
  * CSS variables.
  */

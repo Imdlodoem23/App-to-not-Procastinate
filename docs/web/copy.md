@@ -447,6 +447,7 @@ Cierre: **Todas las versiones en GitHub** · **Novedades** · ¿Algo no funciona
 - Titular: **Novedades.**
 - Entradilla: Qué cambia en cada versión de Céntrate, tal y como se publica en GitHub.
 - Cada versión: «Versión {version}» · «Publicada el {date}». La más reciente lleva la píldora «Última versión» y el botón «Descargar»; todas, el enlace «Ver en GitHub».
+- Versión más nueva que la página (la página se genera al publicar la web; si GitHub ya tiene otra posterior): «Hay una versión nueva: la {version}.» + enlace «Ver en GitHub»
 - Cargando: «Cargando las novedades…»
 - Error: «Ahora mismo no se pueden cargar las novedades desde GitHub.» + botón «Ver todas las versiones en GitHub»
 - Vacío: «Aún no hay ninguna versión publicada. La primera está al caer.»

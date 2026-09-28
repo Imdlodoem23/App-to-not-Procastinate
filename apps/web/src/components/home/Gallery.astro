@@ -9,7 +9,10 @@
  * - The scroller is a named region, focusable, so the keyboard arrows scroll it natively.
  * - Previous / next are real buttons with visually hidden text. They move one card (smooth,
  *   instant with reduced motion) and turn `aria-disabled` at the ends (they keep the focus).
- *   Without JavaScript they stay hidden and the scrollbar stays visible instead.
+ *   Without JavaScript the row is not displayed and the scrollbar stays visible instead.
+ * - The paddle row is in the initial layout (no `hidden` toggled after paint): arriving at a
+ *   fragment below the galleries must not shift. When the track does not overflow, the row
+ *   only turns invisible (`data-idle`), so its height never changes.
  * - The whole track is revealed once (not card by card).
  */
 import { copy } from '../../content/copy';
@@ -37,7 +40,7 @@ const { ui } = copy;
     </ul>
   </div>
 
-  <div class="gallery-controls gutter" data-gallery-controls hidden>
+  <div class="gallery-controls gutter" data-gallery-controls>
     <button type="button" class="gallery-paddle" data-gallery-step="-1" aria-disabled="true">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
       <span class="sr-only">{ui.prev}</span>
@@ -90,11 +93,19 @@ const { ui } = copy;
     margin-block-start: var(--space-gallery-controls);
   }
 
-  .gallery-controls[hidden] {
+  /* No JavaScript, no paddles: html.js is set synchronously in <head> (Base.astro). */
+  :global(html:not(.js)) .gallery-controls {
     display: none;
   }
 
+  /* Nothing to scroll: invisible (and out of the tab order) but still taking its height. */
+  .gallery-controls[data-idle] {
+    visibility: hidden;
+  }
+
+  /* 36 px circles with a 44 px target (the pseudo-element; 16 px apart, they never overlap). */
   .gallery-paddle {
+    position: relative;
     display: grid;
     place-items: center;
     width: var(--gallery-paddle);
@@ -108,6 +119,14 @@ const { ui } = copy;
     transition:
       background-color 100ms linear,
       opacity 100ms linear;
+  }
+
+  .gallery-paddle::after {
+    content: '';
+    position: absolute;
+    /* From the padding box, inside the 1 px border. */
+    inset: calc((var(--gallery-paddle) - 44px) / 2 - 1px);
+    border-radius: 50%;
   }
 
   .gallery-paddle:hover:not([aria-disabled='true']) {
@@ -155,8 +174,8 @@ const { ui } = copy;
 
     const update = (): void => {
       const max = scroller.scrollWidth - scroller.clientWidth;
-      // Nothing to scroll (very wide screens): no paddles.
-      controls.hidden = max <= 1;
+      // Nothing to scroll (very wide screens): no visible paddles, same height (no shift).
+      controls.toggleAttribute('data-idle', max <= 1);
       for (const paddle of paddles) {
         const back = paddle.dataset.galleryStep === '-1';
         const atEnd = back ? scroller.scrollLeft <= 1 : scroller.scrollLeft >= max - 1;

@@ -1,7 +1,10 @@
 ---
 /**
  * «Tu cámara no sale de tu ordenador.» (design plan § 4.7) on the `light` surface: the text in
- * six columns, a camera with a padlock in the other six, and three bold points underneath.
+ * six columns, a camera with a padlock in the other six, and three bold points underneath in
+ * three columns. Up to 1068 px everything stacks in one column: the icon (160 px) over the
+ * headline, the text at 680 px, the points one under another (at 768 a 6 / 6 split left the
+ * 48 px headline on three lines and the points in 210 px strips).
  *
  * The icon is drawn by hand for this page (no third-party artwork). Its one motion: when it
  * reaches 85 % of the viewport, the padlock's shackle drops and closes, once (0.6 s, 0.3 s
@@ -26,8 +29,8 @@ const headingId = `${privacy.id}-titulo`;
         <h2 id={headingId} class="text-section" data-reveal>{privacy.headline}</h2>
       </div>
       {privacy.body.map((paragraph) => <p class="privacy-body text-body">{paragraph}</p>)}
-      <p class="privacy-body text-body">
-        <a class="link" href={privacy.link.href}>{privacy.link.label}</a>
+      <p class="privacy-body privacy-more text-body">
+        <a class="privacy-link link" href={privacy.link.href}>{privacy.link.label}</a>
       </p>
     </div>
 
@@ -89,6 +92,18 @@ const headingId = `${privacy.id}-titulo`;
     margin-block-start: var(--space-headline-lead);
   }
 
+  /* A 44 px target; the margin gives back what it adds around the line, so the text keeps
+     its 20 px of air. */
+  .privacy-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  .privacy-more {
+    margin-block-start: calc(20px - (44px - 1lh) / 2);
+  }
+
   /* Line drawing: 6 px strokes in the 240 box, in the text colour. The padlock body is filled
      with the page colour, so the camera's lines stop behind it. */
   .privacy-icon {
@@ -136,7 +151,8 @@ const headingId = `${privacy.id}-titulo`;
     display: block;
   }
 
-  @media (max-width: 734px) {
+  /* Medium and small: one column, the icon on top. */
+  @media (max-width: 1068px) {
     .privacy-intro {
       grid-template-columns: minmax(0, 1fr);
       row-gap: 40px;
@@ -160,6 +176,7 @@ const headingId = `${privacy.id}-titulo`;
     .privacy-points {
       grid-template-columns: minmax(0, 1fr);
       row-gap: 32px;
+      max-width: var(--measure-text);
     }
   }
 

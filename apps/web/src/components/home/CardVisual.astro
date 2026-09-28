@@ -1,14 +1,19 @@
 ---
 /**
- * The visual inside a chapter card (design plan § 4.6), centred in the white card:
+ * The visual inside a chapter card (design plan § 4.6). Every visual is a whole piece of the
+ * app, as wide as the 440 px window at --aw-zoom-card and centred in the white card, with equal
+ * white margins above and below: no dark surface is ever taller than what it shows. The card
+ * height is a floor for those margins (--cv-inset); a visual taller than the card minus both
+ * insets hangs from the top inset instead and is cut by the card's bottom edge (`safe`
+ * centring), so it can only ever be cut by real content.
  *
- * - `window`: the AppWindow mock in one of its states, cropped under the Progreso section,
- *   at --aw-zoom-card. It keeps its role="img" name.
+ * - `window`: the AppWindow mock in one of its states, whole (title bar to footer), at
+ *   --aw-zoom-card. It keeps its role="img" name.
  * - A composition: a close-up of app pieces drawn with the app's own parts and sizes
  *   (section 10 of the brief: dark tiles, 20 px headers, bars, strike dots, neutral
- *   monograms, Lucide line icons at 1.75), 340 app pixels wide and shown 1.25 times larger
- *   than the window crops, like a detail shot. Decorative (aria-hidden): the caption under
- *   the card says what it shows.
+ *   monograms, Lucide line icons at 1.75), shown 1.35 times larger than the windows (a detail
+ *   shot) in one or two panels as wide as the window. Decorative (aria-hidden): the caption
+ *   under the card says what it shows.
  *
  * Words come only from copy.ts; service names from the catalog of @centrate/shared; numbers
  * from its points rules. Nothing here is interactive or focusable.
@@ -107,18 +112,16 @@ const punishmentClock = clock(STUDY_RULES.punishmentMinutes.default);
 const punishmentPoints = signed(-POINT_RULES.punishmentPenalty);
 const strikes = Array.from({ length: STUDY_RULES.maxStrikes }, (_, i) => i);
 
-// «Descansos ganados»: three offers of the reward shop.
-const offers = ['youtube-15', 'discord-15', 'roblox-30']
-  .map((id) => REWARD_OFFERS.find((offer) => offer.id === id))
-  .filter((offer): offer is RewardOffer => offer !== undefined)
-  .map((offer) => ({
-    ...service(offer.serviceId),
-    duration: fill(copy.ui.duration.minutes, { m: offer.minutes }),
-    cost: plainNumber(offer.cost),
-  }));
+// «Descansos ganados»: the reward shop, every offer in its order.
+const offers = REWARD_OFFERS.map((offer: RewardOffer) => ({
+  ...service(offer.serviceId),
+  duration: fill(copy.ui.duration.minutes, { m: offer.minutes }),
+  cost: plainNumber(offer.cost),
+}));
 
-// «Aprende de sus errores»: five sessions in the Summary's timeline, false alarms (orange)
-// fading out after «¡Estaba estudiando!» (the blue check). Widths in % of each session.
+// «Aprende de sus errores»: sessions in the Summary's timeline, oldest first, false alarms
+// (orange) fading out after «¡Estaba estudiando!» (the blue check). Widths in % of each
+// session.
 const sessions: { width: number; alarm?: boolean; marked?: boolean }[][] = [
   [
     { width: 14 },
@@ -136,14 +139,25 @@ const sessions: { width: number; alarm?: boolean; marked?: boolean }[][] = [
     { width: 3, alarm: true },
     { width: 29 },
   ],
+  [
+    { width: 22 },
+    { width: 3, alarm: true },
+    { width: 45 },
+    { width: 3, alarm: true },
+    { width: 27 },
+  ],
   [{ width: 58 }, { width: 3, alarm: true }, { width: 39 }],
-  [{ width: 100 }],
-  [{ width: 100 }],
+  [{ width: 71 }, { width: 2, alarm: true }, { width: 27 }],
+  ...Array.from({ length: 5 }, () => [{ width: 100 }]),
 ];
 
-// «Una racha que cuidar»: five days done, today at 42 of 60 min, tomorrow to come.
+// «Una racha que cuidar»: four weeks. The last missed day, then the five days of the streak,
+// today at 42 of 60 min and tomorrow to come.
 const GOAL_RATIO = 42 / 60;
-const week = [...Array.from({ length: 5 }, () => 'done'), 'today', 'next'] as const;
+const DAY = { x: 'done', o: 'missed', t: 'today', n: 'next' } as const;
+const month = ['xxoxxxo', 'xxxxoxx', 'xxxoxxo', 'xxxxxtn'].map((week) =>
+  [...week].map((c) => DAY[c as keyof typeof DAY]),
+);
 
 // «Puntos que nadie puede tocar»: a waterfall of the event log that ends in the red. A 1 h
 // block kept, two attempts (the second one doubled), a strike and a punishment.
@@ -201,7 +215,9 @@ const noCameraTiles = [
 <div class="cv" data-kind={visual.kind}>
   {
     visual.kind === 'window' ? (
-      <AppWindow state={visual.state} parts={visual.parts} chrome={visual.chrome ?? false} />
+      <div class="cv-window">
+        <AppWindow state={visual.state} parts={visual.parts} chrome={visual.chrome ?? false} />
+      </div>
     ) : (
       <div class="f-stack" aria-hidden="true">
         {visual.kind === 'services' && (
@@ -387,19 +403,23 @@ const noCameraTiles = [
               <svg class="f-icon" viewBox="0 0 24 24" set:html={icons.flame} />
               <span class="f-title">{aw.progress.meta}</span>
             </div>
-            <div class="f-week">
-              {week.map((day) => (
-                <span class:list={['f-day', `f-day-${day}`]} style={`--f: ${GOAL_RATIO}`}>
-                  {day === 'done' && (
-                    <svg class="f-icon" viewBox="0 0 24 24" set:html={icons.check} />
-                  )}
-                </span>
-              ))}
-            </div>
-            <span class="f-bar f-bar-4 f-gap-12">
+            <span class="f-bar f-bar-4">
               <span class="f-fill" style={`--f: ${GOAL_RATIO}`} />
             </span>
             <p class="f-goal">{aw.progress.goal}</p>
+            <div class="f-month">
+              {month.map((week) => (
+                <div class="f-week">
+                  {week.map((day) => (
+                    <span class:list={['f-day', `f-day-${day}`]} style={`--f: ${GOAL_RATIO}`}>
+                      {day === 'done' && (
+                        <svg class="f-icon" viewBox="0 0 24 24" set:html={icons.check} />
+                      )}
+                    </span>
+                  ))}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -478,29 +498,57 @@ const noCameraTiles = [
 </div>
 
 <style>
-  /* The card's visual area: the app piece centred, a little above the middle (optical
-     centre). The card clips anything that would run past its rounded edges. */
+  /* The card's visual area: the visual centred both ways, with at least --cv-inset of white
+     above and below it (side margins = what the 440 px window at --aw-zoom-card leaves).
+     `safe`: a visual taller than the area aligns to the top inset and runs past the bottom
+     edge, where the card's clip cuts it, instead of overflowing both edges (plain `center`
+     first for browsers without the keyword). */
   .cv {
-    --aw-zoom: var(--aw-zoom-card);
+    --cv-inset: 40px;
+    /* Close-ups: this many times the windows' scale. */
+    --cv-detail: 1.35;
     position: absolute;
     inset: 0;
     display: grid;
-    place-items: center;
-    padding-block-end: 4%;
+    align-content: center;
+    align-content: safe center;
+    justify-items: center;
+    padding-block: var(--cv-inset);
   }
 
-  /* Compositions: close-ups at 1.25 × the crops' scale. One or two app panels, stacked 6 px
-     apart like the app's detail windows. ---------------------------------------------------- */
+  @media (max-width: 1068px) {
+    .cv {
+      --cv-inset: 32px;
+    }
+  }
+
+  @media (max-width: 734px) {
+    .cv {
+      --cv-inset: 24px;
+    }
+  }
+
+  /* Windows: the zoom is here, so the window itself stays at 1. */
+  .cv-window {
+    --aw-zoom: 1;
+    zoom: var(--aw-zoom-card);
+    width: var(--aw-width);
+  }
+
+  /* Compositions: close-ups at --cv-detail times the windows' scale, as wide as the window.
+     One or two app panels stacked 6 px apart like the app's detail windows, each as tall as
+     its content. ---------------------------------------------------------------------- */
   .f-stack {
-    --f-width: 340px;
-    display: grid;
+    --f-zoom: calc(var(--aw-zoom-card) * var(--cv-detail));
+    display: flex;
+    flex-direction: column;
     gap: 6px;
-    zoom: calc(var(--aw-zoom-card) * 1.25);
+    width: calc(var(--aw-width) / var(--cv-detail));
+    zoom: var(--f-zoom);
   }
 
   .f {
     box-sizing: border-box;
-    width: var(--f-width);
     padding: var(--aw-pad);
     border-radius: var(--aw-radius-window);
     background: var(--aw-bg);
@@ -898,7 +946,13 @@ const noCameraTiles = [
     color: var(--aw-fg-muted);
   }
 
-  /* Streak: a week of days. */
+  /* Streak: the goal of today, then four weeks of days. */
+  .f-month {
+    display: grid;
+    gap: 8px;
+    margin-block-start: var(--aw-section-gap);
+  }
+
   .f-week {
     display: grid;
     grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -932,6 +986,12 @@ const noCameraTiles = [
 
   .f-day-next {
     border: 1px solid var(--aw-control);
+  }
+
+  /* A day without the goal: an empty tile-coloured disc, quieter than the day to come. */
+  .f-day-missed {
+    border: 1px solid var(--aw-border);
+    background: var(--aw-tile);
   }
 
   /* Line art in the panel (pet stages, ledger). */

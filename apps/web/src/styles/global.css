@@ -189,7 +189,13 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
+  /* Never wider than its column: at 320 px with user text spacing (WCAG 1.4.10 and 1.4.12) a
+     long label wraps and the pill grows taller instead of spilling off-screen. At normal
+     spacing every label fits on one line from 320 px up. */
+  max-width: 100%;
   min-height: var(--button-h);
+  /* Only shows when the label wraps: one line stays inside the min-height. */
+  padding-block: 8px;
   padding-inline: var(--button-pad-inline);
   /* Transparent border: Windows high contrast paints it, so the pill keeps its shape. */
   border: 1px solid transparent;
@@ -202,7 +208,7 @@
   font-weight: var(--weight-regular);
   text-align: center;
   text-decoration: none;
-  white-space: nowrap;
+  text-wrap: balance;
   transition: background-color 100ms linear;
 
   &:hover {
@@ -217,6 +223,7 @@
 
 @utility button-pill-compact {
   min-height: var(--nav-pill-h);
+  padding-block: 4px;
   padding-inline: var(--nav-pill-pad-inline);
   font-size: var(--type-nav-link-size);
   line-height: 1.33337;

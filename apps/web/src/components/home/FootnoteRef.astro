@@ -43,10 +43,18 @@ const n = footnoteNumber(id);
     font-feature-settings: 'tnum';
   }
 
+  /* The pseudo-element widens the target (about 30 × 44) without moving the line. */
   .fn-ref a {
+    position: relative;
     color: inherit;
     text-decoration-thickness: 1px;
     text-underline-offset: 0.18em;
+  }
+
+  .fn-ref a::after {
+    content: '';
+    position: absolute;
+    inset: -16px -12px;
   }
 
   .fn-ref a:hover {

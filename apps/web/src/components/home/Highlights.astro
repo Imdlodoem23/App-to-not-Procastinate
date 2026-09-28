@@ -14,13 +14,8 @@
  * snapping gallery and the pill is hidden.
  */
 import AppWindow from '../AppWindow.astro';
-import {
-  copy,
-  fill,
-  footnoteNumber,
-  type AppWindowState,
-  type FootnoteId,
-} from '../../content/copy';
+import FootnoteRef from './FootnoteRef.astro';
+import { copy, fill, type AppWindowState, type FootnoteId } from '../../content/copy';
 
 const { highlights, ui } = copy;
 
@@ -47,7 +42,7 @@ const cards = highlights.cards.map((card, i) => {
     title: card.title,
     text: card.text,
     dark: 'dark' in card && card.dark,
-    note: note && { id: note, n: footnoteNumber(note) },
+    note,
     visual: visuals[i] ?? visuals[0]!,
   };
 });
@@ -79,18 +74,7 @@ const total = cards.length;
               <div class="hl-text">
                 <h3 class="hl-title text-lead font-semibold">{card.title}</h3>
                 <p class="hl-body text-body text-secondary">
-                  {card.text}
-                  {card.note && (
-                    <sup class="hl-ref">
-                      <a
-                        href={`#nota-${card.note.n}`}
-                        id={`ref-${card.note.id}-1`}
-                        aria-label={fill(ui.footnoteRef, { n: card.note.n })}
-                      >
-                        {card.note.n}
-                      </a>
-                    </sup>
-                  )}
+                  {card.text}{card.note && <FootnoteRef id={card.note} k={1} />}
                 </p>
               </div>
               <div class="hl-visual" data-place={card.visual.place}>
@@ -106,7 +90,7 @@ const total = cards.length;
       </ul>
     </div>
 
-    <div class="hl-controls" data-hl-controls hidden>
+    <div class="hl-controls" data-hl-controls>
       <div class="hl-pill hl-dots">
         {
           cards.map((_, i) => (
@@ -201,62 +185,65 @@ const total = cards.length;
     list-style: none;
   }
 
-  /* Card: text on the left, the window on the right, bleeding out of the bottom edge. */
+  /* Card. Large: the text in the top left corner and the window, placed on its own, filling
+     the right part. Medium and small: both in one column (see below). */
   .hl-card {
     position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 400px) minmax(0, 1fr);
-    column-gap: 40px;
+    grid-template-columns: minmax(0, 1fr);
     flex: 0 0 100cqi;
     height: var(--highlight-card-h);
-    padding: var(--highlight-pad-block) var(--highlight-visual-inset) 0
-      var(--highlight-pad-inline);
+    padding: var(--highlight-pad-block) var(--highlight-pad-inline) 0;
     overflow: clip;
     border-radius: var(--shape-card);
     scroll-snap-align: start;
   }
 
+  /* 100cqi is the card width (the scroller is the size container). The text keeps 40 px
+     clear of the window, whose left edge is never left of 44 % of the card. */
   .hl-text {
     align-self: start;
+    max-width: min(400px, 44cqi - var(--highlight-pad-inline) - 40px);
   }
 
   .hl-body {
     margin-block-start: 12px;
   }
 
-  /* Footnote reference: the text color, underlined on hover. */
-  .hl-ref {
-    margin-inline-start: 1px;
-    font-size: 0.6em;
-    line-height: 0;
-  }
-
-  .hl-ref a {
-    color: var(--text);
-    text-underline-offset: 0.18em;
-  }
-
-  .hl-ref a:hover {
-    text-decoration-line: underline;
-  }
-
+  /* Large: the window is the media of the card. It hangs from --hl-window-top and sits
+     against the right edge with the text's inset, or further left when that inset would
+     leave less than the right 56 % (then its left edge is at 44 %). A window taller than the
+     room runs past the bottom edge from that top line (safe alignment); a shorter one drops
+     to bleed out of the bottom by its own padding and corner radius. The zoom grows in steps
+     with the card width. */
   .hl-visual {
     --aw-zoom: var(--aw-zoom-highlight);
+    --hl-window-top: 168px;
+    position: absolute;
+    inset-block: var(--hl-window-top) calc(-24px * var(--aw-zoom));
+    inset-inline-end: min(var(--highlight-pad-inline), 56cqi - var(--aw-width) * var(--aw-zoom));
     display: flex;
-    justify-content: flex-end;
-    min-width: 0;
+    flex-direction: column;
+    justify-content: safe flex-end;
+    align-items: flex-end;
   }
 
-  /* Past the bottom edge by the window's own bottom padding and corner radius. */
-  .hl-visual[data-place='bleed'] {
-    align-self: end;
-    margin-block-end: -24px;
+  @container (min-width: 1080px) {
+    .hl-visual {
+      --aw-zoom: 1.25;
+    }
   }
 
+  @container (min-width: 1220px) {
+    .hl-visual {
+      --aw-zoom: 1.45;
+    }
+  }
+
+  /* The short blocked page: centered in the height of the card. */
   .hl-visual[data-place='center'] {
-    align-self: center;
-    /* Centered in the card, not in what is left under the top padding. */
-    margin-block-start: calc(-1 * var(--highlight-pad-block));
+    inset-block: 0;
+    justify-content: center;
   }
 
   /* On black the window gets a hairline rim instead of a shadow. */
@@ -267,10 +254,8 @@ const total = cards.length;
   /* Medium and small: text on top, the window centered below it, cut by the bottom edge. */
   @media (max-width: 1068px) {
     .hl-card {
-      grid-template-columns: minmax(0, 1fr);
       grid-template-rows: auto minmax(0, 1fr);
       row-gap: 40px;
-      padding: var(--highlight-pad-block) var(--highlight-pad-inline) 0;
     }
 
     .hl-text {
@@ -278,18 +263,22 @@ const total = cards.length;
     }
 
     .hl-visual {
+      position: static;
+      flex-direction: row;
       justify-content: center;
+      align-items: normal;
+      min-width: 0;
     }
 
     /* Anchored to the bottom edge; if the text runs long, the window moves down under it
        and is cut instead of covering it (safe). */
     .hl-visual[data-place='bleed'] {
       align-self: safe end;
+      margin-block-end: calc(-24px * var(--aw-zoom));
     }
 
     .hl-visual[data-place='center'] {
       align-self: safe center;
-      margin-block-start: 0;
     }
   }
 
@@ -315,7 +304,9 @@ const total = cards.length;
     pointer-events: none;
   }
 
-  .hl-controls[hidden] {
+  /* The row is in the layout from the first paint (nothing below moves when the script
+     runs); without JavaScript it has nothing to drive. */
+  :global(html:not(.js)) .hl-controls {
     display: none;
   }
 
@@ -396,6 +387,27 @@ const total = cards.length;
     }
   }
 
+  /* Phones: each dot is a 44 px tall target (the pill is 48). */
+  @media (max-width: 734px) {
+    .hl-dot {
+      height: 44px;
+    }
+  }
+
+  /* Windows high contrast resets backgrounds to Canvas: paint the dots with system colors,
+     the current one (and the fill) in the text color, the others in GrayText. */
+  @media (forced-colors: active) {
+    .hl-dot-track {
+      forced-color-adjust: none;
+      background-color: GrayText;
+    }
+
+    .hl-dot[aria-current='true'] .hl-dot-track,
+    .hl-dot-fill {
+      background-color: CanvasText;
+    }
+  }
+
   .hl-toggle {
     gap: 8px;
     padding-inline: 20px 24px;
@@ -404,8 +416,12 @@ const total = cards.length;
     transition: background-color 100ms linear;
   }
 
-  .hl-toggle[hidden] {
-    display: none;
+  /* Reduced motion: no auto-advance, so no toggle (the dots stay). Decided by CSS before the
+     first paint, and it follows the setting if it changes. */
+  @media (prefers-reduced-motion: reduce) {
+    .hl-toggle {
+      display: none;
+    }
   }
 
   .hl-toggle:hover {
@@ -463,12 +479,11 @@ const total = cards.length;
 
   function setup(root: HTMLElement): void {
     const scroller = root.querySelector<HTMLElement>('[data-hl-scroller]');
-    const controls = root.querySelector<HTMLElement>('[data-hl-controls]');
     const toggle = root.querySelector<HTMLButtonElement>('[data-hl-toggle]');
     const toggleLabel = toggle?.querySelector<HTMLElement>('[data-hl-toggle-label]');
     const cards = Array.from(root.querySelectorAll<HTMLElement>('[data-hl-card]'));
     const dots = Array.from(root.querySelectorAll<HTMLButtonElement>('[data-hl-dot]'));
-    if (!scroller || !controls || !toggle || cards.length === 0) return;
+    if (!scroller || !toggle || cards.length === 0) return;
 
     const reducedQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
     let index = 0;
@@ -513,11 +528,15 @@ const total = cards.length;
       });
     }
 
+    /** True while a scroll started by slideTo() runs (cleared when it settles). */
+    let autoScrolling = false;
+
     function slideTo(next: number): void {
-      scroller!.scrollTo({
-        left: next * step(),
-        behavior: reducedQuery.matches ? 'instant' : 'smooth',
-      });
+      const left = next * step();
+      const instant = reducedQuery.matches;
+      // Only a smooth scroll passes through other positions; none follows if already there.
+      autoScrolling = !instant && Math.abs(scroller!.scrollLeft - left) >= 1;
+      scroller!.scrollTo({ left, behavior: instant ? 'instant' : 'smooth' });
     }
 
     /** Any manual navigation stops the auto-advance for this visit (not remembered). */
@@ -569,8 +588,24 @@ const total = cards.length;
       sync();
     });
 
-    // Swipes, horizontal wheels and keys on the gallery are manual navigation.
-    scroller.addEventListener('pointerdown', stopByUser, { passive: true });
+    // Manual navigation: a mouse press, a key or a horizontal wheel on the gallery, and any
+    // sideways scroll the page did not start. A touch alone is not: a vertical swipe that
+    // starts on a card only scrolls the page (it must not stop the gallery).
+    scroller.addEventListener(
+      'pointerdown',
+      (event) => {
+        if (event.pointerType === 'mouse') stopByUser();
+      },
+      { passive: true },
+    );
+    scroller.addEventListener(
+      'scroll',
+      () => {
+        // Measured against the current card, so a resize that re-snaps it does not count.
+        if (!autoScrolling && Math.abs(scroller.scrollLeft - index * step()) > 2) stopByUser();
+      },
+      { passive: true },
+    );
     scroller.addEventListener('keydown', stopByUser);
     scroller.addEventListener(
       'wheel',
@@ -583,6 +618,7 @@ const total = cards.length;
     // After any scroll settles, the dot follows the card in view.
     let settle = 0;
     const onSettled = (): void => {
+      autoScrolling = false;
       const nearest = Math.max(0, Math.min(last, Math.round(scroller.scrollLeft / step())));
       if (nearest !== index) {
         mark(nearest, state !== 'playing');
@@ -624,9 +660,9 @@ const total = cards.length;
     ).observe(scroller);
     document.addEventListener('visibilitychange', sync);
 
-    // With reduced motion there is no auto-advance at all: the dots stay, the toggle goes.
+    // With reduced motion there is no auto-advance at all: the dots stay, the toggle goes
+    // (CSS).
     reducedQuery.addEventListener('change', () => {
-      toggle.hidden = reducedQuery.matches;
       if (reducedQuery.matches && state !== 'paused') {
         state = 'paused';
         dots[index]?.setAttribute('data-complete', '');
@@ -636,8 +672,6 @@ const total = cards.length;
 
     mark(0, state !== 'playing');
     sync();
-    toggle.hidden = reducedQuery.matches;
-    controls.hidden = false;
   }
 
   for (const root of document.querySelectorAll<HTMLElement>('[data-highlights]')) setup(root);

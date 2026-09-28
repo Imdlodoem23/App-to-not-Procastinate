@@ -2,11 +2,20 @@ import { defineConfig } from 'astro/config';
 import sitemap from '@astrojs/sitemap';
 import tailwindcss from '@tailwindcss/vite';
 
-// Static site for Render (render.yaml sets SITE_URL). Canonical URLs, Open Graph, robots.txt
-// and the sitemap are all built from `site`.
+// Canonical URLs, Open Graph, robots.txt and the sitemap are all built from `site`. Order:
+// SITE_URL (set it in the Render dashboard for a custom domain), then RENDER_EXTERNAL_URL (Render
+// sets it on every build to the service's own onrender.com address, so a different service name
+// cannot leave the tags pointing at someone else's host), then the expected default.
+const site =
+  process.env.SITE_URL || process.env.RENDER_EXTERNAL_URL || 'https://centrate.onrender.com';
+if (process.env.RENDER) console.info(`[centrate] site URL: ${site}`);
+
 export default defineConfig({
-  site: process.env.SITE_URL ?? 'https://centrate.onrender.com',
+  site,
   output: 'static',
+  // One URL form everywhere: canonical, og:url, internal links and the sitemap all use
+  // /descargar (never /descargar/). render.yaml rewrites each clean path to its index.html.
+  trailingSlash: 'never',
   // Lossless whitespace removal. Astro 7's default ('jsx') drops line breaks between inline
   // elements, which would glue words together in multi-line markup («texto<a>enlace</a>»).
   compressHTML: true,

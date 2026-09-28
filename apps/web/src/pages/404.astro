@@ -21,7 +21,7 @@ const { notFound } = copy.pages;
     <p class="not-found__lead text-lead text-secondary">{notFound.lead}</p>
     <div class="not-found__actions">
       <a class="button-pill" href={notFound.home.href}>{notFound.home.label}</a>
-      <a class="link" href={notFound.download.href}>{notFound.download.label}</a>
+      <a class="not-found__link link" href={notFound.download.href}>{notFound.download.label}</a>
     </div>
   </section>
 </Base>
@@ -50,6 +50,13 @@ const { notFound } = copy.pages;
     justify-content: center;
     gap: 16px 32px;
     margin-top: 40px;
+  }
+
+  /* 44 px tall touch target for a text link, level with the pill beside it. */
+  .not-found__link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
   }
 
   @media (max-width: 734px) {

@@ -22,6 +22,18 @@
 const ITEM = '[data-reveal]';
 const GROUP = '[data-reveal-group]';
 
+/**
+ * The observer's box: from far above the viewport down to 85 % of its height. The upper reach
+ * matters for jumps (a nav link to #privacidad, the Descargar pill, a reload halfway down): a
+ * target the jump passes over goes from below the viewport to above it, and with a box that
+ * starts at the viewport top it would be «not intersecting» before and after, so the observer
+ * would never call back and the target would stay hidden until it played its entrance while
+ * the visitor scrolled back up. With the box reaching above, passing over it is a change, and
+ * onIntersect marks it done without animating. In pixels, not %, so a short window or a zoomed
+ * page still covers the whole page (the longest, the home page, is about 17 000 px at 320 px).
+ */
+const ROOT_MARGIN = '100000px 0px -15% 0px';
+
 declare global {
   interface Window {
     /** Set when this module runs; the <head> failsafe in Base.astro checks it. */
@@ -71,12 +83,13 @@ function onIntersect(entries: IntersectionObserverEntry[]): void {
   for (const entry of entries) {
     const items = targets.get(entry.target);
     if (!items) continue;
-    if (entry.isIntersecting) {
-      reveal(items, true);
-    } else if (entry.boundingClientRect.bottom <= (entry.rootBounds?.top ?? 0)) {
-      // Already scrolled past (reload halfway down, or a jump to an anchor): show it without
-      // animating, so scrolling back up does not replay an entrance.
+    // Compare with the real viewport top (0), not rootBounds.top, which is far above it.
+    if (entry.boundingClientRect.bottom <= 0) {
+      // Above the viewport: the visitor jumped or reloaded past it without seeing it. Show it
+      // without animating, so scrolling back up does not replay an entrance.
       reveal(items, false);
+    } else if (entry.isIntersecting) {
+      reveal(items, true);
     } else {
       continue;
     }
@@ -114,7 +127,7 @@ export function initReveal(root: ParentNode = document): void {
   }
 
   observer ??= new IntersectionObserver(onIntersect, {
-    rootMargin: '0px 0px -15% 0px',
+    rootMargin: ROOT_MARGIN,
     threshold: 0,
   });
 

@@ -11,6 +11,7 @@
  * button to the detected system and fills in version, date, sizes and digests from the API.
  */
 import Base from '../layouts/Base.astro';
+import ActionLink from '../components/pages/ActionLink.astro';
 import CommandBlock from '../components/pages/CommandBlock.astro';
 import DocPage from '../components/pages/DocPage.astro';
 import DocSection from '../components/pages/DocSection.astro';
@@ -171,7 +172,7 @@ const sumsUrl = `${site.latestDownloadBase}SHA256SUMS.txt`;
         }
       </div>
       <p class="text-body">
-        <a class="link" href={sumsUrl}>{d.checksum.sumsLink}</a>
+        <ActionLink href={sumsUrl}>{d.checksum.sumsLink}</ActionLink>
       </p>
       <p class="text-body text-secondary max-w-text">{d.checksum.mismatch}</p>
       <div
@@ -260,12 +261,14 @@ const sumsUrl = `${site.latestDownloadBase}SHA256SUMS.txt`;
 
     <div class="closing">
       <ul class="closing-links" role="list">
-        <li><a class="link" href={site.releasesUrl}>{d.closing.releases}</a></li>
-        <li><a class="link" href={d.closing.changelog.href}>{d.closing.changelog.label}</a></li>
+        <li><ActionLink href={site.releasesUrl}>{d.closing.releases}</ActionLink></li>
+        <li>
+          <ActionLink href={d.closing.changelog.href}>{d.closing.changelog.label}</ActionLink>
+        </li>
       </ul>
       <p class="text-body text-secondary">
         {d.closing.issuePrompt}
-        <a class="link" href={site.newIssueUrl}>{d.closing.issueLink}</a>
+        <a class="link-inline" href={site.newIssueUrl}>{d.closing.issueLink}</a>
       </p>
     </div>
   </DocPage>
@@ -375,6 +378,22 @@ const sumsUrl = `${site.latestDownloadBase}SHA256SUMS.txt`;
     display: none;
   }
 
+  /* File links on phones and touch screens: a 44 px tall target, like ActionLink. The box is
+     one line (20 px) and its hit area reaches 12 px up and down into the cell's padding, so the
+     text does not move and the target never covers the size or the digest. */
+  @media (max-width: 734px), (pointer: coarse) {
+    .sums-table :global(tbody th a) {
+      position: relative;
+      display: inline-block;
+    }
+
+    .sums-table :global(tbody th a)::after {
+      content: '';
+      position: absolute;
+      inset: -12px 0;
+    }
+  }
+
   .bullets {
     max-width: var(--measure-text);
     padding-inline-start: 1.25em;
@@ -447,6 +466,11 @@ const sumsUrl = `${site.latestDownloadBase}SHA256SUMS.txt`;
       display: block;
       padding: 0;
       border: 0;
+    }
+
+    /* Room for the lower half of the file link's target (above it is the row's padding). */
+    .sums-table :global(tbody th) {
+      padding-bottom: 12px;
     }
 
     .sums-table :global(td[data-label])::before {

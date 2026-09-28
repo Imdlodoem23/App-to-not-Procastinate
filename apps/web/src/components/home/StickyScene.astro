@@ -19,16 +19,19 @@
  *   (contain 0–100 % is exactly the stuck span). No JavaScript runs per frame.
  * - Fallback engine elsewhere: sticky-scene.ts writes `--progress` on the track from one
  *   passive scroll listener (one rAF per frame) and each tween computes its pose in CSS.
- * - Static version (reduced motion, printing, no JavaScript, or a fallback engine that never
- *   started): no extra height and nothing sticky. The three beats become a vertical sequence,
- *   each with its own still frame — the pointer on the X, the browser loading youtube.com,
- *   the blocked page — computed from the same table at fixed progress values.
+ * - Static version (reduced motion, printing, no JavaScript, a fallback engine that never
+ *   started, or a viewport under 520 px tall such as a landscape phone, where the stage cannot
+ *   fit): no extra height and nothing sticky. The three beats become a vertical sequence,
+ *   each with its own still frame — the pointer on the X, the browser loading youtube.com
+ *   (cropped to its top), the blocked page — computed from the same table at fixed progress
+ *   values.
  *
  * An inline script picks the engine before the track is laid out, so nothing shifts. No
  * ancestor of the track clips with overflow: hidden (that breaks sticky); the section uses
  * overflow-x: clip so the moving layers never widen the page on phones.
  */
 import AppWindow from '../AppWindow.astro';
+import FootnoteRef from './FootnoteRef.astro';
 import { copy, fill, footnoteNumber, type FootnoteId } from '../../content/copy';
 
 const { scene, ui } = copy;
@@ -46,10 +49,12 @@ const timeline = {
   cursorOut: [0.13, 0.19],
   guardianIn: [0.17, 0.25],
   segment1: [0, 0.25],
-  beat1Out: [0.22, 0.27],
+  // Beat 1's caption stays until beat 2's takes over at 0.275 (out, then in, never both), so
+  // the guardian pill alone on black (0.24 → 0.27) is still captioned.
+  beat1Out: [0.255, 0.275],
   // Beat 2: a browser opens youtube.com.
   browserIn: [0.27, 0.37],
-  beat2In: [0.28, 0.33],
+  beat2In: [0.275, 0.295],
   segment2: [0.27, 0.57],
   typing: [0.37, 0.45],
   tabLoadingIn: [0.45, 0.47],
@@ -110,8 +115,8 @@ const motion = {
   cursorIn: tween(timeline.cursorIn, { o: 0, x: '-160px', y: '120px' }, { o: 1 }),
   cursorOut: fadeOut(timeline.cursorOut),
   closeHover: fadeIn(timeline.closeHover),
-  // Towards the tray, bottom right, where the guardian pill appears.
-  window: tween(timeline.windowOut, { o: 1 }, { o: 0, x: '16%', y: '12%', s: 0.8 }),
+  // Down, towards the guardian pill that appears under the captions.
+  window: tween(timeline.windowOut, { o: 1 }, { o: 0, y: '16%', s: 0.8 }),
   guardian: fadeIn(timeline.guardianIn, '8px'),
   browser: tween(timeline.browserIn, { o: 0, y: '40px', s: 0.96 }, { o: 1 }),
   tabLoadingIn: fadeIn(timeline.tabLoadingIn),
@@ -149,6 +154,8 @@ const beatMotion: readonly { in?: string; out?: string }[] = [
 
 // ---- Copy --------------------------------------------------------------------------------
 
+/** A beat's footnote reference. Its id (`ref-{id}-{k}`, the target of the note's «Volver al
+ *  texto») goes on a marker outside the sticky stage, not on the link: see `.scene-anchor`. */
 const noteRef = (id: FootnoteId, occurrence: number) => {
   const n = footnoteNumber(id);
   return {
@@ -158,8 +165,6 @@ const noteRef = (id: FootnoteId, occurrence: number) => {
     label: fill(ui.footnoteRef, { n }),
   };
 };
-// «Lo más destacado» cites the admin note first (ref-admin-1); this is its second reference.
-const leadRef = noteRef(scene.leadNote, 2);
 
 const beats = scene.beats.map((beat, i) => ({
   title: beat.title,
@@ -204,9 +209,8 @@ const browsers = [
       <span><span class="scene-gradient">{scene.headline.gradient}</span></span>
     </h2>
     <p class="scene-lead text-lead text-secondary" data-reveal>
-      {scene.lead}<sup class="scene-ref"
-        ><a href={leadRef.href} id={leadRef.id} aria-label={leadRef.label}>{leadRef.n}</a></sup
-      >
+      {/* «Lo más destacado» cites the admin note first (ref-admin-1); this is the second. */}
+      {scene.lead}<FootnoteRef id={scene.leadNote} k={2} />
     </p>
   </div>
 
@@ -224,6 +228,15 @@ const browsers = [
         }, 4000);
       })();
     </script>
+
+    {
+      /* Targets of the notes' «Volver al texto»: a link inside the sticky stage would land
+         wherever the unstuck layout puts it, these land on the frame the beat belongs to. */
+      beats.map(
+        ({ note }) =>
+          note && <span id={note.id} class="scene-anchor" aria-hidden="true" />,
+      )
+    }
 
     <div class="scene-stage gutter">
       <p class="sr-only">{scene.summary}</p>
@@ -329,11 +342,6 @@ const browsers = [
           }
         </div>
 
-        <div class="tw scene-guardian" style={motion.guardian} aria-hidden="true">
-          <span class="scene-guardian-dot"></span>
-          {copy.appWindow.footer.guardian}
-        </div>
-
         <ol class="scene-beats" role="list">
           {
             beats.map((beat) => (
@@ -350,8 +358,7 @@ const browsers = [
                     <p class="scene-beat-text text-body text-secondary">
                       {beat.text}{beat.note && (
                         <sup class="scene-ref"
-                          ><a href={beat.note.href} id={beat.note.id} aria-label={beat.note.label}
-                            >{beat.note.n}</a
+                          ><a href={beat.note.href} aria-label={beat.note.label}>{beat.note.n}</a
                           ></sup
                         >
                       )}
@@ -362,6 +369,11 @@ const browsers = [
             ))
           }
         </ol>
+
+        <div class="tw scene-guardian" style={motion.guardian} aria-hidden="true">
+          <span class="scene-guardian-dot"></span>
+          {copy.appWindow.footer.guardian}
+        </div>
       </div>
     </div>
   </div>
@@ -380,27 +392,91 @@ const browsers = [
     /* The moving layers must never widen the page (phones); clip is not a scroll container,
        so the sticky stage and the view timeline keep working. */
     overflow-x: clip;
-    /* Scale of the stage picture: the token's steps for short viewports. */
+    /* Scale of the stage picture: the token's steps for short viewports, plus the scene's
+       own below (the Céntrate window, which has a fixed size, must fit the picture's box). */
     --scene-scale: var(--stage-scale);
     /* Width of the stage picture and of the captions under it. */
     --scene-w: min(calc(var(--browser-w) * var(--scene-scale)), 100%);
+    /* Space between the picture and the captions. */
+    --scene-gap: var(--space-gallery-controls);
+    /* The blocked page (blocked.html, a 440 px column) at the browser's scale: shown larger
+       than the app window so «−10 puntos», the pay-off of the scene, lands big. */
+    --scene-blocked-zoom: 1.5;
+    /* Height of the static beat-2 still: the browser cropped to its top while it loads. */
+    --scene-crop-h: 240px;
+  }
+
+  @media (max-width: 1068px) {
+    .scene {
+      --scene-blocked-zoom: 1.3;
+    }
   }
 
   @media (max-width: 734px) {
     .scene {
       --scene-w: 100%;
+      /* The browser is narrower than the column here, so the column reflows (see below); its
+         header (monogram, «YouTube: bloqueado», time left) needs 308 px at zoom 1. */
+      --scene-blocked-zoom: 0.92;
+      --scene-crop-h: 208px;
+    }
+  }
+
+  @media (max-width: 359px) {
+    .scene {
+      --scene-blocked-zoom: 0.8;
+    }
+  }
+
+  /* Short viewports, wider than a phone: steps below the token's, so the whole window and
+     the captions (about 160 px) share the stage without clipping. Under 520 px the scene is
+     static. */
+  @media (min-width: 735px) and (max-height: 659px) {
+    .scene {
+      --scene-scale: 0.6;
+    }
+  }
+
+  @media (min-width: 735px) and (max-height: 599px) {
+    .scene {
+      --scene-gap: 20px;
+    }
+  }
+
+  @media (min-width: 735px) and (max-height: 579px) {
+    .scene {
+      --scene-scale: 0.48;
     }
   }
 
   /* Phones: the picture already fills the width and its height can flex (see the stage), so
-     it keeps full size unless the phone is really short. */
-  @media (max-width: 734px) and (min-height: 600px) {
+     it keeps full size while the whole window still fits above the captions (they wrap to
+     more lines under 375 px), then steps down. */
+  @media (max-width: 734px) and (min-height: 680px),
+    (min-width: 375px) and (max-width: 734px) and (min-height: 650px) {
     .scene {
       --scene-scale: 1;
     }
   }
 
+  @media (max-width: 734px) and (max-height: 599px) {
+    .scene {
+      --scene-scale: 0.64;
+      --scene-gap: 20px;
+    }
+  }
+
+  @media (max-width: 734px) and (max-height: 539px) {
+    .scene {
+      --scene-scale: 0.56;
+    }
+  }
+
+  /* Above the stage, whose empty top padding (sticky, so painted later) would otherwise cover
+     the bottom of the lead's footnote target. */
   .scene-header {
+    position: relative;
+    z-index: 1;
     display: grid;
     justify-items: center;
     gap: var(--space-headline-lead);
@@ -435,15 +511,29 @@ const browsers = [
     }
   }
 
+  /* Beat 3's footnote reference: FootnoteRef.astro's look and 44 px target, but without the
+     id (it lives on .scene-anchor). */
   .scene-ref {
-    margin-inline-start: 1px;
+    position: relative;
+    top: -0.5em;
+    margin-inline-start: 0.08em;
     font-size: 0.6em;
     line-height: 0;
+    vertical-align: baseline;
+    font-feature-settings: 'tnum';
   }
 
   .scene-ref a {
-    color: var(--text);
+    position: relative;
+    color: inherit;
+    text-decoration-thickness: 1px;
     text-underline-offset: 0.18em;
+  }
+
+  .scene-ref a::after {
+    content: '';
+    position: absolute;
+    inset: -16px -12px;
   }
 
   .scene-ref a:hover {
@@ -519,7 +609,15 @@ const browsers = [
   /* ---- Static version: a vertical sequence of three stills --------------------------- */
 
   .scene-track {
+    position: relative;
     margin-block-start: var(--space-header-content);
+  }
+
+  /* Where «Volver al texto» of beat 3's note lands: here, the start of the blocked-page still
+     (its browser plus about the height of the caption under it). */
+  .scene-anchor {
+    position: absolute;
+    bottom: calc(var(--browser-h) + 160px);
   }
 
   /* Rows: 1 window · 2 guardian · 3 beat 1 · 4 loading browser · 5 beat 2 · 6 blocked
@@ -550,8 +648,13 @@ const browsers = [
     margin-block-start: var(--space-block);
   }
 
+  /* Beat 2's still is only the top of the browser (tabs, address, loading bar): the empty
+     page under it fades out instead of showing a large blank box. */
   .scene-browser[data-variant='loading'] {
     grid-row: 4;
+    height: var(--scene-crop-h);
+    -webkit-mask-image: linear-gradient(to bottom, #000 50%, transparent);
+    mask-image: linear-gradient(to bottom, #000 50%, transparent);
   }
 
   .scene-browser[data-variant='live'] {
@@ -590,19 +693,36 @@ const browsers = [
 
   /* ---- Animated version: a sticky stage over a 300vh track ------------------------------ */
 
-  @media screen and (prefers-reduced-motion: no-preference) {
+  /* Keep the query in sync with `ANIMATED` in sticky-scene.ts. */
+  @media screen and (prefers-reduced-motion: no-preference) and (min-height: 520px) {
+    /* The stage's top padding clears the bar; together with it, the lead → picture space is
+       the page's header → content rhythm (never less than the padding alone). */
     .scene-track[data-scene] {
       height: var(--scene-track);
+      margin-block-start: max(
+        0px,
+        var(--space-header-content) - var(--nav-height) - var(--space-card-caption)
+      );
     }
 
+    /* Beat 3's anchor: the held final frame (p = 0.85, «−10 puntos» in place), counting the
+       bar the browser leaves above the target (the page's scroll-padding-top). */
+    .scene-track[data-scene] .scene-anchor {
+      top: calc((100% - 100vh) * 0.85 + var(--nav-height));
+      top: calc((100% - 100svh) * 0.85 + var(--nav-height));
+      bottom: auto;
+    }
+
+    /* Anchored to the top, so the picture sits at the same distance from the lead at any
+       viewport height; extra height goes around the captions, never above the picture. */
     .scene-track[data-scene] .scene-stage {
       position: sticky;
       top: 0;
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: safe center;
-      gap: var(--space-gallery-controls);
+      justify-content: flex-start;
+      gap: var(--scene-gap);
       height: 100vh;
       height: 100svh;
       padding-block: calc(var(--nav-height) + var(--space-card-caption)) var(--space-card-caption);
@@ -628,49 +748,48 @@ const browsers = [
       zoom: var(--scene-scale);
     }
 
+    /* The window never spills onto the captions, even if the picture's box gets shorter than
+       it (only this layer clips: the browser fills the box and its rim sits on the edge). */
     .scene-track[data-scene] .scene-app {
       display: grid;
       place-items: center;
+      place-items: safe center;
+      overflow: clip;
     }
 
     .scene-track[data-scene] .scene-browser[data-variant='loading'] {
       display: none;
     }
 
-    /* Captions: progress segments and the guardian pill on one row, the beats under them,
-       stacked in one cell so the tallest one sets the height and nothing jumps. */
+    /* Captions: one centered column, like the header above and the static version — the
+       progress segments, the beats (stacked in one cell so the tallest one sets the height
+       and nothing jumps) and the guardian pill, which stays once it appears. */
     .scene-track[data-scene] .scene-foot {
-      display: grid;
+      display: flex;
       flex: none;
-      grid-template-columns: minmax(0, 1fr) auto;
+      flex-direction: column;
       align-items: center;
-      row-gap: 16px;
+      gap: 16px;
       width: var(--scene-w);
+      margin-block: auto;
     }
 
     .scene-track[data-scene] .scene-segments {
       display: flex;
-      grid-row: 1;
-      grid-column: 1;
     }
 
     .scene-track[data-scene] .scene-guardian {
-      grid-row: 1;
-      grid-column: 2;
       margin: 0;
     }
 
     .scene-track[data-scene] .scene-beats {
-      grid-row: 2;
-      grid-column: 1 / -1;
+      align-self: stretch;
       grid-template-rows: none;
-      justify-items: start;
     }
 
     .scene-track[data-scene] .scene-beat {
       grid-area: 1 / 1;
       margin: 0;
-      text-align: start;
     }
 
     .scene-track[data-scene] .tw-beat {
@@ -972,7 +1091,15 @@ const browsers = [
     transform-origin: left center;
   }
 
+  /* blocked.html: the 440 px column at --scene-blocked-zoom. In a browser narrower than that
+     (phones) it reflows to the page's width, like the real page in a narrow window. */
+  .scene-page {
+    --scene-column: var(--aw-width);
+  }
+
   .scene-blocked {
-    --aw-zoom: var(--aw-zoom-stage);
+    --aw-zoom: var(--scene-blocked-zoom);
+    --aw-width: 100%;
+    width: min(calc(100% - 24px), calc(var(--scene-column) * var(--scene-blocked-zoom)));
   }
 </style>

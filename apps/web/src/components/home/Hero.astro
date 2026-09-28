@@ -9,9 +9,14 @@
  * - Until the real video exists, the window plays the story in about 9 s, once: it types
  *   «no veo YouTube en una hora», Enter shows the confirmation, Enter again starts the
  *   countdown. Three AppWindow states stacked in one cell, aligned to the bottom, so the window
- *   grows upwards like the real one. It has a Pausar / Reproducir / Repetir control, only runs
- *   while visible, and never runs with reduced motion or without JavaScript: then the window
- *   shows the 'typing' state, which tells the product in one frame.
+ *   grows upwards like the real one. It starts only once the window is really in view (not
+ *   below the fold of a laptop), pauses off screen, and has a Pausar / Reproducir / Repetir
+ *   control that never covers the window: beside its bottom-right corner from 735 px (sticky,
+ *   so it stays on screen while the window does), under its right edge on phones. The control
+ *   shows only once the story has started, so it never offers «Pausar» over a still frame. It
+ *   never runs with reduced motion or without JavaScript: then the window shows the 'typing'
+ *   state, which tells the product in one frame, and the control is not there (removed by
+ *   CSS, so the layout never shifts).
  * - The h1 is the LCP element: never hidden, never animated. Only the window reveals.
  */
 import AppWindow from '../AppWindow.astro';
@@ -77,7 +82,7 @@ const hrefs = Object.fromEntries(systems.map((os) => [os, hrefFor(os)]));
       type="button"
       class="hero-control text-small"
       data-hero-control
-      data-state="playing"
+      data-state="waiting"
       data-label-pause={ui.pause}
       data-label-play={ui.play}
       data-label-replay={ui.replay}
@@ -85,7 +90,6 @@ const hrefs = Object.fromEntries(systems.map((os) => [os, hrefFor(os)]));
       data-aria-play={ui.playVideo}
       data-aria-replay={ui.replayVideo}
       aria-label={ui.pauseVideo}
-      hidden
     >
       <svg class="hero-control-icon" viewBox="0 0 24 24" aria-hidden="true">
         <g data-icon="pause"
@@ -168,13 +172,20 @@ const hrefs = Object.fromEntries(systems.map((os) => [os, hrefFor(os)]));
   }
 
   /* Visual ------------------------------------------------------------------------------- */
+  /* Three columns with the window in the middle: the control lives in the right-hand one, so
+     it can sit beside the window without ever covering it. The side columns may be narrower
+     than the control (768 px with «Reproducir»); it then runs into the page gutter, never
+     into the window and never past the screen edge (735 px: 9 px spare). */
   .hero-visual {
     --aw-zoom: var(--aw-zoom-hero);
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 16px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-self: stretch;
     margin-block-start: var(--hero-visual-gap);
+  }
+
+  .hero-visual > .hero-stage {
+    grid-column: 2;
   }
 
   .hero-stage {
@@ -216,26 +227,76 @@ const hrefs = Object.fromEntries(systems.map((os) => [os, hrefFor(os)]));
     }
   }
 
-  /* Pausar / Reproducir / Repetir: a small fill pill under the window's right edge. */
+  /* Pausar / Reproducir / Repetir: a small glass pill beside the window's bottom-right corner,
+     16 px off its edge. Sticky, like the Highlights pill: while the window runs past the bottom
+     of the screen, the pill rides 24 px above that edge (never above the window's own top, its
+     grid area), so it can always be seen and pressed while the window moves, and it never
+     covers the window's UI. Its box is in the layout from the first paint; it stays hidden
+     (space kept) until the story really starts. Only no-JS and reduced motion, known before
+     the body is parsed, remove it. */
   .hero-control {
+    grid-column: 3;
+    align-self: end;
+    justify-self: start;
+    position: sticky;
+    bottom: 24px;
     display: inline-flex;
     align-items: center;
     gap: 6px;
     height: var(--chip-h);
+    margin-inline-start: 16px;
     padding-inline: 14px 16px;
     border: 1px solid transparent;
     border-radius: var(--shape-pill);
-    background-color: var(--fill);
-    color: var(--text);
+    background-color: var(--palette-glass-control);
+    -webkit-backdrop-filter: var(--nav-backdrop);
+    backdrop-filter: var(--nav-backdrop);
+    color: var(--palette-ink);
+    white-space: nowrap;
     transition: background-color 100ms linear;
   }
 
-  .hero-control[hidden] {
+  .hero-control[data-state='waiting'] {
+    visibility: hidden;
+  }
+
+  :global(html:not(.js)) .hero-control {
     display: none;
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .hero-control {
+      display: none;
+    }
+  }
+
   .hero-control:hover {
-    background-color: var(--fill-hover);
+    background-color: var(--palette-glass-control-hover);
+  }
+
+  /* Phones: the window fills the column, so there is no room beside it. The control goes
+     under its right edge, static (sticky would pull it back onto the window). 44 px touch
+     targets for the two small controls. */
+  @media (max-width: 734px) {
+    .hero-other {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+    }
+
+    .hero-visual {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      align-self: auto;
+      gap: 16px;
+    }
+
+    .hero-control {
+      position: static;
+      height: 44px;
+      margin-inline-start: 0;
+    }
   }
 
   .hero-control-icon {
@@ -302,7 +363,8 @@ const hrefs = Object.fromEntries(systems.map((os) => [os, hrefFor(os)]));
     return h > 0 ? [`${h}:${String(m).padStart(2, '0')}`, `:${s}`] : [String(m), `:${s}`];
   }
 
-  function setupSequence(stage: HTMLElement, control: HTMLButtonElement): void {
+  /** Drives the window; false when its pieces are missing (it then keeps its static frame). */
+  function setupSequence(stage: HTMLElement, control: HTMLButtonElement): boolean {
     const q = <E extends Element = HTMLElement>(selector: string): E | null =>
       stage.querySelector<E>(selector);
     const typingLayer = q('[data-hero-layer="typing"]');
@@ -319,7 +381,7 @@ const hrefs = Object.fromEntries(systems.map((os) => [os, hrefFor(os)]));
     const submit = q('[data-hero-layer="confirm"] [data-aw-submit]');
     const label = control.querySelector<HTMLElement>('[data-hero-control-label]');
     if (!typed || !placeholder || !caret || !helpIdle || !chipsBox || !main || !seconds || !bar) {
-      return;
+      return false;
     }
 
     // The static HTML already holds the phrase and the chips: read them instead of repeating
@@ -356,9 +418,6 @@ const hrefs = Object.fromEntries(systems.map((os) => [os, hrefFor(os)]));
     function render(t: number): void {
       const phase = t < T.confirm ? 'typing' : t < T.countdown ? 'confirm' : 'countdown';
       put('phase', phase, () => (stage.dataset.phase = phase));
-      put('blink', phase === 'typing' && !ended, () =>
-        stage.toggleAttribute('data-blink', phase === 'typing' && !ended),
-      );
 
       const count = Math.max(0, Math.min(phrase.length, Math.floor((t - T.typeStart) / T.charMs)));
       put('typed', String(count), () => {
@@ -384,6 +443,7 @@ const hrefs = Object.fromEntries(systems.map((os) => [os, hrefFor(os)]));
         seconds!.textContent = s;
         bar!.style.setProperty('--aw-bar', String(left / BLOCK_SECONDS));
       });
+      syncBlink();
     }
 
     function setControl(state: 'playing' | 'paused' | 'ended'): void {
@@ -394,6 +454,12 @@ const hrefs = Object.fromEntries(systems.map((os) => [os, hrefFor(os)]));
     }
 
     const running = (): boolean => !userPaused && !ended && inView && !document.hidden;
+
+    /** The caret blinks only while the sequence is actually typing: paused, ended, off screen
+     *  or in a hidden tab it stays still (nothing moves on its own once paused). */
+    const syncBlink = (): void => {
+      stage.toggleAttribute('data-blink', stage.dataset.phase === 'typing' && running());
+    };
 
     function tick(now: number): void {
       // Cap the step so a stalled frame never skips half the story.
@@ -420,6 +486,7 @@ const hrefs = Object.fromEntries(systems.map((os) => [os, hrefFor(os)]));
         cancelAnimationFrame(frame);
         frame = 0;
       }
+      syncBlink();
     }
 
     control.addEventListener('click', () => {
@@ -435,36 +502,51 @@ const hrefs = Object.fromEntries(systems.map((os) => [os, hrefFor(os)]));
       update();
     });
 
+    // The story starts only once the window is really in view: three quarters of it, or 60 %
+    // of the screen for a window taller than the screen. On a laptop, where the hero shows
+    // only the top of the window, it waits for the first scroll instead of playing below the
+    // fold. Once started it pauses only when less than a quarter is left on screen.
+    let started = false;
     const observer = new IntersectionObserver(
       ([entry]) => {
-        inView = entry?.isIntersecting ?? false;
+        if (!entry) return;
+        const ratio = entry.intersectionRatio;
+        const screen = entry.rootBounds?.height || window.innerHeight;
+        const share = entry.intersectionRect.height / screen;
+        if (!started && (ratio >= 0.75 || share >= 0.6)) {
+          started = true;
+          // The control shows from here on (it was 'waiting', hidden with its space kept).
+          setControl('playing');
+        }
+        inView = started && (ratio >= 0.25 || share >= 0.25);
         update();
       },
-      { threshold: 0.25 },
+      // Fine steps, so a window taller than the screen still reports the 60 % crossing.
+      { threshold: Array.from({ length: 21 }, (_, i) => i / 20) },
     );
     observer.observe(stage);
     document.addEventListener('visibilitychange', update);
 
-    // Reduced motion switched on mid-way: stop and go back to the one-frame story.
+    // Reduced motion switched on mid-way: stop and go back to the one-frame story (the CSS
+    // removes the control).
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
     reduced.addEventListener('change', () => {
       if (!reduced.matches) return;
       ended = true;
       update();
       render(T.confirm - 1);
-      stage.removeAttribute('data-blink');
-      control.hidden = true;
     });
 
     render(0);
-    setControl('playing');
-    control.hidden = false;
+    return true;
   }
 
   if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     for (const hero of document.querySelectorAll<HTMLElement>('[data-hero]')) {
       const stage = hero.querySelector<HTMLElement>('[data-hero-stage]');
       const control = hero.querySelector<HTMLButtonElement>('[data-hero-control]');
+      // A window the script cannot drive keeps its static frame, and its control stays
+      // 'waiting': hidden, with its box kept, so nothing moves.
       if (stage && control) setupSequence(stage, control);
     }
   }

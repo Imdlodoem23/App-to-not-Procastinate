@@ -3,10 +3,10 @@
  * each gallery card shows next to its copy. Texts come from copy.ts; this file only picks the
  * visual of every card, in the same order as `copy.chapters.<chapter>.cards`.
  *
- * A visual is either a crop of the AppWindow mock in one of its states, or a small composition
- * made of app pieces (tiles, bars, dots, line icons) drawn by CardVisual.astro. Compositions
- * carry no hand-written words: only strings from copy.ts, names from the catalog of
- * @centrate/shared and numbers from its points rules.
+ * A visual is either the AppWindow mock in one of its states, or a small composition made of
+ * app pieces (tiles, bars, dots, line icons) drawn by CardVisual.astro. Compositions carry no
+ * hand-written words: only strings from copy.ts, names from the catalog of @centrate/shared and
+ * numbers from its points rules.
  */
 import { copy, type AppWindowState, type FootnoteId } from '../../content/copy';
 
@@ -71,38 +71,33 @@ const OCCURRENCE: Partial<Record<FootnoteId, number>> = {
 const mark = (id: FootnoteId | undefined): FootnoteMark | undefined =>
   id && { id, k: OCCURRENCE[id] ?? 1 };
 
-const crop = (
-  state: AppWindowState,
-  parts?: readonly AppWindowPart[],
-  chrome = false,
-): CardVisualSpec => ({ kind: 'window', state, parts, chrome });
-
 const compose = (kind: CompositionKind): CardVisualSpec => ({ kind });
 
 /**
- * Window crops keep the title bar and stop under the Progreso section (the footer is not the
- * point of any card), like «Lo más destacado».
+ * Windows are shown whole, title bar to footer: at the card zoom not even the tallest state
+ * reaches the card's bottom edge, so a crop would end on an empty edge. Whole, the window floats
+ * in the card like the compositions (CardVisual.astro).
  */
-const CROP = ['block', 'study', 'progress'] as const satisfies readonly AppWindowPart[];
+const whole = (state: AppWindowState): CardVisualSpec => ({ kind: 'window', state, chrome: true });
 
 /** Visual of each card, in the order of copy.ts. */
 const visuals = {
   block: [
-    crop('typing', CROP, true),
-    crop('confirm', CROP, true),
+    whole('typing'),
+    whole('confirm'),
     compose('services'),
-    crop('countdown', CROP, true),
+    whole('countdown'),
     compose('emergency'),
   ],
   study: [
     compose('calibration'),
-    crop('study', CROP, true),
+    whole('study'),
     compose('learn'),
     compose('punishment'),
     compose('no-camera'),
   ],
   progress: [
-    crop('progress', CROP, true),
+    whole('progress'),
     compose('rewards'),
     compose('streak'),
     compose('pet'),

@@ -908,6 +908,8 @@ export const copy = {
       published: 'Publicada el {date}',
       latestPill: 'Última versión',
       viewOnGitHub: 'Ver en GitHub',
+      /** Shown when GitHub already has a newer version than the one this page was built with. */
+      newRelease: 'Hay una versión nueva: la {version}.',
       download: 'Descargar',
       loading: 'Cargando las novedades…',
       error: 'Ahora mismo no se pueden cargar las novedades desde GitHub.',
