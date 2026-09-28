@@ -1,11 +1,13 @@
 /**
  * Desktop login (loopback redirect + PKCE): the connect page, authorize, token, logout,
- * device reuse and limits. Browser steps use a better-auth-signed cookie on the real resolver.
+ * device reuse and limits, the recent sign-in it needs and the time zone it stores. Browser
+ * steps use a better-auth-signed cookie on the real resolver.
  */
 import type { AppTokenResponse, DevicesResponse } from '@centrate/shared/cloud-api';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { appAuthCodes, dailyStats, devices, session } from '../src/db/schema';
+import { sha256Hex } from '../src/routes/app-auth';
+import { appAuthCodes, dailyStats, devices, profiles, session, user } from '../src/db/schema';
 import { createTestUser, fakeClock } from './helpers/app';
 import type { FakeClock, TestUser } from './helpers/app';
 import { buildCoreApp, pkcePair, sessionCookie, TEST_ORIGIN } from './helpers/core';
@@ -60,7 +62,12 @@ async function codeFor(challenge: string): Promise<string> {
   return location.searchParams.get('code') ?? '';
 }
 
-function token(code: string, verifier: string, installId = 'install-0123456789abcdef') {
+function token(
+  code: string,
+  verifier: string,
+  installId = 'install-0123456789abcdef',
+  timeZone = 'America/Mexico_City',
+) {
   return core.app.inject({
     method: 'POST',
     url: '/v1/app-auth/token',
@@ -70,6 +77,7 @@ function token(code: string, verifier: string, installId = 'install-0123456789ab
       codeVerifier: verifier,
       installId,
       device: { name: '  Portátil de Ana ', platform: 'win', appVersion: '1.4.0' },
+      timeZone,
     },
   });
 }
@@ -349,5 +357,139 @@ describe('logout and device removal', () => {
     });
     expect(after.statusCode).toBe(401);
     expect(await t.db.select().from(dailyStats)).toHaveLength(0);
+  });
+});
+
+describe('connecting a computer needs a recent sign-in', () => {
+  const DAY = 86_400_000;
+  const MINUTE = 60_000;
+  const signedInAt = new Date('2026-09-28T10:00:00.000Z');
+
+  const deleteAccount = (headers: Record<string, string>) =>
+    core.app.inject({
+      method: 'DELETE',
+      url: '/v1/me',
+      headers: { 'content-type': 'application/json', ...headers },
+      payload: { confirm: 'BORRAR' },
+    });
+
+  it('an old browser session cannot mint a desktop session to delete the account', async () => {
+    // A computer connected right after signing in, then the browser left open for 13 days.
+    const pc = await login('install-real-computer-01');
+    clock.advance(13 * DAY);
+    const stale = await deleteAccount({ cookie, origin: TEST_ORIGIN });
+    expect(stale.statusCode).toBe(403);
+    expect(stale.json().error.code).toBe('reauth_required');
+
+    // «Conectar» with the old session: back to the connect page (which asks to sign in
+    // again), never to the loopback, and no code is stored.
+    const { challenge } = pkcePair();
+    const res = await authorize({ challenge, state: STATE, port: String(PORT) });
+    expect(res.statusCode).toBe(303);
+    const location = new URL(String(res.headers.location), TEST_ORIGIN);
+    expect(location.origin).toBe(TEST_ORIGIN);
+    expect(location.pathname).toBe('/cuenta/conectar');
+    expect(location.searchParams.get('challenge')).toBe(challenge);
+    expect(location.searchParams.get('code')).toBeNull();
+    expect(await t.db.select().from(appAuthCodes)).toHaveLength(0);
+
+    // Nothing changed: the account, the real computer and its session are all there.
+    expect(await t.db.select().from(user).where(eq(user.id, u.userId))).toHaveLength(1);
+    const headers = { authorization: `Bearer ${pc.token}` };
+    expect((await core.app.inject({ method: 'GET', url: '/v1/me', headers })).statusCode).toBe(200);
+    expect(await t.db.select().from(devices)).toHaveLength(1);
+  });
+
+  it('gives the desktop session the sign-in time behind it, not its own', async () => {
+    // Signed in at 10:00, the computer connected at 10:10.
+    clock.advance(10 * MINUTE);
+    const body = await login();
+    const [row] = await t.db.select().from(session).where(eq(session.token, body.token));
+    expect(row?.createdAt).toEqual(clock.now());
+    expect(row?.authenticatedAt).toEqual(signedInAt);
+
+    const headers = { authorization: `Bearer ${body.token}` };
+    // 16 minutes after signing in (6 after connecting): no longer fresh anywhere.
+    clock.advance(6 * MINUTE);
+    const del = await deleteAccount(headers);
+    expect(del.statusCode).toBe(403);
+    expect(del.json().error.code).toBe('reauth_required');
+    const revoke = await core.app.inject({
+      method: 'POST',
+      url: '/v1/sessions/revoke-others',
+      headers: { 'content-type': 'application/json', ...headers },
+      payload: { includeDevices: true },
+    });
+    expect(revoke.statusCode).toBe(403);
+    // Its sliding expiry still counts from the connection (60 days).
+    expect(row?.expiresAt.getTime()).toBe((row?.createdAt.getTime() ?? 0) + 60 * DAY);
+  });
+
+  it('deletes the account from a computer connected right after signing in', async () => {
+    const body = await login();
+    clock.advance(5 * MINUTE);
+    const res = await deleteAccount({ authorization: `Bearer ${body.token}` });
+    expect(res.statusCode).toBe(204);
+    expect(await t.db.select().from(user).where(eq(user.id, u.userId))).toHaveLength(0);
+  });
+
+  it('asks an old browser session to sign in again on the connect page', async () => {
+    clock.advance(16 * MINUTE);
+    const { challenge } = pkcePair();
+    const q = new URLSearchParams({ challenge, state: STATE, port: String(PORT), device: 'PC' });
+    const res = await core.app.inject({
+      method: 'GET',
+      url: `/cuenta/conectar?${q.toString()}`,
+      headers: { cookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('Vuelve a iniciar sesión');
+    expect(res.body).toContain('id="reauth"');
+    expect(res.body).toContain(`data-volver="/cuenta/conectar?challenge=${challenge}&amp;state=`);
+    expect(res.body).not.toContain('action="/v1/app-auth/authorize"');
+  });
+
+  it('refuses a code whose sign-in is too old, however it was stored', async () => {
+    const { verifier, challenge } = pkcePair();
+    const code = 'c'.repeat(43);
+    await t.db.insert(appAuthCodes).values({
+      codeHash: sha256Hex(code),
+      userId: u.userId,
+      challenge,
+      port: PORT,
+      authenticatedAt: new Date(clock.now().getTime() - 17 * MINUTE),
+      createdAt: clock.now(),
+      expiresAt: new Date(clock.now().getTime() + 60_000),
+    });
+    const res = await token(code, verifier);
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.issues[0].path).toBe('body.code');
+    expect(await t.db.select().from(devices)).toHaveLength(0);
+  });
+});
+
+describe('time zone', () => {
+  it('stores the computer’s zone in the profile on every login', async () => {
+    const first = await login();
+    expect(first.me.profile.timeZone).toBe('America/Mexico_City');
+    const { verifier, challenge } = pkcePair();
+    const again = await token(await codeFor(challenge), verifier, undefined, 'Atlantic/Canary');
+    expect(again.statusCode).toBe(200);
+    expect(again.json<AppTokenResponse>().me.profile.timeZone).toBe('Atlantic/Canary');
+    const [p] = await t.db.select().from(profiles).where(eq(profiles.userId, u.userId));
+    expect(p?.timeZone).toBe('Atlantic/Canary');
+  });
+
+  it('needs a valid IANA zone, and a refused login changes nothing', async () => {
+    for (const zone of ['Mars/Olympus', '', 'x'.repeat(65)]) {
+      const { verifier, challenge } = pkcePair();
+      const res = await token(await codeFor(challenge), verifier, undefined, zone);
+      expect(res.statusCode).toBe(400);
+      const paths = res.json().error.issues.map((i: { path: string }) => i.path);
+      expect(paths).toContain('body.timeZone');
+    }
+    const [p] = await t.db.select().from(profiles).where(eq(profiles.userId, u.userId));
+    expect(p?.timeZone).toBe('Europe/Madrid');
+    expect(await t.db.select().from(devices)).toHaveLength(0);
   });
 });

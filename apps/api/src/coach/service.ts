@@ -8,49 +8,25 @@
 import { isValidTimeZone } from '@centrate/shared/cloud-api';
 import type { FastifyBaseLogger, FastifyRequest } from 'fastify';
 import type { AppContext, AuthedUser } from '../context';
+import type { Db } from '../db/client';
 import { ApiError, featureDisabled, quotaExceeded } from '../lib/errors';
 import { requireDb, requireFeature, requireUser } from '../lib/guards';
 import { getProfile, requireConsent } from '../lib/profile';
 import type { ProfileRow } from '../lib/profile';
-import { costMicroUsd, isAiKillSwitchOn, tokensOf, worstCaseAttempts } from './budget';
-import type { CoachEffort, CoachFeature, CoachModel, CoachModelAttempt } from './model';
+import { BREAKER_OPEN_MS, breakerOf, isCoachBreakerOpen } from './breaker';
+import { costMicroUsd, isAiKillSwitchOn } from './budget';
+import type { CoachEndpoint } from './endpoints';
+import { ENDPOINTS, estimateInputTokens, modelFor, worstCaseOf } from './endpoints';
+import type { CoachModel, CoachModelAttempt } from './model';
 import { CoachModelError } from './model';
-import { anthropicUserHash, reserve, settle } from './quota';
+import { anthropicUserHash, release, reserve, settle } from './quota';
 import type { z } from 'zod';
 
-export type CoachEndpoint = 'interpret' | 'split-task' | 'study-plan' | 'weekly-summary';
-
-interface EndpointSettings {
-  feature: CoachFeature;
-  maxTokens: number;
-  effort: CoachEffort | null;
-  /** Hard limit for the model call, retries included (the app waits up to 90 s). */
-  deadlineMs: number;
-}
-
-/**
- * docs/API.md §10 table. Opus 5 thinks by default: `max_tokens` covers thinking + answer. The
- * limits are sized to the answers (at most 12 steps, 28 days of up to 4 items, 4 highlights)
- * with room for low-effort thinking, and keep each call's worst case within
- * `AI_USER_DAILY_BUDGET_USD`; the deadlines leave the app's 90 s wait some slack.
- */
-export const ENDPOINTS: Readonly<Record<CoachEndpoint, EndpointSettings>> = Object.freeze({
-  interpret: { feature: 'interpret', maxTokens: 1024, effort: null, deadlineMs: 20_000 },
-  'split-task': { feature: 'coach', maxTokens: 4000, effort: 'low', deadlineMs: 60_000 },
-  'study-plan': { feature: 'coach', maxTokens: 8000, effort: 'low', deadlineMs: 80_000 },
-  'weekly-summary': { feature: 'coach', maxTokens: 4000, effort: 'low', deadlineMs: 45_000 },
-});
+export { ENDPOINTS, estimateInputTokens } from './endpoints';
+export type { CoachEndpoint } from './endpoints';
 
 /** How long past its deadline a reservation may take to settle before it stops blocking. */
 export const SETTLE_MARGIN_MS = 30_000;
-
-/**
- * Upper bound of input tokens: about 3 characters per token for Spanish text and JSON, plus
- * the structured-output schema and message framing.
- */
-export function estimateInputTokens(system: string, user: string): number {
-  return Math.ceil((system.length + user.length) / 3) + 1500;
-}
 
 export interface CoachGate {
   me: AuthedUser;
@@ -59,9 +35,20 @@ export interface CoachGate {
 }
 
 /**
+ * The coach's runtime switches, which /health also reports as `coach: kill_switch`: the
+ * database kill switch (`meta.ai_kill_switch`) and the breaker (src/coach/breaker.ts). 503
+ * `feature_disabled` when either is on.
+ */
+export async function requireCoachRunning(ctx: AppContext, db: Db): Promise<void> {
+  if (isCoachBreakerOpen(ctx.coachModel, ctx.now())) throw featureDisabled('coach', 'kill_switch');
+  if (await isAiKillSwitchOn(db)) throw featureDisabled('coach', 'kill_switch');
+}
+
+/**
  * Everything that must hold before a coach call, in this order: the capability (key,
- * `AI_ENABLED`, budget > 0), a session, a model, the caller's `sharing.coach` switch and the
- * database kill switch. The profile's zone is replaced by UTC if it is somehow not valid.
+ * `AI_ENABLED`, budget > 0), a session, a model, the caller's `sharing.coach` switch, the
+ * breaker and the database kill switch. The profile's zone is replaced by UTC if it is somehow
+ * not valid.
  */
 export async function coachGate(ctx: AppContext, request: FastifyRequest): Promise<CoachGate> {
   requireFeature(ctx, 'coach');
@@ -71,14 +58,14 @@ export async function coachGate(ctx: AppContext, request: FastifyRequest): Promi
   if (!model) throw featureDisabled('coach', 'missing_key');
   const row = await getProfile(db, me.userId);
   requireConsent(row, 'coach');
-  if (await isAiKillSwitchOn(db)) throw featureDisabled('coach', 'kill_switch');
+  await requireCoachRunning(ctx, db);
   const profile = isValidTimeZone(row.timeZone) ? row : { ...row, timeZone: 'UTC' };
   return { me, model, profile };
 }
 
 export interface CoachCall<T> {
   endpoint: CoachEndpoint;
-  system: string;
+  /** The user message; the system prompt is the endpoint's (`ENDPOINTS`). */
   user: string;
   schema: z.ZodType<T>;
 }
@@ -93,25 +80,31 @@ export async function callCoach<T>(
 ): Promise<T> {
   const db = requireDb(ctx);
   const settings = ENDPOINTS[call.endpoint];
-  const modelId =
-    settings.feature === 'interpret' ? ctx.config.ai.models.interpret : ctx.config.ai.models.coach;
+  const modelId = modelFor(ctx.config, call.endpoint);
   const secret = ctx.config.auth?.secret;
   if (!secret) throw featureDisabled('accounts', 'missing_key');
 
-  const inputTokens = estimateInputTokens(call.system, call.user);
-  const worst = worstCaseAttempts(modelId, inputTokens, settings.maxTokens);
+  const inputTokens = estimateInputTokens(settings.system, call.user);
+  const worst = worstCaseOf(ctx.config, call.endpoint, inputTokens);
   const reserved = await reserve(db, ctx.config, {
     userId: me.userId,
     feature: settings.feature,
     now: ctx.now(),
-    tokens: tokensOf(worst),
-    costMicroUsd: costMicroUsd(worst),
+    tokens: worst.tokens,
+    costMicroUsd: worst.costMicroUsd,
+    capTokens: worst.capTokens,
+    capMicroUsd: worst.capMicroUsd,
     holdMs: settings.deadlineMs + SETTLE_MARGIN_MS,
   });
   if (!reserved.ok) {
     if (reserved.reason === 'quota') throw quotaExceeded(reserved.resetsAt);
     if (reserved.reason === 'busy') {
       throw new ApiError(429, 'rate_limited', 'Another coach request is still running', {
+        retryAfterSeconds: Math.ceil(reserved.retryAfterMs / 1000),
+      });
+    }
+    if (reserved.reason === 'crowded') {
+      throw new ApiError(429, 'rate_limited', 'The coach is busy with other requests', {
         retryAfterSeconds: Math.ceil(reserved.retryAfterMs / 1000),
       });
     }
@@ -151,7 +144,7 @@ export async function callCoach<T>(
     result = await model.run({
       feature: settings.feature,
       model: modelId,
-      system: call.system,
+      system: settings.system,
       user: call.user,
       maxTokens: settings.maxTokens,
       effort: settings.effort,
@@ -159,18 +152,28 @@ export async function callCoach<T>(
       userHash: anthropicUserHash(secret, me.userId),
       deadlineMs: settings.deadlineMs,
       inputTokensBound: inputTokens,
+      fallbacks: ctx.config.ai.refusalFallbacks,
     });
   } catch (err) {
-    // Book what the call may have cost: nothing only when the provider certainly did not run
-    // it; the worst case when we cannot tell (an unexpected error included).
+    // Book what the call may have cost: nothing, and the request back, only when the provider
+    // certainly did not run it; the worst case when we cannot tell (an unexpected error
+    // included).
     const billed =
       err instanceof CoachModelError
         ? { billing: err.billing, attempts: err.attempts }
-        : { billing: 'bound' as const, attempts: worst };
-    await settle(db, reservation, billed.attempts, costMicroUsd(billed.attempts));
+        : { billing: 'bound' as const, attempts: worst.attempts };
+    if (billed.billing === 'none') await release(db, reservation);
+    else await settle(db, reservation, billed.attempts, costMicroUsd(billed.attempts));
+    if (err instanceof CoachModelError && breakerOf(model).failed(err, me.userId, ctx.now())) {
+      log.error(
+        { errorType: err.errorType, status: err.status, minutes: BREAKER_OPEN_MS / 60_000 },
+        'coach breaker open',
+      );
+    }
     throw failure(err, log, (outcome) => logCall(outcome, null, billed.attempts, billed.billing));
   }
 
+  breakerOf(model).succeeded();
   await settle(db, reservation, result.attempts, costMicroUsd(result.attempts));
   const served = result.attempts[result.attempts.length - 1]?.model ?? modelId;
   logCall(result.kind, served, result.attempts, 'exact');
@@ -196,7 +199,8 @@ function failure(err: unknown, log: FastifyBaseLogger, logCall: (outcome: string
   }
   logCall(`failed_${err.reason}`);
   if (err.reason === 'misconfigured') {
-    // A wrong or revoked key: the owner must fix the environment. Class and status only.
+    // The owner's account or settings (key, credit, model id): only they can fix it. Class and
+    // status only.
     log.error({ errorType: err.errorType, status: err.status }, 'coach model misconfigured');
     return new ApiError(503, 'coach_unavailable', 'The coach is not available right now');
   }

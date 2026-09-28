@@ -12,9 +12,12 @@
  *   usage (the SDK's own parsing throws on truncated JSON before usage can be read).
  * - Opus 5 and Fable 5.1 calls opt into server-side refusal fallbacks (`fallbacks: 'default'`):
  *   a request the model declines may be answered by the fallback model Anthropic picks for that
- *   refusal category. Each attempt is priced at its own model's rate.
+ *   refusal category. Each attempt is priced at its own model's rate. `AI_REFUSAL_FALLBACKS=false`
+ *   drops the beta without a code change, should the API stop taking it.
  * - The SDK does not retry on its own. We retry once, inside the deadline, only what certainly
- *   was not billed: 429 and 529 before any output, and connections that never reached the API.
+ *   was not billed: an HTTP 408/409/429/5xx/529 answered instead of the event stream, an
+ *   overloaded or rate-limit `error` event before any output, and connections that never
+ *   reached the API.
  * - Every failure carries `billing` and `attempts` (see `CoachBilling` in model.ts).
  */
 import Anthropic, { AnthropicError } from '@anthropic-ai/sdk';
@@ -89,7 +92,7 @@ export function buildParams<T>(request: CoachModelRequest<T>): MessageCreatePara
   };
   // Phrase interpretation wants the most literal reading.
   if (request.feature === 'interpret' && takesTemperature(request.model)) params.temperature = 0;
-  if (SERVER_FALLBACK_TARGETS[request.model]) {
+  if (request.fallbacks && SERVER_FALLBACK_TARGETS[request.model]) {
     params.betas = [SERVER_FALLBACK_BETA];
     params.fallbacks = 'default';
   }
@@ -211,11 +214,10 @@ export function attemptsOf(message: BetaMessage): CoachModelAttempt[] {
   ];
 }
 
-/** Statuses the API answers without running the model. */
-const UNBILLED_STATUSES: ReadonlySet<number> = new Set([
-  400, 401, 402, 403, 404, 409, 413, 422, 429, 529,
-]);
-/** The same failures as an `error` event at the start of a stream. */
+/**
+ * `error` event types that, before `message_start`, mean the model did not run (the same
+ * failures an HTTP status reports before the stream).
+ */
 const UNBILLED_ERROR_TYPES: ReadonlySet<string> = new Set([
   'invalid_request_error',
   'authentication_error',
@@ -258,7 +260,10 @@ function certainlyUnbilled(err: unknown, observed: Observed): boolean {
   }
   if (err instanceof Anthropic.APIUserAbortError) return false;
   if (err instanceof Anthropic.APIError) {
-    if (typeof err.status === 'number') return UNBILLED_STATUSES.has(err.status);
+    // An HTTP error status (4xx or 5xx) came back instead of the event stream: the request
+    // failed before streaming began, so no token was generated. Failures after the 200 arrive
+    // as `error` events without a status, judged by their type below.
+    if (typeof err.status === 'number') return !observed.opened;
     return err.type !== null && UNBILLED_ERROR_TYPES.has(err.type);
   }
   return false;
@@ -306,8 +311,10 @@ function boundAttempts(
 }
 
 /**
- * How long to wait before the one retry, or null when the failure must not be retried: only
- * 429 and 529 (also as an `error` event before any output) and connections that never left.
+ * How long to wait before the one retry, or null when the failure must not be retried: only a
+ * transient failure that certainly was not billed (an HTTP 408/409/429/5xx/529 instead of the
+ * stream, an overloaded or rate-limit `error` event before any output, a connection that never
+ * left).
  */
 function retryWaitMs(err: CoachModelError): number | null {
   if (err.billing !== 'none' || err.reason !== 'unavailable') return null;
@@ -328,7 +335,11 @@ function retryAfterOf(err: unknown): number | null {
   return null;
 }
 
-/** Most specific first. Only class names and status codes survive (never messages). */
+/**
+ * Most specific first. Only class names and status codes survive (never messages). The
+ * owner's account or settings (401, 402, 403, 404, `billing_error`) are `misconfigured`: 503
+ * `coach_unavailable` and an error log, never a 500 the user can do nothing about.
+ */
 export function toModelError(
   err: unknown,
   billed: { billing: CoachBilling; attempts: readonly CoachModelAttempt[] } = {
@@ -342,7 +353,9 @@ export function toModelError(
     new CoachModelError(reason, type, status, billed, retryAfterOf(err));
   if (
     err instanceof Anthropic.AuthenticationError ||
-    err instanceof Anthropic.PermissionDeniedError
+    err instanceof Anthropic.PermissionDeniedError ||
+    // A retired or mistyped AI_MODEL_*, or one the key's organization cannot use.
+    err instanceof Anthropic.NotFoundError
   ) {
     return make('misconfigured', err.status);
   }
@@ -355,22 +368,22 @@ export function toModelError(
   }
   if (err instanceof Anthropic.APIError) {
     const status = typeof err.status === 'number' ? err.status : null;
+    // 402 has no SDK class: no credit or a billing problem on the account.
+    if (status === 402 || err.type === 'billing_error') return make('misconfigured', status);
     // 408/409 and anything ≥ 500 not typed above (529 overloaded) are transient.
     if (status !== null && (status >= 500 || status === 408 || status === 409)) {
       return make('unavailable', status);
     }
     if (status === null) {
       // An `error` event inside the stream: its type says what went wrong.
-      if (err.type === 'authentication_error' || err.type === 'permission_error') {
+      if (
+        err.type === 'authentication_error' ||
+        err.type === 'permission_error' ||
+        err.type === 'not_found_error'
+      ) {
         return make('misconfigured', null);
       }
-      if (
-        err.type === 'invalid_request_error' ||
-        err.type === 'not_found_error' ||
-        err.type === 'billing_error'
-      ) {
-        return make('rejected', null);
-      }
+      if (err.type === 'invalid_request_error') return make('rejected', null);
       return make('unavailable', null);
     }
     return make('rejected', status);

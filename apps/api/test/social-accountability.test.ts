@@ -6,18 +6,28 @@ import type {
   PartnersResponse,
   PostAccountabilityEventResponse,
 } from '@centrate/shared/cloud-api';
-import { ACCOUNTABILITY_KINDS } from '@centrate/shared/cloud-api';
+import { ACCOUNTABILITY_KINDS, approvalOutcome } from '@centrate/shared/cloud-api';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ConfigError, deriveCapabilities } from '../src/config';
 import type { MailMessage, Mailer } from '../src/context';
-import { accountabilityEvents, partnerLinks, usageCounters } from '../src/db/schema';
+import {
+  accountabilityEvents,
+  partnerLinks,
+  profiles,
+  rateCounters,
+  usageCounters,
+} from '../src/db/schema';
+import { createResendMailer, MailerError, parseRetryAfter } from '../src/lib/mailer';
+import { composeLinkProposal } from '../src/social/partner-mail';
 import {
   buildTestApp,
   createTestUser,
   fakeClock,
   fakeMailer,
+  testConfig,
   type CreateUserOptions,
   type FakeClock,
   type TestUser,
@@ -245,7 +255,7 @@ describe('accountability partners', () => {
       await linkPartners(t.db, ana, carlos, { requireApproval: false, at: clock.now() });
     });
 
-    it('is idempotent on clientRef and lets the first partner decide', async () => {
+    it('is idempotent on clientRef and lets only partners who must approve decide', async () => {
       const clientRef = ref();
       const first = await postEvent(ana, { clientRef, countdownEndsAt: iso(minutes(10)) });
       expect(first.status).toBe(201);
@@ -270,8 +280,12 @@ describe('accountability partners', () => {
           occurredAt: T0,
           approval: created.approval,
           decidedByMe: false,
+          // Carlos's link does not ask for approval: he is told, he does not answer.
+          canDecide: false,
         },
       ]);
+      const beaBefore = (await call(bea, 'GET', '/v1/accountability/inbox')).json<InboxResponse>();
+      expect(beaBefore.items).toMatchObject([{ eventId: created.eventId, canDecide: true }]);
 
       clock.advance(minutes(2));
       const deny = await call(
@@ -290,15 +304,15 @@ describe('accountability partners', () => {
         note: 'Hoy no, que mañana tienes examen',
         decidedAt: '2026-09-28T10:02:00.000Z',
       });
-      // First decision wins; the same partner repeating herself is fine.
-      const late = await call(
+      // A partner who is only told cannot answer; the same partner repeating herself is fine.
+      const told = await call(
         carlos,
         'POST',
         `/v1/accountability/events/${created.eventId}/decision`,
         { decision: 'approve', note: null },
       );
-      expect(late.status).toBe(409);
-      expect(errorCode(late.body)).toBe('already_decided');
+      expect(told.status).toBe(403);
+      expect(errorCode(told.body)).toBe('forbidden');
       const repeat = await call(
         bea,
         'POST',
@@ -321,7 +335,20 @@ describe('accountability partners', () => {
       expect(carlosItem?.approval).toMatchObject({ status: 'denied', note: null });
       const beaItem = (await call(bea, 'GET', '/v1/accountability/inbox')).json<InboxResponse>()
         .items[0];
-      expect(beaItem).toMatchObject({ decidedByMe: true, approval: { note: expect.any(String) } });
+      expect(beaItem).toMatchObject({
+        decidedByMe: true,
+        canDecide: false,
+        approval: { note: expect.any(String) },
+      });
+      // Nothing replaces a denial, not even her own change of mind.
+      const undo = await call(
+        bea,
+        'POST',
+        `/v1/accountability/events/${created.eventId}/decision`,
+        { decision: 'approve', note: null },
+      );
+      expect(undo.status).toBe(409);
+      expect(errorCode(undo.body)).toBe('already_decided');
     });
 
     it('never outlasts the local countdown and expires on read', async () => {
@@ -330,7 +357,7 @@ describe('accountability partners', () => {
         '2026-09-28T10:30:00.000Z',
       );
       const approve = await call(
-        carlos,
+        bea,
         'POST',
         `/v1/accountability/events/${long.json<PostAccountabilityEventResponse>().eventId}/decision`,
         { decision: 'approve', note: null },
@@ -374,6 +401,117 @@ describe('accountability partners', () => {
       );
       expect(noApproval.status).toBe(409);
       expect(errorCode(noApproval.body)).toBe('conflict');
+    });
+
+    it('lets a denial win over a quick approval until the deadline', async () => {
+      // Ana adds Dani (an account she controls) with approval on: immediate, and he accepts in
+      // seconds. Bea is the strict partner from before.
+      const dani = await person({ displayName: 'Dani' });
+      await befriend(t.db, ana, dani);
+      clock.advance(10_000);
+      const daniLink = await linkPartners(t.db, ana, dani, {
+        requireApproval: true,
+        at: clock.now(),
+      });
+      clock.advance(5_000);
+      const res = await postEvent(ana, { countdownEndsAt: iso(minutes(10)) });
+      const { eventId, approval } = res.json<PostAccountabilityEventResponse>();
+      const countdownEndsAt = iso(minutes(10));
+      const decide = (who: TestUser, decision: 'approve' | 'deny', note: string | null = null) =>
+        call(who, 'POST', `/v1/accountability/events/${eventId}/decision`, { decision, note });
+
+      // Dani approves at once: the owner sees it, but the app keeps waiting.
+      const quick = await decide(dani, 'approve', 'Adelante');
+      expect(quick.json<ApprovalState>()).toMatchObject({ status: 'approved' });
+      const owner = async () =>
+        (
+          await call(ana, 'GET', `/v1/accountability/events/${eventId}`)
+        ).json<AccountabilityEventResponse>().approval;
+      expect(approvalOutcome(await owner(), clock.now(), countdownEndsAt)).toBe('wait');
+      // Another approval changes nothing; a retry from Dani is fine.
+      expect(errorCode((await decide(bea, 'approve')).body)).toBe('already_decided');
+      expect((await decide(dani, 'approve')).status).toBe(200);
+
+      // Bea still sees she can answer, and her «no» wins.
+      const beaItems = (await call(bea, 'GET', '/v1/accountability/inbox')).json<InboxResponse>();
+      expect(beaItems.items).toMatchObject([
+        {
+          eventId,
+          canDecide: true,
+          decidedByMe: false,
+          approval: { status: 'approved', note: null },
+        },
+      ]);
+      clock.advance(minutes(5));
+      const no = await decide(bea, 'deny', 'No, que te conozco');
+      expect(no.status).toBe(200);
+      expect(no.json<ApprovalState>()).toEqual({
+        status: 'denied',
+        deadline: approval?.deadline,
+        note: 'No, que te conozco',
+        decidedAt: clock.now().toISOString(),
+      });
+      const final = await owner();
+      expect(final).toMatchObject({ status: 'denied', note: 'No, que te conozco' });
+      expect(approvalOutcome(final, clock.now(), countdownEndsAt)).toBe('denied');
+      // Dani cannot approve over it, and sees only the outcome.
+      expect(errorCode((await decide(dani, 'approve')).body)).toBe('already_decided');
+      const daniItem = (await call(dani, 'GET', '/v1/accountability/inbox')).json<InboxResponse>()
+        .items[0];
+      expect(daniItem).toMatchObject({
+        canDecide: false,
+        decidedByMe: false,
+        approval: { status: 'denied', note: null },
+      });
+
+      // A partner may turn their own approval into a denial; past the deadline nothing changes.
+      const next = await postEvent(ana, { countdownEndsAt: iso(minutes(10)) });
+      const nextId = next.json<PostAccountabilityEventResponse>().eventId;
+      const decideNext = (who: TestUser, decision: 'approve' | 'deny') =>
+        call(who, 'POST', `/v1/accountability/events/${nextId}/decision`, { decision, note: null });
+      expect((await decideNext(dani, 'approve')).status).toBe(200);
+      expect((await decideNext(dani, 'deny')).json<ApprovalState>().status).toBe('denied');
+      const third = await postEvent(ana, { countdownEndsAt: iso(minutes(10)) });
+      const thirdId = third.json<PostAccountabilityEventResponse>().eventId;
+      await call(dani, 'POST', `/v1/accountability/events/${thirdId}/decision`, {
+        decision: 'approve',
+        note: null,
+      });
+      clock.advance(minutes(10));
+      const tooLate = await call(bea, 'POST', `/v1/accountability/events/${thirdId}/decision`, {
+        decision: 'deny',
+        note: null,
+      });
+      expect(tooLate.status).toBe(409);
+      expect(errorCode(tooLate.body)).toBe('deadline_passed');
+
+      // Approval switched off: Dani keeps deciding for the 24 hours it takes, then only hears.
+      await call(ana, 'PATCH', `/v1/partners/${daniLink}`, { requireApproval: false });
+      const during = await postEvent(ana, { countdownEndsAt: iso(minutes(10)) });
+      const duringId = during.json<PostAccountabilityEventResponse>().eventId;
+      const daniDuring = await call(
+        dani,
+        'POST',
+        `/v1/accountability/events/${duringId}/decision`,
+        {
+          decision: 'approve',
+          note: null,
+        },
+      );
+      expect(daniDuring.status).toBe(200);
+      clock.advance(24 * 3_600_000);
+      const after = await postEvent(ana, { countdownEndsAt: iso(minutes(10)) });
+      const afterId = after.json<PostAccountabilityEventResponse>().eventId;
+      const daniAfter = await call(dani, 'POST', `/v1/accountability/events/${afterId}/decision`, {
+        decision: 'deny',
+        note: null,
+      });
+      expect(daniAfter.status).toBe(403);
+      const daniInbox = (await call(dani, 'GET', '/v1/accountability/inbox')).json<InboxResponse>();
+      expect(daniInbox.items.find((i) => i.eventId === afterId)).toMatchObject({
+        canDecide: false,
+        approval: { status: 'pending' },
+      });
     });
 
     it('keeps nothing when no partner hears about the event', async () => {
@@ -673,6 +811,140 @@ describe('accountability partners', () => {
       app = await buildTestApp({ db: t.db, clock, mailer: failing });
       call = caller(app);
       expect((await postEvent(ana, { kind: 'study_abandoned' })).status).toBe(201);
+    });
+
+    it('offers the approval only to partners who can answer it', async () => {
+      await t.db
+        .update(profiles)
+        .set({ partnerEmails: true })
+        .where(eq(profiles.userId, carlos.userId));
+      await postEvent(ana, { countdownEndsAt: iso(minutes(10)) });
+      await vi.waitFor(() => expect(mailer.sent).toHaveLength(2));
+      const byTo = new Map(mailer.sent.map((m) => [m.to, m.text]));
+      expect(byTo.get('bea@example.com')).toContain('Puedes aprobarlo o rechazarlo');
+      expect(byTo.get('carlos@example.com')).toContain('Ana ha pedido el desbloqueo');
+      expect(byTo.get('carlos@example.com')).not.toContain('Puedes aprobarlo');
+    });
+
+    it('keeps partner emails under a global daily cap, leaving room for sign-in codes', async () => {
+      await app.close();
+      app = await buildTestApp({
+        db: t.db,
+        clock,
+        mailer,
+        config: testConfig({ PARTNER_EMAILS_PER_DAY_GLOBAL: '3' }),
+      });
+      call = caller(app);
+      // Carlos is past his own 10 for today: that must not spend the global cap.
+      await t.db
+        .update(profiles)
+        .set({ partnerEmails: true })
+        .where(eq(profiles.userId, carlos.userId));
+      await t.db
+        .insert(usageCounters)
+        .values({ userId: carlos.userId, day: '2026-09-28', key: 'partner_email', count: 10 });
+      for (let i = 0; i < 5; i += 1) {
+        expect((await postEvent(ana, { kind: 'study_abandoned' })).status).toBe(201);
+      }
+      await app.close(); // Waits for the emails sent in the background.
+      expect(mailer.sent.map((m) => m.to)).toEqual([
+        'bea@example.com',
+        'bea@example.com',
+        'bea@example.com',
+      ]);
+      const [global] = await t.db
+        .select()
+        .from(rateCounters)
+        .where(eq(rateCounters.key, 'partner_email:global'));
+      expect(global).toMatchObject({ count: 3 });
+      // Past the global cap, a partner's own allowance is not used up either.
+      const [beaCount] = await t.db
+        .select()
+        .from(usageCounters)
+        .where(eq(usageCounters.userId, bea.userId));
+      expect(beaCount?.count).toBe(3);
+
+      // 0 turns partner emails off, and the capability says so.
+      app = await buildTestApp({
+        db: t.db,
+        clock,
+        mailer,
+        config: testConfig({ PARTNER_EMAILS_PER_DAY_GLOBAL: '0' }),
+      });
+      call = caller(app);
+      clock.advance(86_400_000);
+      await postEvent(ana, { kind: 'study_abandoned' });
+      await app.close();
+      expect(mailer.sent).toHaveLength(3);
+      app = await buildTestApp({ db: t.db, clock, mailer });
+      call = caller(app);
+      expect(
+        deriveCapabilities(testConfig({ PARTNER_EMAILS_PER_DAY_GLOBAL: '0' })).partnerEmails,
+      ).toEqual({ enabled: false, reason: 'budget' });
+      expect(testConfig().email?.partnerEmailsPerDay).toBe(40);
+      expect(() => testConfig({ PARTNER_EMAILS_PER_DAY_GLOBAL: 'many' })).toThrow(ConfigError);
+    });
+
+    it('sends one message at a time and retries once after a short 429', async () => {
+      await t.db
+        .update(profiles)
+        .set({ partnerEmails: true })
+        .where(eq(profiles.userId, carlos.userId));
+      const attempts: string[] = [];
+      const sent: string[] = [];
+      let inFlight = 0;
+      let overlapped = false;
+      const busy: Mailer = {
+        send: async (message) => {
+          inFlight += 1;
+          if (inFlight > 1) overlapped = true;
+          attempts.push(message.to);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          inFlight -= 1;
+          // Resend's per-second limit refuses the second message once (no Retry-After: a
+          // short default wait); later its daily quota runs out (a wait too long to retry).
+          if (attempts.length === 2) throw new MailerError(429, null);
+          if (attempts.length > 3) throw new MailerError(429, 3_600_000);
+          sent.push(message.to);
+        },
+      };
+      await app.close();
+      app = await buildTestApp({ db: t.db, clock, mailer: busy });
+      call = caller(app);
+      // Two fan-outs back to back: they still go out one message at a time.
+      await postEvent(ana, { countdownEndsAt: iso(minutes(10)) });
+      await postEvent(ana, { kind: 'study_abandoned' });
+      await app.close(); // Waits for the emails sent in the background.
+      expect(overlapped).toBe(false);
+      expect(attempts).toHaveLength(5);
+      expect(attempts[2]).toBe(attempts[1]); // The refused message, retried once.
+      expect(new Set(attempts.slice(0, 2))).toEqual(
+        new Set(['bea@example.com', 'carlos@example.com']),
+      );
+      expect(sent).toEqual([attempts[0], attempts[1]]);
+      app = await buildTestApp({ db: t.db, clock, mailer });
+      call = caller(app);
+    });
+
+    it('reads Retry-After in seconds or as a date', () => {
+      const now = Date.parse('2026-09-28T10:00:00.000Z');
+      expect(parseRetryAfter('2', now)).toBe(2000);
+      expect(parseRetryAfter('Mon, 28 Sep 2026 10:00:03 GMT', now)).toBe(3000);
+      expect(parseRetryAfter('Mon, 28 Sep 2026 09:00:00 GMT', now)).toBe(0);
+      expect(parseRetryAfter(null, now)).toBeNull();
+      expect(parseRetryAfter('soon', now)).toBeNull();
+    });
+
+    it('hands Resend’s Retry-After to the caller on a 429', async () => {
+      const limited = createResendMailer(testConfig().email, {
+        fetch: (async () =>
+          new Response('{}', { status: 429, headers: { 'retry-after': '1' } })) as typeof fetch,
+      });
+      const message = composeLinkProposal('Ana', 'bea@example.com');
+      await expect(limited?.send(message)).rejects.toMatchObject({
+        status: 429,
+        retryAfterMs: 1000,
+      });
     });
 
     it('sends nothing when email is not configured', async () => {

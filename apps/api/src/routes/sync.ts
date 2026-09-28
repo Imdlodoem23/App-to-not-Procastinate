@@ -29,7 +29,14 @@ import { readServerEpoch } from '../db/meta';
 import { dailyStats, devices } from '../db/schema';
 import { forbidden, notFound, validationFailed } from '../lib/errors';
 import { toCloudDevice } from '../lib/gdpr';
-import { parseBody, parseQuery, requireDb, requireFeature, requireUser } from '../lib/guards';
+import {
+  parseBody,
+  parseQuery,
+  requireDb,
+  requireFeature,
+  requireFreshSession,
+  requireUser,
+} from '../lib/guards';
 import { getProfile, requireConsent } from '../lib/profile';
 import { isUuid } from './me';
 
@@ -189,11 +196,17 @@ export const syncRoutes: FastifyPluginAsync = async (app) => {
   );
 
   // Deletes the caller's cloud stats (all devices, or `?deviceId=`). 204. No consent needed:
-  // deleting is always allowed, also after turning sync off.
+  // deleting is always allowed, also after turning sync off. A computer deleting its own stats
+  // needs nothing more; all devices or another one's need a fresh session (§4.3), so an old
+  // session left somewhere cannot wipe them (days past `syncPastDays` never come back).
   app.delete<{ Querystring: { deviceId?: string } }>('/sync/days', async (request, reply) => {
     const db = requireDb(ctx);
-    const { userId } = requireUser(request);
+    const user = requireUser(request);
+    const { userId } = user;
     const { deviceId } = parseQuery(DeleteQuery, request);
+    if (deviceId === undefined || deviceId !== user.deviceId) {
+      requireFreshSession(user, ctx.now());
+    }
     if (deviceId !== undefined) {
       await ownDevice(db, userId, deviceId);
       await db

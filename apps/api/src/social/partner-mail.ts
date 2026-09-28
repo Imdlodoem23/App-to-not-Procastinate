@@ -1,20 +1,39 @@
 /**
  * Partner emails (docs/API.md §9): minimal Spanish text, times in the partner's zone, never a
  * reason, domain, task or points. Only for partners who turned `partnerEmails` on, only for the
- * kinds below, and at most `PARTNER_EMAILS_PER_DAY` per partner per UTC day (counted in
- * Postgres, so a restart does not reset it). Sending happens in the background: the owner's
- * app never waits on the mail provider, and a failure is logged by type only.
+ * kinds below, at most `PARTNER_EMAILS_PER_DAY` per partner and `PARTNER_EMAILS_PER_DAY_GLOBAL`
+ * for everybody per UTC day (counted in Postgres, so a restart does not reset them). The
+ * global cap keeps partner emails inside their share of the Resend plan, which sign-in codes
+ * share (`SIGNIN_EMAILS_PER_DAY`): alerts can never use up the room for codes.
+ *
+ * Sending happens in the background: the owner's app never waits on the mail provider. One
+ * message at a time (Resend limits requests per second), each retried once after a 429 when
+ * the provider asks for a short wait; a failure is logged by type only.
  */
 import type { AccountabilityKind } from '@centrate/shared/cloud-api';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
+import type { Config } from '../config';
 import { deriveCapabilities } from '../config';
-import type { AppContext, MailMessage } from '../context';
+import type { AppContext, MailMessage, Mailer } from '../context';
 import type { Db } from '../db/client';
 import { profiles, usageCounters, user } from '../db/schema';
+import { isCounterExhausted, takeFromCounter } from '../lib/counters';
+import type { CounterLimit } from '../lib/counters';
+import { MailerError } from '../lib/mailer';
 
 export const PARTNER_EMAILS_PER_DAY = 10;
 export const PARTNER_EMAIL_COUNTER = 'partner_email';
+/** `rate_counters` key of the global daily cap (no user in it). */
+export const PARTNER_EMAIL_GLOBAL_KEY = 'partner_email:global';
+
+/** Wait before the one retry when a 429 carries no `Retry-After`. */
+export const MAIL_RETRY_DEFAULT_MS = 1_000;
+/** Longest `Retry-After` honoured: Resend's per-second limit asks for about a second, and a
+ *  longer wait means a spent daily or monthly quota, where retrying only wastes a request. */
+export const MAIL_RETRY_MAX_MS = 5_000;
+
+const DAY_MS = 86_400_000;
 
 /** Kinds that also go by email; the inbox lists every kind. */
 const EMAIL_KINDS: ReadonlySet<AccountabilityKind> = new Set<AccountabilityKind>([
@@ -132,8 +151,26 @@ async function recipients(db: Db, userIds: string[]): Promise<Recipient[]> {
     .where(and(inArray(user.id, userIds), eq(profiles.partnerEmails, true)));
 }
 
-/** Takes one email from the recipient's daily allowance; false when it is used up. */
-export async function reservePartnerEmail(db: Db, userId: string, now: Date): Promise<boolean> {
+const globalLimit = (config: Config): CounterLimit => ({
+  key: PARTNER_EMAIL_GLOBAL_KEY,
+  windowMs: DAY_MS,
+  max: config.email?.partnerEmailsPerDay ?? 0,
+});
+
+/**
+ * Takes one email from the global and the recipient's daily allowance; false when either is
+ * used up. A spent global cap is checked first so it does not also use up the recipient's
+ * allowance, and the recipient's is taken before the global one so a partner past their own
+ * 10 never spends the global cap on emails that are not sent.
+ */
+export async function reservePartnerEmail(
+  db: Db,
+  config: Config,
+  userId: string,
+  now: Date,
+): Promise<boolean> {
+  const global = globalLimit(config);
+  if (await isCounterExhausted(db, global, now)) return false;
   const rows = await db
     .insert(usageCounters)
     .values({ userId, day: now.toISOString().slice(0, 10), key: PARTNER_EMAIL_COUNTER, count: 1 })
@@ -143,43 +180,101 @@ export async function reservePartnerEmail(db: Db, userId: string, now: Date): Pr
       setWhere: sql`${usageCounters.count} < ${PARTNER_EMAILS_PER_DAY}`,
     })
     .returning({ count: usageCounters.count });
-  return rows.length > 0;
+  if (rows.length === 0) return false;
+  return (await takeFromCounter(db, global, now)).ok;
 }
 
 function emailsEnabled(ctx: AppContext): boolean {
   return ctx.mailer !== null && deriveCapabilities(ctx.config).partnerEmails.enabled;
 }
 
-/** Sends without making the request wait; failures are logged by tag only. */
-function dispatch(ctx: AppContext, log: FastifyBaseLogger, messages: MailMessage[]): void {
-  const mailer = ctx.mailer;
-  if (!mailer) return;
+/** How long to wait before retrying after `err`, or null when it is not worth a retry. */
+function retryDelayMs(err: unknown): number | null {
+  if (!(err instanceof MailerError) || err.status !== 429) return null;
+  const wait = err.retryAfterMs ?? MAIL_RETRY_DEFAULT_MS;
+  return wait <= MAIL_RETRY_MAX_MS ? wait : null;
+}
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+/** Sends `messages` one after another, each retried once after a short 429. Never rejects. */
+async function sendInTurn(
+  mailer: Mailer,
+  log: FastifyBaseLogger,
+  messages: readonly MailMessage[],
+): Promise<void> {
   for (const message of messages) {
-    void mailer.send(message).catch((err: unknown) => {
+    try {
+      try {
+        await mailer.send(message);
+      } catch (err) {
+        const delay = retryDelayMs(err);
+        if (delay === null) throw err;
+        await sleep(delay);
+        await mailer.send(message);
+      }
+    } catch (err) {
       log.warn(
         { tag: message.tag, type: err instanceof Error ? err.name : 'Error' },
         'partner email failed',
       );
-    });
+    }
   }
 }
 
-/** Emails the partners who hear about an owner's event (the counters are taken first). */
+/** The last batch queued per app: batches go out one after another, never side by side. */
+const queues = new WeakMap<AppContext, Promise<void>>();
+
+/**
+ * Sends without making the request wait, after any batch still going out (Resend's
+ * per-second limit is per account, not per request); `app.close()` waits for it (ctx.inFlight).
+ */
+function dispatch(ctx: AppContext, log: FastifyBaseLogger, messages: MailMessage[]): void {
+  const mailer = ctx.mailer;
+  if (!mailer || messages.length === 0) return;
+  const previous = queues.get(ctx) ?? Promise.resolve();
+  // `sendInTurn` never rejects, so one failed batch never stops the next.
+  const next = previous.then(() => sendInTurn(mailer, log, messages));
+  queues.set(ctx, next);
+  void ctx.inFlight.track(next);
+}
+
+/** A partner who hears about the event; `canDecide` when their link asks for approval. */
+export interface EventRecipient {
+  userId: string;
+  canDecide: boolean;
+}
+
+/**
+ * Emails the partners who hear about an owner's event (the counters are taken first). Only
+ * partners who can answer the approval get the «puedes aprobarlo o rechazarlo» line.
+ */
 export async function emailPartnersAboutEvent(
   ctx: AppContext,
   db: Db,
   log: FastifyBaseLogger,
-  partnerIds: string[],
+  partners: readonly EventRecipient[],
   alert: Omit<AlertInput, 'baseUrl'>,
 ): Promise<void> {
-  if (!emailsEnabled(ctx) || !EMAIL_KINDS.has(alert.kind) || partnerIds.length === 0) return;
+  if (!emailsEnabled(ctx) || !EMAIL_KINDS.has(alert.kind) || partners.length === 0) return;
   const now = ctx.now();
   if (alert.occurredAt.getTime() < now.getTime() - STALE_EMAIL_MS) return;
   const input: AlertInput = { ...alert, baseUrl: ctx.config.auth?.url ?? '' };
+  const deciders = new Set(partners.filter((p) => p.canDecide).map((p) => p.userId));
   const messages: MailMessage[] = [];
-  for (const r of await recipients(db, partnerIds)) {
-    const message = composeAlert(input, r.email, r.timeZone, now);
-    if (message && (await reservePartnerEmail(db, r.userId, now))) messages.push(message);
+  const wanting = await recipients(
+    db,
+    partners.map((p) => p.userId),
+  );
+  for (const r of wanting) {
+    const forThem = deciders.has(r.userId) ? input : { ...input, approvalDeadline: null };
+    const message = composeAlert(forThem, r.email, r.timeZone, now);
+    if (message && (await reservePartnerEmail(db, ctx.config, r.userId, now))) {
+      messages.push(message);
+    }
   }
   dispatch(ctx, log, messages);
 }
@@ -194,6 +289,6 @@ export async function emailLinkProposal(
 ): Promise<void> {
   if (!emailsEnabled(ctx)) return;
   const [r] = await recipients(db, [partnerId]);
-  if (!r || !(await reservePartnerEmail(db, r.userId, ctx.now()))) return;
+  if (!r || !(await reservePartnerEmail(db, ctx.config, r.userId, ctx.now()))) return;
   dispatch(ctx, log, [composeLinkProposal(ownerName, r.email)]);
 }

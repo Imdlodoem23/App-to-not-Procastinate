@@ -21,7 +21,7 @@ import type {
   MeResponse,
   StatsResponse,
 } from '@centrate/shared/cloud-api';
-import { addDays, localDayIn } from '@centrate/shared/cloud-api';
+import { addDays, CLOUD_LIMITS, localDayIn } from '@centrate/shared/cloud-api';
 import type { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import { deriveCapabilities } from '../config';
 import { registerPanelAssets } from './panel-assets';
@@ -376,7 +376,8 @@ function devicesCard(devices: readonly CloudDevice[], timeZone: string, now: Dat
     }
     <p class="fine">
       Quitar un ordenador borra sus estadísticas de la nube y cierra su sesión. En ese ordenador,
-      Céntrate sigue funcionando igual, sin cuenta.
+      Céntrate sigue funcionando igual, sin cuenta. Por seguridad, para quitarlo hay que haber
+      iniciado sesión hace menos de ${String(CLOUD_LIMITS.freshSessionMinutes)} minutos.
     </p>
   </section>`;
 }
@@ -417,9 +418,11 @@ const dataCard = html`<section class="card" id="datos">
       />
       <div class="actions">
         <button type="submit" class="button button-danger">Borrar mi cuenta</button>
-        <button type="button" class="button" id="reauth" hidden>Iniciar sesión otra vez</button>
       </div>
     </form>
+  </div>
+  <div class="actions">
+    <button type="button" class="button" id="reauth" hidden>Iniciar sesión otra vez</button>
   </div>
   ${STATUS}
   <noscript><p class="notice">Para estas acciones hace falta JavaScript.</p></noscript>
@@ -504,29 +507,46 @@ function outcome(item: InboxItem): string | null {
       return item.decidedByMe ? 'Lo rechazaste tú.' : 'Lo rechazó otro compañero.';
     case 'expired':
       return 'Nadie respondió a tiempo, así que se aprobó solo.';
+    case 'pending':
+      return 'Esperando la respuesta de otro compañero.';
     default:
       return null;
   }
 }
 
+// An approval can still become a denial until the deadline (docs/API.md §9): offer only «no».
 function pendingItem(item: InboxItem, timeZone: string, now: Date): SafeHtml {
   const name = nameOf(item);
   const deadline = item.approval ? clock(new Date(item.approval.deadline), timeZone) : '';
   const noteId = `nota-${item.eventId}`;
+  const approved = item.approval?.status === 'approved';
+  const who = item.decidedByMe ? 'Lo aprobaste tú' : 'Lo aprobó otro compañero';
   return html`<li>
     <div class="item-text">
       <p><strong>${name}</strong> ${HEADLINES[item.kind]}</p>
       <p class="item-meta">${whenText(item.occurredAt, timeZone, now)}</p>
-      <p class="muted">
-        Puedes responder hasta las ${deadline}. Si nadie responde, se aprueba solo. Aprobarlo no
-        acorta su cuenta atrás; rechazarlo cancela esta petición y el bloqueo sigue.
-      </p>
+      ${
+        approved
+          ? html`<p class="muted">
+              ${who}, pero aún puedes rechazarlo hasta las ${deadline}: un «no» cancela esta
+              petición y el bloqueo sigue.
+            </p>`
+          : html`<p class="muted">
+              Puedes responder hasta las ${deadline}. Si nadie responde, se aprueba solo. Aprobarlo
+              no acorta su cuenta atrás; rechazarlo cancela esta petición y el bloqueo sigue.
+            </p>`
+      }
     </div>
     <form class="decision" data-event="${item.eventId}" novalidate>
       <label for="${noteId}">Nota para ${name} (opcional)</label>
       <input class="field" id="${noteId}" name="note" maxlength="140" autocomplete="off" />
       <div class="actions">
-        <button type="button" class="button button-primary" data-decision="approve">Aprobar</button>
+        ${
+          !approved &&
+          html`<button type="button" class="button button-primary" data-decision="approve">
+            Aprobar
+          </button>`
+        }
         <button type="button" class="button" data-decision="deny">Rechazar</button>
       </div>
       <p class="status" role="status" aria-live="polite"></p>
@@ -556,8 +576,8 @@ export function avisosBody(options: {
   const { me, inbox, now } = options;
   const zone = me.profile.timeZone;
   const items = inbox?.items ?? [];
-  const pending = items.filter((i) => i.approval?.status === 'pending');
-  const past = items.filter((i) => i.approval?.status !== 'pending');
+  const pending = items.filter((i) => i.canDecide);
+  const past = items.filter((i) => !i.canDecide);
   return html`${PANEL_STYLES}
     <section class="card">
       <p class="brand">Céntrate</p>

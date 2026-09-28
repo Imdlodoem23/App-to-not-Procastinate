@@ -14,9 +14,18 @@
  * Google says the address is verified (`email_verified`). Google is deliberately not a
  * «trusted provider»: that would skip the check and let an unverified Google address take
  * over the account.
+ *
+ * Sign-up: only with a verified address. An email code proves it; a Google identity whose
+ * token says `email_verified: false` creates nothing (the callback lands on
+ * `/cuenta?error=…&error=email_not_verified`). Otherwise whoever holds such an identity for
+ * someone else's address could open that person's account first, turn sharing on and add
+ * friends and partners, and the owner would inherit all of it on their first email-code
+ * sign-in (better-auth then drops only the Google link and the sessions). Sessions of an
+ * unverified account are not resolved either (session.ts).
  */
 import { betterAuth } from 'better-auth';
 import type { BetterAuthPlugin } from 'better-auth';
+import { APIError } from 'better-auth/api';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { bearer } from 'better-auth/plugins/bearer';
 import { emailOTP } from 'better-auth/plugins/email-otp';
@@ -108,9 +117,18 @@ export function createAuth(ctx: AppContext, log?: AuthLog): AuthModule | null {
     databaseHooks: {
       user: {
         create: {
-          // Keep only a first name and never the picture. `ensureProfile` copies the name into
-          // the display name (which the user can change) and then clears `user.name`.
-          before: async (u) => ({ data: { ...u, name: firstNameOnly(u.name), image: null } }),
+          // Only verified addresses (see the header). Keep only a first name and never the
+          // picture: `ensureProfile` copies the name into the display name (which the user can
+          // change) and then clears `user.name`.
+          before: async (u) => {
+            if (u.emailVerified !== true) {
+              throw new APIError('FORBIDDEN', {
+                code: 'email_not_verified',
+                message: 'Sign up needs a verified email address',
+              });
+            }
+            return { data: { ...u, name: firstNameOnly(u.name), image: null } };
+          },
           after: async (u) => {
             await ensureProfile(db, u.id);
           },

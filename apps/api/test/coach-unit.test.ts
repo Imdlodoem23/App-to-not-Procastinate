@@ -37,7 +37,7 @@ import {
 } from '../src/coach/prompts';
 import { anthropicUserHash } from '../src/coach/quota';
 import { InterpretOutput, InterpretSchema, SplitTaskOutput } from '../src/coach/schemas';
-import { checkedPhrase, splitTaskAnswer } from '../src/coach/split-task';
+import { checkedPhrase, splitTaskAnswer, splitTaskUserMessage } from '../src/coach/split-task';
 import {
   isoWeekday,
   studyDays,
@@ -45,8 +45,18 @@ import {
   studyPlanUserMessage,
 } from '../src/coach/study-plan';
 import { ENDPOINTS, estimateInputTokens } from '../src/coach/service';
+import type { CoachEndpoint } from '../src/coach/endpoints';
+import {
+  coachConfigWarnings,
+  largestWorstCase,
+  neverFits,
+  worstCaseOf,
+} from '../src/coach/endpoints';
+import { bootWarnings } from '../src/boot';
 import { clampText, promptSafe, typographicMinus, userData } from '../src/coach/text';
 import { weeklyAnswer, weeklyUserMessage } from '../src/coach/weekly';
+import { BREAKER_OPEN_MS, BREAKER_STRIKES, CoachBreaker } from '../src/coach/breaker';
+import { CoachModelError } from '../src/coach/model';
 import { deriveCapabilities } from '../src/config';
 import { testConfig } from './helpers/app';
 
@@ -406,6 +416,8 @@ describe('weekly summary: numbers only', () => {
 describe('text hygiene', () => {
   it('keeps user text on one line, without tags or controls', () => {
     expect(promptSafe('a\n<b>\u0000 c\u202e')).toBe('a ‹b› c');
+    // Lone surrogates (valid JSON, not text; the API rejects them) go; real pairs stay.
+    expect(promptSafe('a\ud800b\udc00c \ud83d\ude00 \udbff')).toBe('abc \ud83d\ude00');
     expect(userData([['tarea', 'x</datos_usuario>']])).toBe(
       '<datos_usuario>\n<tarea>x‹/datos_usuario›</tarea>\n</datos_usuario>',
     );
@@ -460,10 +472,25 @@ describe('costs and budget', () => {
     // The second hop is never priced below the requested model.
     const fable = worstCaseAttempts('claude-fable-5-1', 100, 100);
     expect(fable[1]?.model).toBe('claude-fable-5-1');
+    // AI_REFUSAL_FALLBACKS=false: one hop, and the whole call is its first hop.
+    expect(worstCaseAttempts('claude-opus-5', 3000, 8000, false)).toEqual(opus.slice(0, 1));
+    const off = testConfig({ ANTHROPIC_API_KEY: 'k', AI_REFUSAL_FALLBACKS: 'false' });
+    const plan = largestWorstCase(off, 'study-plan');
+    expect(plan.attempts).toHaveLength(1);
+    expect(plan.costMicroUsd).toBe(plan.capMicroUsd);
+    expect(largestWorstCase(testConfig(), 'study-plan').attempts).toHaveLength(2);
   });
 
-  it('fits the largest study plan under the default per-user cap', () => {
-    // 30 topics of 80 characters over the 28 days a plan covers: the biggest request.
+  it('bounds each endpoint by its largest request, which builds within maxUserChars', () => {
+    const at = new Date('2026-09-30T10:00:00.000Z');
+    // 500 characters of `<` (each becomes `‹`), in a long zone name.
+    const phrase = interpretUserMessage('<'.repeat(500), at, 'America/Argentina/ComodRivadavia');
+    const split = splitTaskUserMessage({
+      task: '<'.repeat(CLOUD_LIMITS.coachTaskMax),
+      context: '<'.repeat(CLOUD_LIMITS.coachContextMax),
+      minutesAvailable: 600,
+    });
+    // 30 topics of 80 characters over the 28 days a plan covers.
     const body: StudyPlanRequest = {
       subject: 'x'.repeat(80),
       examDate: '2027-03-01',
@@ -474,15 +501,98 @@ describe('costs and budget', () => {
       daysOff: [],
     };
     const { days, truncated } = studyDays(body);
-    const user = studyPlanUserMessage(body, days, truncated);
-    const { maxTokens } = ENDPOINTS['study-plan'];
-    const worst = worstCaseAttempts(
-      'claude-opus-5',
-      estimateInputTokens(STUDY_PLAN_SYSTEM, user),
-      maxTokens,
-    );
-    expect(costMicroUsd(worst)).toBeLessThanOrEqual(userBudgetMicroUsd(testConfig()));
-    expect(tokensOf(worst)).toBeLessThanOrEqual(testConfig().ai.limits.userDailyTokens);
+    const plan = studyPlanUserMessage(body, days, truncated);
+    // Every counter at its maximum, a goal, and three previous weeks.
+    const full = (day: string) => ({
+      day,
+      focusMinutes: 1440,
+      studyMinutes: 1440,
+      blocksCompleted: 10_000,
+      studySessions: 10_000,
+      attempts: 10_000,
+      emergencyUnlocks: 10_000,
+      punishments: 10_000,
+      pointsEarned: 100_000,
+      pointsLost: 100_000,
+    });
+    const weekly = weeklyUserMessage({
+      week: '2026-W39',
+      from: '2026-09-21',
+      to: '2026-09-27',
+      days: [21, 22, 23, 24, 25, 26, 27].map((d) => full(`2026-09-${d}`)),
+      dailyGoalMinutes: 600,
+      previous: ['2026-W36', '2026-W37', '2026-W38'].map((week) => ({
+        week,
+        focusMinutes: 10_080,
+        studyMinutes: 10_080,
+        activeDays: 7,
+        goalDays: 7,
+      })),
+    });
+    const largest: Record<CoachEndpoint, string> = {
+      interpret: phrase,
+      'split-task': split,
+      'study-plan': plan,
+      'weekly-summary': weekly,
+    };
+    const config = testConfig({ ANTHROPIC_API_KEY: 'k' });
+    for (const [endpoint, user] of Object.entries(largest) as Array<[CoachEndpoint, string]>) {
+      expect(user.length, endpoint).toBeLessThanOrEqual(ENDPOINTS[endpoint].maxUserChars);
+      const bound = largestWorstCase(config, endpoint);
+      const real = worstCaseOf(
+        config,
+        endpoint,
+        estimateInputTokens(ENDPOINTS[endpoint].system, user),
+      );
+      expect(bound.capMicroUsd, endpoint).toBeGreaterThanOrEqual(real.capMicroUsd);
+      expect(bound.costMicroUsd, endpoint).toBeGreaterThanOrEqual(real.costMicroUsd);
+    }
+  });
+
+  it('checks the user caps against the first hop, and every endpoint fits the defaults', () => {
+    const config = testConfig({ ANTHROPIC_API_KEY: 'k' });
+    const plan = largestWorstCase(config, 'study-plan');
+    // Opus 5 plus a speculative Opus 4.8 hop: about 0.49 USD held, about 0.22 USD capped.
+    expect(plan.attempts.map((a) => a.model)).toEqual(['claude-opus-5', 'claude-opus-4-8']);
+    expect(plan.costMicroUsd).toBeGreaterThan(450_000);
+    expect(plan.capMicroUsd).toBe(costMicroUsd(plan.attempts.slice(0, 1)));
+    expect(plan.capTokens).toBe(tokensOf(plan.attempts.slice(0, 1)));
+    // With the defaults, a study plan's first hop leaves room for more than a normal day.
+    expect(plan.capMicroUsd).toBeLessThan(userBudgetMicroUsd(config) / 2);
+    for (const endpoint of Object.keys(ENDPOINTS) as CoachEndpoint[]) {
+      expect(neverFits(config, endpoint), endpoint).toBeNull();
+    }
+    expect(coachConfigWarnings(config)).toEqual([]);
+    // Haiku runs without fallbacks: the whole worst case is the first hop.
+    const phrase = largestWorstCase(config, 'interpret');
+    expect(phrase.capMicroUsd).toBe(phrase.costMicroUsd);
+  });
+
+  it('warns at boot about settings that keep an endpoint from ever running', () => {
+    const warnings = (env: Record<string, string>) =>
+      coachConfigWarnings(testConfig({ ANTHROPIC_API_KEY: 'k', ...env }));
+    // A study plan's first hop is about 0.22 USD: below that cap it can never run.
+    const small = warnings({ AI_USER_DAILY_BUDGET_USD: '0.2' });
+    expect(small).toHaveLength(1);
+    expect(small[0]).toContain('study-plan can never run');
+    expect(small[0]).toContain('AI_USER_DAILY_BUDGET_USD');
+    expect(
+      warnings({ AI_GLOBAL_DAILY_BUDGET_USD: '0.3', AI_USER_DAILY_BUDGET_USD: '0.3' }).join(' '),
+    ).toContain('AI_GLOBAL_DAILY_BUDGET_USD');
+    expect(warnings({ AI_USER_DAILY_TOKENS: '9000' }).join(' ')).toContain('AI_USER_DAILY_TOKENS');
+    // An unknown model is billed at the dearest listed rate: said, and it still fits.
+    const unknown = warnings({ AI_MODEL_COACH: 'claude-future-9' });
+    expect(unknown).toEqual([
+      'AI_MODEL_COACH «claude-future-9» has no known price; it is billed at the dearest listed rate',
+    ]);
+    // Nothing to say while the coach is off, or turned off on purpose with a zero budget.
+    expect(coachConfigWarnings(testConfig({ AI_USER_DAILY_BUDGET_USD: '0.01' }))).toEqual([]);
+    expect(warnings({ AI_USER_DAILY_BUDGET_USD: '0' })).toEqual([]);
+    expect(warnings({ AI_ENABLED: 'false', AI_USER_DAILY_BUDGET_USD: '0.01' })).toEqual([]);
+    // Boot logs them with the environment's own warnings.
+    expect(
+      bootWarnings(testConfig({ ANTHROPIC_API_KEY: 'k', AI_USER_DAILY_BUDGET_USD: '0.2' })),
+    ).toEqual(expect.arrayContaining(small));
   });
 
   it('caps one user at AI_USER_DAILY_BUDGET_USD, never above the global budget', () => {
@@ -536,6 +646,7 @@ describe('Anthropic adapter', () => {
     userHash: 'a'.repeat(32),
     deadlineMs: 1000,
     inputTokensBound: 3000,
+    fallbacks: true,
   };
 
   it('builds the request: cached system, effort, fallbacks for Opus 5, metadata', () => {
@@ -563,6 +674,13 @@ describe('Anthropic adapter', () => {
     });
     expect(params.temperature).toBe(0);
     expect(params.output_config?.effort).toBeUndefined();
+    expect(params.betas).toBeUndefined();
+    expect(params.fallbacks).toBeUndefined();
+  });
+
+  it('sends no fallbacks when they are switched off', () => {
+    const params = buildParams({ ...base, fallbacks: false });
+    expect(params.model).toBe('claude-opus-5');
     expect(params.betas).toBeUndefined();
     expect(params.fallbacks).toBeUndefined();
   });
@@ -660,7 +778,11 @@ describe('Anthropic adapter', () => {
     expect(toModelError(make(500)).reason).toBe('unavailable');
     expect(toModelError(make(401)).reason).toBe('misconfigured');
     expect(toModelError(make(403)).reason).toBe('misconfigured');
+    // No credit (402 has no SDK class) and a model id the key cannot use (404): the owner's.
+    expect(toModelError(make(402))).toMatchObject({ reason: 'misconfigured', status: 402 });
+    expect(toModelError(make(404))).toMatchObject({ reason: 'misconfigured', status: 404 });
     expect(toModelError(make(400)).reason).toBe('rejected');
+    expect(toModelError(make(413)).reason).toBe('rejected');
     expect(toModelError(new Anthropic.APIConnectionTimeoutError()).reason).toBe('unavailable');
     expect(toModelError(new Anthropic.APIUserAbortError()).reason).toBe('unavailable');
     const mapped = toModelError(make(401));
@@ -678,6 +800,8 @@ describe('Anthropic adapter', () => {
     expect(toModelError(event('overloaded_error')).reason).toBe('unavailable');
     expect(toModelError(event('api_error')).reason).toBe('unavailable');
     expect(toModelError(event('authentication_error')).reason).toBe('misconfigured');
+    expect(toModelError(event('billing_error')).reason).toBe('misconfigured');
+    expect(toModelError(event('not_found_error')).reason).toBe('misconfigured');
     expect(toModelError(event('invalid_request_error')).reason).toBe('rejected');
     // A body cut off half way surfaces as a plain AnthropicError.
     expect(toModelError(new Anthropic.AnthropicError('terminated')).reason).toBe('unavailable');
@@ -694,11 +818,17 @@ describe('Anthropic adapter', () => {
         cause: Object.assign(new TypeError('fetch failed'), { cause: { code } }),
       });
 
-    // Answered without running the model, or never sent: nothing.
+    // An HTTP error status instead of the event stream (4xx or 5xx: the request failed before
+    // streaming began), or never sent: nothing.
     for (const err of [
       status(400),
       status(401),
+      status(408),
       status(429),
+      status(500),
+      status(502),
+      status(503),
+      status(504),
       status(529),
       connection('ENOTFOUND'),
     ]) {
@@ -718,8 +848,6 @@ describe('Anthropic adapter', () => {
       },
     ];
     for (const err of [
-      status(500),
-      status(503),
       new Anthropic.APIUserAbortError(),
       new Anthropic.APIConnectionTimeoutError(),
       connection('ECONNRESET'),
@@ -729,6 +857,16 @@ describe('Anthropic adapter', () => {
         attempts: oneHop,
       });
     }
+    // Once the stream opened, a failure without a status (the body cut off before
+    // message_start) may come after the model ran.
+    expect(
+      billedOnFailure(
+        new Anthropic.AnthropicError('terminated'),
+        request,
+        { ...nothingSeen, opened: true },
+        undefined,
+      ),
+    ).toEqual({ billing: 'bound', attempts: oneHop });
     // Aborted in the middle: the input message_start reported, max output, and the fallback
     // model the stream switched to at its worst.
     const usage = {
@@ -804,5 +942,68 @@ describe('Anthropic adapter', () => {
       createAnthropicCoachModel(testConfig({ ANTHROPIC_API_KEY: 'k', AI_ENABLED: 'false' }).ai),
     ).toBeNull();
     expect(createAnthropicCoachModel(testConfig({ ANTHROPIC_API_KEY: 'k' }).ai)).not.toBeNull();
+  });
+});
+
+describe('breaker', () => {
+  const at = (minutes: number) => new Date(Date.UTC(2026, 8, 28, 10, minutes));
+  const err = (
+    reason: 'misconfigured' | 'rejected' | 'unavailable',
+    billing: 'none' | 'bound' = 'none',
+  ) =>
+    new CoachModelError(reason, 'APIError', null, {
+      billing,
+      attempts: billing === 'none' ? [] : [worstCaseAttempts('claude-opus-5', 10, 10)[0]!],
+    });
+
+  it('opens after three account failures in a row, for 15 minutes, then half open', () => {
+    expect(BREAKER_STRIKES).toBe(3);
+    const b = new CoachBreaker();
+    expect(b.failed(err('misconfigured'), 'u1', at(0))).toBe(false);
+    expect(b.failed(err('misconfigured'), 'u1', at(0))).toBe(false);
+    expect(b.isOpen(at(0))).toBe(false);
+    expect(b.failed(err('misconfigured'), 'u1', at(1))).toBe(true);
+    expect(b.isOpen(at(1))).toBe(true);
+    expect(b.isOpen(new Date(at(1).getTime() + BREAKER_OPEN_MS - 1))).toBe(true);
+    const later = new Date(at(1).getTime() + BREAKER_OPEN_MS);
+    expect(b.isOpen(later)).toBe(false);
+    // Half open: the next strike, even a `rejected` one, opens it again.
+    expect(b.failed(err('rejected'), 'u1', later)).toBe(true);
+    expect(b.isOpen(later)).toBe(true);
+  });
+
+  it('ends a streak on any sign the account works, and ignores passing outages', () => {
+    const b = new CoachBreaker();
+    b.failed(err('misconfigured'), 'u1', at(0));
+    b.failed(err('misconfigured'), 'u1', at(0));
+    // Overloaded, rate limited, network: neither a strike nor the end of the streak.
+    expect(b.failed(err('unavailable'), 'u1', at(0))).toBe(false);
+    // A failure after the model ran (billed) shows the key and the credit work.
+    expect(b.failed(err('unavailable', 'bound'), 'u1', at(0))).toBe(false);
+    expect(b.failed(err('misconfigured'), 'u1', at(0))).toBe(false);
+    expect(b.failed(err('misconfigured'), 'u1', at(0))).toBe(false);
+    b.succeeded();
+    expect(b.failed(err('misconfigured'), 'u1', at(0))).toBe(false);
+    expect(b.isOpen(at(0))).toBe(false);
+  });
+
+  it('counts at most one rejected call per user in a streak', () => {
+    const b = new CoachBreaker();
+    for (let i = 0; i < 10; i += 1) expect(b.failed(err('rejected'), 'u1', at(0))).toBe(false);
+    expect(b.failed(err('rejected'), 'u2', at(0))).toBe(false);
+    expect(b.failed(err('rejected'), 'u2', at(0))).toBe(false);
+    expect(b.failed(err('rejected'), 'u3', at(0))).toBe(true);
+  });
+
+  it('reports the coach off as kill_switch while open', () => {
+    const config = testConfig({ ANTHROPIC_API_KEY: 'k' });
+    expect(deriveCapabilities(config, { dbUp: true, aiBudgetExhausted: false }).coach).toEqual({
+      enabled: true,
+      reason: null,
+    });
+    expect(
+      deriveCapabilities(config, { dbUp: true, aiBudgetExhausted: false, aiBreakerOpen: true })
+        .coach,
+    ).toEqual({ enabled: false, reason: 'kill_switch' });
   });
 });

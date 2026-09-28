@@ -6,12 +6,18 @@ import type { IncomingHttpHeaders } from 'node:http';
 import type { Config } from './config';
 import type { CoachModel } from './coach/model';
 import type { Db } from './db/client';
+import type { InFlightWork } from './lib/in-flight';
 
 /** A resolved session: a browser cookie or the desktop app's bearer token. */
 export interface AuthedUser {
   userId: string;
   sessionId: string;
-  sessionCreatedAt: Date;
+  /**
+   * When the person last proved who they are: a browser session's creation (the sign-in), or
+   * for a desktop session the sign-in behind the browser session that connected it. The
+   * fresh-session rule (`requireFreshSession`) reads this, never the session's own age.
+   */
+  authenticatedAt: Date;
   /** The device row bound to this session (desktop bearer sessions), else null. */
   deviceId: string | null;
 }
@@ -43,6 +49,8 @@ export interface AppContext {
   /** Null when the coach is not configured (no key or kill switch). */
   coachModel: CoachModel | null;
   resolveSession: SessionResolver;
+  /** Route handlers still running; `app.close()` waits for them (lib/in-flight.ts). */
+  inFlight: InFlightWork;
 }
 
 declare module 'fastify' {

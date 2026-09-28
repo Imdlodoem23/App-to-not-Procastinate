@@ -11,6 +11,7 @@
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from './app';
 import type { BuildAppOptions } from './app';
+import { coachConfigWarnings } from './coach/endpoints';
 import { ENDPOINTS as COACH_ENDPOINTS, SETTLE_MARGIN_MS } from './coach/service';
 import type { Config } from './config';
 import { connectPostgres } from './db/client';
@@ -24,14 +25,23 @@ export const DB_RETRY_MS = 60_000;
 
 /**
  * How long a graceful shutdown (SIGTERM on every deploy or restart) waits for requests in flight
- * before the process exits anyway: the longest coach call (its deadline) plus the margin its
- * quota reservation allows to settle, plus 5 s. Cutting a coach call short would leave its
- * worst-case reservation held (docs/API.md §10.2). Render must wait at least this long before
- * it kills the process: `maxShutdownDelaySeconds` in render.yaml (its default is 30 s).
- * Requests that are already done exit at once; this is only the upper bound.
+ * (and for handlers whose client left, lib/in-flight.ts) before the process exits anyway: the
+ * longest coach call (its deadline) plus the margin its quota reservation allows to settle,
+ * plus 5 s. Cutting a coach call short would leave its worst-case reservation held
+ * (docs/API.md §10.2). Render must wait at least this long before it kills the process:
+ * `maxShutdownDelaySeconds` in render.yaml (its default is 30 s). Requests that are already
+ * done exit at once; this is only the upper bound.
  */
 export const SHUTDOWN_TIMEOUT_MS =
   Math.max(...Object.values(COACH_ENDPOINTS).map((e) => e.deadlineMs)) + SETTLE_MARGIN_MS + 5_000;
+
+/**
+ * Non-fatal configuration problems, logged once at boot and by `--check`: the environment's
+ * (`config.warnings`) and coach settings that keep an endpoint from ever running.
+ */
+export function bootWarnings(config: Config): string[] {
+  return [...config.warnings, ...coachConfigWarnings(config)];
+}
 
 export interface StartOptions {
   config: Config;
@@ -65,7 +75,7 @@ export async function startServer(options: StartOptions): Promise<RunningServer>
     ? connectPostgres(config.databaseUrl, { connectionTimeoutMillis: options.connectTimeoutMs })
     : null;
   const app = await buildApp({ config, db: handle?.db ?? null, logger: options.logger });
-  for (const warning of config.warnings) app.log.warn(warning);
+  for (const warning of bootWarnings(config)) app.log.warn(warning);
 
   let janitor: JanitorHandle | null = null;
   let retry: NodeJS.Timeout | null = null;

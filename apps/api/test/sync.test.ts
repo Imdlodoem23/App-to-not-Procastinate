@@ -318,4 +318,31 @@ describe('DELETE /v1/sync/days', () => {
     const left = await t.db.select().from(dailyStats);
     expect(left.map((r) => r.userId)).toEqual([stranger.userId]);
   });
+
+  it('needs a fresh session for all stats or another computer’s, not for its own', async () => {
+    const old = await createTestUser(t.db, {
+      now: clock.now(),
+      sharing: { syncStats: true },
+      sessionCreatedAt: new Date(clock.now().getTime() - 16 * 60_000),
+    });
+    const own = await addDevice(old, 'install-old-own-000001');
+    const other = await addDevice(old, 'install-old-other-00001', false);
+    expect((await put([day(TODAY)], old, own)).statusCode).toBe(200);
+    await t.db.insert(dailyStats).values({ ...day(TODAY), deviceId: other, userId: old.userId });
+    const del = (query: string) =>
+      app.inject({ method: 'DELETE', url: `/v1/sync/days${query}`, headers: old.headers });
+
+    for (const query of ['', `?deviceId=${other}`]) {
+      const res = await del(query);
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error.code).toBe('reauth_required');
+    }
+    expect(
+      await t.db.select().from(dailyStats).where(eq(dailyStats.userId, old.userId)),
+    ).toHaveLength(2);
+
+    expect((await del(`?deviceId=${own}`)).statusCode).toBe(204);
+    const left = await t.db.select().from(dailyStats).where(eq(dailyStats.userId, old.userId));
+    expect(left.map((r) => r.deviceId)).toEqual([other]);
+  });
 });

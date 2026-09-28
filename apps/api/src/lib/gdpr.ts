@@ -52,6 +52,7 @@ export const USER_DATA_COVERAGE: Readonly<Record<string, Readonly<Record<string,
       updated_at: TECHNICAL_UPDATED_AT,
       ip_address: ALWAYS_NULL,
       user_agent: ALWAYS_NULL,
+      authenticated_at: `${NOT_EXPORTED} technical: for a connected computer, when the browser sign-in that connected it happened (fresh-session rule)`,
       user_id: SAME_USER,
     },
     account: {
@@ -103,6 +104,7 @@ export const USER_DATA_COVERAGE: Readonly<Record<string, Readonly<Record<string,
       user_id: `${NOT_EXPORTED} desktop login code (hashed, 60 s)`,
       challenge: `${NOT_EXPORTED} desktop login code (hashed, 60 s)`,
       port: `${NOT_EXPORTED} desktop login code (hashed, 60 s)`,
+      authenticated_at: `${NOT_EXPORTED} desktop login code (hashed, 60 s)`,
       expires_at: `${NOT_EXPORTED} desktop login code (hashed, 60 s)`,
       created_at: `${NOT_EXPORTED} desktop login code (hashed, 60 s)`,
     },
@@ -202,6 +204,14 @@ export const USER_DATA_COVERAGE: Readonly<Record<string, Readonly<Record<string,
       cache_read_tokens: `${NOT_EXPORTED} billing detail of the same requests`,
       cache_write_tokens: `${NOT_EXPORTED} billing detail of the same requests`,
       cost_micro_usd: `${NOT_EXPORTED} billing detail of the same requests`,
+    },
+    ai_identity_daily: {
+      day: `${NOT_EXPORTED} anti-abuse counter of the same AI requests as aiUsage, keyed by an HMAC of the normalised address and not linked to the account (it outlives a deletion on purpose); deleted when its UTC day ends`,
+      identity_hmac: `${NOT_EXPORTED} see day`,
+      feature: `${NOT_EXPORTED} see day`,
+      requests: `${NOT_EXPORTED} see day`,
+      tokens: `${NOT_EXPORTED} see day`,
+      cost_micro_usd: `${NOT_EXPORTED} see day`,
     },
   });
 
@@ -325,7 +335,9 @@ export function otpIdentifiers(email: string): string[] {
 /**
  * Hard-deletes the account: the user row (every foreign key cascades; a partner decision on
  * someone else's event keeps the event with `decided_by` set null) and the user's sign-in
- * codes. Returns false when the user no longer exists.
+ * codes. Returns false when the user no longer exists. The day's per-mailbox AI counters
+ * (`ai_identity_daily`, HMAC keys, gone when the UTC day ends) stay on purpose: signing up again
+ * with the same address must not reset the day's AI limits.
  */
 export async function deleteAccount(db: Db, userId: string): Promise<boolean> {
   return db.transaction(async (tx) => {

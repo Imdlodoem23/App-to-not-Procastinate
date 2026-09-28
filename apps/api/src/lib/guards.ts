@@ -32,10 +32,19 @@ export function requireFeature(ctx: AppContext, feature: CloudFeature): void {
   if (!cap.enabled) throw featureDisabled(feature, cap.reason ?? 'missing_key');
 }
 
-/** 403 reauth_required unless the session is younger than `freshSessionMinutes`. */
+/** True when the caller signed in less than `freshSessionMinutes` ago (docs/API.md §4.3). */
+export function isFreshSession(user: AuthedUser, now: Date): boolean {
+  const ageMs = now.getTime() - user.authenticatedAt.getTime();
+  return ageMs <= CLOUD_LIMITS.freshSessionMinutes * 60_000;
+}
+
+/**
+ * 403 reauth_required unless the caller signed in less than `freshSessionMinutes` ago. It reads
+ * `authenticatedAt`, not the session's creation: a desktop session connected from an old
+ * browser session is exactly as old as that sign-in.
+ */
 export function requireFreshSession(user: AuthedUser, now: Date): void {
-  const ageMs = now.getTime() - user.sessionCreatedAt.getTime();
-  if (ageMs > CLOUD_LIMITS.freshSessionMinutes * 60_000) throw reauthRequired();
+  if (!isFreshSession(user, now)) throw reauthRequired();
 }
 
 function parseWith<T extends z.ZodType>(

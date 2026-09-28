@@ -218,6 +218,31 @@ describe('devices', () => {
   });
 });
 
+describe('DELETE /v1/devices/:id and fresh sessions', () => {
+  it('needs a fresh session to remove another computer, not to disconnect itself', async () => {
+    // A computer whose sign-in was 16 minutes ago, and a second computer of the same user.
+    const old = await createTestUser(t.db, {
+      now: clock.now(),
+      sessionCreatedAt: new Date(clock.now().getTime() - 16 * 60_000),
+    });
+    const self = await addDevice(old.userId, 1, old.sessionId);
+    const laptop = await addDevice(old.userId, 2);
+    const remove = (id: string, who: TestUser = old) =>
+      app.inject({ method: 'DELETE', url: `/v1/devices/${id}`, headers: who.headers });
+
+    for (const id of [laptop.id, '00000000-0000-0000-0000-000000000000', 'not-a-uuid']) {
+      const res = await remove(id);
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error.code).toBe('reauth_required');
+    }
+    expect(await t.db.select().from(devices).where(eq(devices.userId, old.userId))).toHaveLength(2);
+
+    expect((await remove(self.id)).statusCode).toBe(204);
+    const left = await t.db.select().from(devices).where(eq(devices.userId, old.userId));
+    expect(left.map((d) => d.id)).toEqual([laptop.id]);
+  });
+});
+
 describe('DELETE /v1/me', () => {
   it('needs a fresh session and the typed confirmation', async () => {
     const old = await createTestUser(t.db, {

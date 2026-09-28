@@ -65,17 +65,19 @@ export function costMicroUsd(attempts: readonly CoachModelAttempt[]): number {
 /**
  * Upper bound of one call, as the attempts it could bill: the requested model with every input
  * token written to the cache and `maxTokens` of output, plus, for models sent with refusal
- * fallbacks, a second hop on the dearest of the requested model and its documented fallbacks
- * (named after the fallback on a tie). That hop may read the declined partial answer as extra
- * input (up to `maxTokens`) and write its own `maxTokens` (each hop has its own output limit).
+ * fallbacks (`fallbacks`, `AI_REFUSAL_FALLBACKS`), a second hop on the dearest of the requested
+ * model and its documented fallbacks (named after the fallback on a tie). That hop may read the
+ * declined partial answer as extra input (up to `maxTokens`) and write its own `maxTokens`
+ * (each hop has its own output limit).
  */
 export function worstCaseAttempts(
   model: string,
   inputTokens: number,
   maxTokens: number,
+  fallbacks = true,
 ): CoachModelAttempt[] {
   const first = worstCaseAttempt(model, inputTokens, maxTokens);
-  const targets = SERVER_FALLBACK_TARGETS[model];
+  const targets = fallbacks ? SERVER_FALLBACK_TARGETS[model] : undefined;
   if (!targets || targets.length === 0) return [first];
   const dearest = [model, ...targets].reduce((a, b) =>
     priceOf(b).output >= priceOf(a).output ? b : a,
@@ -102,20 +104,28 @@ export const userBudgetMicroUsd = (config: Config): number =>
   );
 
 /**
+ * What `day` has settled against the global budget (booked calls and lost reservations the
+ * janitor booked), in micro-USD. Amounts held by calls in flight are not included.
+ */
+export async function globalSpentMicroUsd(db: Pick<Db, 'select'>, day: string): Promise<number> {
+  const rows = await db
+    .select({ cost: aiGlobalDaily.costMicroUsd })
+    .from(aiGlobalDaily)
+    .where(eq(aiGlobalDaily.day, day))
+    .limit(1);
+  return Number(rows[0]?.cost ?? 0);
+}
+
+/**
  * True when today's settled cost reaches `AI_GLOBAL_DAILY_BUDGET_USD`. Amounts held by calls in
  * flight are left out: they settle within the call's deadline, and a few parallel reservations
- * must not make /health report the coach as off for everyone.
+ * must not make /health report the coach as off for everyone (while they fill the budget, new
+ * calls get 429 `rate_limited`, src/coach/quota.ts).
  */
 export async function isGlobalBudgetExhausted(db: Db, config: Config, now: Date): Promise<boolean> {
   const budget = budgetMicroUsd(config);
   if (budget <= 0) return true;
-  const rows = await db
-    .select({ cost: aiGlobalDaily.costMicroUsd })
-    .from(aiGlobalDaily)
-    .where(eq(aiGlobalDaily.day, utcDay(now)))
-    .limit(1);
-  const row = rows[0];
-  return row ? row.cost >= budget : false;
+  return (await globalSpentMicroUsd(db, utcDay(now))) >= budget;
 }
 
 /**

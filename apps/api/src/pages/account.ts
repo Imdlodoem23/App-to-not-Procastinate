@@ -4,11 +4,14 @@
  *   sessions (dates only) and «Cerrar sesión en los demás navegadores».
  * - /cuenta/codigo: landing of the link in the sign-in email (the code travels in the URL
  *   fragment, which never reaches the server; a button signs in).
- * - /cuenta/conectar: «¿Conectar este ordenador?» for the desktop loopback login.
+ * - /cuenta/conectar: «¿Conectar este ordenador?» for the desktop loopback login. Connecting
+ *   needs a sign-in younger than `freshSessionMinutes` (docs/API.md §4.3); with an older one the
+ *   page asks to sign in again (sign out, sign in, back here).
  * - /cuenta/assets/:name: tokens.css (from @centrate/shared), pages.css and registered assets.
  *
  * `?volver=` only accepts relative /cuenta paths, so no page can send the browser elsewhere.
  */
+import { CLOUD_LIMITS } from '@centrate/shared/cloud-api';
 import { eq } from 'drizzle-orm';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import type { BrowserSessionRow } from '../auth/session';
@@ -16,6 +19,7 @@ import { BROWSER_SESSION_TTL_SECONDS, listBrowserSessions } from '../auth/sessio
 import { deriveCapabilities } from '../config';
 import { user } from '../db/schema';
 import { notFound } from '../lib/errors';
+import { isFreshSession } from '../lib/guards';
 import { getProfile, hasControlChars } from '../lib/profile';
 import { CHALLENGE_RE, STATE_RE } from '../routes/app-auth';
 import { registerAccountAssets } from './assets';
@@ -252,6 +256,33 @@ function connectBody(form: {
   </section>`;
 }
 
+/**
+ * /cuenta/conectar when the browser signed in too long ago: connecting a computer needs a recent
+ * sign-in, so an old session left on a shared computer cannot connect one. The button signs
+ * out and sends the browser to sign in again, then back to `volver` (this page).
+ */
+function reauthConnectBody(form: { device: string; email: string; volver: string }): SafeHtml {
+  return html`<section class="card" data-volver="${form.volver}">
+    <h1>Vuelve a iniciar sesión</h1>
+    <p>
+      Para conectar este ordenador («${form.device}») a tu cuenta <strong>${form.email}</strong>,
+      inicia sesión otra vez.
+    </p>
+    <p class="muted">
+      Por seguridad, conectar un ordenador pide haber entrado hace menos de
+      ${String(CLOUD_LIMITS.freshSessionMinutes)} minutos. Así nadie puede conectar el suyo con una
+      sesión que se quedó abierta en otro navegador.
+    </p>
+    <div class="actions">
+      <button type="button" class="button button-primary" id="reauth">
+        Iniciar sesión otra vez
+      </button>
+      <a class="button" href="/cuenta">Cancelar</a>
+    </div>
+    ${statusLine}
+  </section>`;
+}
+
 /** The device name the app sent, cleaned for display (it is escaped anyway). */
 function deviceLabel(value: unknown): string {
   if (typeof value !== 'string') return 'este ordenador';
@@ -297,7 +328,8 @@ export const accountPages: FastifyPluginAsync = async (app) => {
         volver: volver ?? '/cuenta',
         google: caps.googleLogin.enabled,
         email: caps.emailLogin.enabled && Boolean(ctx.mailer),
-        error: typeof request.query.error === 'string',
+        // Present once or more: better-auth appends its own `error` to `?error=google`.
+        error: request.query.error !== undefined,
       }),
     );
   });
@@ -323,15 +355,23 @@ export const accountPages: FastifyPluginAsync = async (app) => {
     if (!valid) return sendPage(reply, 400, 'Conectar', badLinkBody);
     const device = deviceLabel(q.device);
     const email = await emailOf(request);
-    if (!email) {
-      const back = new URLSearchParams({
-        challenge: String(q.challenge),
-        state: String(q.state),
-        port: String(port),
-        device,
-      });
-      const volver = `/cuenta/conectar?${back.toString()}`;
+    const back = new URLSearchParams({
+      challenge: String(q.challenge),
+      state: String(q.state),
+      port: String(port),
+      device,
+    });
+    const volver = `/cuenta/conectar?${back.toString()}`;
+    if (!email || !request.user) {
       return reply.redirect(`/cuenta?${new URLSearchParams({ volver }).toString()}`, 303);
+    }
+    if (!isFreshSession(request.user, ctx.now())) {
+      return sendPage(
+        reply,
+        200,
+        'Vuelve a iniciar sesión',
+        reauthConnectBody({ device, email, volver }),
+      );
     }
     return sendPage(
       reply,

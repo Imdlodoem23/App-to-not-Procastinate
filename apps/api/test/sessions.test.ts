@@ -60,9 +60,13 @@ async function browserSession(userId: string, hoursAgo: number): Promise<string>
   return token;
 }
 
-/** A connected computer: a desktop session with its device row and one day of stats. */
-async function desktop(userId: string, installId: string) {
-  const s = await createSessionRow(t.db, userId, clock.now());
+/**
+ * A connected computer: a desktop session with its device row and one day of stats, connected
+ * from a browser sign-in `signedInMinutesAgo` (just now by default).
+ */
+async function desktop(userId: string, installId: string, signedInMinutesAgo = 0) {
+  const signedIn = new Date(clock.now().getTime() - signedInMinutesAgo * 60_000);
+  const s = await createSessionRow(t.db, userId, clock.now(), signedIn);
   const [device] = await t.db
     .insert(devices)
     .values({
@@ -213,6 +217,16 @@ describe('POST /v1/sessions/revoke-others', () => {
     expect(res.json()).toEqual({ browser: 1, devices: 1 });
     expect((await me(headers)).statusCode).toBe(200);
     expect((await me({ authorization: `Bearer ${laptop.token}` })).statusCode).toBe(401);
+  });
+
+  it('counts a computer from the sign-in that connected it, not from its connection', async () => {
+    // Connected a minute ago from a browser signed in 20 minutes ago: not fresh.
+    const pc = await desktop(ana.userId, 'install-sessions-00001', 20);
+    const laptop = await desktop(ana.userId, 'install-sessions-00002');
+    const res = await revoke({ authorization: `Bearer ${pc.token}` }, { includeDevices: true });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe('reauth_required');
+    expect((await me({ authorization: `Bearer ${laptop.token}` })).statusCode).toBe(200);
   });
 
   it('needs a fresh session to sign out the computers', async () => {

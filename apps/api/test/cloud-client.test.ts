@@ -3,8 +3,15 @@
  * real app, through a fetch adapter over `app.inject`: every method hits the route it names,
  * errors map to the right `CloudError`, and the outbox's replays are idempotent on the server.
  */
-import type { CloudDayStats, CloudFetch, CloudClient } from '@centrate/shared/cloud-api';
+import type {
+  CloudDayStats,
+  CloudFetch,
+  CloudClient,
+  PostAccountabilityEventResponse,
+} from '@centrate/shared/cloud-api';
 import {
+  CLOUD_LIMITS,
+  CLOUD_OUTBOX,
   CLOUD_TIMEOUTS,
   CloudError,
   addDays,
@@ -14,6 +21,8 @@ import {
   daysToReupload,
   memoryOutboxStorage,
   newClientRef,
+  sendAccountabilityEvent,
+  syncWindowStart,
 } from '@centrate/shared/cloud-api';
 import { count, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -189,16 +198,55 @@ describe('with the real app', () => {
     expect(read.days[0]).toMatchObject({ day: addDays(TODAY, -249), focusMinutes: 60 });
 
     // A replay of the same revs changes nothing; an older rev comes back stale and leaves
-    // the queue; the server keeps the higher one.
+    // the queue; the server keeps the higher one. Day totals keep the pace between sends.
     await outbox.addDays(deviceId, [stats(TODAY, 259), stats(addDays(TODAY, -1), 1, 5)]);
+    expect(await outbox.flush()).toMatchObject({ status: 'waiting', sent: 0, remaining: 2 });
+    clock.advance(CLOUD_OUTBOX.dayIntervalMs);
     expect(await outbox.flush()).toMatchObject({ status: 'done', sent: 2, remaining: 0 });
+    expect(putDays).toHaveBeenCalledTimes(4);
     const state = await c.getSyncState(deviceId);
     expect(state.revs).toHaveLength(250);
     expect(state.revs.find((r) => r.day === addDays(TODAY, -1))?.rev).toBe(258);
 
-    // After a cloud reset, only what the server lacks goes up again.
-    const newer = [...local.slice(0, 249), stats(TODAY, 400)];
-    expect(daysToReupload(newer, state).map((d) => d.day)).toEqual([TODAY]);
+    // After a sign-in (the outbox was emptied), a day the server holds at a higher rev stays
+    // put; a newer rev goes up, and so does the same rev: a block that crossed midnight grew
+    // yesterday's minutes without a new guardian event. The equal rev overwrites the old
+    // numbers instead of leaving them stale for good.
+    await outbox.clear();
+    const older = stats(addDays(TODAY, -2), 1);
+    const sameRevGrown = stats(addDays(TODAY, -1), 258, 95);
+    const newer = stats(TODAY, 400);
+    const reupload = daysToReupload([older, sameRevGrown, newer], state, clock.now());
+    expect(reupload).toEqual([sameRevGrown, newer]);
+    await outbox.addDays(deviceId, reupload);
+    expect(await outbox.flush()).toMatchObject({ status: 'done', sent: 2, remaining: 0 });
+    const after = await c.getStats(addDays(TODAY, -2), TODAY);
+    expect(after.days.map((d) => [d.day, d.focusMinutes])).toEqual([
+      [addDays(TODAY, -2), 60],
+      [addDays(TODAY, -1), 95],
+      [TODAY, 60],
+    ]);
+  });
+
+  it('re-uploads years of local history in four requests, none refused', async () => {
+    // A new device (or a replaced database) after a sign-in: the server holds nothing, the
+    // computer keeps three years of days. Only the accepted window leaves it.
+    await c.updateMe({ sharing: { syncStats: true } });
+    const outbox = createOutbox({ storage: memoryOutboxStorage(), client: c, now: clock.now });
+    const local = Array.from({ length: 3 * 365 }, (_, i) =>
+      stats(addDays(TODAY, i - 3 * 365 + 1), i + 1),
+    );
+    const reupload = daysToReupload(local, await c.getSyncState(deviceId), clock.now());
+    expect(reupload).toHaveLength(CLOUD_LIMITS.syncPastDays);
+    await outbox.addDays(deviceId, reupload);
+    const putDays = vi.spyOn(c, 'putDays');
+
+    const result = await outbox.flush();
+    expect(result).toMatchObject({ status: 'done', sent: 400, dropped: 0, remaining: 0 });
+    expect(putDays).toHaveBeenCalledTimes(4);
+    const state = await c.getSyncState(deviceId);
+    expect(state.revs).toHaveLength(400);
+    expect(state.revs[0]?.day).toBe(syncWindowStart(clock.now()));
   });
 
   it('maps consent, validation and not-found answers', async () => {
@@ -328,6 +376,96 @@ describe('with the real app', () => {
     const { links } = await c.listPartners();
     const ending = await c.removePartner(links[0]?.id ?? '');
     expect(ending?.endsAt).toEqual(expect.any(String));
+  });
+
+  it('sends an emergency request directly and recovers a lost answer through the outbox', async () => {
+    const bea = await createTestUser(t.db, { now: clock.now(), displayName: 'Bea' });
+    await befriend(t.db, ana, bea, new Date('2026-09-01T00:00:00.000Z'));
+    await linkPartners(t.db, ana, bea, {
+      requireApproval: true,
+      at: new Date('2026-09-01T00:00:00.000Z'),
+    });
+
+    const inject = injectFetch(app);
+    const paths: string[] = [];
+    let loseAnswers = 0;
+    // A fresh client: the server counts as asleep until it answers once.
+    const ca = createCloudClient({
+      baseUrl: BASE,
+      getToken: () => ana.token,
+      now: clock.now,
+      fetch: async (url, init) => {
+        const path = new URL(url).pathname;
+        paths.push(path);
+        const res = await inject(url, init);
+        if (path === '/v1/accountability/events' && loseAnswers > 0) {
+          loseAnswers -= 1;
+          // The server stored the event; its answer never came back.
+          throw new TypeError('socket hang up');
+        }
+        return res;
+      },
+    });
+    const answers: Array<[string, PostAccountabilityEventResponse]> = [];
+    const outbox = createOutbox({
+      storage: memoryOutboxStorage(),
+      client: ca,
+      now: clock.now,
+      onEventSent: (e, response) => {
+        answers.push([e.clientRef, response]);
+      },
+    });
+    const emergency = () => ({
+      clientRef: newClientRef(),
+      kind: 'emergency_requested' as const,
+      occurredAt: clock.now().toISOString(),
+      countdownEndsAt: new Date(clock.now().getTime() + 10 * 60_000).toISOString(),
+    });
+
+    // Direct: the server is woken first, then the answer carries what the app polls.
+    const onWaking = vi.fn();
+    const direct = await sendAccountabilityEvent(ca, outbox, emergency(), { onWaking });
+    expect(direct).toMatchObject({ status: 'sent', error: null });
+    expect(direct.response?.eventId).toEqual(expect.any(String));
+    expect(direct.response?.approval?.status).toBe('pending');
+    expect(onWaking).toHaveBeenCalledTimes(1);
+    expect(paths).toEqual(['/health', '/v1/accountability/events']);
+    expect(await outbox.pending()).toBe(0);
+
+    // Lost answer: queued, then the outbox replays the same clientRef and the server answers
+    // the event it already stored (200), so the app still learns the id and polls it.
+    loseAnswers = 1;
+    const lost = emergency();
+    const queued = await sendAccountabilityEvent(ca, outbox, lost, { onWaking });
+    expect(queued).toMatchObject({
+      status: 'queued',
+      response: null,
+      error: { kind: 'offline', retryable: true },
+    });
+    expect(onWaking).toHaveBeenCalledTimes(1);
+    expect(await outbox.pending()).toBe(1);
+
+    clock.advance(20_000);
+    expect(await outbox.flush({ force: true })).toMatchObject({
+      status: 'done',
+      sent: 1,
+      remaining: 0,
+    });
+    const rows = await t.db
+      .select({ id: accountabilityEvents.id, clientRef: accountabilityEvents.clientRef })
+      .from(accountabilityEvents)
+      .where(eq(accountabilityEvents.ownerId, ana.userId));
+    expect(rows).toHaveLength(2);
+    const stored = rows.find((r) => r.clientRef === lost.clientRef);
+    expect(answers).toEqual([
+      [
+        lost.clientRef,
+        { eventId: stored?.id, approval: expect.objectContaining({ status: 'pending' }) },
+      ],
+    ]);
+    const polled = await ca.getAccountabilityEvent(stored?.id ?? '');
+    expect(approvalOutcome(polled.approval, clock.now(), lost.countdownEndsAt)).toBe('wait');
+    expect(paths.filter((p) => p === '/health')).toHaveLength(1);
   });
 
   it('sends an event nobody hears about, which the server does not keep', async () => {

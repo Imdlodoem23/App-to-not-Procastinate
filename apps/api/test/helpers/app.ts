@@ -68,7 +68,12 @@ export function tokenSessionResolver(db: Db, now: () => Date = () => new Date())
     if (typeof header !== 'string' || !header.startsWith('Bearer ')) return null;
     const token = header.slice('Bearer '.length).trim();
     const rows = await db
-      .select({ id: session.id, userId: session.userId, createdAt: session.createdAt })
+      .select({
+        id: session.id,
+        userId: session.userId,
+        createdAt: session.createdAt,
+        authenticatedAt: session.authenticatedAt,
+      })
       .from(session)
       .where(and(eq(session.token, token), gt(session.expiresAt, now())))
       .limit(1);
@@ -82,7 +87,7 @@ export function tokenSessionResolver(db: Db, now: () => Date = () => new Date())
     return {
       userId: row.userId,
       sessionId: row.id,
-      sessionCreatedAt: row.createdAt,
+      authenticatedAt: row.authenticatedAt ?? row.createdAt,
       deviceId: device[0]?.id ?? null,
     };
   };

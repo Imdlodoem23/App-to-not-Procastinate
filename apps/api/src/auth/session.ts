@@ -21,7 +21,7 @@ import type { IncomingHttpHeaders } from 'node:http';
 import { and, desc, eq, gt, inArray, isNull, ne } from 'drizzle-orm';
 import type { AuthedUser, SessionResolver } from '../context';
 import type { Db } from '../db/client';
-import { devices, session } from '../db/schema';
+import { devices, session, user } from '../db/schema';
 
 /** Desktop sessions last 60 days and slide: used once a day or more, they never expire. */
 export const DESKTOP_SESSION_TTL_SECONDS = 60 * 86_400;
@@ -114,7 +114,9 @@ export function sessionTokenFrom(headers: IncomingHttpHeaders, secret: string): 
 
 /**
  * Reads the session behind a request from the database. A desktop session's expiry slides at
- * most once a day; a browser session's never does.
+ * most once a day; a browser session's never does. A session of an account whose address was
+ * never verified resolves to nobody: sign-up refuses such accounts (auth/index.ts), and this
+ * keeps one that exists anyway from being used.
  */
 export function createSessionResolver(db: Db, secret: string, now: () => Date): SessionResolver {
   return async (headers): Promise<AuthedUser | null> => {
@@ -125,16 +127,19 @@ export function createSessionResolver(db: Db, secret: string, now: () => Date): 
         id: session.id,
         userId: session.userId,
         createdAt: session.createdAt,
+        authenticatedAt: session.authenticatedAt,
         expiresAt: session.expiresAt,
+        emailVerified: user.emailVerified,
         deviceId: devices.id,
       })
       .from(session)
+      .innerJoin(user, eq(user.id, session.userId))
       .leftJoin(devices, eq(devices.sessionId, session.id))
       .where(eq(session.token, token))
       .limit(1);
     const row = rows[0];
     const at = now();
-    if (!row || row.expiresAt.getTime() <= at.getTime()) return null;
+    if (!row || row.expiresAt.getTime() <= at.getTime() || !row.emailVerified) return null;
     const refreshBelowMs = (DESKTOP_SESSION_TTL_SECONDS - SESSION_UPDATE_AGE_SECONDS) * 1000;
     if (row.deviceId && row.expiresAt.getTime() - at.getTime() < refreshBelowMs) {
       await db
@@ -148,7 +153,7 @@ export function createSessionResolver(db: Db, secret: string, now: () => Date): 
     return {
       userId: row.userId,
       sessionId: row.id,
-      sessionCreatedAt: row.createdAt,
+      authenticatedAt: row.authenticatedAt ?? row.createdAt,
       deviceId: row.deviceId ?? null,
     };
   };
@@ -164,8 +169,15 @@ export interface NewSession {
 /**
  * Inserts a session row the same shape better-auth writes (32-char ids and tokens), without IP
  * or user agent. Used by the desktop login; the token is the app's bearer token.
+ * `authenticatedAt` is the sign-in behind it (the browser session that clicked «Conectar»), so
+ * the new session is never fresher than that sign-in (docs/API.md §4.3).
  */
-export async function createSessionRow(db: Db, userId: string, at: Date): Promise<NewSession> {
+export async function createSessionRow(
+  db: Db,
+  userId: string,
+  at: Date,
+  authenticatedAt: Date,
+): Promise<NewSession> {
   const row: NewSession = {
     id: randomAlphanumeric(32),
     token: randomAlphanumeric(32),
@@ -175,6 +187,7 @@ export async function createSessionRow(db: Db, userId: string, at: Date): Promis
   await db.insert(session).values({
     ...row,
     userId,
+    authenticatedAt,
     updatedAt: at,
     ipAddress: null,
     userAgent: null,

@@ -99,6 +99,7 @@ async function populate(): Promise<Record<string, string>> {
     userId: a.userId,
     challenge: 'c'.repeat(43),
     port: 50_000,
+    authenticatedAt: new Date(),
     expiresAt: later,
   });
   const [device] = await t.db
@@ -186,6 +187,7 @@ async function populate(): Promise<Record<string, string>> {
 const KEYED_BY_ADDRESS = [
   'verification', // better-auth keys sign-in codes by email
   'rate_counters', // sign-in email counters, keyed by an HMAC of the address
+  'ai_identity_daily', // AI use per mailbox for the day, keyed by an HMAC of the address
 ];
 
 describe('coverage', () => {

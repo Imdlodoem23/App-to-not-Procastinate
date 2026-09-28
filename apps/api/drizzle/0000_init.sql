@@ -39,6 +39,17 @@ CREATE TABLE "ai_global_daily" (
 	"reserved_micro_usd" bigint DEFAULT 0 NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "ai_identity_daily" (
+	"day" date NOT NULL,
+	"identity_hmac" text NOT NULL,
+	"feature" text NOT NULL,
+	"requests" integer DEFAULT 0 NOT NULL,
+	"tokens" bigint DEFAULT 0 NOT NULL,
+	"cost_micro_usd" bigint DEFAULT 0 NOT NULL,
+	CONSTRAINT "ai_identity_daily_pk" PRIMARY KEY("day","identity_hmac","feature"),
+	CONSTRAINT "ai_identity_daily_feature" CHECK ("ai_identity_daily"."feature" IN ('interpret', 'coach'))
+);
+--> statement-breakpoint
 CREATE TABLE "ai_usage" (
 	"user_id" text NOT NULL,
 	"day" date NOT NULL,
@@ -61,6 +72,7 @@ CREATE TABLE "app_auth_codes" (
 	"user_id" text NOT NULL,
 	"challenge" text NOT NULL,
 	"port" integer NOT NULL,
+	"authenticated_at" timestamp with time zone NOT NULL,
 	"expires_at" timestamp with time zone NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "app_auth_codes_port" CHECK ("app_auth_codes"."port" BETWEEN 1024 AND 65535)
@@ -190,6 +202,7 @@ CREATE TABLE "session" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"ip_address" text,
 	"user_agent" text,
+	"authenticated_at" timestamp with time zone,
 	"user_id" text NOT NULL,
 	CONSTRAINT "session_token_unique" UNIQUE("token")
 );

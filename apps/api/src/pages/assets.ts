@@ -423,6 +423,18 @@ export const ACCOUNT_JS = `'use strict';
     });
   }
 
+  // /cuenta/conectar after an old sign-in: sign out, sign in again and come back (volver).
+  var reauth = document.getElementById('reauth');
+  if (reauth) {
+    reauth.addEventListener('click', function () {
+      busy(reauth, true);
+      post('/api/auth/sign-out', {}).then(
+        function () { location.assign('/cuenta?volver=' + encodeURIComponent(volver)); },
+        function () { busy(reauth, false); say(OFFLINE, 'error'); }
+      );
+    });
+  }
+
   var signOut = document.getElementById('sign-out');
   if (signOut) {
     signOut.addEventListener('click', function () {

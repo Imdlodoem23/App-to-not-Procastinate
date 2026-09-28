@@ -26,6 +26,7 @@ import type { CoachModel } from './coach/model';
 import { createAnthropicCoachModel } from './coach/anthropic';
 import { pingDb, type Db } from './db/client';
 import { ApiError, featureDisabled, isDatabaseUnavailable } from './lib/errors';
+import { InFlightWork } from './lib/in-flight';
 import { clientKey, FixedWindowLimiter } from './lib/ip-limit';
 import { createResendMailer } from './lib/mailer';
 import { accountPages } from './pages/account';
@@ -172,19 +173,24 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     return503OnClosing: true,
   });
 
+  const inFlight = new InFlightWork();
+  const mailer =
+    options.mailer === undefined
+      ? createResendMailer(config.email, { log: app.log })
+      : options.mailer;
   // `resolveSession` is set below, once the auth module (which needs this context) exists.
   const ctx: AppContext = {
     config,
     db,
     pingDb: options.pingDb ?? (db ? () => pingDb(db) : async () => false),
     now,
-    mailer:
-      options.mailer === undefined
-        ? createResendMailer(config.email, { log: app.log })
-        : options.mailer,
+    // Emails go out without making the request wait (sign-in codes, partner alerts); closing
+    // the app still waits for them, so a code asked for just before a deploy arrives.
+    mailer: mailer ? { send: (message) => inFlight.track(mailer.send(message)) } : null,
     coachModel:
       options.coachModel === undefined ? createAnthropicCoachModel(config.ai) : options.coachModel,
     resolveSession: async () => null,
+    inFlight,
   };
   const auth = createAuth(ctx, app.log);
   ctx.resolveSession = options.resolveSession ?? auth?.resolveSession ?? (async () => null);
@@ -269,6 +275,20 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   let draining = false;
   app.addHook('preClose', async () => {
     draining = true;
+  });
+  // Closing the HTTP server waits for connections, not handlers: a coach call whose client
+  // left goes on without one. Every async handler is tracked, and `close()` waits for the last
+  // one before it resolves (Fastify runs this hook after the server closed; boot.ts closes the
+  // pool only then), so its reservation settles instead of dying with the process.
+  app.addHook('onRoute', (route) => {
+    const handler = route.handler;
+    route.handler = function tracked(this: FastifyInstance, request, reply) {
+      const result: unknown = handler.call(this, request, reply);
+      return result instanceof Promise ? ctx.inFlight.track(result) : result;
+    };
+  });
+  app.addHook('onClose', async () => {
+    await ctx.inFlight.drain();
   });
 
   // --- No caching of API answers anywhere (they carry personal data).

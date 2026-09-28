@@ -7,7 +7,8 @@
  *   (GDPR). The one exception is `accountability_events.decided_by` (set null), a partner's
  *   decision on someone else's event.
  * - The four better-auth tables follow better-auth 1.7's core schema (the drizzle adapter maps
- *   the camelCase keys). Our own data lives in our own tables so better-auth stays vanilla.
+ *   the camelCase keys). Our own data lives in our own tables so better-auth stays vanilla; the
+ *   one exception is the nullable `session.authenticated_at`, which better-auth never writes.
  * - Nothing here stores free text written by the user except `display_name`, device names and
  *   the ≤140-char partner note. No domains, reasons, tasks, phrases or AI prompts/answers.
  *
@@ -73,6 +74,14 @@ export const session = pgTable(
     ipAddress: text('ip_address'),
     /** Always null: user agents are not stored. */
     userAgent: text('user_agent'),
+    /**
+     * Ours, not better-auth's (it leaves it null). When the person behind the session last
+     * proved who they are, for the fresh-session rule (docs/API.md §4.3): null for a browser
+     * session (its `created_at` is the sign-in); for a desktop session, the sign-in time of the
+     * browser session that connected it (`app_auth_codes.authenticated_at`), so connecting a
+     * computer never makes a session fresher than the sign-in behind it.
+     */
+    authenticatedAt: tstz('authenticated_at'),
     userId: text('user_id')
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
@@ -195,6 +204,8 @@ export const appAuthCodes = pgTable(
     /** PKCE S256 challenge (base64url). */
     challenge: text('challenge').notNull(),
     port: integer('port').notNull(),
+    /** Sign-in time of the browser session that clicked «Conectar»; the desktop session gets it. */
+    authenticatedAt: tstz('authenticated_at').notNull(),
     expiresAt: tstz('expires_at').notNull(),
     createdAt: created(),
   },
@@ -469,6 +480,29 @@ export const aiUsage = pgTable(
     primaryKey({ name: 'ai_usage_pk', columns: [t.userId, t.day, t.feature] }),
     index('ai_usage_day_idx').on(t.day),
     check('ai_usage_feature', sql`${t.feature} IN ('interpret', 'coach')`),
+  ],
+);
+
+/**
+ * AI use per UTC day of a mailbox rather than an account (COACH, docs/API.md §10.2), so that
+ * deleting and recreating the account, or a second account on `ana+1@…`, does not reset the
+ * day's AI limits. Keyed by an HMAC of the normalised address (never the address), with no
+ * foreign key to `user`: it must outlive a deleted account. Deleted once its UTC day is over.
+ */
+export const aiIdentityDaily = pgTable(
+  'ai_identity_daily',
+  {
+    day: date('day', { mode: 'string' }).notNull(),
+    identityHmac: text('identity_hmac').notNull(),
+    feature: text('feature', { enum: ['interpret', 'coach'] }).notNull(),
+    requests: integer('requests').notNull().default(0),
+    /** Input + output + cache tokens of settled calls. */
+    tokens: bigint('tokens', { mode: 'number' }).notNull().default(0),
+    costMicroUsd: bigint('cost_micro_usd', { mode: 'number' }).notNull().default(0),
+  },
+  (t) => [
+    primaryKey({ name: 'ai_identity_daily_pk', columns: [t.day, t.identityHmac, t.feature] }),
+    check('ai_identity_daily_feature', sql`${t.feature} IN ('interpret', 'coach')`),
   ],
 );
 

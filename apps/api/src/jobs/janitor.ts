@@ -5,7 +5,8 @@
  * database small and personal data short-lived.
  *
  * It also frees AI quota holds left by a coach call whose process died before settling
- * (`releaseDeadAiHolds`, docs/API.md §10.2).
+ * (`releaseDeadAiHolds`, docs/API.md §10.2), and drops the per-mailbox AI counters of past UTC
+ * days (`ai_identity_daily`).
  */
 import { addDays } from '@centrate/shared/cloud-api';
 import { and, eq, gt, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
@@ -14,6 +15,7 @@ import { META_KEYS } from '../db/meta';
 import {
   accountabilityEvents,
   aiGlobalDaily,
+  aiIdentityDaily,
   aiUsage,
   appAuthCodes,
   dailyStats,
@@ -62,6 +64,7 @@ export type JanitorReport = Record<
   | 'aiUsage'
   | 'aiGlobalDaily'
   | 'aiDeadHolds'
+  | 'aiIdentityDaily'
   | 'dailyStats'
   | 'userNames',
   number
@@ -230,6 +233,14 @@ export async function runJanitor(db: Db, now: Date): Promise<JanitorReport | nul
           .returning({ k: aiGlobalDaily.day }),
       ),
       aiDeadHolds: await releaseDeadAiHolds(tx, now),
+      // Per-mailbox AI use (anti-abuse, keyed by an HMAC): only today's day counts. After the
+      // dead holds, so rows are locked in the order a reservation takes them.
+      aiIdentityDaily: await n(
+        tx
+          .delete(aiIdentityDaily)
+          .where(lt(aiIdentityDaily.day, today))
+          .returning({ k: aiIdentityDaily.day }),
+      ),
       dailyStats: await n(
         tx
           .delete(dailyStats)

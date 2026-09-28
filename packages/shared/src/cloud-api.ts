@@ -74,7 +74,10 @@ export const CLOUD_LIMITS = Object.freeze({
   /** Accountability events and partner-inbox items are kept this long. */
   accountabilityRetentionDays: 30,
 
-  /** `DELETE /v1/me` needs a session created less than this long ago. */
+  /**
+   * Account deletion, signing computers out, removing another computer or all uploaded stats,
+   * and connecting a computer need a sign-in less than this long ago (docs/API.md §4.3).
+   */
   freshSessionMinutes: 15,
   appAuthCodeTtlSeconds: 60,
 
@@ -297,7 +300,10 @@ export interface PatchMeRequest {
   sharing?: Partial<CloudSharing>;
 }
 
-/** DELETE /v1/me. Needs a session younger than `CLOUD_LIMITS.freshSessionMinutes`. */
+/**
+ * DELETE /v1/me. Needs a sign-in younger than `CLOUD_LIMITS.freshSessionMinutes` (a desktop
+ * session counts from the browser sign-in that connected it).
+ */
 export interface DeleteAccountRequest {
   confirm: 'BORRAR';
 }
@@ -369,6 +375,12 @@ export interface AppTokenRequest {
     platform: CloudPlatform;
     appVersion: string;
   };
+  /**
+   * The computer's IANA time zone (`Intl.DateTimeFormat().resolvedOptions().timeZone`), stored
+   * as the profile's on every login: ranking weeks, partner deadlines and «today» in sync
+   * follow it. When the system zone changes later, send `PATCH /v1/me { profile: { timeZone } }`.
+   */
+  timeZone: string;
 }
 
 export interface AppTokenResponse {
@@ -535,11 +547,20 @@ export interface RankingResponse {
 
 export type PresenceState = 'focus' | 'study';
 
-/** PUT /v1/presence (needs `sharing.presence`). Heartbeat every 60 s, never queued. */
-export interface PutPresenceRequest {
+/** A presence heartbeat as the app knows it. `endsAt` is on the app's own clock. */
+export interface PresenceInput {
   state: PresenceState;
   /** End of the current block or session, if known. */
   endsAt: IsoUtc | null;
+}
+
+/**
+ * PUT /v1/presence (needs `sharing.presence`). Heartbeat every 60 s, never queued. `sentAt` is
+ * the app's clock when sending (the client sets it on every call): the server only uses
+ * `endsAt − sentAt`, so a computer clock that is off shifts nothing (docs/API.md §8.3).
+ */
+export interface PutPresenceRequest extends PresenceInput {
+  sentAt: IsoUtc;
 }
 
 export interface PutPresenceResponse {
@@ -549,7 +570,11 @@ export interface PutPresenceResponse {
 export interface FriendPresence extends CloudPerson {
   state: PresenceState;
   since: IsoUtc;
+  /** On the server's clock, for display. */
   endsAt: IsoUtc | null;
+  /** Seconds left until `endsAt` when the server answered. «Estudiar juntos» ends its local
+   *  session this long after the answer, on the app's own clock, whatever that clock says. */
+  endsInSeconds: number | null;
 }
 
 /** GET /v1/friends/presence (needs `sharing.presence`). */
@@ -625,6 +650,8 @@ export interface PostAccountabilityEventRequest extends AccountabilityEventInput
 /**
  * `expired` is computed on read (pending past its deadline). The app treats `expired`,
  * errors and being offline as approved: the flow fails open and never blocks the guardian.
+ * `approved` is not final before the deadline: a denial from another partner who must approve
+ * still replaces it (a denial wins), so the app keeps polling while its countdown runs.
  */
 export type ApprovalStatus = 'pending' | 'approved' | 'denied' | 'expired';
 
@@ -662,6 +689,12 @@ export interface InboxItem {
   approval: ApprovalState | null;
   /** True when the caller is the partner who decided. */
   decidedByMe: boolean;
+  /**
+   * True while the caller may still answer: their link asks for approval, the deadline has not
+   * passed and nobody denied. On a `pending` approval they may approve or deny; on an
+   * `approved` one only deny (a denial wins until the deadline, docs/API.md §9).
+   */
+  canDecide: boolean;
 }
 
 /** GET /v1/accountability/inbox: the caller's partners' events, newest first. */
@@ -775,9 +808,27 @@ export interface WeeklySummaryResponse {
   suggestion: string;
 }
 
+/**
+ * Per model call: whether the server would take its largest request now (once the user's
+ * calls in flight end). A call needs a request left in its bucket and room under the daily
+ * token and spend caps, and a study plan needs more room than a phrase, so one can be `false`
+ * while the other is `true` and `requestsLeft` is not 0.
+ */
+export interface CoachAvailability {
+  interpret: boolean;
+  splitTask: boolean;
+  studyPlan: boolean;
+  weeklySummary: boolean;
+}
+
 export interface CoachQuotaResponse {
   interpret: { requestsLeft: number };
   coach: { requestsLeft: number; tokensLeft: number };
+  /**
+   * `false`: that call answers 429 `quota_exceeded` until `resetsAt` (or 503 `budget` if the
+   * server's settings never allow it). Disable the action instead of offering it.
+   */
+  available: CoachAvailability;
   /** Next 00:00 UTC. */
   resetsAt: IsoUtc;
 }
@@ -1127,17 +1178,28 @@ export interface CloudClient {
   updateMe(body: PatchMeRequest, options?: CloudCallOptions): Promise<MeResponse>;
   /** GET /v1/me/export: every row about the user (GDPR). */
   exportData(options?: CloudCallOptions): Promise<CloudExport>;
-  /** DELETE /v1/me. `reauth_required` (403) when the session is older than 15 minutes. */
+  /**
+   * DELETE /v1/me. `reauth_required` (403) when the sign-in behind the session is older than
+   * 15 minutes: run the loopback login again (the browser asks to sign in again) and retry.
+   */
   deleteAccount(options?: CloudCallOptions): Promise<void>;
   listDevices(options?: CloudCallOptions): Promise<DevicesResponse>;
   renameDevice(deviceId: string, name: string, options?: CloudCallOptions): Promise<CloudDevice>;
-  /** DELETE /v1/devices/:id: the device, its stats and its session. */
+  /**
+   * DELETE /v1/devices/:id: the device, its stats and its session. Removing another computer
+   * needs a fresh session (`reauth_required`, like `deleteAccount`); this computer removing
+   * itself does not.
+   */
   removeDevice(deviceId: string, options?: CloudCallOptions): Promise<void>;
 
   getSyncState(deviceId: string, options?: CloudCallOptions): Promise<SyncStateResponse>;
   /** PUT /v1/sync/days. Use the outbox (`createOutbox`) rather than calling it directly. */
   putDays(body: PutDaysRequest, options?: CloudCallOptions): Promise<PutDaysResponse>;
-  /** DELETE /v1/sync/days: this user's cloud stats (all devices, or one). */
+  /**
+   * DELETE /v1/sync/days: this user's cloud stats (all devices, or one). Only this computer's
+   * own stats (`deviceId` = its device) go without a fresh session; all devices or another
+   * one's need it (`reauth_required`, like `deleteAccount`).
+   */
   deleteSyncedDays(deviceId?: string | null, options?: CloudCallOptions): Promise<void>;
   getStats(from: LocalDay, to: LocalDay, options?: CloudCallOptions): Promise<StatsResponse>;
 
@@ -1156,8 +1218,8 @@ export interface CloudClient {
   unblockUser(userId: string, options?: CloudCallOptions): Promise<void>;
   /** GET /v1/ranking. Without `week`, the current ISO week in the profile's zone. */
   getRanking(week?: IsoWeek | null, options?: CloudCallOptions): Promise<RankingResponse>;
-  /** PUT /v1/presence: a heartbeat every 60 s. Never queue it. */
-  putPresence(body: PutPresenceRequest, options?: CloudCallOptions): Promise<PutPresenceResponse>;
+  /** PUT /v1/presence: a heartbeat every 60 s. Never queue it. Sets `sentAt` from `now()`. */
+  putPresence(body: PresenceInput, options?: CloudCallOptions): Promise<PutPresenceResponse>;
   clearPresence(options?: CloudCallOptions): Promise<void>;
   getFriendsPresence(options?: CloudCallOptions): Promise<FriendsPresenceResponse>;
 
@@ -1186,7 +1248,7 @@ export interface CloudClient {
     body: AccountabilityEventInput,
     options?: WakeCallOptions,
   ): Promise<PostAccountabilityEventResponse>;
-  /** The owner polls it every 15 s while an approval is pending (never queue it). */
+  /** The owner polls it every 15 s while `approvalOutcome` says `wait` (never queue it). */
   getAccountabilityEvent(
     eventId: string,
     options?: CloudCallOptions,
@@ -1594,8 +1656,14 @@ export function createCloudClient(options: CloudClientOptions): CloudClient {
       ),
     getRanking: (week, o) =>
       json({ ...get('getRanking', '/v1/ranking', 'interactive'), query: { week } }, o),
-    putPresence: (body, o) =>
-      json(send('putPresence', 'PUT', '/v1/presence', body, 'background'), o),
+    putPresence: (body, o) => {
+      const request: PutPresenceRequest = {
+        state: body.state,
+        endsAt: body.endsAt,
+        sentAt: now().toISOString(),
+      };
+      return json(send('putPresence', 'PUT', '/v1/presence', request, 'background'), o);
+    },
     clearPresence: (o) =>
       empty(send('clearPresence', 'DELETE', '/v1/presence', undefined, 'background'), o),
     getFriendsPresence: (o) =>
@@ -1670,18 +1738,21 @@ export function createCloudClient(options: CloudClientOptions): CloudClient {
 
 /**
  * What the app does with an emergency request's approval (docs/API.md §9):
- * - `wait` while the last answer is `pending` and the local countdown runs (the guardian's
- *   countdown keeps running anyway);
+ * - `wait` while the last answer is `pending` or `approved` and the local countdown runs (the
+ *   guardian's countdown keeps running anyway). An approval never shortens the countdown, and
+ *   until the deadline another partner's denial still replaces it (a denial wins), so the app
+ *   keeps polling; it may show «Ana lo ha aprobado» meanwhile;
  * - `denied` only after an explicit «no»: the app cancels this request, the block stays;
- * - `approved` for everything else: approved, no approval needed (`null`), or the deadline
- *   passed without an answer (`expired`).
+ * - `approved` for everything else: no approval needed (`null`), the deadline passed without an
+ *   answer (`expired`), or the countdown ended while `pending` or `approved`.
  *
  * `countdownEndsAt` is the one sent with the request, on the app's clock like `now`; the
  * server's `approval.deadline` is on another clock and is never compared with `now`. The
  * server ends its deadline `approvalMarginSeconds` before that countdown, so an app polling
  * every 15 s reads the last answer before its countdown ends, whatever either clock says.
  * The flow fails open: when polling fails (offline, timeout, 5xx) the app keeps the last state
- * it knew, and a `pending` state turns into `approved` when the local countdown ends.
+ * it knew, and a `pending` or `approved` state turns into `approved` when the local countdown
+ * ends.
  */
 export function approvalOutcome(
   approval: ApprovalState | null,
@@ -1690,7 +1761,7 @@ export function approvalOutcome(
 ): 'wait' | 'approved' | 'denied' {
   if (approval === null) return 'approved';
   if (approval.status === 'denied') return 'denied';
-  if (approval.status !== 'pending') return 'approved';
+  if (approval.status === 'expired') return 'approved';
   const end =
     countdownEndsAt instanceof Date ? countdownEndsAt.getTime() : Date.parse(countdownEndsAt);
   return Number.isNaN(end) || end <= now.getTime() ? 'approved' : 'wait';
@@ -1719,11 +1790,24 @@ export function cloudWasReset(
 }
 
 /**
+ * The oldest day every server accepts in `PUT /v1/sync/days` at `now`, whatever the profile's
+ * time zone: `today − syncPastDays` with one day of margin. The server's «today» is within a day
+ * of the UTC date (zones run from UTC−12 to UTC+14), so a day from here on is never refused as
+ * too old (unless this computer's clock is more than a day off). Older local days stay on the
+ * computer: the client never sends them. docs/API.md §7.
+ */
+export function syncWindowStart(now: Date): LocalDay {
+  return addDays(utcMsToDay(now.getTime()), 1 - CLOUD_LIMITS.syncPastDays);
+}
+
+/**
  * The local days to send again after a sign-in: those the server is missing or holds at the
- * same or a lower `rev`. An equal `rev` goes too: a running block grows a day's minutes without
- * a new guardian event, so the server may hold older numbers under the same `rev` (the outbox
- * was cleared by a sign-out or a 401 before the last snapshot went out), and it lets an equal
- * `rev` overwrite. Cheap: the whole accepted window (`syncPastDays`) is a few requests of 100.
+ * same or a lower `rev`, from `syncWindowStart(now)` on (older days would only come back as a
+ * 400, and years of local history would use up the hourly limit of `PUT /v1/sync/days`). An
+ * equal `rev` goes too: a running block grows a day's minutes without a new guardian event, so
+ * the server may hold older numbers under the same `rev` (the outbox was cleared by a sign-out
+ * or a 401 before the last snapshot went out), and it lets an equal `rev` overwrite. Cheap: the
+ * whole accepted window is at most four requests of 100.
  *
  * Use it on every sign-in with a device id (`GET /v1/sync/state` for it), and after the
  * database was replaced (`cloudWasReset`). A replaced database has no accounts either: the old
@@ -1734,9 +1818,12 @@ export function cloudWasReset(
 export function daysToReupload(
   local: readonly CloudDayStats[],
   server: Pick<SyncStateResponse, 'revs'>,
+  now: Date = new Date(),
 ): CloudDayStats[] {
+  const first = syncWindowStart(now);
   const revs = new Map(server.revs.map((r) => [r.day, r.rev]));
   return local.filter((d) => {
+    if (d.day < first) return false;
     const rev = revs.get(d.day);
     return rev === undefined || rev <= d.rev;
   });
@@ -1754,11 +1841,18 @@ export function newClientRef(): string {
 // ---------------------------------------------------------------------------------------
 
 export const CLOUD_OUTBOX = Object.freeze({
-  /** Backoff after a failed flush: 30 s, growing with jitter up to 30 min. */
+  /** Backoff after a failed send: 30 s, growing with jitter up to 30 min. */
   retryMinMs: 30_000,
   retryMaxMs: 30 * 60_000,
   /** Longest server-requested wait honoured (`Retry-After` of the hourly sync limit). */
   retryAfterMaxMs: 6 * 3_600_000,
+  /**
+   * Day totals go out at most once per 10 minutes per computer unless a flush is forced
+   * (coalesced meanwhile: only the latest snapshot of a day is sent). That is at most six
+   * rounds an hour per computer, one request each outside a backfill, so all of a user's
+   * computers together stay well under the 60 per hour of `PUT /v1/sync/days`.
+   */
+  dayIntervalMs: 10 * 60_000,
   /** The server rejects events older than this (`occurredAt`), so the outbox drops them. */
   eventMaxAgeMs: 7 * 86_400_000,
   /** Safety bound on requests per flush. */
@@ -1782,14 +1876,33 @@ export interface OutboxEventItem {
 
 export type OutboxItem = OutboxDayItem | OutboxEventItem;
 
-/** What the app persists (in its SQLite). Presence heartbeats and polls are never queued. */
-export interface OutboxState {
-  version: 1;
-  items: OutboxItem[];
-  /** Consecutive failed flushes; drives the backoff. */
+/**
+ * The send schedule of one kind of item. Events and day totals keep separate ones, so a 429
+ * or a 5xx on day totals never holds an accountability event (nor the reverse).
+ */
+export interface OutboxLane {
+  /** Consecutive failed sends; drives the backoff. */
   failures: number;
-  /** No flush before this instant (backoff or `Retry-After`) unless forced. */
+  /**
+   * No send before this instant unless forced: the backoff or a `Retry-After` after a
+   * failure, and for day totals also the pace after a send (`CLOUD_OUTBOX.dayIntervalMs`).
+   */
   notBefore: IsoUtc | null;
+}
+
+/** The two lanes of the outbox, named as in `OutboxState`. */
+export type OutboxLaneName = 'events' | 'days';
+
+/**
+ * What the app persists (in its SQLite). Presence heartbeats and polls are never queued. A
+ * state saved by version 1 (one backoff for everything) keeps its items and starts both lanes
+ * afresh.
+ */
+export interface OutboxState {
+  version: 2;
+  items: OutboxItem[];
+  events: OutboxLane;
+  days: OutboxLane;
 }
 
 export interface OutboxStorage {
@@ -1798,11 +1911,13 @@ export interface OutboxStorage {
   save(state: OutboxState): void | Promise<void>;
 }
 
+const idleLane = (): OutboxLane => ({ failures: 0, notBefore: null });
+
 export const emptyOutboxState = (): OutboxState => ({
-  version: 1,
+  version: 2,
   items: [],
-  failures: 0,
-  notBefore: null,
+  events: idleLane(),
+  days: idleLane(),
 });
 
 /** Keeps the items that are well formed (a hand-edited or older database cannot poison it). */
@@ -1810,14 +1925,30 @@ export function normalizeOutboxState(raw: unknown): OutboxState {
   if (typeof raw !== 'object' || raw === null) return emptyOutboxState();
   const r = raw as Partial<Record<keyof OutboxState, unknown>>;
   const items = Array.isArray(r.items) ? r.items.filter(isOutboxItem) : [];
+  return {
+    version: 2,
+    items: coalesceOutbox(items),
+    events: normalizeLane(r.events),
+    days: normalizeLane(r.days),
+  };
+}
+
+function normalizeLane(raw: unknown): OutboxLane {
+  if (typeof raw !== 'object' || raw === null) return idleLane();
+  const r = raw as Partial<Record<keyof OutboxLane, unknown>>;
   const failures =
     typeof r.failures === 'number' && Number.isInteger(r.failures) && r.failures > 0
       ? Math.min(r.failures, 1000)
       : 0;
   const notBefore =
     typeof r.notBefore === 'string' && !Number.isNaN(Date.parse(r.notBefore)) ? r.notBefore : null;
-  return { version: 1, items: coalesceOutbox(items), failures, notBefore };
+  return { failures, notBefore };
 }
+
+/** The lane an item waits in. */
+const laneOf = (item: OutboxItem): OutboxLaneName => (item.type === 'event' ? 'events' : 'days');
+const isEventItem = (item: OutboxItem): item is OutboxEventItem => item.type === 'event';
+const isDayItem = (item: OutboxItem): item is OutboxDayItem => item.type === 'day';
 
 function isDayStats(value: unknown): value is CloudDayStats {
   if (typeof value !== 'object' || value === null) return false;
@@ -1920,9 +2051,13 @@ export function nextRetryDelay(
 export interface OutboxFlushResult {
   /**
    * - `empty`: nothing was queued.
-   * - `waiting`: backing off; nothing sent (see `nextFlushAt`).
-   * - `done`: everything that was queued went out or was dropped.
-   * - `retry_later`: the server or the network failed; the rest waits until `nextFlushAt`.
+   * - `waiting`: nothing could go out yet: every queued item waits for its lane's backoff or
+   *   the day pace (see `nextFlushAt`).
+   * - `done`: what could go out went out or was dropped. Items whose lane was waiting stay
+   *   queued (day totals inside the pace while events went, say): see `remaining` and
+   *   `nextFlushAt`.
+   * - `retry_later`: the server or the network failed; the lane that failed waits (`error` is
+   *   the first failure) and the other lane still went. The rest waits until `nextFlushAt`.
    * - `signed_out`: the server answered 401; the queue was emptied (local data stays).
    */
   status: 'empty' | 'waiting' | 'done' | 'retry_later' | 'signed_out';
@@ -1931,6 +2066,10 @@ export interface OutboxFlushResult {
   /** Items dropped because the server can never accept them (old, invalid, sync turned off). */
   dropped: number;
   remaining: number;
+  /**
+   * When the next flush can send something, whatever the status: null when nothing is queued
+   * or something can go now. The app schedules its next flush here.
+   */
   nextFlushAt: Date | null;
   error: CloudError | null;
 }
@@ -1945,13 +2084,15 @@ export interface CloudOutbox {
    */
   addEvent(event: AccountabilityEventInput): Promise<void>;
   /**
-   * Sends what is queued: events one by one, then days in batches of 100 per device. Runs
-   * one at a time (a second call joins the running one). `force` ignores the backoff (the user
-   * pressed «Sincronizar ahora», or the network just came back).
+   * Sends what is queued: events one by one, then days in batches of 100 per device. Events
+   * and days back off separately, so either goes while the other waits; days also keep the
+   * pace (`CLOUD_OUTBOX.dayIntervalMs`), so calling this after every queued snapshot is fine.
+   * Runs one at a time (a second call joins the running one). `force` ignores the backoffs and
+   * the pace (the user pressed «Sincronizar ahora», or the network just came back).
    */
   flush(options?: { force?: boolean }): Promise<OutboxFlushResult>;
   pending(): Promise<number>;
-  /** When the backoff ends; null when a flush may run now. */
+  /** When a flush can next send something; null when nothing is queued or it can go now. */
   nextFlushAt(): Promise<Date | null>;
   /** Empties the queue (sign-out, or the user turned sync off). */
   clear(): Promise<void>;
@@ -1965,9 +2106,9 @@ export interface OutboxOptions {
   /**
    * Called once the server has a queued event (201, or 200 for a replay of one it already
    * stored), with its answer, after the event left the queue. This is how the app learns the
-   * `eventId` and `approval` of an `emergency_requested` that could not go out directly: when
-   * `approval` is `pending` and the local countdown still runs, it starts polling
-   * `getAccountabilityEvent` every 15 s. Not awaited; whatever it throws is ignored.
+   * `eventId` and `approval` of an `emergency_requested` that could not go out directly: while
+   * `approvalOutcome` says `wait` (`pending` or `approved`, the local countdown still running),
+   * it polls `getAccountabilityEvent` every 15 s. Not awaited; whatever it throws is ignored.
    */
   onEventSent?: (
     event: AccountabilityEventInput,
@@ -2016,6 +2157,11 @@ function isPermanent(error: CloudError): boolean {
  * day) and accountability events (never merged away, idempotent on `clientRef`; the server's
  * answer goes to `onEventSent`). Presence heartbeats and approval polls are never queued: an
  * old one means nothing.
+ *
+ * Events and day totals are two lanes with their own backoff: a partner waits for events,
+ * while day totals are only statistics, go out at a steady pace and share an hourly limit
+ * across all of the user's computers. A lane that fails closes for the rest of the flush and
+ * the other one carries on.
  */
 export function createOutbox(options: OutboxOptions): CloudOutbox {
   const { storage, client, onEventSent } = options;
@@ -2056,47 +2202,73 @@ export function createOutbox(options: OutboxOptions): CloudOutbox {
     return next;
   }
 
-  const until = (state: OutboxState): Date | null => {
-    if (!state.notBefore) return null;
-    const at = new Date(state.notBefore);
+  /** When a lane may send again; null when it may send now. */
+  const laneUntil = (lane: OutboxLane): Date | null => {
+    if (!lane.notBefore) return null;
+    const at = new Date(lane.notBefore);
     return at.getTime() > now().getTime() ? at : null;
+  };
+
+  /** The earliest instant a queued item may go out; null when nothing is queued or one may now. */
+  const nextAt = (state: OutboxState): Date | null => {
+    let next: Date | null = null;
+    for (const name of ['events', 'days'] as const) {
+      if (!state.items.some((i) => laneOf(i) === name)) continue;
+      const at = laneUntil(state[name]);
+      if (at === null) return null;
+      if (next === null || at.getTime() < next.getTime()) next = at;
+    }
+    return next;
   };
 
   async function flushOnce(force: boolean): Promise<OutboxFlushResult> {
     let sent = 0;
     let dropped = 0;
+    let failure: CloudError | null = null;
     const result = (
       status: OutboxFlushResult['status'],
       state: OutboxState,
-      error: CloudError | null = null,
+      error: CloudError | null = failure,
     ): OutboxFlushResult => ({
       status,
       sent,
       dropped,
       remaining: state.items.length,
-      nextFlushAt: until(state),
+      nextFlushAt: nextAt(state),
       error,
     });
 
     const start = await read();
     if (start.items.length === 0) return result('empty', start);
-    if (!force && until(start)) return result('waiting', start);
+    // A lane sends unless it is backing off (or, for days, inside the pace); `force` opens
+    // both. A lane that fails closes for the rest of this flush and the other carries on.
+    const open: Record<OutboxLaneName, boolean> = {
+      events: force || laneUntil(start.events) === null,
+      days: force || laneUntil(start.days) === null,
+    };
+    if (!start.items.some((i) => open[laneOf(i)])) return result('waiting', start);
 
-    // Events the server would reject as too old.
-    const oldest = now().getTime() - CLOUD_OUTBOX.eventMaxAgeMs;
+    // What the server would refuse anyway: events too old, days before its window.
+    const oldestEvent = now().getTime() - CLOUD_OUTBOX.eventMaxAgeMs;
+    const firstDay = syncWindowStart(now());
     let state = await mutate((s) => {
       const before = s.items.length;
-      s.items = s.items.filter(
-        (i) => i.type !== 'event' || Date.parse(i.event.occurredAt) >= oldest,
+      s.items = s.items.filter((i) =>
+        i.type === 'event'
+          ? Date.parse(i.event.occurredAt) >= oldestEvent
+          : i.stats.day >= firstDay,
       );
       dropped += before - s.items.length;
       return s;
     });
 
+    /** Lanes whose requests the server answered in this flush (taken, or refused for good). */
+    const answered: Record<OutboxLaneName, boolean> = { events: false, days: false };
     for (let requests = 0; requests < CLOUD_OUTBOX.maxRequestsPerFlush; requests += 1) {
-      const event = state.items.find((i): i is OutboxEventItem => i.type === 'event');
-      const deviceId = state.items.find((i): i is OutboxDayItem => i.type === 'day')?.deviceId;
+      const event = open.events ? state.items.find(isEventItem) : undefined;
+      const deviceId = event || !open.days ? undefined : state.items.find(isDayItem)?.deviceId;
       if (!event && deviceId === undefined) break;
+      const lane: OutboxLaneName = event ? 'events' : 'days';
       const batch = event
         ? []
         : state.items
@@ -2129,26 +2301,32 @@ export function createOutbox(options: OutboxOptions): CloudOutbox {
             return s;
           });
         }
+        answered[lane] = true;
       } catch (error) {
         if (!isCloudError(error)) throw error;
         if (error.status === 401) {
           state = await mutate((s) => {
             s.items = [];
-            s.failures = 0;
-            s.notBefore = null;
+            s.events = idleLane();
+            s.days = idleLane();
             return s;
           });
           return result('signed_out', state, error);
         }
         if (!isPermanent(error)) {
+          // Only this lane backs off (a 429 on day totals never holds an event).
           state = await mutate((s) => {
-            s.failures += 1;
-            const wait = nextRetryDelay(s.failures, random, error.retryAfterMs);
-            s.notBefore = new Date(now().getTime() + wait).toISOString();
+            const backoff = s[lane];
+            backoff.failures += 1;
+            const wait = nextRetryDelay(backoff.failures, random, error.retryAfterMs);
+            backoff.notBefore = new Date(now().getTime() + wait).toISOString();
             return s;
           });
-          return result('retry_later', state, error);
+          open[lane] = false;
+          failure ??= error;
+          continue;
         }
+        answered[lane] = true;
         // Permanent: drop what the server will never take (only the rejected days when the
         // answer says which ones).
         const rejected = event ? new Set<number>() : rejectedDayIndexes(error, batch.length);
@@ -2165,12 +2343,21 @@ export function createOutbox(options: OutboxOptions): CloudOutbox {
       }
     }
 
+    // A lane the server answered without a failure starts afresh; day totals then rest for the
+    // pace. A lane that sent nothing keeps its schedule (a forced flush with no event queued
+    // leaves a `Retry-After` on events in place).
+    const at = now().getTime();
     state = await mutate((s) => {
-      s.failures = 0;
-      s.notBefore = null;
+      if (open.events && answered.events) s.events = idleLane();
+      if (open.days && answered.days) {
+        s.days = {
+          failures: 0,
+          notBefore: new Date(at + CLOUD_OUTBOX.dayIntervalMs).toISOString(),
+        };
+      }
       return s;
     });
-    return result('done', state);
+    return result(failure ? 'retry_later' : 'done', state);
   }
 
   return {
@@ -2202,12 +2389,12 @@ export function createOutbox(options: OutboxOptions): CloudOutbox {
       return running;
     },
     pending: async () => (await read()).items.length,
-    nextFlushAt: async () => until(await read()),
+    nextFlushAt: async () => nextAt(await read()),
     clear: async () => {
       await mutate((s) => {
         s.items = [];
-        s.failures = 0;
-        s.notBefore = null;
+        s.events = idleLane();
+        s.days = idleLane();
       });
     },
   };
@@ -2255,7 +2442,7 @@ function sameItem(item: OutboxItem, other: OutboxItem): boolean {
 export interface SendEventResult {
   /**
    * - `sent`: the server has it; `response` carries `eventId` and `approval` (poll it every
-   *   15 s while `pending`, see `approvalOutcome`).
+   *   15 s while `approvalOutcome` says `wait`).
    * - `queued`: it could not go out now (offline, a timeout, a server waking up or failing,
    *   the feature off, the call aborted) and waits in the outbox, which replays the same
    *   `clientRef` and reports the answer through `OutboxOptions.onEventSent`. Until then the

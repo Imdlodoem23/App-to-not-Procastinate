@@ -3,7 +3,8 @@
  * /cuenta/assets/ like every page asset (layout.ts registry, CORE's route):
  * - `panel.css`: charts, figures, lists and tables. Colors only from the design tokens.
  * - `panel.js`: «Quitar» a device, delete the uploaded stats, «Descargar mis datos», «Borrar
- *   mi cuenta» (typed confirmation; sign in again when the session is not fresh).
+ *   mi cuenta» (typed confirmation). The three deletions need a recent sign-in: on 403
+ *   `reauth_required` the page offers «Iniciar sesión otra vez» (sign out, sign in, back).
  * - `avisos.js`: «Aprobar» / «Rechazar» a pending emergency request.
  * Plain ES2017 without modules, no inline code (CSP in app.ts). User-visible text only through
  * `textContent`; the scripts never build HTML from strings.
@@ -306,6 +307,10 @@ ${COMMON_JS}
             return;
           }
           busy(button, false);
+          if (r.code === 'reauth_required') {
+            askReauth('Por seguridad, vuelve a iniciar sesión y quita el ordenador otra vez.');
+            return;
+          }
           say(statusEl, failure(r), 'error');
         },
         function () { busy(button, false); say(statusEl, OFFLINE, 'error'); }
@@ -322,6 +327,10 @@ ${COMMON_JS}
         function (r) {
           if (r.ok) { location.reload(); return; }
           busy(deleteStats, false);
+          if (r.code === 'reauth_required') {
+            askReauth('Por seguridad, vuelve a iniciar sesión y borra las estadísticas otra vez.');
+            return;
+          }
           say(statusEl, failure(r), 'error');
         },
         function () { busy(deleteStats, false); say(statusEl, OFFLINE, 'error'); }
@@ -381,8 +390,14 @@ ${COMMON_JS}
     title.focus();
   }
 
-  var form = document.getElementById('delete-account');
+  // 403 reauth_required: the action needs a recent sign-in. Says why and shows the button.
   var reauth = document.getElementById('reauth');
+  function askReauth(text) {
+    say(statusEl, text, 'error');
+    if (reauth) reauth.hidden = false;
+  }
+
+  var form = document.getElementById('delete-account');
   if (form) {
     form.addEventListener('submit', function (event) {
       event.preventDefault();
@@ -400,8 +415,7 @@ ${COMMON_JS}
           if (r.ok) { showDeleted(); return; }
           busy(button, false);
           if (r.code === 'reauth_required') {
-            say(statusEl, 'Por seguridad, vuelve a iniciar sesión y repite el borrado.', 'error');
-            if (reauth) reauth.hidden = false;
+            askReauth('Por seguridad, vuelve a iniciar sesión y repite el borrado.');
             return;
           }
           say(statusEl, failure(r), 'error');

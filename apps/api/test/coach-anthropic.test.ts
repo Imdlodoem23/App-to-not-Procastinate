@@ -17,6 +17,7 @@ import { z } from 'zod';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createAnthropicCoachModel, SERVER_FALLBACK_BETA } from '../src/coach/anthropic';
 import { costMicroUsd } from '../src/coach/budget';
+import { largestWorstCase } from '../src/coach/endpoints';
 import { CoachModelError } from '../src/coach/model';
 import { INTERPRET_SYSTEM, SPLIT_TASK_SYSTEM } from '../src/coach/prompts';
 import { anthropicUserHash } from '../src/coach/quota';
@@ -364,8 +365,9 @@ describe('coach through the real Anthropic SDK', () => {
     expect(res.statusCode).toBe(503);
     expect(res.json().error.code).toBe('coach_unavailable');
     expect(captured).toHaveLength(2);
+    // Anthropic's overload is not the user's use of the day: the request comes back too.
     expect(await usageRow()).toMatchObject({
-      requests: 1,
+      requests: 0,
       reservedTokens: 0,
       reservedMicroUsd: 0,
       costMicroUsd: 0,
@@ -383,26 +385,54 @@ describe('coach through the real Anthropic SDK', () => {
     expect((await usageRow())?.costMicroUsd).toBe(300 * 5 + 700 * 0.5 + 120 * 25);
   });
 
-  it('books the worst case of a call that was sent but never reported its usage', async () => {
-    // A 500 may come after the model ran: no retry, one hop at its worst case.
-    replies.push({ status: 500, body: { type: 'error', error: { type: 'api_error' } } });
+  it('books nothing for an HTTP error instead of the stream, an upper bound once it opened', async () => {
+    // A 5xx answered instead of the event stream: the request failed before streaming began,
+    // so nothing was generated. Retried once (unbilled), then 503 with nothing booked.
+    const apiError = { type: 'error', error: { type: 'api_error', message: 'Internal' } };
+    replies.push({ status: 500, body: apiError }, { status: 502, body: apiError });
     let res = await splitTask();
     expect(res.statusCode).toBe(503);
-    expect(captured).toHaveLength(1);
+    expect(res.json().error.code).toBe('coach_unavailable');
+    expect(captured).toHaveLength(2);
     let row = await usageRow();
+    expect(row).toMatchObject({
+      requests: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheWriteTokens: 0,
+      costMicroUsd: 0,
+      reservedMicroUsd: 0,
+    });
+    expect(await globalRow()).toMatchObject({ costMicroUsd: 0, reservedMicroUsd: 0 });
+    expect(logs.join('')).toContain('"billing":"none"');
+    // …and a 503 followed by an answer is simply retried.
+    replies.push({ status: 503, body: apiError }, { sse: streamOf(message(splitJson)) });
+    expect((await splitTask()).statusCode).toBe(200);
+    expect(captured).toHaveLength(4);
+    const answered = 300 * 5 + 700 * 0.5 + 120 * 25;
+    expect((await usageRow())?.costMicroUsd).toBe(answered);
+
+    // The stream opened (200) and the connection dropped before message_start: sent, usage
+    // unknown, not retried: one hop at its worst case from the input estimate.
+    replies.push({ sse: [], end: 'destroy' });
+    res = await splitTask();
+    expect(res.statusCode).toBe(503);
+    expect(captured).toHaveLength(5);
+    row = await usageRow();
     const estimate = row?.cacheWriteTokens ?? 0;
     expect(estimate).toBeGreaterThan(1500);
-    expect(row).toMatchObject({ inputTokens: 0, outputTokens: 4000, reservedMicroUsd: 0 });
+    expect(row).toMatchObject({ outputTokens: 120 + 4000, reservedMicroUsd: 0 });
     const worstHop = Math.ceil(estimate * 5 * 1.25 + 4000 * 25);
-    expect(row?.costMicroUsd).toBe(worstHop);
+    expect(row?.costMicroUsd).toBe(answered + worstHop);
 
     // The connection drops after message_start: the reported input and max output.
     replies.push({ sse: [start()], end: 'destroy' });
     res = await splitTask();
     expect(res.statusCode).toBe(503);
     row = await usageRow();
-    expect(row?.costMicroUsd).toBe(worstHop + 300 * 5 + 700 * 0.5 + 4000 * 25);
-    expect(row).toMatchObject({ requests: 2, reservedTokens: 0, reservedUntil: null });
+    expect(row?.costMicroUsd).toBe(answered + worstHop + 300 * 5 + 700 * 0.5 + 4000 * 25);
+    // The unbilled first call gave its request back; the other three stay counted.
+    expect(row).toMatchObject({ requests: 3, reservedTokens: 0, reservedUntil: null });
     expect((await globalRow())?.costMicroUsd).toBe(row?.costMicroUsd);
     expect((await globalRow())?.reservedMicroUsd).toBe(0);
     expect(logs.join('')).toContain('"billing":"bound"');
@@ -438,6 +468,7 @@ describe('coach through the real Anthropic SDK', () => {
       userHash: 'a'.repeat(32),
       deadlineMs: 300,
       inputTokensBound: 2000,
+      fallbacks: true,
     };
     const err = await model?.run(request).then(
       () => null,
@@ -496,5 +527,69 @@ describe('coach through the real Anthropic SDK', () => {
     // Neither ran the model: nothing billed, no retry.
     expect(captured).toHaveLength(2);
     expect((await usageRow())?.costMicroUsd).toBe(0);
+  });
+
+  it('treats no credit and an unknown model as the owner’s problem: 503, request given back', async () => {
+    // 402 (no SDK class), a 404 for the model id and a billing `error` event before any
+    // output: an error log with class and status, 503 coach_unavailable (never a 500), no
+    // retry, nothing billed and the request back.
+    replies.push(
+      {
+        status: 402,
+        body: { type: 'error', error: { type: 'billing_error', message: `no credit ${KEY}` } },
+      },
+      {
+        status: 404,
+        body: { type: 'error', error: { type: 'not_found_error', message: 'model: x' } },
+      },
+    );
+    for (const status of [402, 404]) {
+      const res = await splitTask();
+      expect(res.statusCode).toBe(503);
+      expect(res.json().error.code).toBe('coach_unavailable');
+      expect(logs.join('')).toContain(`"status":${status}`);
+    }
+    expect(captured).toHaveLength(2);
+    expect(logs.join('')).toContain('coach model misconfigured');
+    expect(logs.join('')).not.toContain('no credit');
+    expect(await usageRow()).toMatchObject({ requests: 0, costMicroUsd: 0, reservedMicroUsd: 0 });
+    expect(await globalRow()).toMatchObject({ requests: 0, costMicroUsd: 0, reservedMicroUsd: 0 });
+
+    // The third one in a row opens the breaker: /health turns the coach off.
+    replies.push({ sse: [{ type: 'error', error: { type: 'billing_error', message: 'x' } }] });
+    const res = await splitTask();
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error.code).toBe('coach_unavailable');
+    expect(captured).toHaveLength(3);
+    const health = await app.inject({ method: 'GET', url: '/health' });
+    expect(health.json().capabilities.coach).toEqual({ enabled: false, reason: 'kill_switch' });
+    expect((await splitTask()).json().error).toMatchObject({
+      code: 'feature_disabled',
+      reason: 'kill_switch',
+    });
+    expect(captured).toHaveLength(3);
+    expect((await usageRow())?.requests).toBe(0);
+  });
+
+  it('drops the fallback beta with AI_REFUSAL_FALLBACKS=false', async () => {
+    await app.close();
+    config = testConfig({ ANTHROPIC_API_KEY: KEY, AI_REFUSAL_FALLBACKS: 'false' });
+    expect(config.ai.refusalFallbacks).toBe(false);
+    app = await buildTestApp({
+      db: t.db,
+      clock,
+      config,
+      coachModel: createAnthropicCoachModel(config.ai, { baseURL }),
+    });
+    replies.push({ sse: streamOf(message(splitJson)) });
+    expect((await splitTask()).statusCode).toBe(200);
+    const req = captured[0] as Captured;
+    expect(req.body.model).toBe('claude-opus-5');
+    expect(req.body.fallbacks).toBeUndefined();
+    expect(String(req.headers['anthropic-beta'] ?? '')).not.toContain(SERVER_FALLBACK_BETA);
+    // Without fallbacks the worst case is the first hop alone.
+    const worst = largestWorstCase(config, 'split-task');
+    expect(worst.attempts).toHaveLength(1);
+    expect(worst.costMicroUsd).toBe(worst.capMicroUsd);
   });
 });

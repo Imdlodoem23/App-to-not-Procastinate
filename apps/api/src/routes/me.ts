@@ -210,11 +210,14 @@ export const meRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  // Removes the device, its stats (cascade) and its session. 204.
+  // Removes the device, its stats (cascade) and its session. 204. A computer disconnecting
+  // itself needs nothing more; removing any other one needs a fresh session (§4.3), so an old
+  // session left somewhere cannot sign the owner's computers out and wipe their stats.
   app.delete<{ Params: { id: string } }>('/devices/:id', async (request, reply) => {
     const db = requireDb(ctx);
     const user = requireUser(request);
     const { id } = parseParams(DeviceParams, request);
+    if (id !== user.deviceId) requireFreshSession(user, ctx.now());
     if (!isUuid(id)) throw notFound();
     await db.transaction(async (tx) => {
       const rows = await tx

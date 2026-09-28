@@ -10,9 +10,11 @@ import type {
   PutDaysRequest,
 } from '../src/cloud-api';
 import {
+  CLOUD_LIMITS,
   CLOUD_OUTBOX,
   CLOUD_TIMEOUTS,
   CloudError,
+  addDays,
   approvalOutcome,
   cloudWasReset,
   coalesceOutbox,
@@ -22,8 +24,10 @@ import {
   memoryOutboxStorage,
   newClientRef,
   nextRetryDelay,
+  localDayIn,
   normalizeOutboxState,
   sendAccountabilityEvent,
+  syncWindowStart,
 } from '../src/cloud-api';
 
 // ---------------------------------------------------------------------------------------
@@ -150,6 +154,21 @@ describe('createCloudClient requests', () => {
     expect(seen.slice(1).map((s) => s.body)).toEqual([
       { ...event('ref-000000000001'), sentAt: '2026-09-28T10:00:45.000Z' },
       { ...event('ref-000000000001'), sentAt: '2026-09-28T10:02:15.000Z' },
+    ]);
+  });
+
+  it('stamps every presence heartbeat with the app clock', async () => {
+    let t = Date.parse('2026-09-28T10:00:00.000Z');
+    const { fetch, seen } = stubFetch(() => reply(200, { expiresAt: '2026-09-28T10:03:00.000Z' }));
+    const c = client(fetch, { now: () => new Date(t) });
+    const heartbeat = { state: 'focus' as const, endsAt: '2026-09-28T10:50:00.000Z' };
+    await c.putPresence(heartbeat);
+    t += 60_000;
+    // Extra fields never reach the strict server schema.
+    await c.putPresence({ ...heartbeat, sentAt: 'stale' } as never);
+    expect(seen.map((s) => [s.method, new URL(s.url).pathname, s.body])).toEqual([
+      ['PUT', '/v1/presence', { ...heartbeat, sentAt: '2026-09-28T10:00:00.000Z' }],
+      ['PUT', '/v1/presence', { ...heartbeat, sentAt: '2026-09-28T10:01:00.000Z' }],
     ]);
   });
 
@@ -683,7 +702,9 @@ describe('approvalOutcome', () => {
 
   it('fails open: only an explicit «no» denies', () => {
     expect(approvalOutcome(null, now, ends)).toBe('approved');
-    expect(approvalOutcome(state('approved', '2026-09-28T10:10:00Z'), now, ends)).toBe('approved');
+    // An approval is not final: another partner's «no» still replaces it until the deadline.
+    expect(approvalOutcome(state('approved', '2026-09-28T10:04:30Z'), now, ends)).toBe('wait');
+    expect(approvalOutcome(state('approved', '2026-09-28T10:04:30Z'), now, now)).toBe('approved');
     expect(approvalOutcome(state('expired', '2026-09-28T09:59:00Z'), now, ends)).toBe('approved');
     expect(approvalOutcome(state('pending', '2026-09-28T10:04:30Z'), now, ends)).toBe('wait');
     expect(approvalOutcome(state('denied', '2026-09-28T10:10:00Z'), now, ends)).toBe('denied');
@@ -728,11 +749,9 @@ describe('daysToReupload', () => {
         { day: '2026-09-26', rev: 3 },
       ],
     };
-    expect(daysToReupload(local, server).map((d) => d.day)).toEqual([
-      '2026-09-25',
-      '2026-09-26',
-      '2026-09-27',
-    ]);
+    expect(
+      daysToReupload(local, server, new Date('2026-09-28T10:00:00.000Z')).map((d) => d.day),
+    ).toEqual(['2026-09-25', '2026-09-26', '2026-09-27']);
   });
 
   it('resends a same-rev day whose minutes grew after the last upload', () => {
@@ -741,7 +760,44 @@ describe('daysToReupload', () => {
     // snapshot went out. The server lets an equal rev overwrite.
     const server = { revs: [{ day: '2026-09-27', rev: 42 }] };
     const local = [day('2026-09-27', 42, 95)];
-    expect(daysToReupload(local, server)).toEqual(local);
+    expect(daysToReupload(local, server, new Date('2026-09-28T10:00:00.000Z'))).toEqual(local);
+  });
+
+  it('leaves out local days older than the sync window, so years of history take four requests', () => {
+    const now = new Date('2026-09-28T10:00:00.000Z');
+    // Three years of local history, none of it on the server yet (a new device).
+    const local = Array.from({ length: 3 * 365 }, (_, i) =>
+      day(addDays('2026-09-28', i - 3 * 365 + 1), i + 1),
+    );
+    const out = daysToReupload(local, { revs: [] }, now);
+    expect(out[0]?.day).toBe(syncWindowStart(now));
+    expect(out.at(-1)?.day).toBe('2026-09-28');
+    expect(out).toHaveLength(CLOUD_LIMITS.syncPastDays);
+    expect(Math.ceil(out.length / CLOUD_LIMITS.syncBatchMax)).toBe(4);
+  });
+});
+
+describe('syncWindowStart', () => {
+  it('is never before the first day the server accepts, in any time zone', () => {
+    const zones = ['Etc/GMT+12', 'Pacific/Pago_Pago', 'America/Los_Angeles', 'UTC'];
+    const more = ['Europe/Madrid', 'Asia/Kolkata', 'Pacific/Auckland', 'Pacific/Kiritimati'];
+    for (const at of [
+      '2026-09-28T00:00:00.000Z',
+      '2026-09-28T00:30:00.000Z',
+      '2026-09-28T11:59:00.000Z',
+      '2026-09-28T23:59:59.999Z',
+      '2027-01-01T00:00:00.000Z',
+    ]) {
+      const now = new Date(at);
+      const start = syncWindowStart(now);
+      for (const zone of [...zones, ...more]) {
+        // The server's window starts at `today − syncPastDays` in the profile's zone.
+        const serverFirst = addDays(localDayIn(zone, now), -CLOUD_LIMITS.syncPastDays);
+        expect(start >= serverFirst, `${at} ${zone}`).toBe(true);
+      }
+      // One day of margin, no more.
+      expect(start).toBe(addDays(now.toISOString().slice(0, 10), 1 - CLOUD_LIMITS.syncPastDays));
+    }
   });
 });
 
@@ -850,20 +906,36 @@ describe('normalizeOutboxState', () => {
         null,
         'x',
       ],
-      failures: -3,
-      notBefore: 'soon',
+      events: { failures: -3, notBefore: 'soon' },
+      days: { failures: 2.5, notBefore: '2026-09-28T10:10:00.000Z' },
     });
     expect(state).toEqual({
-      version: 1,
+      version: 2,
       items: [eventItem(event('ref-000000000003')), dayItem('dev', day('2026-09-27', 1))],
-      failures: 0,
-      notBefore: null,
+      events: { failures: 0, notBefore: null },
+      days: { failures: 0, notBefore: '2026-09-28T10:10:00.000Z' },
     });
     expect(normalizeOutboxState(null)).toEqual({
-      version: 1,
+      version: 2,
       items: [],
-      failures: 0,
-      notBefore: null,
+      events: { failures: 0, notBefore: null },
+      days: { failures: 0, notBefore: null },
+    });
+  });
+
+  it('keeps the items of a version 1 state and starts both lanes afresh', () => {
+    // Version 1 had one backoff for the whole queue (a days 429 held every event).
+    const state = normalizeOutboxState({
+      version: 1,
+      items: [eventItem(event('ref-000000000001')), dayItem('dev', day('2026-09-27', 1))],
+      failures: 4,
+      notBefore: '2026-09-28T11:00:00.000Z',
+    });
+    expect(state).toEqual({
+      version: 2,
+      items: [eventItem(event('ref-000000000001')), dayItem('dev', day('2026-09-27', 1))],
+      events: { failures: 0, notBefore: null },
+      days: { failures: 0, notBefore: null },
     });
   });
 });
@@ -1147,36 +1219,121 @@ describe('createOutbox', () => {
     const first = await outbox.flush();
     expect(first.status).toBe('retry_later');
     expect(first.nextFlushAt?.toISOString()).toBe('2026-09-28T10:00:30.000Z');
-    expect(storage.state?.failures).toBe(1);
+    expect(storage.state?.days.failures).toBe(1);
 
     expect(await outbox.flush()).toMatchObject({ status: 'waiting', sent: 0, remaining: 1 });
     expect(server.calls).toHaveLength(1);
 
     const forced = await outbox.flush({ force: true });
     expect(forced.status).toBe('retry_later');
-    expect(storage.state?.failures).toBe(2);
+    expect(storage.state?.days.failures).toBe(2);
     expect(forced.nextFlushAt?.toISOString()).toBe('2026-09-28T10:00:30.000Z');
 
     clock.advance(30_000);
     expect(await outbox.nextFlushAt()).toBeNull();
-    expect(await outbox.flush()).toMatchObject({ status: 'done', sent: 1 });
-    expect(storage.state).toMatchObject({ failures: 0, notBefore: null });
+    expect(await outbox.flush()).toMatchObject({ status: 'done', sent: 1, nextFlushAt: null });
+    // The backoff is over; the next day totals keep the pace from this send.
+    expect(storage.state?.days).toEqual({ failures: 0, notBefore: '2026-09-28T10:10:30.000Z' });
+    expect(storage.state?.events).toEqual({ failures: 0, notBefore: null });
   });
+
+  const rateLimited = (retryAfterMs: number) =>
+    new CloudError({
+      kind: 'http',
+      operation: 'putDays',
+      status: 429,
+      details: { code: 'rate_limited', message: 'x' },
+      retryAfterMs,
+    });
 
   it('waits as long as the server asks', async () => {
     const { outbox, server } = setup();
     await outbox.addDays('dev', [day('2026-09-27', 1)]);
-    server.answers.push(
-      new CloudError({
-        kind: 'http',
-        operation: 'putDays',
-        status: 429,
-        details: { code: 'rate_limited', message: 'x' },
-        retryAfterMs: 3_600_000,
-      }),
-    );
+    server.answers.push(rateLimited(3_600_000));
     const result = await outbox.flush();
     expect(result.nextFlushAt?.toISOString()).toBe('2026-09-28T11:00:00.000Z');
+  });
+
+  it('never holds an event behind a 429 on day totals', async () => {
+    // The hourly limit of PUT /v1/sync/days is shared by all of the user's computers.
+    const { outbox, server, clock, storage } = setup();
+    await outbox.addDays('dev', [day('2026-09-27', 1)]);
+    server.answers.push(rateLimited(50 * 60_000));
+    expect(await outbox.flush()).toMatchObject({ status: 'retry_later', sent: 0, remaining: 1 });
+
+    // An event queued during the wait goes out at once; the day keeps waiting.
+    clock.advance(60_000);
+    await outbox.addEvent(event('ref-000000000001'));
+    const result = await outbox.flush();
+    expect(result).toMatchObject({ status: 'done', sent: 1, remaining: 1, error: null });
+    expect(result.nextFlushAt?.toISOString()).toBe('2026-09-28T10:50:00.000Z');
+    expect(server.calls).toEqual(['put:dev:1', 'event:ref-000000000001']);
+    expect(storage.state?.events).toEqual({ failures: 0, notBefore: null });
+
+    // A 5xx on the days in the same flush does not hold the event either.
+    clock.advance(50 * 60_000);
+    await outbox.addEvent(event('ref-000000000002', '2026-09-28T10:51:00.000Z'));
+    server.answers.push('ok', httpError(503, 'database_unavailable'));
+    expect(await outbox.flush()).toMatchObject({ status: 'retry_later', sent: 1, remaining: 1 });
+    expect(server.calls.slice(2)).toEqual(['event:ref-000000000002', 'put:dev:1']);
+  });
+
+  it('sends day totals after an event fails, and the event waits alone', async () => {
+    const { outbox, server, storage } = setup();
+    await outbox.addEvent(event('ref-000000000001'));
+    await outbox.addDays('dev', [day('2026-09-27', 1)]);
+    server.answers.push(offline(), 'ok');
+    const result = await outbox.flush();
+    expect(result).toMatchObject({ status: 'retry_later', sent: 1, remaining: 1 });
+    expect(result.error?.kind).toBe('offline');
+    expect(result.nextFlushAt?.toISOString()).toBe('2026-09-28T10:00:30.000Z');
+    expect(server.calls).toEqual(['event:ref-000000000001', 'put:dev:1']);
+    expect(storage.state?.events.failures).toBe(1);
+    expect(storage.state?.days.failures).toBe(0);
+  });
+
+  it('sends day totals at most once per interval unless forced', async () => {
+    const { outbox, server, clock } = setup();
+    // A busy computer: a new snapshot and a flush every minute for an hour.
+    for (let minute = 0; minute < 60; minute += 1) {
+      await outbox.addDays('dev', [day('2026-09-28', minute + 1)]);
+      const result = await outbox.flush();
+      expect(['done', 'waiting']).toContain(result.status);
+      if (result.status === 'waiting') expect(result.nextFlushAt).not.toBeNull();
+      clock.advance(60_000);
+    }
+    const puts = server.api.putDays.mock.calls.length;
+    expect(puts).toBe(60 / (CLOUD_OUTBOX.dayIntervalMs / 60_000));
+    // Each round carries the latest snapshot.
+    expect(server.days.get('dev:2026-09-28')).toBe(51);
+
+    // At 11:00 the snapshot queued at 10:59 goes out.
+    expect(await outbox.flush()).toMatchObject({ status: 'done', sent: 1, remaining: 0 });
+    expect(server.days.get('dev:2026-09-28')).toBe(60);
+
+    // An event still goes out at once while the days rest.
+    await outbox.addDays('dev', [day('2026-09-28', 61)]);
+    await outbox.addEvent(event('ref-000000000001', '2026-09-28T10:59:00.000Z'));
+    const mixed = await outbox.flush();
+    expect(mixed).toMatchObject({ status: 'done', sent: 1, remaining: 1 });
+    expect(mixed.nextFlushAt?.toISOString()).toBe('2026-09-28T11:10:00.000Z');
+
+    // «Sincronizar ahora» does not wait.
+    expect(await outbox.flush({ force: true })).toMatchObject({ status: 'done', sent: 1 });
+    expect(server.days.get('dev:2026-09-28')).toBe(61);
+    expect(server.api.putDays).toHaveBeenCalledTimes(puts + 2);
+  });
+
+  it('drops days before the sync window without a request', async () => {
+    const { outbox, server, clock } = setup();
+    const first = syncWindowStart(clock.now());
+    expect(first).toBe('2025-08-25');
+    await outbox.addDays('dev', [day(addDays(first, -1), 1), day(first, 1), day('2026-09-28', 1)]);
+    const result = await outbox.flush();
+    expect(result).toMatchObject({ status: 'done', sent: 2, dropped: 1, remaining: 0 });
+    expect(server.api.putDays.mock.calls.map(([b]) => b.days.map((d) => d.day))).toEqual([
+      [first, '2026-09-28'],
+    ]);
   });
 
   it('empties the queue on 401 (signed out elsewhere)', async () => {

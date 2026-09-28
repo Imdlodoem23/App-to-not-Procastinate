@@ -6,12 +6,13 @@
  * Postgres that expired, a host that never answers, a network blip) the server still starts:
  * /health reports `db: down` and /v1 answers 503 until a background retry manages to prepare
  * the database. SIGTERM/SIGINT close the server gracefully: new requests get 503, requests in
- * flight finish (a coach call included, so its quota reservation settles), then the pool
- * closes. The process exits as soon as that is done, or after `SHUTDOWN_TIMEOUT_MS` (the longest
- * coach call plus its settle margin, about 2 minutes) at the latest.
+ * flight finish (a coach call included, so its quota reservation settles, even when its client
+ * already left: app.ts waits for every running handler), then the pool closes. The process
+ * exits as soon as that is done, or after `SHUTDOWN_TIMEOUT_MS` (the longest coach call plus
+ * its settle margin, about 2 minutes) at the latest.
  */
 import { fileURLToPath } from 'node:url';
-import { SHUTDOWN_TIMEOUT_MS, startServer } from './boot';
+import { bootWarnings, SHUTDOWN_TIMEOUT_MS, startServer } from './boot';
 import { ConfigError, loadConfig } from './config';
 import type { Config } from './config';
 
@@ -36,7 +37,7 @@ async function main(): Promise<void> {
   const config = readConfig();
   if (process.argv.includes('--check')) {
     console.log('Configuration OK');
-    for (const warning of config.warnings) console.log(`Warning: ${warning}`);
+    for (const warning of bootWarnings(config)) console.log(`Warning: ${warning}`);
     return;
   }
 

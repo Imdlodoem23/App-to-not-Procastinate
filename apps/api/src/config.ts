@@ -32,8 +32,9 @@ export interface AiLimits {
   /** Input + output tokens per user per UTC day, all coach features together. */
   userDailyTokens: number;
   /**
-   * One user's spend cap per UTC day in US dollars, both buckets together, calls in flight
-   * counted at their worst case. Bounds one account's share of the global budget.
+   * One user's (and one mailbox's) spend cap per UTC day in US dollars, both buckets together,
+   * calls in flight counted at their worst case and a new call at its first hop's
+   * (docs/API.md §10.2). Bounds one account's share of the global budget.
    */
   userDailyBudgetUsd: number;
   /** Global spend cap per UTC day, in US dollars (0 turns the AI off). */
@@ -59,12 +60,23 @@ export interface Config {
     from: string;
     /** Global cap on sign-in code emails per UTC day (`SIGNIN_EMAILS_PER_DAY`). */
     signInCodesPerDay: number;
+    /**
+     * Global cap on partner emails (alerts and proposals) per UTC day
+     * (`PARTNER_EMAILS_PER_DAY_GLOBAL`). With `signInCodesPerDay` it must stay under the Resend
+     * plan's daily quota, so partner alerts can never use up the room for sign-in codes.
+     */
+    partnerEmailsPerDay: number;
   } | null;
   ai: {
     apiKey: string | null;
     /** Kill switch, `AI_ENABLED`. */
     enabled: boolean;
     models: { interpret: string; coach: string };
+    /**
+     * Server-side refusal fallbacks on the models that have them (`AI_REFUSAL_FALLBACKS`,
+     * default true; src/coach/anthropic.ts). False drops the beta without a code change.
+     */
+    refusalFallbacks: boolean;
     limits: AiLimits;
   };
   /** Non-fatal problems to log once at boot (never contains secret values). */
@@ -121,6 +133,7 @@ const EnvSchema = z.object({
   GOOGLE_CLIENT_SECRET: optional(z.string().min(1)),
   RESEND_API_KEY: optional(z.string().min(1)),
   SIGNIN_EMAILS_PER_DAY: intInRange(0, 100_000, 50),
+  PARTNER_EMAILS_PER_DAY_GLOBAL: intInRange(0, 100_000, 40),
   EMAIL_FROM: optional(
     z.string().regex(/^(?:[^<>\r\n]{1,64} <[^\s<>@]+@[^\s<>@]+>|[^\s<>@]+@[^\s<>@]+)$/, {
       message: 'must be an email address or «Name <address>»',
@@ -131,6 +144,7 @@ const EnvSchema = z.object({
   AI_ENABLED: bool(true),
   AI_MODEL_INTERPRET: modelId,
   AI_MODEL_COACH: modelId,
+  AI_REFUSAL_FALLBACKS: bool(true),
   AI_USER_DAILY_INTERPRET_REQUESTS: intInRange(0, 1000, 30),
   AI_USER_DAILY_COACH_REQUESTS: intInRange(0, 1000, 10),
   AI_USER_DAILY_TOKENS: intInRange(0, 10_000_000, 150_000),
@@ -209,6 +223,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
         resendApiKey: e.RESEND_API_KEY as string,
         from: e.EMAIL_FROM as string,
         signInCodesPerDay: e.SIGNIN_EMAILS_PER_DAY,
+        partnerEmailsPerDay: e.PARTNER_EMAILS_PER_DAY_GLOBAL,
       }
     : null;
 
@@ -230,6 +245,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
         interpret: e.AI_MODEL_INTERPRET ?? DEFAULT_AI_MODELS.interpret,
         coach: e.AI_MODEL_COACH ?? DEFAULT_AI_MODELS.coach,
       },
+      refusalFallbacks: e.AI_REFUSAL_FALLBACKS,
       limits: {
         userDailyInterpretRequests: e.AI_USER_DAILY_INTERPRET_REQUESTS,
         userDailyCoachRequests: e.AI_USER_DAILY_COACH_REQUESTS,
@@ -250,6 +266,11 @@ export interface RuntimeState {
   aiBudgetExhausted: boolean;
   /** The runtime kill switch in Postgres is on (`meta.ai_kill_switch`, src/coach/budget.ts). */
   aiKillSwitch?: boolean;
+  /**
+   * The coach's breaker is open after repeated account-level failures at the provider
+   * (src/coach/breaker.ts): reported as `kill_switch` until it closes.
+   */
+  aiBreakerOpen?: boolean;
   /** Today's sign-in emails reached `SIGNIN_EMAILS_PER_DAY` (src/auth/email-limits.ts). */
   emailBudgetExhausted?: boolean;
 }
@@ -274,12 +295,14 @@ export function deriveCapabilities(
   const needs = (extra: boolean): CloudCapability =>
     !accounts.enabled ? accounts : extra ? on : off('missing_key');
   const emailLogin = needs(Boolean(config.email));
+  const partnerEmails = needs(Boolean(config.email));
 
   let coach: CloudCapability;
   if (!accounts.enabled) coach = accounts;
   else if (!config.ai.apiKey) coach = off('missing_key');
-  else if (!config.ai.enabled || state.aiKillSwitch) coach = off('kill_switch');
-  else if (
+  else if (!config.ai.enabled || state.aiKillSwitch || state.aiBreakerOpen) {
+    coach = off('kill_switch');
+  } else if (
     config.ai.limits.globalDailyBudgetUsd <= 0 ||
     config.ai.limits.userDailyBudgetUsd <= 0 ||
     state.aiBudgetExhausted
@@ -293,7 +316,10 @@ export function deriveCapabilities(
     emailLogin: emailLogin.enabled && state.emailBudgetExhausted ? off('budget') : emailLogin,
     sync: accounts,
     social: accounts,
-    partnerEmails: needs(Boolean(config.email)),
+    partnerEmails:
+      partnerEmails.enabled && (config.email?.partnerEmailsPerDay ?? 0) <= 0
+        ? off('budget')
+        : partnerEmails,
     coach,
   };
   return caps;

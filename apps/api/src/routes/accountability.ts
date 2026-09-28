@@ -6,6 +6,9 @@
  *
  * - Weakening takes 24 hours (owner removes an active link, owner turns approval off);
  *   strengthening is immediate (adding a partner, approval on, undoing a pending removal).
+ * - Only partners whose link asks for approval answer an approval, and a denial wins: it
+ *   replaces an earlier approval until the deadline. An approval never shortens anything, so a
+ *   partner the owner added in a hurry (or controls) cannot lock out a stricter one's «no».
  * - Events carry a kind and a time only: never a reason, domain, task or note from the owner.
  *   One that no partner hears about is not stored at all.
  * - The owner's computer clock may be off: its instants only count relative to `sentAt` (its
@@ -25,7 +28,7 @@ import type {
   PostAccountabilityEventResponse,
 } from '@centrate/shared/cloud-api';
 import { ACCOUNTABILITY_KINDS, CLOUD_LIMITS } from '@centrate/shared/cloud-api';
-import { and, asc, count, desc, eq, gt, lte, or } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, lte, or } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../db/client';
@@ -139,6 +142,12 @@ async function ownLink(db: Db, id: string, userId: string, now: Date): Promise<P
   return rows[0];
 }
 
+interface PartnerEvent {
+  event: AccountabilityEventRow;
+  /** The caller's link to the event's owner (one per owner and partner). */
+  link: PartnerLinkRow;
+}
+
 /**
  * The event if the caller is a partner who hears about it: an active link to its owner (still
  * live, possibly ending) accepted no later than the event, and the event is within retention.
@@ -148,9 +157,9 @@ async function eventForPartner(
   eventId: string,
   partnerId: string,
   now: Date,
-): Promise<AccountabilityEventRow | null> {
+): Promise<PartnerEvent | null> {
   const rows = await db
-    .select({ event: accountabilityEvents })
+    .select({ event: accountabilityEvents, link: partnerLinks })
     .from(accountabilityEvents)
     .innerJoin(
       partnerLinks,
@@ -168,7 +177,20 @@ async function eventForPartner(
       ),
     )
     .limit(1);
-  return rows[0]?.event ?? null;
+  return rows[0] ?? null;
+}
+
+/**
+ * Whether the partner may still answer: their link asks for approval now, the deadline has not
+ * passed, and nobody denied (a denial is final; an approval can still turn into a denial).
+ */
+function canDecide(event: AccountabilityEventRow, link: PartnerLinkRow, now: Date): boolean {
+  return (
+    effectiveRequireApproval(link, now) &&
+    event.approvalDeadline !== null &&
+    event.approvalDeadline > now &&
+    (event.approvalStatus === 'pending' || event.approvalStatus === 'approved')
+  );
 }
 
 export const accountabilityRoutes: FastifyPluginAsync = async (app) => {
@@ -453,7 +475,10 @@ export const accountabilityRoutes: FastifyPluginAsync = async (app) => {
         ctx,
         db,
         request.log,
-        listeners.map((l) => l.partnerId),
+        listeners.map((l) => ({
+          userId: l.partnerId,
+          canDecide: effectiveRequireApproval(l.link, now),
+        })),
         { kind: inserted.kind, ownerName, occurredAt, approvalDeadline: deadline },
       );
       reply.status(201);
@@ -492,7 +517,7 @@ export const accountabilityRoutes: FastifyPluginAsync = async (app) => {
     const db = requireDb(ctx);
     const now = ctx.now();
     const rows = await db
-      .select({ event: accountabilityEvents })
+      .select({ event: accountabilityEvents, link: partnerLinks })
       .from(accountabilityEvents)
       .innerJoin(
         partnerLinks,
@@ -514,7 +539,7 @@ export const accountabilityRoutes: FastifyPluginAsync = async (app) => {
       db,
       rows.map((r) => r.event.ownerId),
     );
-    const items: InboxItem[] = rows.map(({ event }) => {
+    const items: InboxItem[] = rows.map(({ event, link }) => {
       const decidedByMe = event.decidedBy === me.userId;
       return {
         eventId: event.id,
@@ -524,12 +549,14 @@ export const accountabilityRoutes: FastifyPluginAsync = async (app) => {
         // The note is for the owner; other partners see only the outcome.
         approval: toApprovalState(event, now, decidedByMe),
         decidedByMe,
+        canDecide: canDecide(event, link, now),
       };
     });
     return { items };
   });
 
-  // First decision wins. Any partner with an active link to the owner may decide.
+  // Only partners whose link asks for approval decide. A denial wins: it replaces a pending or
+  // approved answer until the deadline, and nothing replaces a denial.
   app.post<{ Params: { id: string }; Body: ApprovalDecisionRequest; Reply: ApprovalState }>(
     '/accountability/events/:id/decision',
     { config: eventLimit },
@@ -543,21 +570,33 @@ export const accountabilityRoutes: FastifyPluginAsync = async (app) => {
       const status = body.decision === 'approve' ? 'approved' : 'denied';
       const now = ctx.now();
 
-      const event = await eventForPartner(db, id, me.userId, now);
-      if (!event) throw notFound();
-      const check = (row: AccountabilityEventRow): ApprovalState => {
-        if (row.approvalStatus === null) throw conflict('conflict', 'No approval was requested');
-        if (row.approvalStatus !== 'pending') {
-          // The same partner repeating the same answer (a retry) is not an error.
-          if (row.decidedBy === me.userId && row.approvalStatus === status) {
-            return toApprovalState(row, now, true) as ApprovalState;
-          }
+      const found = await eventForPartner(db, id, me.userId, now);
+      if (!found) throw notFound();
+      if (found.event.approvalStatus === null || !found.event.approvalDeadline) {
+        throw conflict('conflict', 'No approval was requested');
+      }
+      // A partner who is only told (approval off, or its 24 h switch-off applied) sees the
+      // outcome but does not answer.
+      if (!effectiveRequireApproval(found.link, now)) {
+        throw forbidden('This partner link does not ask for your approval');
+      }
+
+      /** Why this decision cannot apply to `row`, or the answer to a harmless repeat. */
+      const refuse = (row: AccountabilityEventRow): ApprovalState => {
+        // The same partner repeating the same answer (a retry) is not an error.
+        if (row.decidedBy === me.userId && row.approvalStatus === status) {
+          return toApprovalState(row, now, true) as ApprovalState;
+        }
+        if (
+          row.approvalStatus === 'denied' ||
+          (row.approvalStatus === 'approved' && status === 'approved')
+        ) {
           throw conflict('already_decided', 'Somebody already answered');
         }
+        // Still pending, or approved and this is a «no»: only the deadline stops it.
         throw conflict('deadline_passed', 'The deadline has passed');
       };
-      if (event.approvalStatus !== 'pending' || !event.approvalDeadline) return check(event);
-      if (event.approvalDeadline <= now) return check(event);
+      if (!canDecide(found.event, found.link, now)) return refuse(found.event);
 
       const [updated] = await db
         .update(accountabilityEvents)
@@ -565,16 +604,18 @@ export const accountabilityRoutes: FastifyPluginAsync = async (app) => {
         .where(
           and(
             eq(accountabilityEvents.id, id),
-            eq(accountabilityEvents.approvalStatus, 'pending'),
+            status === 'denied'
+              ? inArray(accountabilityEvents.approvalStatus, ['pending', 'approved'])
+              : eq(accountabilityEvents.approvalStatus, 'pending'),
             gt(accountabilityEvents.approvalDeadline, now),
           ),
         )
         .returning();
       if (updated) return toApprovalState(updated, now, true) as ApprovalState;
-      // Lost a race with another partner (or the deadline passed meanwhile).
+      // Already answered, the deadline passed, or another partner won a race.
       const again = await eventForPartner(db, id, me.userId, now);
       if (!again) throw notFound();
-      return check(again);
+      return refuse(again.event);
     },
   );
 };

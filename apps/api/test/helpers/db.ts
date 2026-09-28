@@ -31,6 +31,7 @@ export async function createTestDb(): Promise<TestDb> {
 /** Deletes every row except `meta` (keeps the server epoch). */
 export async function resetDb(db: Db): Promise<void> {
   await db.execute(sql`
-    TRUNCATE "user", "verification", "ai_global_daily", "rate_counters" RESTART IDENTITY CASCADE
+    TRUNCATE "user", "verification", "ai_global_daily", "ai_identity_daily", "rate_counters"
+      RESTART IDENTITY CASCADE
   `);
 }

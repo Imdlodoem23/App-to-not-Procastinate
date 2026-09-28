@@ -373,6 +373,50 @@ describe('with the real app', () => {
     expect(recent).not.toContain('data-event=');
   });
 
+  it('still offers «Rechazar» on an approval, and no form to a partner who is only told', async () => {
+    const owner = await createTestUser(t.db, { now: clock.now(), displayName: 'Dani' });
+    const quick = await createTestUser(t.db, { now: clock.now(), displayName: 'Eva' });
+    const told = await createTestUser(t.db, { now: clock.now(), displayName: 'Fer' });
+    const long = new Date('2026-09-01T00:00:00.000Z');
+    for (const p of [ana, quick, told]) await befriend(t.db, owner, p, long);
+    await linkPartners(t.db, owner, ana, { requireApproval: true, at: long });
+    await linkPartners(t.db, owner, quick, { requireApproval: true, at: long });
+    await linkPartners(t.db, owner, told, { requireApproval: false, at: long });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/accountability/events',
+      headers: owner.headers,
+      payload: {
+        clientRef: 'ref-000000000000001',
+        kind: 'emergency_requested',
+        occurredAt: NOW,
+        sentAt: NOW,
+        countdownEndsAt: '2026-09-28T10:15:00.000Z',
+      },
+    });
+    const { eventId } = res.json<{ eventId: string }>();
+    const decided = await app.inject({
+      method: 'POST',
+      url: `/v1/accountability/events/${eventId}/decision`,
+      headers: quick.headers,
+      payload: { decision: 'approve', note: null },
+    });
+    expect(decided.statusCode).toBe(200);
+
+    const [waiting] = (await get('/cuenta/avisos')).body.split('<h2>Recientes</h2>');
+    expect(waiting).toContain(`data-event="${eventId}"`);
+    expect(waiting).toContain(
+      'Lo aprobó otro compañero, pero aún puedes rechazarlo hasta las 12:14',
+    );
+    expect(waiting).toContain('data-decision="deny"');
+    expect(waiting).not.toContain('data-decision="approve"');
+
+    const toldPage = (await get('/cuenta/avisos', told)).body;
+    expect(toldPage).not.toContain('Esperan tu respuesta');
+    expect(toldPage).not.toContain('data-event=');
+    expect(toldPage).toContain('Lo aprobó otro compañero.');
+  });
+
   it('says so when there are no alerts', async () => {
     const res = await get('/cuenta/avisos');
     expect(res.statusCode).toBe(200);

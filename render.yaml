@@ -84,6 +84,9 @@ services:
   # Every feature stays off until its keys are filled in the dashboard: `sync: false` values are
   # asked for when the Blueprint is applied, and an empty one keeps its feature off
   # (GET /health lists what is on). PENDIENTE_PARA_MI.md says where each key comes from.
+  # A value the owner may need to change in an incident (the AI switch and budget) is
+  # `sync: false` with its default in apps/api/src/config.ts: a Blueprint sync (any push that
+  # touches this file) overwrites a declared `value`, silently undoing the dashboard change.
   # Free plan: the service sleeps after 15 min idle (a cold start takes about a minute) and the
   # free database expires; the app treats this API as optional (timeouts, offline outbox).
   # A replaced database loses every account: users connect again and the app re-uploads.
@@ -149,17 +152,22 @@ services:
         sync: false
       - key: EMAIL_FROM
         sync: false
-      # Global cap on sign-in code emails per UTC day, below the Resend plan's daily quota.
+      # Global caps per UTC day on sign-in codes and on partner emails; together they stay
+      # below the Resend plan's daily quota (free plan: about 100).
       - key: SIGNIN_EMAILS_PER_DAY
         value: '50'
+      - key: PARTNER_EMAILS_PER_DAY_GLOBAL
+        value: '40'
       # Coach (Claude API). The key lives only here, never in the app.
       - key: ANTHROPIC_API_KEY
         sync: false
-      # Global kill switch and daily spend cap in US dollars (0 turns the coach off).
+      # The coach's kill switch: set it to false and «Save and deploy» (about 1–2 minutes) to
+      # turn every AI endpoint off. Empty = true (on once ANTHROPIC_API_KEY is set).
       - key: AI_ENABLED
-        value: 'true'
+        sync: false
+      # Global AI spend cap per UTC day in US dollars; 0 turns the coach off. Empty = 2.
       - key: AI_GLOBAL_DAILY_BUDGET_USD
-        value: '2'
+        sync: false
 
 databases:
   # Free Postgres: 1 GB, one per workspace, expires 30 days after creation (then a grace
@@ -171,5 +179,7 @@ databases:
     region: frankfurt
     databaseName: centrate
     user: centrate
-    # Reachable only from Render's private network (the API), never from the internet.
+    # Reachable only from Render's private network (the API), never from the internet. For a
+    # one-off manual query (docs/API.md §10.2) add your own IP under the database's Access
+    # Control in the dashboard, connect with its External URL, then remove the IP again.
     ipAllowList: []

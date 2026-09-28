@@ -12,6 +12,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { API_VERSION, deriveCapabilities } from '../config';
 import { signInEmailBudgetExhausted } from '../auth/email-limits';
+import { isCoachBreakerOpen } from '../coach/breaker';
 import { readAiRuntime } from '../coach/budget';
 import { meta } from '../db/schema';
 
@@ -93,6 +94,8 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
         capabilities: deriveCapabilities(ctx.config, {
           dbUp: p.db === 'unconfigured' ? null : p.db === 'up',
           aiKillSwitch: p.aiKillSwitch,
+          // In memory, so read now rather than through the cached probe.
+          aiBreakerOpen: isCoachBreakerOpen(ctx.coachModel, ctx.now()),
           aiBudgetExhausted: p.aiBudgetExhausted,
           emailBudgetExhausted: p.emailBudgetExhausted,
         }),

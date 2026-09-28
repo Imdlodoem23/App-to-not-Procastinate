@@ -2,8 +2,9 @@
  * Coach through the Claude API (owner: COACH). docs/API.md §10. The Anthropic key never
  * leaves the backend; no prompt or answer text is stored or logged, only token counters.
  *
- * Every route needs the `coach` capability (503 otherwise) and the caller's `sharing.coach`
- * switch (403 consent_required), except GET /coach/quota, which needs only the capability.
+ * Every route needs the `coach` capability (503 otherwise, the runtime switches included: the
+ * database kill switch and the breaker) and the caller's `sharing.coach` switch (403
+ * consent_required), except GET /coach/quota, which needs only the capability.
  */
 import type {
   CoachQuotaResponse,
@@ -19,12 +20,6 @@ import type {
 import { daysBetween, isoWeekRange, localDayIn } from '@centrate/shared/cloud-api';
 import type { FastifyPluginAsync } from 'fastify';
 import { interpretAnswer, interpretUserMessage, wallClock } from '../coach/interpret';
-import {
-  INTERPRET_SYSTEM,
-  SPLIT_TASK_SYSTEM,
-  STUDY_PLAN_SYSTEM,
-  WEEKLY_SUMMARY_SYSTEM,
-} from '../coach/prompts';
 import { quotaLeft } from '../coach/quota';
 import {
   InterpretOutput,
@@ -36,7 +31,7 @@ import {
   WeeklySummaryOutput,
   WeeklySummarySchema,
 } from '../coach/schemas';
-import { callCoach, coachGate, incompleteAnswer } from '../coach/service';
+import { callCoach, coachGate, incompleteAnswer, requireCoachRunning } from '../coach/service';
 import { splitTaskAnswer, splitTaskUserMessage } from '../coach/split-task';
 import {
   STUDY_EXAM_MAX_DAYS_AHEAD,
@@ -60,7 +55,9 @@ export const coachRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Reply: CoachQuotaResponse }>('/coach/quota', async (request) => {
     requireFeature(ctx, 'coach');
     const me = requireUser(request);
-    const left = await quotaLeft(requireDb(ctx), ctx.config, me.userId, ctx.now());
+    const db = requireDb(ctx);
+    await requireCoachRunning(ctx, db);
+    const left = await quotaLeft(db, ctx.config, me.userId, ctx.now());
     return { ...left, resetsAt: left.resetsAt.toISOString() };
   });
 
@@ -77,7 +74,6 @@ export const coachRoutes: FastifyPluginAsync = async (app) => {
       }
       const intent = await callCoach(ctx, request.log, me, gate.model, {
         endpoint: 'interpret',
-        system: INTERPRET_SYSTEM,
         user: interpretUserMessage(body.text, at, body.timeZone),
         schema: InterpretOutput,
       });
@@ -94,7 +90,6 @@ export const coachRoutes: FastifyPluginAsync = async (app) => {
       const body = parseBody(SplitTaskSchema, request);
       const output = await callCoach(ctx, request.log, me, gate.model, {
         endpoint: 'split-task',
-        system: SPLIT_TASK_SYSTEM,
         user: splitTaskUserMessage(body),
         schema: SplitTaskOutput,
       });
@@ -128,7 +123,6 @@ export const coachRoutes: FastifyPluginAsync = async (app) => {
       }
       const output = await callCoach(ctx, request.log, me, gate.model, {
         endpoint: 'study-plan',
-        system: STUDY_PLAN_SYSTEM,
         user: studyPlanUserMessage(body, planWindow.days, planWindow.truncated),
         schema: StudyPlanOutput,
       });
@@ -184,7 +178,6 @@ export const coachRoutes: FastifyPluginAsync = async (app) => {
 
       const output = await callCoach(ctx, request.log, me, gate.model, {
         endpoint: 'weekly-summary',
-        system: WEEKLY_SUMMARY_SYSTEM,
         user: weeklyUserMessage(input),
         schema: WeeklySummaryOutput,
       });

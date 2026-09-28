@@ -62,7 +62,8 @@ Todo esto es opcional. Sin ello, la app funciona al 100 % sin cuenta y sin inter
 6. **Coach con IA** (`ANTHROPIC_API_KEY`):
    1. En <https://console.anthropic.com> → **Settings → API keys → Create key** → `ANTHROPIC_API_KEY`. La clave solo vive en el servidor, nunca dentro de la app.
    2. Pon un límite de gasto mensual en **Settings → Limits** de la consola de Anthropic.
-   3. El servidor ya limita el uso por usuario y día, y el gasto total a `AI_GLOBAL_DAILY_BUDGET_USD` (2 $ al día por defecto). `AI_ENABLED=false` apaga el coach al momento.
+   3. El servidor ya limita el uso por usuario y día, y el gasto total a `AI_GLOBAL_DAILY_BUDGET_USD` (2 $ al día por defecto; déjalo vacío para usar ese valor).
+   4. **Para apagar el coach** (por ejemplo, si el gasto se dispara): **centrate-api → Environment** → pon `AI_ENABLED` a `false` → **Save and deploy**. Tarda 1–2 minutos. Para encenderlo de nuevo, pon `true` o déjalo vacío. Render respeta lo que pongas ahí aunque cambie el Blueprint.
 7. **`APP_ORIGINS`**: déjalo vacío (la app de escritorio no lo necesita).
 8. **Comprobar**: abre `https://centrate-api.onrender.com/health` (con tu URL). En `capabilities` verás `"enabled": true` en lo que ya funciona y, en lo demás, el motivo (`missing_key` = falta una clave).
 

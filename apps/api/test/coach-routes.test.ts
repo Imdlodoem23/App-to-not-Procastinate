@@ -7,6 +7,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { Writable } from 'node:stream';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { BREAKER_OPEN_MS } from '../src/coach/breaker';
 import { AI_KILL_SWITCH_KEY, costMicroUsd, tokensOf, worstCaseAttempts } from '../src/coach/budget';
 import { CoachModelError } from '../src/coach/model';
 import {
@@ -15,10 +16,18 @@ import {
   STUDY_PLAN_SYSTEM,
   WEEKLY_SUMMARY_SYSTEM,
 } from '../src/coach/prompts';
-import { anthropicUserHash, reserve, settle } from '../src/coach/quota';
+import { largestWorstCase } from '../src/coach/endpoints';
+import { aiIdentityHmac, anthropicUserHash, reserve, settle } from '../src/coach/quota';
 import { ENDPOINTS, estimateInputTokens, SETTLE_MARGIN_MS } from '../src/coach/service';
 import type { Config } from '../src/config';
-import { aiGlobalDaily, aiUsage, dailyStats, devices, meta } from '../src/db/schema';
+import {
+  aiGlobalDaily,
+  aiIdentityDaily,
+  aiUsage,
+  dailyStats,
+  devices,
+  meta,
+} from '../src/db/schema';
 import {
   buildTestApp,
   createTestUser,
@@ -201,6 +210,7 @@ describe('coach routes', () => {
       expect(quota.json<CoachQuotaResponse>()).toEqual({
         interpret: { requestsLeft: 30 },
         coach: { requestsLeft: 10, tokensLeft: 150_000 },
+        available: { interpret: true, splitTask: true, studyPlan: true, weeklySummary: true },
         resetsAt: '2026-09-29T00:00:00.000Z',
       });
       expect(model.calls).toHaveLength(0);
@@ -221,6 +231,10 @@ describe('coach routes', () => {
       expect(res.json().error).toMatchObject({ code: 'feature_disabled', reason: 'kill_switch' });
       health = (await app.inject({ method: 'GET', url: '/health' })).json<HealthResponse>();
       expect(health.capabilities.coach).toEqual({ enabled: false, reason: 'kill_switch' });
+      // The quota says the same: the capability is off.
+      const quota = await app.inject({ method: 'GET', url: '/v1/coach/quota', headers: u.headers });
+      expect(quota.statusCode).toBe(503);
+      expect(quota.json().error).toMatchObject({ code: 'feature_disabled', reason: 'kill_switch' });
       expect(model.calls).toHaveLength(0);
 
       await t.db.delete(meta).where(eq(meta.key, AI_KILL_SWITCH_KEY));
@@ -367,9 +381,10 @@ describe('coach routes', () => {
       expect(res.statusCode).toBe(500);
       expect(res.json().error.code).toBe('internal_error');
 
-      // Every request counted; tokens settled or released; nothing held.
+      // The three answers stay counted; the three failures the provider certainly did not
+      // run (429, 401 and 400 before the stream) give their request back. Nothing held.
       const [row] = await usageRows(u.userId);
-      expect(row?.requests).toBe(6);
+      expect(row?.requests).toBe(3);
       expect(row?.reservedTokens).toBe(0);
       expect(row?.outputTokens).toBe(0 + 4000 + 400);
       const [global] = await t.db.select().from(aiGlobalDaily);
@@ -550,10 +565,12 @@ describe('coach routes', () => {
       expect(model.calls).toHaveLength(3);
     });
 
-    it('refuses a call whose worst case does not fit in the daily tokens', async () => {
-      // A split task (worst case about 17 000 tokens with the fallback hop) fits; a study plan
-      // (about 30 000) does not.
-      await start({ AI_USER_DAILY_TOKENS: '25000' });
+    it('refuses a call whose first hop does not fit in the daily tokens', async () => {
+      // The user's caps need room for the first hop only: a split task (about 6 400 tokens:
+      // its input as cache writes plus 4 000 of output) fits; after it (1 600 tokens settled)
+      // a study plan (about 10 500) does not.
+      await start({ AI_USER_DAILY_TOKENS: '11000' });
+      expect(largestWorstCase(config, 'split-task').capTokens).toBeLessThan(11_000 - 1600);
       const u = await person();
       model.script = () => ok(splitOutput);
       expect((await post(u, '/v1/coach/split-task', splitBody)).statusCode).toBe(200);
@@ -561,9 +578,9 @@ describe('coach routes', () => {
       expect(plan.statusCode).toBe(429);
       expect(plan.json().error.code).toBe('quota_exceeded');
       const quota = await app.inject({ method: 'GET', url: '/v1/coach/quota', headers: u.headers });
-      expect(quota.json<CoachQuotaResponse>().coach).toEqual({
-        requestsLeft: 9,
-        tokensLeft: 25_000 - 1600,
+      expect(quota.json<CoachQuotaResponse>()).toMatchObject({
+        coach: { requestsLeft: 9, tokensLeft: 11_000 - 1600 },
+        available: { interpret: true, splitTask: true, studyPlan: false, weeklySummary: true },
       });
     });
 
@@ -573,14 +590,19 @@ describe('coach routes', () => {
         request.feature === 'interpret'
           ? ok(interpretOutput, [attempt({ model: 'claude-haiku-4-5' })])
           : ok(splitOutput);
-      // 0.30 USD already spent today: a split task's worst case (about 0.25 USD with the
-      // fallback hop) no longer fits in the default 0.50 USD, a phrase (about 0.01) does.
+      // 0.40 USD already spent today: a split task's first hop (about 0.11 USD) no longer fits
+      // in the default 0.50 USD, a phrase (about 0.01) does.
       await t.db.insert(aiUsage).values({
         userId: u.userId,
         day: '2026-09-28',
         feature: 'coach',
         requests: 1,
-        costMicroUsd: 300_000,
+        costMicroUsd: 400_000,
+      });
+      const quota = await app.inject({ method: 'GET', url: '/v1/coach/quota', headers: u.headers });
+      expect(quota.json<CoachQuotaResponse>()).toMatchObject({
+        coach: { requestsLeft: 9 },
+        available: { interpret: true, splitTask: false, studyPlan: false, weeklySummary: false },
       });
       const split = await post(u, '/v1/coach/split-task', splitBody);
       expect(split.statusCode).toBe(429);
@@ -593,6 +615,170 @@ describe('coach routes', () => {
       // Someone else still has their whole share.
       const other = await person();
       expect((await post(other, '/v1/coach/split-task', splitBody)).statusCode).toBe(200);
+    });
+
+    const planOutput = {
+      days: [{ day: '2026-09-28', items: [{ topic: 'Derivadas', kind: 'learn', minutes: 50 }] }],
+      advice: ['Repasa un poco cada día.'],
+    };
+    /** What an ordinary split task bills on Opus 5: about 0.045 USD. */
+    const typicalSplit = attempt({ cacheWriteTokens: 900, inputTokens: 300, outputTokens: 1500 });
+    /** An ordinary study plan: about 0.15 USD. */
+    const typicalPlan = attempt({ cacheWriteTokens: 3000, inputTokens: 500, outputTokens: 5000 });
+
+    it('keeps study plans within reach after an ordinary day (the fallback hop is not capped)', async () => {
+      const u = await person();
+      model.script = (request) =>
+        request.maxTokens === ENDPOINTS['study-plan'].maxTokens
+          ? ok(planOutput, [typicalPlan])
+          : ok(splitOutput, [typicalSplit]);
+      // A study plan's whole worst case (about 0.49 USD with the fallback hop) would not fit
+      // next to one split task under the default 0.50 USD; its first hop (about 0.21) does.
+      const worst = largestWorstCase(config, 'study-plan');
+      expect(worst.costMicroUsd).toBeGreaterThan(500_000 - costMicroUsd([typicalSplit]));
+      expect(worst.capMicroUsd).toBeLessThan(250_000);
+
+      expect((await post(u, '/v1/coach/split-task', splitBody)).statusCode).toBe(200);
+      expect((await post(u, '/v1/coach/study-plan', planBody)).statusCode).toBe(200);
+      expect((await post(u, '/v1/coach/study-plan', planBody)).statusCode).toBe(200);
+      const quota = async () =>
+        (
+          await app.inject({ method: 'GET', url: '/v1/coach/quota', headers: u.headers })
+        ).json<CoachQuotaResponse>();
+      expect(await quota()).toMatchObject({
+        coach: { requestsLeft: 7 },
+        available: { interpret: true, splitTask: true, studyPlan: false, weeklySummary: true },
+      });
+      // Spent about 0.34 USD: the quota says a third plan will not fit, and it does not.
+      const third = await post(u, '/v1/coach/study-plan', planBody);
+      expect(third.statusCode).toBe(429);
+      expect(third.json().error.code).toBe('quota_exceeded');
+      expect((await post(u, '/v1/coach/split-task', splitBody)).statusCode).toBe(200);
+      const [row] = await usageRows(u.userId);
+      expect(row?.costMicroUsd).toBe(
+        2 * costMicroUsd([typicalSplit]) + 2 * costMicroUsd([typicalPlan]),
+      );
+    });
+
+    it('holds the whole worst case until the call settles, checking only the first hop', async () => {
+      const u = await person();
+      const cfg = testConfig(env());
+      await t.db.insert(aiUsage).values({
+        userId: u.userId,
+        day: '2026-09-28',
+        feature: 'interpret',
+        requests: 1,
+        costMicroUsd: 200_000,
+      });
+      // 0.20 + 0.49 is over the 0.50 cap, 0.20 + 0.22 is not.
+      const r = await reserve(t.db, cfg, {
+        userId: u.userId,
+        feature: 'coach',
+        now: clock.now(),
+        tokens: 30_000,
+        costMicroUsd: 490_000,
+        capTokens: 11_000,
+        capMicroUsd: 220_000,
+        holdMs: 90_000,
+      });
+      if (!r.ok) throw new Error(`expected a reservation, got ${r.reason}`);
+      const coach = (await usageRows(u.userId)).find((x) => x.feature === 'coach');
+      expect(coach).toMatchObject({ reservedTokens: 30_000, reservedMicroUsd: 490_000 });
+      expect((await t.db.select().from(aiGlobalDaily))[0]?.reservedMicroUsd).toBe(490_000);
+      // A first hop above the cap on its own can never run.
+      expect(
+        await reserve(t.db, cfg, {
+          userId: u.userId,
+          feature: 'interpret',
+          now: clock.now(),
+          tokens: 100,
+          costMicroUsd: 10,
+          capMicroUsd: 500_001,
+          holdMs: 20_000,
+        }),
+      ).toEqual({ ok: false, reason: 'budget' });
+      await settle(t.db, r.reservation, [typicalPlan], costMicroUsd([typicalPlan]));
+      expect((await t.db.select().from(aiGlobalDaily))[0]).toMatchObject({
+        reservedMicroUsd: 0,
+        costMicroUsd: costMicroUsd([typicalPlan]),
+      });
+    });
+
+    it('counts the day per mailbox: a new account on the same address starts where it was', async () => {
+      await start({ AI_USER_DAILY_COACH_REQUESTS: '2' });
+      model.script = () => ok(splitOutput, [typicalSplit]);
+      const ana = await person({ email: 'ana.garcia@gmail.com' });
+      expect((await post(ana, '/v1/coach/split-task', splitBody)).statusCode).toBe(200);
+      expect((await post(ana, '/v1/coach/split-task', splitBody)).statusCode).toBe(200);
+      expect((await post(ana, '/v1/coach/split-task', splitBody)).statusCode).toBe(429);
+
+      const deleted = await app.inject({
+        method: 'DELETE',
+        url: '/v1/me',
+        headers: ana.headers,
+        payload: { confirm: 'BORRAR' },
+      });
+      expect(deleted.statusCode).toBe(204);
+      expect(await usageRows(ana.userId)).toHaveLength(0);
+
+      // The same mailbox, as the same address or another spelling of it: still used up.
+      for (const email of ['ana.garcia@gmail.com', 'AnaGarcia+coach@googlemail.com']) {
+        const again = await person({ email });
+        const res = await post(again, '/v1/coach/split-task', splitBody);
+        expect(res.statusCode, email).toBe(429);
+        expect(res.json().error).toMatchObject({
+          code: 'quota_exceeded',
+          resetsAt: '2026-09-29T00:00:00.000Z',
+        });
+        const quota = await app.inject({
+          method: 'GET',
+          url: '/v1/coach/quota',
+          headers: again.headers,
+        });
+        expect(quota.json<CoachQuotaResponse>()).toMatchObject({
+          coach: { requestsLeft: 0, tokensLeft: 150_000 - 2 * tokensOf([typicalSplit]) },
+          available: { interpret: true, splitTask: false, studyPlan: false },
+        });
+      }
+      expect(model.calls).toHaveLength(2);
+      // The mailbox's counters hold numbers and an HMAC, never the address or an account id.
+      const rows = await t.db.select().from(aiIdentityDaily);
+      expect(rows).toEqual([
+        {
+          day: '2026-09-28',
+          identityHmac: aiIdentityHmac(config.auth?.secret ?? '', 'ana.garcia@gmail.com'),
+          feature: 'coach',
+          requests: 2,
+          tokens: 2 * tokensOf([typicalSplit]),
+          costMicroUsd: 2 * costMicroUsd([typicalSplit]),
+        },
+      ]);
+      const stored = JSON.stringify(rows);
+      for (const secret of ['ana.garcia@gmail.com', 'anagarcia@gmail.com', ana.userId]) {
+        expect(stored).not.toContain(secret);
+      }
+
+      // Another mailbox has its own day, and the next UTC day starts over.
+      expect((await post(await person(), '/v1/coach/split-task', splitBody)).statusCode).toBe(200);
+      clock.set('2026-09-29T00:00:01.000Z');
+      const tomorrow = await person({ email: 'ana.garcia+manana@gmail.com' });
+      expect((await post(tomorrow, '/v1/coach/split-task', splitBody)).statusCode).toBe(200);
+    });
+
+    it('spends the mailbox’s cap once across its accounts', async () => {
+      const first = await person({ email: 'luis@example.com' });
+      const second = await person({ email: 'Luis+2@Example.com' });
+      model.script = () => ok(splitOutput, [typicalPlan]);
+      // Each call settles about 0.15 USD; a split task needs about 0.11 of room.
+      let accepted = 0;
+      for (const who of [first, second, first, second]) {
+        const res = await post(who, '/v1/coach/split-task', splitBody);
+        if (res.statusCode === 200) accepted += 1;
+        else expect(res.json().error.code).toBe('quota_exceeded');
+      }
+      expect(accepted).toBe(3);
+      const [row] = await t.db.select().from(aiIdentityDaily);
+      expect(row?.costMicroUsd).toBe(3 * costMicroUsd([typicalPlan]));
     });
 
     it('lets exactly N of many parallel calls through', async () => {
@@ -827,6 +1013,197 @@ describe('coach routes', () => {
       clock.advance(60_000);
       health = (await app.inject({ method: 'GET', url: '/health' })).json<HealthResponse>();
       expect(health.capabilities.coach).toEqual({ enabled: false, reason: 'budget' });
+    });
+
+    const health = async () =>
+      (await app.inject({ method: 'GET', url: '/health' })).json<HealthResponse>().capabilities
+        .coach;
+    const quotaOf = async (who: TestUser) =>
+      (
+        await app.inject({ method: 'GET', url: '/v1/coach/quota', headers: who.headers })
+      ).json<CoachQuotaResponse>();
+
+    it('answers 429 rate_limited, not budget, while only calls in flight fill the global budget', async () => {
+      const plan = largestWorstCase(config, 'study-plan');
+      const holdMs = ENDPOINTS['study-plan'].deadlineMs + SETTLE_MARGIN_MS;
+      // Four other people each have a study plan in flight: their whole worst cases (about
+      // 0.50 USD each, fallback hop included) hold nearly all of the default 2 USD.
+      const held = [];
+      for (let i = 0; i < 4; i += 1) {
+        const other = await person();
+        const r = await reserve(t.db, config, {
+          userId: other.userId,
+          feature: 'coach',
+          now: clock.now(),
+          tokens: plan.tokens,
+          costMicroUsd: plan.costMicroUsd,
+          capTokens: plan.capTokens,
+          capMicroUsd: plan.capMicroUsd,
+          holdMs,
+        });
+        if (!r.ok) throw new Error(`expected a reservation, got ${r.reason}`);
+        held.push(r.reservation);
+      }
+      const split = largestWorstCase(config, 'split-task').costMicroUsd;
+      expect(4 * plan.costMicroUsd + split).toBeGreaterThan(2_000_000);
+
+      const u = await person();
+      model.script = () => ok(splitOutput);
+      let res = await post(u, '/v1/coach/split-task', splitBody);
+      // Retryable: the holds come back within their calls' deadlines. Not 503 budget, which
+      // the app reads as «spent until 00:00 UTC».
+      expect(res.statusCode).toBe(429);
+      expect(res.json().error).toMatchObject({ code: 'rate_limited', retryAfterSeconds: 30 });
+      expect(res.headers['retry-after']).toBe('30');
+      expect(model.calls).toHaveLength(0);
+      expect(await usageRows(u.userId)).toHaveLength(0);
+      // Nothing is spent yet: the coach stays on and every action stays available.
+      expect(await health()).toEqual({ enabled: true, reason: null });
+      expect((await quotaOf(u)).available).toEqual({
+        interpret: true,
+        splitTask: true,
+        studyPlan: true,
+        weeklySummary: true,
+      });
+
+      // Near the end of the holds the wait is until the first one ends.
+      clock.advance(holdMs - 12_000);
+      res = await post(u, '/v1/coach/split-task', splitBody);
+      expect(res.json().error).toMatchObject({ code: 'rate_limited', retryAfterSeconds: 12 });
+
+      // One plan settles at what it really cost: there is room again.
+      const [first] = held;
+      if (!first) throw new Error('unreachable');
+      await settle(t.db, first, [typicalPlan], costMicroUsd([typicalPlan]));
+      expect((await post(u, '/v1/coach/split-task', splitBody)).statusCode).toBe(200);
+      const [global] = await t.db.select().from(aiGlobalDaily);
+      expect(global).toMatchObject({
+        requests: 5,
+        reservedMicroUsd: 3 * plan.costMicroUsd,
+        costMicroUsd: costMicroUsd([typicalPlan]) + costMicroUsd([attempt()]),
+      });
+    });
+
+    it('answers 503 budget per endpoint once settled spend leaves it no room, as the quota says', async () => {
+      const u = await person();
+      model.script = () => ok(splitOutput);
+      // Settled today: exactly the room for a split task's largest whole worst case (about
+      // 0.26 USD), less than a weekly summary's (a little more) or any study plan's (0.4+).
+      const split = largestWorstCase(config, 'split-task').costMicroUsd;
+      expect(largestWorstCase(config, 'weekly-summary').costMicroUsd).toBeGreaterThan(split);
+      await t.db
+        .insert(aiGlobalDaily)
+        .values({ day: '2026-09-28', costMicroUsd: 2_000_000 - split });
+
+      expect((await quotaOf(u)).available).toEqual({
+        interpret: true,
+        splitTask: true,
+        studyPlan: false,
+        weeklySummary: false,
+      });
+      expect(await health()).toEqual({ enabled: true, reason: null });
+      const res = await post(u, '/v1/coach/study-plan', planBody);
+      expect(res.statusCode).toBe(503);
+      expect(res.json().error).toMatchObject({
+        code: 'feature_disabled',
+        feature: 'coach',
+        reason: 'budget',
+      });
+      expect(model.calls).toHaveLength(0);
+      expect((await post(u, '/v1/coach/split-task', splitBody)).statusCode).toBe(200);
+
+      // Settled spend at the budget: nothing fits, and /health turns the coach off.
+      await t.db
+        .update(aiGlobalDaily)
+        .set({ costMicroUsd: 2_000_000 })
+        .where(eq(aiGlobalDaily.day, '2026-09-28'));
+      expect((await quotaOf(u)).available).toEqual({
+        interpret: false,
+        splitTask: false,
+        studyPlan: false,
+        weeklySummary: false,
+      });
+      clock.advance(60_000);
+      expect(await health()).toEqual({ enabled: false, reason: 'budget' });
+    });
+  });
+
+  describe('breaker', () => {
+    const health = async () =>
+      (await app.inject({ method: 'GET', url: '/health' })).json<HealthResponse>().capabilities
+        .coach;
+    const quota = (who: TestUser) =>
+      app.inject({ method: 'GET', url: '/v1/coach/quota', headers: who.headers });
+    const fail = (reason: 'misconfigured' | 'rejected' | 'unavailable', status: number) => () => {
+      throw new CoachModelError(reason, 'APIError', status);
+    };
+
+    it('switches the coach off for 15 minutes after repeated account failures', async () => {
+      const [a, b, c] = [await person(), await person(), await person()];
+      if (!a || !b || !c) throw new Error('unreachable');
+      // No credit left (402): every call fails the same way until the owner acts.
+      model.script = fail('misconfigured', 402);
+      for (const who of [a, b]) {
+        const res = await post(who, '/v1/coach/split-task', splitBody);
+        expect(res.statusCode).toBe(503);
+        expect(res.json().error.code).toBe('coach_unavailable');
+      }
+      expect(await health()).toEqual({ enabled: true, reason: null });
+      expect((await post(c, '/v1/coach/interpret', interpretBody())).statusCode).toBe(503);
+      expect(logs.join('')).toContain('coach breaker open');
+
+      // Open: /health says so, and no route calls the model.
+      expect(await health()).toEqual({ enabled: false, reason: 'kill_switch' });
+      const off = { code: 'feature_disabled', feature: 'coach', reason: 'kill_switch' };
+      let res = await post(a, '/v1/coach/study-plan', planBody);
+      expect(res.statusCode).toBe(503);
+      expect(res.json().error).toMatchObject(off);
+      res = await quota(a);
+      expect(res.statusCode).toBe(503);
+      expect(res.json().error).toMatchObject(off);
+      expect(model.calls).toHaveLength(3);
+      // None of it cost anyone a request.
+      for (const who of [a, b, c]) {
+        for (const row of await usageRows(who.userId)) expect(row.requests).toBe(0);
+      }
+
+      // 15 minutes later one call goes through; one more failure opens it again at once.
+      clock.advance(BREAKER_OPEN_MS);
+      expect(await health()).toEqual({ enabled: true, reason: null });
+      expect((await post(a, '/v1/coach/split-task', splitBody)).statusCode).toBe(503);
+      expect(model.calls).toHaveLength(4);
+      expect(await health()).toEqual({ enabled: false, reason: 'kill_switch' });
+
+      // Once the owner fixed it, an answer ends the streak: one more failure does not open it.
+      clock.advance(BREAKER_OPEN_MS);
+      model.script = () => ok(splitOutput);
+      expect((await post(a, '/v1/coach/split-task', splitBody)).statusCode).toBe(200);
+      model.script = fail('misconfigured', 401);
+      expect((await post(b, '/v1/coach/split-task', splitBody)).statusCode).toBe(503);
+      expect(await health()).toEqual({ enabled: true, reason: null });
+      expect((await quota(b)).statusCode).toBe(200);
+    });
+
+    it('counts one rejected call per user, and passing outages not at all', async () => {
+      const [a, b, c] = [await person(), await person(), await person()];
+      if (!a || !b || !c) throw new Error('unreachable');
+      // A 400 may come from the request itself: one person alone cannot open the breaker.
+      model.script = fail('rejected', 400);
+      for (let i = 0; i < 4; i += 1) {
+        const res = await post(a, '/v1/coach/split-task', splitBody);
+        expect(res.statusCode).toBe(500);
+        expect(res.json().error.code).toBe('internal_error');
+      }
+      expect(await health()).toEqual({ enabled: true, reason: null });
+      // An overloaded API neither adds to the streak nor ends it.
+      model.script = fail('unavailable', 529);
+      expect((await post(b, '/v1/coach/split-task', splitBody)).statusCode).toBe(503);
+      model.script = fail('rejected', 400);
+      expect((await post(b, '/v1/coach/split-task', splitBody)).statusCode).toBe(500);
+      expect(await health()).toEqual({ enabled: true, reason: null });
+      // A third person hits it too: it is the account, not a request.
+      expect((await post(c, '/v1/coach/split-task', splitBody)).statusCode).toBe(500);
+      expect(await health()).toEqual({ enabled: false, reason: 'kill_switch' });
     });
   });
 

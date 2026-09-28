@@ -8,9 +8,19 @@ const CONTROLS_RE =
   // eslint-disable-next-line no-control-regex
   /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g;
 
-/** Collapses whitespace (newlines included) and removes invisible or control characters. */
+/**
+ * Half of a UTF-16 surrogate pair on its own. JSON can carry it (`"\ud800"`) but it is not
+ * text, and the Messages API can reject a body holding one with a 400: left in, a user could
+ * make their own call fail as `rejected` at will (see the breaker, src/coach/breaker.ts).
+ */
+const LONE_SURROGATE_RE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
+
+/**
+ * Collapses whitespace (newlines included) and removes invisible or control characters and
+ * lone surrogates.
+ */
 export function oneLine(text: string): string {
-  return text.replace(CONTROLS_RE, '').replace(/\s+/g, ' ').trim();
+  return text.replace(LONE_SURROGATE_RE, '').replace(CONTROLS_RE, '').replace(/\s+/g, ' ').trim();
 }
 
 /**

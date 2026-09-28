@@ -7,6 +7,7 @@ import { readMeta } from '../src/db/meta';
 import {
   accountabilityEvents,
   aiGlobalDaily,
+  aiIdentityDaily,
   aiUsage,
   appAuthCodes,
   dailyStats,
@@ -69,9 +70,10 @@ describe('runJanitor', () => {
       { userId: a.userId, state: 'focus', since: at(-1), endsAt: null, expiresAt: at(-0.001) },
       { userId: b.userId, state: 'focus', since: at(-1), endsAt: null, expiresAt: at(0.001) },
     ]);
+    const code = { userId: a.userId, challenge: 'x', port: 5000, authenticatedAt: at(-0.01) };
     await db.insert(appAuthCodes).values([
-      { codeHash: 'old', userId: a.userId, challenge: 'x', port: 5000, expiresAt: at(-0.001) },
-      { codeHash: 'new', userId: a.userId, challenge: 'x', port: 5000, expiresAt: at(0.001) },
+      { ...code, codeHash: 'old', expiresAt: at(-0.001) },
+      { ...code, codeHash: 'new', expiresAt: at(0.001) },
     ]);
     await db.insert(verification).values([
       { id: 'v-old', identifier: 'sign-in-otp-a@x', value: 'h', expiresAt: at(-0.001) },
@@ -139,6 +141,11 @@ describe('runJanitor', () => {
       { userId: a.userId, day: '2026-06-30', feature: 'coach' },
     ]);
     await db.insert(aiGlobalDaily).values([{ day: '2026-06-29' }, { day: '2026-06-30' }]);
+    // Per-mailbox AI use: only today's row stays.
+    await db.insert(aiIdentityDaily).values([
+      { day: '2026-09-27', identityHmac: 'mailbox-hmac', feature: 'coach', requests: 3 },
+      { day: '2026-09-28', identityHmac: 'mailbox-hmac', feature: 'coach', requests: 1 },
+    ]);
     const [device] = await db
       .insert(devices)
       .values({
@@ -176,6 +183,7 @@ describe('runJanitor', () => {
       aiUsage: 1,
       aiGlobalDaily: 1,
       aiDeadHolds: 0,
+      aiIdentityDaily: 1,
       dailyStats: 1,
       userNames: 1,
     });
@@ -202,6 +210,7 @@ describe('runJanitor', () => {
     expect((await db.select().from(rateCounters)).map((r) => r.expiresAt)).toEqual([at(1)]);
     expect((await db.select().from(aiUsage)).map((r) => r.day)).toEqual(['2026-06-30']);
     expect((await db.select().from(aiGlobalDaily)).map((r) => r.day)).toEqual(['2026-06-30']);
+    expect((await db.select().from(aiIdentityDaily)).map((r) => r.day)).toEqual(['2026-09-28']);
     expect((await db.select().from(dailyStats)).map((r) => r.day)).toEqual(['2024-09-27']);
     expect(await readMeta(db, 'janitor_last_run')).toBe(NOW.toISOString());
     const names = await db.select({ id: user.id, name: user.name }).from(user);

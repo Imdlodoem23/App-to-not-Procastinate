@@ -371,6 +371,39 @@ describe('Google sign-in and account linking', () => {
     expect(a).toMatchObject({ providerId: 'google', accessToken: null, idToken: null });
   });
 
+  it('creates no account from an unverified Google address', async () => {
+    const { location, setCookie } = await googleSignIn({
+      sub: 'google-sub-unverified-01',
+      email: 'victim@example.com',
+      email_verified: false,
+      name: 'Mallory',
+    });
+    expect(location).toMatch(/^\/cuenta\?error=google&error=email_not_verified(&|$)/);
+    expect(setCookie).not.toMatch(/centrate\.session_token=[^;]/);
+    for (const table of [user, profiles, account, session]) {
+      expect(await t.db.select().from(table)).toHaveLength(0);
+    }
+    // The page says it did not work (better-auth appends its own `error`).
+    const page = await core.app.inject({ method: 'GET', url: location });
+    expect(page.body).toContain('No se ha podido iniciar sesión');
+
+    // The owner later signs up with an email code and gets an untouched account.
+    const { token } = await signIn('victim@example.com');
+    const me = await core.app.inject({
+      method: 'GET',
+      url: '/v1/me',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(me.json<MeResponse>().sharing).toEqual({
+      syncStats: false,
+      ranking: false,
+      presence: false,
+      partnerEmails: false,
+      coach: false,
+    });
+    expect(me.json<MeResponse>().profile.displayName).toBeNull();
+  });
+
   it('never links an unverified Google address to an existing account', async () => {
     const { token } = await signIn('ana@example.com');
     const [ana] = await t.db.select().from(user).where(eq(user.email, 'ana@example.com'));
@@ -440,6 +473,18 @@ describe('sessions', () => {
     const after = await core.app.inject({ method: 'GET', url: '/v1/me', headers: { cookie } });
     expect(after.statusCode).toBe(401);
     expect(after.json().error.code).toBe('unauthorized');
+  });
+
+  it('resolves no session of an account whose address is not verified', async () => {
+    const u = await createTestUser(t.db, { now: clock.now() });
+    const headers = { authorization: `Bearer ${u.token}` };
+    expect((await core.app.inject({ method: 'GET', url: '/v1/me', headers })).statusCode).toBe(200);
+    await t.db.update(user).set({ emailVerified: false }).where(eq(user.id, u.userId));
+    for (const h of [headers, { cookie: sessionCookie(u.token) }]) {
+      expect((await core.app.inject({ method: 'GET', url: '/v1/me', headers: h })).statusCode).toBe(
+        401,
+      );
+    }
   });
 
   it('rejects tampered cookies and unknown tokens', async () => {

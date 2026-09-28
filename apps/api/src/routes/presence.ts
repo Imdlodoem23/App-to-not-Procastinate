@@ -6,6 +6,9 @@
  * - Readers see only live rows (`expires_at > now`, no dependence on the janitor) of friends
  *   who share presence, and only if they share theirs too. Friends see the state and times,
  *   never what is blocked or the task.
+ * - The app's clock may be off: `endsAt` only counts relative to `sentAt` (its clock when
+ *   sending), placed on the server's clock when the request arrives, and readers get the time
+ *   left as well (`endsInSeconds`), so neither side's clock shifts «Estudiar juntos».
  */
 import type {
   FriendPresence,
@@ -23,12 +26,17 @@ import { parseBody, requireDb, requireFeature, requireUser } from '../lib/guards
 import { getProfile, requireConsent } from '../lib/profile';
 import { notBlockedWith } from '../social/people';
 
+/** The longest block the guardian allows; a longer time left (a clock stepped back during the
+ *  block, a client bug) is clamped to it rather than refused. */
 const MAX_ENDS_AHEAD_MS = 24 * 3_600_000;
+
+const isoInstant = z.iso.datetime({ offset: true });
 
 const PutSchema = z
   .object({
     state: z.enum(['focus', 'study']),
-    endsAt: z.iso.datetime({ offset: true }).nullable(),
+    endsAt: isoInstant.nullable(),
+    sentAt: isoInstant,
   })
   .strict() satisfies z.ZodType<PutPresenceRequest>;
 
@@ -48,14 +56,16 @@ export const presenceRoutes: FastifyPluginAsync = async (app) => {
       requireConsent(await getProfile(db, me.userId), 'presence');
 
       const now = ctx.now();
-      const endsAt = body.endsAt === null ? null : new Date(body.endsAt);
-      if (
-        endsAt &&
-        (endsAt.getTime() <= now.getTime() || endsAt.getTime() > now.getTime() + MAX_ENDS_AHEAD_MS)
-      ) {
-        throw validationFailed([
-          { path: 'body.endsAt', message: 'Must be in the next 24 hours, or null' },
-        ]);
+      // Clock-independent: the time left on the app's clock at `sentAt`, placed on ours.
+      let endsAt: Date | null = null;
+      if (body.endsAt !== null) {
+        const leftMs = Date.parse(body.endsAt) - Date.parse(body.sentAt);
+        if (leftMs <= 0) {
+          throw validationFailed([
+            { path: 'body.endsAt', message: 'Must be after sentAt, or null' },
+          ]);
+        }
+        endsAt = new Date(now.getTime() + Math.min(leftMs, MAX_ENDS_AHEAD_MS));
       }
       const expiresAt = new Date(now.getTime() + CLOUD_LIMITS.presenceTtlSeconds * 1000);
 
@@ -118,6 +128,9 @@ export const presenceRoutes: FastifyPluginAsync = async (app) => {
         state: r.state,
         since: r.since.toISOString(),
         endsAt: r.endsAt ? r.endsAt.toISOString() : null,
+        endsInSeconds: r.endsAt
+          ? Math.max(0, Math.floor((r.endsAt.getTime() - now.getTime()) / 1000))
+          : null,
       }))
       .sort((a, b) => collator.compare(a.displayName, b.displayName));
     return { friends };

@@ -16,11 +16,23 @@ export interface MailerLog {
 
 export class MailerError extends Error {
   readonly status: number | null;
-  constructor(status: number | null) {
+  /** The provider's `Retry-After` (on a 429), in milliseconds; null when it sent none. */
+  readonly retryAfterMs: number | null;
+  constructor(status: number | null, retryAfterMs: number | null = null) {
     super(status === null ? 'mail provider unreachable' : `mail provider answered ${status}`);
     this.name = 'MailerError';
     this.status = status;
+    this.retryAfterMs = retryAfterMs;
   }
+}
+
+/** A `Retry-After` value (seconds or an HTTP date) in milliseconds; null if absent or unreadable. */
+export function parseRetryAfter(value: string | null, now: number = Date.now()): number | null {
+  if (value === null) return null;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) return Number(trimmed) * 1000;
+  const at = Date.parse(trimmed);
+  return Number.isNaN(at) ? null : Math.max(0, at - now);
 }
 
 export interface ResendMailerOptions {
@@ -67,7 +79,10 @@ export function createResendMailer(
       await res.arrayBuffer().catch(() => undefined);
       if (!res.ok) {
         options.log?.warn({ tag: message.tag, status: res.status }, 'mail not sent');
-        throw new MailerError(res.status);
+        throw new MailerError(
+          res.status,
+          res.status === 429 ? parseRetryAfter(res.headers.get('retry-after')) : null,
+        );
       }
     },
   };

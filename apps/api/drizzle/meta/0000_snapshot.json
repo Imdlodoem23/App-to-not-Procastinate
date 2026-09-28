@@ -1,5 +1,5 @@
 {
-  "id": "85b537e3-c7c4-4d57-8027-6ae4ae80506b",
+  "id": "11e9edca-83e0-4ef2-9c0e-12ad5978a47d",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -338,6 +338,68 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.ai_identity_daily": {
+      "name": "ai_identity_daily",
+      "schema": "",
+      "columns": {
+        "day": {
+          "name": "day",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "identity_hmac": {
+          "name": "identity_hmac",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "feature": {
+          "name": "feature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requests": {
+          "name": "requests",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "tokens": {
+          "name": "tokens",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "cost_micro_usd": {
+          "name": "cost_micro_usd",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "ai_identity_daily_pk": {
+          "name": "ai_identity_daily_pk",
+          "columns": ["day", "identity_hmac", "feature"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "ai_identity_daily_feature": {
+          "name": "ai_identity_daily_feature",
+          "value": "\"ai_identity_daily\".\"feature\" IN ('interpret', 'coach')"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.ai_usage": {
       "name": "ai_usage",
       "schema": "",
@@ -492,6 +554,12 @@
         "port": {
           "name": "port",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "authenticated_at": {
+          "name": "authenticated_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true
         },
@@ -1511,6 +1579,12 @@
         "user_agent": {
           "name": "user_agent",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "authenticated_at": {
+          "name": "authenticated_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },

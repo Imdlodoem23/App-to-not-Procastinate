@@ -24,6 +24,11 @@ export interface CoachModelRequest<T> {
   /** Effort for models that take it; null leaves the model's default (and Haiku 4.5). */
   effort: CoachEffort | null;
   /**
+   * Opt into server-side refusal fallbacks for the models that have them
+   * (`SERVER_FALLBACK_TARGETS`). False (`AI_REFUSAL_FALLBACKS=false`) sends no fallback beta.
+   */
+  fallbacks: boolean;
+  /**
    * Shape of the answer, enforced with structured outputs. Keep it to types and enums: the
    * service clamps lengths and ranges itself, so a long title is shortened, not a failure.
    */
@@ -63,19 +68,26 @@ export type CoachModelResult<T> =
 
 /**
  * - `unavailable`: rate limited, overloaded, 5xx, network error or deadline (503, retry later).
- * - `misconfigured`: the key is wrong or lacks permission (503, logged as an error).
- * - `rejected`: the API refused the request shape (a bug on our side: 500).
+ * - `misconfigured`: the owner's account or settings: a wrong key or one without permission
+ *   (401/403), no credit or a billing problem (402, `billing_error`), a model id the key
+ *   cannot use (404) (503, logged as an error).
+ * - `rejected`: the API refused the request (other 4xx: a bug on our side, a beta header the
+ *   API no longer takes, or an account-level 400 such as a spent credit balance or the
+ *   Console's usage limit, which only its message tells apart) (500).
+ *
+ * Unbilled `misconfigured` and `rejected` failures feed the breaker (src/coach/breaker.ts).
  */
 export type CoachModelFailure = 'unavailable' | 'misconfigured' | 'rejected';
 
 /**
  * What a failed call may have cost, so the budget also counts calls that never answered:
- * - `none`: certainly not billed (never sent, or refused with 400/401/403/404/409/413/422/429,
- *   or 529 before any output). `attempts` is empty and the reservation is released.
+ * - `none`: certainly not billed: never sent, an HTTP error status (4xx or 5xx, 529 included)
+ *   answered instead of the event stream, or a rejection, rate-limit or overloaded `error`
+ *   event before any output. `attempts` is empty and the reservation is released.
  * - `exact`: the final usage arrived before the failure; `attempts` is what was billed.
- * - `bound`: sent, but the final usage never arrived (our deadline, a timeout, a connection
- *   reset, a 5xx, an error in the middle of the stream). `attempts` is an upper bound: every
- *   model that may have run, each with its input and `maxTokens` of output.
+ * - `bound`: sent, but the final usage never arrived (our deadline, an SDK timeout, a
+ *   connection reset, an error once the model may be writing). `attempts` is an upper bound:
+ *   every model that may have run, each with its input and `maxTokens` of output.
  */
 export type CoachBilling = 'none' | 'exact' | 'bound';
 
