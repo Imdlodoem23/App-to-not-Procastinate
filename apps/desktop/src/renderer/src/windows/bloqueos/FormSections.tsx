@@ -7,7 +7,7 @@
  * «Bloquear…» opens the confirmation card in the main window.
  */
 import { BookmarkPlus, Check, Lock, MessageSquareQuote, Shield, Timer, X } from 'lucide-react';
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Field, HelpLine, Section, Segmented, Tile, TileRow } from '../../components';
 import { ESC_PRIORITY } from '../../hooks/keys';
 import { useEscape } from '../../hooks/useKeys';
@@ -184,6 +184,8 @@ function NamingRow(props: {
 
 export function ReasonSection(props: {
   reason: string;
+  /** True while the pinned bar shows the template name row instead of «Guardar | Bloquear…». */
+  naming: boolean;
   actions: BloqueosActions;
 }): React.JSX.Element {
   const { actions } = props;
@@ -206,7 +208,8 @@ export function ReasonSection(props: {
           event.preventDefault();
           actions.block();
         }}
-        describedBy={`${BLOQUEOS_IDS.rows.actions}-help`}
+        // The help line of whichever row the pinned bar shows (the other one is not rendered).
+        describedBy={`${props.naming ? BLOQUEOS_IDS.rows.naming : BLOQUEOS_IDS.rows.actions}-help`}
       />
     </Section>
   );
@@ -224,8 +227,26 @@ export function FormActions(props: {
   actions: BloqueosActions;
 }): React.JSX.Element {
   const { actions, notice } = props;
+  const bar = useRef<HTMLDivElement>(null);
+  // The bar changes height (the naming row is taller; a notice can wrap): publish its real
+  // height so form controls scroll into view above it, never under it (WCAG 2.4.11).
+  useLayoutEffect(() => {
+    const el = bar.current;
+    const root = el?.closest<HTMLElement>('.blq');
+    if (!el || !root) return;
+    const update = (): void => {
+      root.style.setProperty('--blq-actions-height', `${el.offsetHeight}px`);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty('--blq-actions-height');
+    };
+  }, []);
   return (
-    <div className="blq-actions" data-actions="">
+    <div className="blq-actions" data-actions="" ref={bar}>
       {props.templateName !== null ? (
         <NamingRow name={props.templateName} notice={notice} actions={actions} />
       ) : (

@@ -80,6 +80,7 @@ func (e *Engine) deleteData(req DeleteDataRequest) (DeleteDataResponse, error) {
 	carry := min(0, e.state.Ledger.Balance)
 	esc := escalationWire(e.state.Ledger.Escalation)
 	kept := e.keptNow(true)
+	credit := ddBlockCredit(e.state.Blocks)
 	kept.Settings.StudyWhitelist = embedded.StudyWhitelistSettings{ExtraDomains: []string{}, ExtraProcesses: []string{}}
 	var prev *string
 	if e.state.Epoch != "" {
@@ -90,6 +91,9 @@ func (e *Engine) deleteData(req DeleteDataRequest) (DeleteDataResponse, error) {
 		e.log.Error("data deletion: new epoch not started", "err", err)
 		return DeleteDataResponse{}, storeWriteErr(err)
 	}
+	// Kept blocks travel as wire snapshots without their credit; restore it so the
+	// minutes already earned are not lost (state.json persists it below).
+	ddRestoreCredit(e.state.Blocks, credit)
 	// The idempotency cache goes with the old epoch (this request's response is stored
 	// again when the turn ends, so a retry still replays it).
 	e.idem = nil
@@ -114,6 +118,27 @@ func (e *Engine) deleteData(req DeleteDataRequest) (DeleteDataResponse, error) {
 		res.KeptScheduleIDs = append(res.KeptScheduleIDs, s.ID)
 	}
 	return res, nil
+}
+
+// ddCredit is the per-block credit that lives only in state.json (§10.9).
+type ddCredit struct{ creditedMs, downtimeMs int64 }
+
+// ddBlockCredit records the credit and downtime of every block by id.
+func ddBlockCredit(blocks []*blockRec) map[string]ddCredit {
+	m := make(map[string]ddCredit, len(blocks))
+	for _, b := range blocks {
+		m[b.ID] = ddCredit{creditedMs: b.CreditedMs, downtimeMs: b.DowntimeMs}
+	}
+	return m
+}
+
+// ddRestoreCredit copies the recorded credit back onto the kept blocks of the new epoch.
+func ddRestoreCredit(blocks []*blockRec, credit map[string]ddCredit) {
+	for _, b := range blocks {
+		if c, ok := credit[b.ID]; ok {
+			b.CreditedMs, b.DowntimeMs = c.creditedMs, c.downtimeMs
+		}
+	}
 }
 
 // ddCheckConfirm validates the confirmation word: the request shape (1–16 UTF-16 units,

@@ -3,8 +3,9 @@
  * example, the line of what was understood under it, and the templates row
  * «Deberes 1 h | Examen 3 h | Leer 30 min | Más…».
  */
-import { useEffect, useState, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { DoorTile, Field, Tile, TileRow } from '../../components';
+import type { ChipView } from './chips';
 import { ChipList } from './ChipList';
 import { BLOQUEO_ES } from './i18n/es';
 import { templateIcon } from './icons';
@@ -41,20 +42,43 @@ export function isEnter(event: KeyboardEvent<HTMLElement>): boolean {
   );
 }
 
-function FieldLineView(props: { line: FieldLine; actions: BloqueoActions }): React.JSX.Element {
+/**
+ * The first of `candidates` that fits the line next to its note, measured before paint in the
+ * real font (like `useFitText`): all chips, then fewer targets behind «+N», then none.
+ */
+function useFitChips(
+  candidates: readonly (readonly ChipView[])[],
+  fitKey: string,
+): { ref: React.RefObject<HTMLDivElement | null>; chips: readonly ChipView[] } {
+  const key = `${fitKey}\u0000${candidates.map((list) => list.map((c) => c.label).join('\u0001')).join('\u0000')}`;
+  const [fit, setFit] = useState({ key, index: 0 });
+  const index = fit.key === key ? fit.index : 0;
+  const ref = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const line = ref.current;
+    if (!line || index >= candidates.length) return;
+    const group = line.querySelector<HTMLElement>('.bq-chips');
+    const overflows =
+      line.scrollWidth > line.clientWidth + 1 ||
+      (group !== null && group.scrollWidth > group.clientWidth + 1);
+    if (overflows) setFit({ key, index: index + 1 });
+  });
+
+  return { ref, chips: candidates[index] ?? [] };
+}
+
+function ChipsLine(props: {
+  line: Extract<FieldLine, { kind: 'chips' }>;
+  actions: BloqueoActions;
+}): React.JSX.Element {
   const { line, actions } = props;
-  if (line.kind === 'hint') {
-    return (
-      <div id={LINE_ID} className="bq-field-line" data-fit="">
-        {line.text}
-      </div>
-    );
-  }
+  const fit = useFitChips(line.candidates, line.note?.text ?? '');
   return (
-    <div id={LINE_ID} className="bq-field-line" data-fit="">
-      {line.chips.length > 0 ? (
+    <div id={LINE_ID} ref={fit.ref} className="bq-field-line" data-fit="">
+      {fit.chips.length > 0 ? (
         <ChipList
-          chips={line.chips}
+          chips={fit.chips}
           line
           label={BLOQUEO_ES.field.label}
           onPress={(chip) => {
@@ -70,6 +94,18 @@ function FieldLineView(props: { line: FieldLine; actions: BloqueoActions }): Rea
       ) : null}
     </div>
   );
+}
+
+function FieldLineView(props: { line: FieldLine; actions: BloqueoActions }): React.JSX.Element {
+  const { line, actions } = props;
+  if (line.kind === 'hint') {
+    return (
+      <div id={LINE_ID} className="bq-field-line" data-fit="">
+        {line.text}
+      </div>
+    );
+  }
+  return <ChipsLine line={line} actions={actions} />;
 }
 
 export function Composer(props: {

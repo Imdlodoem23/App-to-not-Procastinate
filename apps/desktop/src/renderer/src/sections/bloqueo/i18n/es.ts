@@ -72,6 +72,13 @@ export const BLOQUEO_ES = {
     chipHint: 'Corrige esta parte de la frase',
     /** «+2» chip when the chips do not fit on the help line. */
     moreChips: (count: number): string => `+${count}`,
+    /** The chip standing for every target when none fits: «3 webs», «2 categorías». */
+    hiddenTargets: (count: number, kind: 'web' | 'category' | 'mixed'): string =>
+      kind === 'web'
+        ? `${count} ${count === 1 ? 'web' : 'webs'}`
+        : kind === 'category'
+          ? `${count} ${count === 1 ? 'categoría' : 'categorías'}`
+          : `${count} cosas`,
   },
 
   templates: {

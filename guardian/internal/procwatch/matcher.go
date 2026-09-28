@@ -14,17 +14,44 @@ import (
 // "Discord.exe" and the other way round); ".app" optional on macOS, where the
 // process's .app bundle name is tried too; on Linux the kernel task name
 // (Process.Comm) and then the continuation of a cut task name in the
-// command line (Process.CmdName) are tried after the executable name. Protected processes
+// command line (Process.CmdName) are tried after the executable name, and
+// Process.Identity last. Protected processes
 // (see IsProtected and ProtectDir) and system processes (Process.System)
 // never match.
 //
-// Matching is by file name only: a copy of a blocked executable under another
-// name is not recognised (see the package documentation).
+// Besides names, Match compares Process.Identity (what the executable file
+// says it is, see OSLister) with the target names and with the identities
+// added by WithIdentities, so a renamed copy of a blocked executable is still
+// recognised on Windows and macOS (see the package documentation).
 type Matcher struct {
 	goos     string
 	keys     map[string]string // matchKey → target name as given
+	ids      map[string]string // lowercased identity → target
 	names    []string
 	rejected []string
+}
+
+// WithIdentities returns a copy of m that also matches processes whose
+// Process.Identity equals a key of ids (case-insensitively), reporting the
+// key's value as the target. The catalog passes the bundle ids of blocked
+// macOS apps here ("com.hnc.Discord" → "Discord"), and it can pass Windows
+// OriginalFilename values that differ from the executable names. Empty,
+// over-long or non-printable identities and targets are skipped. The
+// protection rules apply unchanged: an identity never protects.
+func (m Matcher) WithIdentities(ids map[string]string) Matcher {
+	out := m
+	out.ids = make(map[string]string, len(m.ids)+len(ids))
+	for k, v := range m.ids {
+		out.ids[k] = v
+	}
+	for id, target := range ids {
+		id, target = cleanIdentity(id), cleanIdentity(target)
+		if id == "" || target == "" {
+			continue
+		}
+		out.ids[strings.ToLower(id)] = target
+	}
+	return out
 }
 
 // NewMatcher builds a Matcher for the current OS.
@@ -61,8 +88,9 @@ func NewMatcherFor(goos string, names []string) Matcher {
 // Len returns the number of distinct targets.
 func (m Matcher) Len() int { return len(m.names) }
 
-// Empty reports whether the Matcher has no targets.
-func (m Matcher) Empty() bool { return len(m.names) == 0 }
+// Empty reports whether the Matcher has no targets (no names and no
+// identities).
+func (m Matcher) Empty() bool { return len(m.names) == 0 && len(m.ids) == 0 }
 
 // Names returns the accepted targets, trimmed, in input order.
 func (m Matcher) Names() []string { return append([]string(nil), m.names...) }
@@ -72,17 +100,23 @@ func (m Matcher) Names() []string { return append([]string(nil), m.names...) }
 func (m Matcher) Rejected() []string { return append([]string(nil), m.rejected...) }
 
 // Match reports whether p is blocked and, if so, which target it matched (as
-// passed to NewMatcher, trimmed). It tries p.Name, then p.Bundle, p.Comm and
-// p.CmdName.
+// passed to NewMatcher, trimmed, or to WithIdentities). It tries p.Name, then
+// p.Bundle, p.Comm, p.CmdName and p.Identity against the names, then
+// p.Identity against the identities.
 func (m Matcher) Match(p Process) (target string, ok bool) {
-	if len(m.keys) == 0 || processProtected(m.goos, p) {
+	if m.Empty() || processProtected(m.goos, p) {
 		return "", false
 	}
-	for _, n := range [...]string{p.Name, p.Bundle, p.Comm, p.CmdName} {
+	for _, n := range [...]string{p.Name, p.Bundle, p.Comm, p.CmdName, p.Identity} {
 		if n == "" {
 			continue
 		}
 		if t, ok := m.keys[matchKey(m.goos, n)]; ok {
+			return t, true
+		}
+	}
+	if p.Identity != "" {
+		if t, ok := m.ids[strings.ToLower(p.Identity)]; ok {
 			return t, true
 		}
 	}

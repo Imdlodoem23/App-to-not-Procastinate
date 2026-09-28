@@ -27,6 +27,13 @@ type FakeHosts struct {
 	OnApply func()
 }
 
+// SetApplyErr sets ApplyErr while writes may be running on the engine's worker.
+func (f *FakeHosts) SetApplyErr(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ApplyErr = err
+}
+
 // NewFakeHosts returns an empty FakeHosts.
 func NewFakeHosts() *FakeHosts { return &FakeHosts{} }
 

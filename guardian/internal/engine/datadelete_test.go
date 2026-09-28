@@ -325,3 +325,39 @@ func TestDataDeleteStoreFailure(t *testing.T) {
 		t.Fatalf("epoch %s", res.Epoch)
 	}
 }
+
+// Regression: a data deletion keeps the credit already earned by the active blocks (the
+// kept wire snapshots carry none), also across a restart, so the completion pays every
+// minute and the clean bonus (§10.11 «nothing is re-charged», §10.9).
+func TestDataDeleteKeepsBlockCredit(t *testing.T) {
+	rules := points.DefaultPointRules()
+	env := newTestEnv(t)
+	e := env.open()
+	env.advance(10 * time.Second)
+	blk := env.create(durationReq(ModeStrict, 60, "youtube"))
+	env.advance(50 * time.Minute)
+	before := e.block(blk.ID).CreditedMs
+	if before < 49*60_000 {
+		t.Fatalf("credited %d ms before the deletion", before)
+	}
+	if _, err := e.DeleteData(bg, Request{}, DeleteDataRequest{Confirm: "BORRAR"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.block(blk.ID).CreditedMs; got != before {
+		t.Fatalf("credited %d ms after the deletion, want %d", got, before)
+	}
+	e = env.restart()
+	if got := e.block(blk.ID).CreditedMs; got != before {
+		t.Fatalf("credited %d ms after a restart, want %d", got, before)
+	}
+	env.advance(11 * time.Minute)
+	done := env.eventsOf(EvBlockCompleted)
+	if len(done) != 1 {
+		t.Fatalf("%d completions", len(done))
+	}
+	d := mustDecode[BlockCompletedData](t, done[0])
+	want := int64(60*rules.BlockPointsPerMinute + rules.CleanSessionBonus)
+	if d.CreditedMinutes != 60 || done[0].Points != want {
+		t.Fatalf("credited %d minutes, points %d, want 60 and %d", d.CreditedMinutes, done[0].Points, want)
+	}
+}

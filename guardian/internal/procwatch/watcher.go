@@ -28,8 +28,8 @@ type Killed struct {
 	// Name is the executable name (Process.Name) of the first closed process
 	// that matched Target, in listing order.
 	Name string
-	// Path is that process's executable path when List had it (never on
-	// Windows).
+	// Path is that process's executable path when the Lister had it (on
+	// Windows only through OSLister).
 	Path string
 	// PIDs are the closed processes, in listing order.
 	PIDs []int

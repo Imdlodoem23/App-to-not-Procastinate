@@ -125,12 +125,19 @@ func TestStoppedServiceCheck(t *testing.T) {
 	cases := []struct {
 		name    string
 		planned bool
+		// updated: the binary that starts is another one.
+		updated bool
 		down    time.Duration
 		penalty bool
 	}{
-		{"short crash restart", false, 20 * time.Second, false},
-		{"long stop", false, 5 * time.Minute, true},
-		{"planned stop", true, 5 * time.Minute, false},
+		{"short crash restart", false, false, 20 * time.Second, false},
+		{"long stop", false, false, 5 * time.Minute, true},
+		{"planned update", true, true, 2 * time.Minute, false},
+		// A valid «update» marker used to exempt any stop: `prepare-update` then a stop
+		// in a loop suspended a block for free. Without a new binary, or for longer than
+		// an update takes, it is priced.
+		{"update marker, same binary", true, false, 2 * time.Minute, true},
+		{"update marker, long stop", true, true, 9 * time.Minute, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -152,6 +159,9 @@ func TestStoppedServiceCheck(t *testing.T) {
 				t.Fatal(err)
 			}
 			env.clk.ServiceRestart(c.down)
+			if c.updated {
+				env.binary = "test-binary-2"
+			}
 			e = env.open()
 			tam := env.eventsOf(EvTamperDetected)
 			if !c.penalty {

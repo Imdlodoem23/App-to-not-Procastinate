@@ -4,7 +4,7 @@ import { HARNESS_NOW } from '../../../src/shared/fixtures';
 import {
   draftChips,
   estimateTextWidth,
-  fitChips,
+  chipCandidates,
   typingChips,
   type ChipView,
 } from '../../../src/renderer/src/sections/bloqueo/chips';
@@ -99,18 +99,25 @@ describe('fitting one line', () => {
     expect(estimateTextWidth('', 13)).toBe(0);
   });
 
-  it('keeps chips that fit and hides targets behind «+N» otherwise', () => {
+  it('offers every chip first, then fewer targets behind «+N», then «N webs»', () => {
     const chips = typingChips(
       parse('no veo tiktok ni youtube ni instagram ni twitch ni netflix 1h'),
       NOW,
     );
-    expect(fitChips(chips, 10_000)).toEqual(chips);
-    const fitted = fitChips(chips, 260);
-    const labels = fitted.map((c: ChipView) => c.label);
-    expect(labels.slice(-2)).toEqual(['1 h', 'hasta 18:00']);
-    expect(labels.some((l) => /^\+\d$/.test(l))).toBe(true);
-    const hidden = Number(labels.find((l) => l.startsWith('+'))?.slice(1));
-    expect(labels.length - 1 - 2 + hidden).toBe(5);
+    const candidates = chipCandidates(chips);
+    expect(candidates[0]).toEqual(chips);
+    expect(candidates).toHaveLength(6);
+    for (const [i, list] of candidates.slice(1).entries()) {
+      const labels = list.map((c: ChipView) => c.label);
+      expect(labels.slice(-2)).toEqual(['1 h', 'hasta 18:00']);
+      const kept = 4 - i;
+      expect(labels).toHaveLength(kept + 3);
+      expect(labels[kept]).toBe(kept > 0 ? `+${5 - kept}` : '5 webs');
+    }
+    const oneLine = chipCandidates(typingChips(parse('no veo youtube 1h'), NOW));
+    expect(oneLine.at(-1)?.map((c: ChipView) => c.label)).toEqual(['1 web', '1 h', 'hasta 18:00']);
+    const categories = chipCandidates(typingChips(parse('nada de redes sociales 1h'), NOW));
+    expect(categories.at(-1)?.[0]?.label).toMatch(/^1 categoría$/);
   });
 });
 

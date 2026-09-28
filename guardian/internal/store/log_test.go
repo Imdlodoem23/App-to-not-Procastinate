@@ -215,8 +215,13 @@ func TestReadEventsPages(t *testing.T) {
 			t.Fatalf("epoch %q: %+v %v", ep, p, err)
 		}
 	}
-	p, err := s.ReadEvents(s.Epoch(), last+5, 10)
-	if err != nil || len(p.Events) != 0 || p.LastSeq != last+5 || p.HasMore {
+	p, err := s.ReadEvents(s.Epoch(), last, 10)
+	if err != nil || p.Reset || len(p.Events) != 0 || p.LastSeq != last || p.HasMore {
+		t.Fatalf("at the end: %+v %v", p, err)
+	}
+	// A cursor past the tail of the current epoch is not a position in this log.
+	p, err = s.ReadEvents(s.Epoch(), last+5, 2)
+	if err != nil || !p.Reset || len(p.Events) == 0 || p.Events[0].Seq != 1 || !p.HasMore {
 		t.Fatalf("after the end: %+v %v", p, err)
 	}
 	if _, err := s.ReadEvents(s.Epoch(), 0, 0); !errors.Is(err, ErrInvalid) {
@@ -667,5 +672,45 @@ func TestSegmentNames(t *testing.T) {
 		if want == 0 && ok || want != 0 && (!ok || got != want) {
 			t.Errorf("%s: %d %v", name, got, ok)
 		}
+	}
+}
+
+// A restored older data folder keeps the epoch and reuses seqs: a client whose cursor
+// is past the restored tail must be told to reset, or it would skip the reused seqs
+// (and whatever the guardian logs next) until the log passed its old cursor.
+func TestReadEventsResetsCursorPastRestoredTail(t *testing.T) {
+	e := newEnv(t)
+	s := e.started()
+	mustAppend(t, s, batchOf(3, "a"))
+	e.closeClean(s)
+	saved := filepath.Join(t.TempDir(), "saved")
+	if err := os.CopyFS(saved, os.DirFS(e.dir)); err != nil {
+		t.Fatal(err)
+	}
+
+	s, _ = e.open()
+	mustAppend(t, s, batchOf(5, "b"))
+	epoch, cursor := s.Epoch(), s.LastSeq()
+	if cursor != 9 {
+		t.Fatalf("last seq %d", cursor)
+	}
+	e.closeClean(s)
+
+	if err := os.RemoveAll(e.dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.CopyFS(e.dir, os.DirFS(saved)); err != nil {
+		t.Fatal(err)
+	}
+	s, rep := e.open()
+	if s.Epoch() != epoch || rep.LastSeq != 4 {
+		t.Fatalf("restored: epoch %s last %d", s.Epoch(), rep.LastSeq)
+	}
+	mustAppend(t, s, batchOf(1, "c")) // seq 5 reused with other content
+
+	p, err := s.ReadEvents(epoch, cursor, 100)
+	if err != nil || !p.Reset || p.Epoch != epoch || len(p.Events) != 5 || p.Events[0].Seq != 1 ||
+		p.LastSeq != 5 || p.HasMore {
+		t.Fatalf("stale cursor: %+v %v", p, err)
 	}
 }

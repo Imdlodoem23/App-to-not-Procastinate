@@ -85,3 +85,5 @@
 ## Checklist para probar en tu ordenador
 
 Se completa al terminar cada fase.
+
+- [ ] Extensión en Chrome, incógnito (Playwright no carga extensiones ahí): con «Permitir en incógnito» activado, abre YouTube en una ventana de incógnito, empieza un bloqueo de YouTube y comprueba que la pestaña pasa sola a la página de bloqueo, sin restar puntos.

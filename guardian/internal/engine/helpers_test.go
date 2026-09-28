@@ -35,7 +35,11 @@ type testEnv struct {
 	netTime  NetworkTime
 	// flusher overrides the DNS flusher (default dns).
 	flusher DNSFlusher
-	e       *Engine
+	// binary is Options.BinaryID (default "test-binary-1"); serviceManager is
+	// Options.ServiceManager.
+	binary         string
+	serviceManager string
+	e              *Engine
 }
 
 var testStart = time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC)
@@ -71,7 +75,13 @@ func (env *testEnv) options() Options {
 	if env.flusher != nil {
 		fl = env.flusher
 	}
+	bin := env.binary
+	if bin == "" {
+		bin = "test-binary-1"
+	}
 	return Options{
+		BinaryID:            bin,
+		ServiceManager:      env.serviceManager,
 		DataDir:             env.dir,
 		Clock:               env.clk,
 		Hosts:               env.hosts,

@@ -78,7 +78,11 @@ export default function BloqueosWindow(): React.JSX.Element {
         <div className="blq-how">
           <DurationSection view={view.duration} notice={notices.duration} actions={actions} />
           <ModeSection view={view.mode} actions={actions} />
-          <ReasonSection reason={local.form.reason} actions={actions} />
+          <ReasonSection
+            reason={local.form.reason}
+            naming={local.templateName !== null}
+            actions={actions}
+          />
         </div>
       </div>
       <FormActions

@@ -40,11 +40,32 @@
 // section out together with one of the blank lines around it, so Apply
 // followed by Remove returns the original bytes.
 //
+// # Lines that override the section
+//
+// The one exception to the rule above: while a domain is blocked, a user line
+// outside the section that maps it to a real address ("142.250.184.14
+// youtube.com", loopback included; 0.0.0.0 and :: are harmless) is commented
+// out as ShadowMarker followed by the line, byte for byte. Resolvers that stop
+// at the first matching line (the Windows DNS Client, Chromium's built-in
+// resolver) would otherwise follow it wherever it sits, and glibc with "multi
+// on" merges every match. The whole line is commented, other names on it
+// included, and it comes back unchanged as soon as none of its names is
+// blocked (Remove restores every such line, so Apply followed by Remove still
+// returns the original bytes). Verify reports such a line as a difference, so
+// the engine sees it as hosts tampering, and Current leaves the domains it
+// overrides out, so a line added while the guardian was stopped changes
+// CurrentSectionHash.
+//
 // Writes go through a temporary file in the same directory that inherits the
 // original's permissions, owner, SELinux label and ACL (Windows: owner, group,
 // DACL and attributes), is fsynced and replaces the original atomically; see
 // Manager.write for the retry and in-place fallback used when an antivirus
 // holds the file or the file is a bind mount.
+// On Windows any user can open the hosts file for reading while denying
+// write sharing; with Manager.BreakLocks, a write of a non-empty section
+// still refused after those retries closes the interactive processes that
+// hold the file (found with the Restart Manager) and tries again, while
+// services and session-0 holders are waited for.
 //
 // # Repairs
 //

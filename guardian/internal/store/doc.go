@@ -21,6 +21,11 @@
 //	run/starts.json                 recent unclean starts (safe mode at 3 within 5 min)
 //	run/clock.json                  Detector snapshot, sealed (SaveClock, LoadClock)
 //
+// secret/, run/, events/ and quarantine/ are private (SYSTEM and Administrators only;
+// root 0700): no other local account may open a file in them, so none can hold the
+// lock or a share-none handle across a restart. The root files (state.json, …) and
+// backups/ stay readable by every local account (§11.1).
+//
 // The rollback anchor lives outside the directory, behind [AnchorStore]: the registry
 // on Windows, a plist in /Library/Preferences on macOS, /etc/centrate/anchor.json on
 // Linux ([OSAnchor]); tests use [MemAnchor].

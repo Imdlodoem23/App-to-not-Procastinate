@@ -622,8 +622,9 @@ export class WindowShell implements WindowHost, CoreHost {
     if (this.options.platform === 'darwin') app.focus({ steal: true });
     main.show();
     main.focus();
+    // Same focus as the show path: the field, the card's button, or the Bloqueo root under a
+    // block. `ui:command focus-field` would open the field under a block, so it is not sent.
     this.push('main', 'ui:visibility', { visible: true, focused: true, reason, focusField });
-    if (focusField) this.sendCommand({ type: 'focus-field' });
   }
 
   /** Tray left click (and the harness's `trayClick`). */

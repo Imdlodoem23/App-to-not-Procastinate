@@ -315,7 +315,7 @@ describe('typing', () => {
     );
   });
 
-  it('hides targets behind «+N» when the chips do not fit', () => {
+  it('offers the line fewer targets behind «+N» when the chips do not fit', () => {
     const state = mainState('idle');
     const text =
       'no veo tiktok ni youtube ni instagram ni twitch ni netflix ni discord ni reddit 1h';
@@ -325,10 +325,12 @@ describe('typing', () => {
         NOW,
       ),
     );
-    const labels = c.line.kind === 'chips' ? c.line.chips.map((ch) => ch.label) : [];
+    const candidates = c.line.kind === 'chips' ? c.line.candidates : [];
+    expect(candidates[0]).toHaveLength(9);
+    const labels = (candidates[3] ?? []).map((ch) => ch.label);
     expect(labels).toContain('1 h');
     expect(labels).toContain('hasta 18:00');
-    expect(labels.some((l) => /^\+\d+$/.test(l))).toBe(true);
+    expect(labels).toContain('+3');
   });
 });
 
@@ -546,6 +548,14 @@ describe('active', () => {
       ['+1 h', false, false],
       ['Otro…', false, true],
     ]);
+    // Alt shortcuts: an underlined character of each label, never a Ctrl+E chord digit (1-4),
+    // so Alt+<digit> and Ctrl+E <digit> can never name different amounts.
+    const mnemonics = a.extend?.tiles.map((t) => t.mnemonic) ?? [];
+    expect(mnemonics).toEqual(['5', '0', 'h', 'o']);
+    for (const [i, t] of (a.extend?.tiles ?? []).entries()) {
+      expect(t.label.toLowerCase()).toContain(mnemonics[i]);
+      expect(['1', '2', '3', '4']).not.toContain(mnemonics[i]);
+    }
     expect(a.extend?.tiles[0]?.help).toBe('+15 min: termina a las 17:57');
     expect(a.extend?.help).toBe('Solo se puede ampliar, nunca acortar');
     expect(a.extend?.undo).toBeNull();

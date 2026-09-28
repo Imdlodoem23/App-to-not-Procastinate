@@ -10,7 +10,8 @@
  * 3. **Bindings**: Ctrl+N / Cmd+N or `/` outside a text field (focus the field), and any a section
  *    adds.
  * 4. **Alt + letter**: the tile with that mnemonic (letters by physical key, so macOS Option
- *    characters and keyboard layouts do not matter).
+ *    characters and keyboard layouts do not matter). On macOS, never inside a text field:
+ *    Option + letter composes text there (Option+E → «é», Option+N → «ñ», Option+1 → «¡»).
  */
 import type { Platform } from '../../../shared/ui-state';
 
@@ -209,7 +210,7 @@ export class KeyRegistry {
       if (matchCombo(input, binding.combo, this.platform) && binding.run() !== false) return true;
     }
 
-    if (input.alt && !input.ctrl && !input.meta) {
+    if (input.alt && !input.ctrl && !input.meta && !(this.platform === 'darwin' && input.inText)) {
       const key = mnemonicFromCode(input.code);
       const entry = key ? this.mnemonics.get(key)?.find((e) => e.enabled()) : undefined;
       if (entry) {

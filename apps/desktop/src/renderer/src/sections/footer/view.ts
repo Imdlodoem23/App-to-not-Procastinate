@@ -1,6 +1,7 @@
 /**
  * Section 5 «Pie» (PROMPT §10), pure: «● Guardián activo · ● Extensión conectada» (8 px dots and
- * text; when the guardian fails, «● Guardián detenido · Reparar»), the version on the right
+ * text; when the guardian fails, «● Guardián detenido · Reparar»; «● Guardián sin respuesta ·
+ * Reparar» in orange when a create timed out while the polls still answer), the version on the right
  * («v1.2.0», or «Actualizar a v1.3.0» in blue), and the secondary 32 px buttons
  * Mini temporizador (with its flag) | Ajustes… | Salir.
  */
@@ -28,8 +29,16 @@ const F = RENDERER_ES.footer;
 
 export function deriveFooterView(snapshot: UiSnapshot): FooterView {
   const { link, state, app } = snapshot;
+  const create = snapshot.ops.create;
+  // A create that timed out while the polls still answer: the confirm card says «El guardián
+  // no responde», so the footer must not claim «Guardián activo» next to it. Main clears
+  // `ops.create` on the next good create (or when the card is dropped).
+  const createTimedOut = create?.status === 'failed' && create.error?.code === 'timeout';
   let guardian: FooterView['guardian'];
-  if (link.status === 'ok') guardian = { tone: 'green', label: F.guardianOk, action: null };
+  if (link.status === 'ok')
+    guardian = createTimedOut
+      ? { tone: 'orange', label: F.guardianUnresponsive, action: 'repair' }
+      : { tone: 'green', label: F.guardianOk, action: null };
   else if (link.status === 'connecting')
     guardian = { tone: 'neutral', label: F.guardianConnecting, action: null };
   else if (link.reason === 'not_installed')

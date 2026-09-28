@@ -62,6 +62,20 @@ type Manager struct {
 	// the old file is left as it is.
 	Resolve      func() string
 	ResolveEvery time.Duration
+	// BreakLocks makes a write of a non-empty section that still fails
+	// because another process holds the file open, after the retries of
+	// Manager.write, close the processes that hold it (Windows, Restart
+	// Manager) and try once more. Only ordinary processes in an interactive
+	// session are closed, the way blocked apps are (see procwatch.Kill);
+	// services, critical and protected processes and anything in session 0
+	// (an antivirus, a backup agent) are waited for. Any user can open the
+	// hosts file for reading and deny write sharing, which would otherwise
+	// keep every new block out of the file. The engine turns it on.
+	BreakLocks bool
+	// OnLockBroken, when set, is called with the processes BreakLocks closed,
+	// after the Apply that closed them returns its lock (from the caller's
+	// goroutine; it must not block). The engine records tamper_detected{hosts}.
+	OnLockBroken func(closed []LockHolder)
 
 	mu             sync.Mutex
 	backupSum      fingerprint // user part (section stripped) known to be in the newest backup
@@ -73,6 +87,8 @@ type Manager struct {
 	lastHash       string      // SectionHash of the last section written ("" before)
 	pathGen        uint64      // resolve generation the per-file state belongs to
 	cur            string      // path read by the current operation (see read and write)
+	blocking       bool        // the current write leaves a non-empty section (see BreakLocks)
+	broken         []LockHolder
 
 	pathMu     sync.Mutex // guards the resolve cache below (taken after mu, never before)
 	resolved   string
@@ -87,6 +103,8 @@ type Manager struct {
 	flush       func(ctx context.Context) error
 	beforeWrite func()
 	now         func() time.Time
+	lockHolders func(path string) ([]LockHolder, error)
+	killHolder  func(LockHolder) error
 }
 
 // DefaultResolveEvery is how often Manager.Resolve is consulted.
@@ -242,6 +260,13 @@ func (m *Manager) update(domains []string, until time.Time) error {
 	if err == nil && changed {
 		m.autoFlush()
 	}
+	m.mu.Lock()
+	broken := m.broken
+	m.broken = nil
+	m.mu.Unlock()
+	if len(broken) > 0 && m.OnLockBroken != nil {
+		m.OnLockBroken(broken)
+	}
 	return err
 }
 
@@ -274,7 +299,10 @@ func (m *Manager) updateLocked(domains []string, until time.Time) (bool, error) 
 		return restored, nil
 	}
 	m.backupBeforeWrite(doc, data, exists)
-	if err := m.write(out); err != nil {
+	m.blocking = len(domains) > 0
+	err = m.write(out)
+	m.blocking = false
+	if err != nil {
 		return restored, err
 	}
 	m.remember(out, true)
@@ -322,8 +350,8 @@ func (m *Manager) LastSectionHash() (hash string, ok bool) {
 	return m.lastHash, m.lastHash != ""
 }
 
-// CurrentSectionHash returns the SectionHash of the domains the section lists
-// now (of the empty list when there is none). Compared with the hash
+// CurrentSectionHash returns the SectionHash of the domains the section
+// blocks now (see Current; of the empty list when there is none). Compared with the hash
 // persisted after the last write, it tells whether someone changed the
 // section while the guardian was not running.
 func (m *Manager) CurrentSectionHash() (string, error) {
@@ -334,8 +362,12 @@ func (m *Manager) CurrentSectionHash() (string, error) {
 	return SectionHash(ds), nil
 }
 
-// Current returns the domains currently listed in the Céntrate section,
-// sorted and deduplicated. A missing file or section yields an empty slice.
+// Current returns the domains the Céntrate section currently blocks, sorted
+// and deduplicated: the domains it lists, minus any that a user line outside
+// the section maps to a real address (a line the next Apply comments out, see
+// ShadowMarker). So a line added while the guardian was stopped changes
+// CurrentSectionHash just as editing the section does. A missing file or
+// section yields an empty slice.
 func (m *Manager) Current() ([]string, error) {
 	if err := m.checkPath(); err != nil {
 		return nil, err
@@ -350,7 +382,7 @@ func (m *Manager) Current() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return doc.sectionDomains(), nil
+	return doc.effectiveDomains(), nil
 }
 
 // Verify reports whether the file already is exactly what Apply(expected)

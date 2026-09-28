@@ -48,14 +48,7 @@ import {
   type UiSnapshot,
   type UiState,
 } from '../../../../shared/ui-state';
-import {
-  CHIP_METRICS,
-  draftChips,
-  estimateTextWidth,
-  fitChips,
-  typingChips,
-  type ChipView,
-} from './chips';
+import { chipCandidates, draftChips, estimateTextWidth, typingChips, type ChipView } from './chips';
 import {
   consequenceUnlockAt,
   draftFromRequest,
@@ -142,7 +135,13 @@ export type FieldLine =
   | { kind: 'hint'; text: string }
   | {
       kind: 'chips';
+      /** Every chip understood. */
       chips: ChipView[];
+      /**
+       * What the line tries, widest first (`chipCandidates`): the renderer keeps the first that
+       * fits next to `note` in the real font; if none does, it shows no chips.
+       */
+      candidates: ChipView[][];
       note: LineView | null;
       /**
        * Screen readers, once typing pauses: every chip understood (not only those that fit)
@@ -494,12 +493,9 @@ function fieldLine(text: string, nowMs: number, enter: FieldEnter['kind']): Fiel
         ? { tone: 'muted', text: BLOQUEO_ES.field.missingDuration }
         : null;
   }
-  const noteWidth = note ? estimateTextWidth(note.text, CHIP_METRICS.fontPx) + 8 : 0;
-  const budget = CONTENT_WIDTH - noteWidth;
-  const fitted = chips.length > 0 && budget >= 96 ? fitChips(chips, budget) : [];
   const understood = chips.length > 0 ? BLOQUEO_ES.field.understood(chips.map((c) => c.label)) : '';
   const announce = [understood, note?.text ?? ''].filter((t) => t !== '').join('. ');
-  return { kind: 'chips', chips: fitted, note, announce };
+  return { kind: 'chips', chips, candidates: chipCandidates(chips), note, announce };
 }
 
 function templateHelp(template: BlockTemplate, prefs: UiPrefs): string {
@@ -901,8 +897,12 @@ function extendView(
   };
 }
 
-/** Alt + 1, 3, h, o: each an underlined character of «+15 min», «+30 min», «+1 h», «Otro…». */
-const EXTEND_MNEMONICS = ['1', '3', 'h', 'o'] as const;
+/**
+ * Alt + 5, 0, h, o: each an underlined character of «+15 min», «+30 min», «+1 h», «Otro…».
+ * No digit of the Ctrl+E chord (1 +15 min, 2 +30 min, 3 +1 h, 4 Otro…), so Alt+<digit> can
+ * never name a different amount than Ctrl+E <digit>.
+ */
+const EXTEND_MNEMONICS = ['5', '0', 'h', 'o'] as const;
 
 const ROW_COUNTDOWN_WIDTH = 64 + 12; // «2:10:05» at 13 px tabular + gap.
 

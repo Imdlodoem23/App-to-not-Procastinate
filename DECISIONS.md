@@ -38,6 +38,9 @@ Una línea por decisión, con el porqué. Las más recientes, al final.
 - **Los bloqueos recuperados** del encabezado del hosts (si el estado se perdió) son Estrictos y no dan puntos.
 - **`has-active` devuelve 10** (bloqueo Normal o Estricto) u **11** (Hardcore, Examen o castigo).
 - **Puerto fijo 47600 sin alternativa**: la extensión confía en ese puerto tras el emparejamiento.
+- **Una navegación que inicia una web se bloquea pero no cuenta como intento**: una recarga automática (`meta refresh`), o una pestaña que otra página maneja (un anuncio que lleva su ventana emergente a YouTube cada 31 s), no puede quitar puntos. Chromium no distingue el `location = …` que una página hace por su cuenta de un clic, así que ese caso sigue contando; y algunos redirectores con JavaScript (envoltorios de enlaces con `meta refresh`) dejan de contar. Preferimos no cobrar de más.
+- **En modo lista blanca, una página `data:` o `file:` escrita a mano se manda a `blocked.html`** (sin puntos), porque podría enmarcar cualquier web. No se bloquean los marcos dentro de las páginas permitidas: romperían vídeos, captchas y documentos incrustados. Queda el hueco de usar las herramientas de desarrollo en una página permitida (ARCHITECTURE §16.3).
+- **Las pestañas abiertas se revisan cada 30 s durante un bloqueo**, no solo cuando cambian las reglas: si cancelas el «¿Salir del sitio?» o el navegador no deja mover la pestaña, se vuelve a intentar. En Chrome, la ventana de incógnito revisa sus propias pestañas, porque la principal no las ve.
 
 ### Web
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/imdlodoem23/centrate/guardian/internal/catalog"
 	"github.com/imdlodoem23/centrate/guardian/internal/clock"
@@ -36,7 +37,10 @@ type startInfo struct {
 	// downtime is the same-boot time from the last trace of the previous run to now.
 	downtime int64
 	savedT   int64
-	recovery string
+	// prevBinary is the binary identity sealed in the up-to-date run/clock.json by the
+	// run that stopped ("" when unknown).
+	prevBinary string
+	recovery   string
 	// activeAtStop are the blocks that were active when the previous run stopped.
 	activeAtStop []string
 	// hostsAtStart is the section found at startup, before any reconcile.
@@ -139,10 +143,18 @@ func (e *Engine) startup() error {
 	}
 	// From here on a failed append (a full disk) never stops enforcement: it is logged,
 	// health shows disk_full and writes answer 503 until the store accepts batches again.
-	if err := e.flushStartJumps(); err != nil {
-		e.log.Error("startup clock jump not logged", "err", err)
-	}
+	//
+	// The evidence of the previous run (the restore jump, the integrity corrections and
+	// the price of the stop, step 9) is decided now, from the snapshots as the stop left
+	// them, and goes into the first startup batch. Until that batch is committed nothing
+	// else is appended and neither the clock snapshot, state.json nor the rollback anchor
+	// moves (critical.go): a crash or a full disk cannot launder it.
+	e.queueStartJumps()
 	e.startupIntegrityEvents(&si)
+	e.stoppedServiceCheck(&si)
+	if err := e.flushCritical(); err != nil {
+		e.log.Error("startup evidence not logged; retrying before any other write", "err", err)
+	}
 
 	// Step 8 (second half): reboot or same-boot consequences.
 	if si.restored {
@@ -182,9 +194,6 @@ func (e *Engine) startup() error {
 			e.cal.dueBoot = e.bootNow + calibrateAfterBoot
 		}
 	}
-	// Step 9: the stopped-service check.
-	e.stoppedServiceCheck(&si)
-
 	// Step 10: guardian_started, then the day_closed catch-up.
 	var downtime *int64
 	if si.sameBoot {
@@ -277,22 +286,17 @@ func (e *Engine) pendingStartJump(source string, deltaMs int64) {
 	e.startJumps = append(e.startJumps, jumpRec{AtMs: e.now, DeltaMs: deltaMs, Source: source})
 }
 
-func (e *Engine) flushStartJumps() error {
-	if len(e.startJumps) == 0 {
-		return nil
-	}
-	b := e.newBatch()
+// queueStartJumps queues the restore clock jumps as critical startup evidence.
+func (e *Engine) queueStartJumps() {
 	for _, j := range e.startJumps {
-		b.add(EvClockJump, ClockJumpData{
-			Source: j.Source, DeltaMs: j.DeltaMs, WallOffsetMs: e.wallOffsetMs(), Trust: e.trust(),
-			ReactivatedBlockIDs: []string{}, ShiftedBlockIDs: []string{}, ShiftedAllowanceIDs: []string{},
+		e.addCritical("clock_jump{"+j.Source+"}", func(b *batch) {
+			b.add(EvClockJump, ClockJumpData{
+				Source: j.Source, DeltaMs: j.DeltaMs, WallOffsetMs: e.wallOffsetMs(), Trust: e.trust(),
+				ReactivatedBlockIDs: []string{}, ShiftedBlockIDs: []string{}, ShiftedAllowanceIDs: []string{},
+			})
 		})
 	}
 	e.startJumps = nil
-	if err := e.commit(b); err != nil {
-		return fmt.Errorf("engine: write the restore clock jump: %w", err)
-	}
-	return nil
 }
 
 // startNeededEpoch starts the epoch the store asked for (§10.12, §10.11 step 4).
@@ -458,8 +462,11 @@ func escalationWire(x points.Escalation) EscalationState {
 	return s
 }
 
-// startupIntegrityEvents writes what the store found (§10.12 steps 4–7, §11.4):
-// ledger_repaired, tamper_detected{state_mac} and the rollback correction.
+// startupIntegrityEvents queues what the store found (§10.12 steps 4–7, §11.4):
+// ledger_repaired, tamper_detected{state_mac} and the rollback correction. They are
+// critical: the anchor keeps the pre-rollback position until they are committed
+// (putAnchor waits for the critical batch), so a correction that fails to commit is found
+// again at the next start instead of being laundered.
 func (e *Engine) startupIntegrityEvents(si *startInfo) {
 	rep := si.rep
 	anchor := rep.Anchor
@@ -468,23 +475,22 @@ func (e *Engine) startupIntegrityEvents(si *startInfo) {
 		if anchor != nil {
 			corr = min(0, anchor.Balance-e.state.Ledger.Balance)
 		}
-		b := e.newBatch()
-		b.add(EvLedgerRepaired, LedgerRepairedData{DroppedFromSeq: r.DroppedFromSeq, DroppedCount: r.DroppedCount, ArchivedAs: r.ArchivedAs, BalanceCorrection: corr})
-		e.commitNow(b, "ledger_repaired")
+		d := LedgerRepairedData{DroppedFromSeq: r.DroppedFromSeq, DroppedCount: r.DroppedCount, ArchivedAs: r.ArchivedAs, BalanceCorrection: corr}
+		e.addCritical("ledger_repaired", func(b *batch) { b.add(EvLedgerRepaired, d) })
 	}
 	if rep.StateMACInvalid {
-		b := e.newBatch()
-		b.add(EvTamperDetected, TamperDetectedData{Kind: "state_mac"})
-		e.commitNow(b, "tamper_detected{state_mac}")
+		e.addCritical("tamper_detected{state_mac}", func(b *batch) {
+			b.add(EvTamperDetected, TamperDetectedData{Kind: "state_mac"})
+		})
 	}
 	switch rep.AnchorCheck {
 	case store.AnchorRollback:
 		if anchor != nil && rep.NeedEpoch == "" {
 			if rep.Repair == nil {
 				if corr := min(0, anchor.Balance-e.state.Ledger.Balance); corr < 0 {
-					b := e.newBatch()
-					b.add(EvTamperDetected, TamperDetectedData{Kind: "ledger_rollback", BalanceCorrection: corr})
-					e.commitNow(b, "tamper_detected{ledger_rollback}")
+					e.addCritical("tamper_detected{ledger_rollback}", func(b *batch) {
+						b.add(EvTamperDetected, TamperDetectedData{Kind: "ledger_rollback", BalanceCorrection: corr})
+					})
 				}
 			}
 			// The streak an emergency wiped does not come back (§11.4).
@@ -496,7 +502,7 @@ func (e *Engine) startupIntegrityEvents(si *startInfo) {
 				l.VoidedDay = ptr(*anchor.VoidedDay)
 			}
 		}
-		e.putAnchor()
+		e.putAnchor() // deferred to the critical batch when a correction is queued
 	case store.AnchorPreviousEpoch, store.AnchorAbsent, store.AnchorInvalid:
 		e.putAnchor()
 	}
@@ -510,62 +516,128 @@ const snapshotMaxAge = saveEvery + tickInterval
 // stoppedServiceCheck prices a stop that left commitments unenforced (§10.12 step 9):
 // tamper_detected{service_stopped, −emergencyPenalty(balance + allowanceValue),
 // voidStreak} when a block or punishment was active at the stop, or an enabled
-// schedule's window overlapped it, and there is no valid planned-stop marker:
+// schedule's window overlapped it, and the stop was not a planned one:
 //
 //   - same boot: the stop lasted more than 60 s. After a crash (no clean-shutdown
 //     marker, and no clean stop sealed in run/clock.json) the previous run may have
 //     lived up to snapshotMaxAge after its last trace, so that much is not counted:
 //     crash restarts stay under the threshold.
-//   - the stop could not be measured (restoreClock: snapshot removed or replaced).
-//   - a reboot after a clean stop that was not an OS shutdown: the service manager
-//     (Windows SERVICE_CONTROL_SHUTDOWN, systemd) makes the guardian write the
-//     planned-stop marker «shutdown» when the OS shuts down, so a clean stop without it
-//     was a manual stop before the reboot. A «shutdown» marker counts at any age across
-//     a reboot (the machine may stay off for days). macOS is exempt: launchd sends the
-//     same signal for both and no marker is written.
+//   - the stop could not be measured (restoreClock: snapshot removed or replaced). No
+//     marker exempts it.
+//   - a reboot after a clean stop that was not an OS shutdown, where the service manager
+//     reports shutdowns (shutdownNoticed: Windows SERVICE_CONTROL_SHUTDOWN, systemd):
+//     the guardian then writes the planned-stop marker «shutdown» when the OS shuts
+//     down, so a clean stop without it was a manual stop before the reboot. A
+//     «shutdown» marker counts at any age across a reboot (the machine may stay off for
+//     days). Service managers that send the same signal for both (macOS launchd, SysV,
+//     OpenRC, upstart) are exempt: no marker is ever written there.
+//
+// An «update» or «install» marker (written by the installer, the updaters and
+// `centrate-guardian prepare-update`) exempts a stop only when an update really
+// happened: the binary that starts differs from the one that stopped (plannedUpdate).
+// In the same boot the stop must also have been short (plannedUpdateMaxDown). A valid
+// «shutdown» marker exempts a same-boot stop as before.
 //
 // Otherwise, in the same boot, a section found different from the last one written
-// while blocks were active costs the same once (hosts_changed_while_stopped). A valid
-// planned-stop marker exempts both. Safe mode is no exemption: the penalty is written
-// by the guardian, not through the API.
+// while blocks were active costs the same once (hosts_changed_while_stopped): no
+// planned-stop marker exempts it, since neither updaters nor OS shutdowns touch the
+// section. Safe mode is no exemption: the penalty is written by the guardian, not
+// through the API.
+//
+// It is decided at startup before anything is committed and queued as critical
+// evidence (critical.go), so it is retried until it is logged.
 func (e *Engine) stoppedServiceCheck(si *startInfo) {
-	ps := si.rep.PlannedStop
-	if !si.restored || ps.Valid {
+	kind := e.stopPenaltyKind(si)
+	if kind == "" {
 		return
 	}
-	kind := ""
+	e.addCritical("tamper_detected{"+kind+"}", func(b *batch) {
+		pen := points.EmergencyPenalty(b.balance()+e.allowanceValue(e.now), points.DefaultPointRules())
+		b.add(EvTamperDetected, TamperDetectedData{Kind: kind, BalanceCorrection: -pen, VoidStreak: true})
+	})
+}
+
+// plannedUpdateMaxDown is the longest same-boot stop an update marker exempts: an
+// installer or updater replaces the files and starts the service again in far less.
+const plannedUpdateMaxDown = 3 * time.Minute
+
+// stopPenaltyKind is the tamper kind the stop costs, or "".
+func (e *Engine) stopPenaltyKind(si *startInfo) string {
+	ps := si.rep.PlannedStop
+	if ps.Present {
+		e.log.Info("planned-stop marker found", "reason", ps.Reason, "valid", ps.Valid, "problem", ps.Problem,
+			"binaryChanged", si.prevBinary != "" && si.prevBinary != e.binaryID())
+	}
+	if !si.restored {
+		return ""
+	}
+	update := e.plannedUpdate(si)
 	switch {
 	case si.unverified:
 		if e.stopCommitments(si) {
-			kind = "service_stopped"
+			return "service_stopped"
 		}
+		return ""
 	case si.sameBoot:
 		down := si.downtime
 		if !si.cleanStop {
 			down -= snapshotMaxAge.Milliseconds()
 		}
-		if down > stopPenaltyThreshold.Milliseconds() && e.stopCommitments(si) {
-			kind = "service_stopped"
+		planned := (ps.Valid && ps.Reason == plannedShutdown) || (ps.Valid && update && si.downtime <= plannedUpdateMaxDown.Milliseconds())
+		if !planned && down > stopPenaltyThreshold.Milliseconds() && e.stopCommitments(si) {
+			return "service_stopped"
 		}
 	case si.rebooted:
 		// The TTL only makes sense within one boot: the machine may stay off for days.
-		osShutdown := ps.Present && ps.Reason == "shutdown" && strings.HasPrefix(ps.Problem, "expired")
-		if si.cleanStop && !osShutdown && e.platform != catalog.PlatformMac && e.stopCommitments(si) {
-			kind = "service_stopped"
+		osShutdown := ps.Present && ps.Reason == plannedShutdown && (ps.Valid || strings.HasPrefix(ps.Problem, "expired"))
+		if si.cleanStop && !osShutdown && !update && e.shutdownNoticed() && e.stopCommitments(si) {
+			return "service_stopped"
 		}
+		return ""
 	}
-	if kind == "" && si.sameBoot && len(si.activeAtStop) > 0 && e.state.HostsHash != "" && si.hostsReadable {
+	if si.sameBoot && len(si.activeAtStop) > 0 && e.state.HostsHash != "" && si.hostsReadable {
 		if h := hashDomains(si.hostsAtStart); h != e.state.HostsHash && h != e.state.HostsPendingHash {
-			kind = "hosts_changed_while_stopped"
+			return "hosts_changed_while_stopped"
 		}
 	}
-	if kind == "" {
-		return
+	return ""
+}
+
+// Planned-stop reasons (store.PlannedStop.Reason) the engine distinguishes.
+const (
+	plannedShutdown = "shutdown"
+	plannedUpdate   = "update"
+	plannedInstall  = "install"
+)
+
+// plannedUpdate reports whether an «update» or «install» marker (valid, or expired
+// across a reboot) goes with a real update: the binary identity sealed in run/clock.json
+// by the stopped run is known and differs from this one.
+func (e *Engine) plannedUpdate(si *startInfo) bool {
+	ps := si.rep.PlannedStop
+	if !ps.Present || (ps.Reason != plannedUpdate && ps.Reason != plannedInstall) {
+		return false
 	}
-	pen := points.EmergencyPenalty(e.state.Ledger.Balance+e.allowanceValue(e.now), points.DefaultPointRules())
-	b := e.newBatch()
-	b.add(EvTamperDetected, TamperDetectedData{Kind: kind, BalanceCorrection: -pen, VoidStreak: true})
-	e.commitNow(b, "tamper_detected{"+kind+"}")
+	if !ps.Valid && !(si.rebooted && strings.HasPrefix(ps.Problem, "expired")) {
+		return false
+	}
+	return si.prevBinary != "" && si.prevBinary != e.binaryID()
+}
+
+// shutdownNoticed reports whether the service manager tells an OS shutdown apart from a
+// plain stop, so the guardian writes the «shutdown» marker (§13): the Windows service
+// control manager and systemd. launchd (macOS), SysV init, OpenRC and upstart send the
+// same signal for both. An unnamed manager (tests, embedding) counts as noticing unless
+// the platform is macOS.
+func (e *Engine) shutdownNoticed() bool {
+	if e.platform == catalog.PlatformMac {
+		return false
+	}
+	switch e.o.ServiceManager {
+	case "", "windows-service", "linux-systemd":
+		return true
+	}
+	return false
 }
 
 // stopCommitments reports whether the stop left something unenforced: a block or

@@ -49,6 +49,7 @@ function ChipEditor(props: {
   field: CardField;
   initial: string;
   onCommit(text: string): string | null;
+  /** Each call is a new result (the same error twice is spoken twice). */
   onError(message: string | null): void;
 }): React.JSX.Element {
   const { field, onCommit, onError } = props;
@@ -94,9 +95,15 @@ export function ConfirmCard(props: {
   refs: BloqueoRefs;
   notice: BloqueoNotice | null;
   intentId: string | null;
+  /**
+   * Screen readers: a result of the card (the consequence line, an error, «El guardián no
+   * responde», an edit error, a notice), spoken by BloqueoSection's live region. The visible
+   * help line is not live: its hover/focus help is never spoken as a change.
+   */
+  announce(text: string): void;
 }): React.JSX.Element {
-  const { card, actions, refs, notice } = props;
-  const [editError, setEditError] = useState<string | null>(null);
+  const { card, actions, refs, notice, announce } = props;
+  const [editError, setEditError] = useState<{ text: string; seq: number } | null>(null);
   const repair = useRepair();
   const actionsHelp = useHelp(BLOQUEO_ROWS.actions);
   const snapshot = useAppStore((s) => s.snapshot);
@@ -108,29 +115,53 @@ export function ConfirmCard(props: {
     refs.primary.current?.focus({ preventScroll: true });
   }, [refs.primary]);
 
+  // The status changed under the focus (a create with no answer, «Reintentar»): the actions
+  // keep their elements (keyed by slot), but if the focus still fell to <body>, it goes back
+  // to the primary action so Enter keeps advancing.
+  useLayoutEffect(() => {
+    const active = document.activeElement;
+    if (active === null || active === document.body) {
+      refs.primary.current?.focus({ preventScroll: true });
+    }
+  }, [card.status, refs.primary]);
+
   useEffect(() => {
     if (card.editing === null) setEditError(null);
   }, [card.editing]);
 
   // The help line: an edit error, the repair outcome, a local notice, else the view's line.
+  // `result` marks the lines that report something that happened (spoken once, below).
   let helpText: string;
   let helpTone: HelpTone;
+  let result: string | null = null;
   if (editError && card.editing) {
-    helpText = editError;
+    helpText = editError.text;
     helpTone = 'orange';
+    result = `edit:${editError.seq}`;
   } else if (repair.message) {
     helpText = repair.message.text;
     helpTone = repair.message.tone;
+    result = 'repair';
   } else if (card.actionsHelp.kind === 'error') {
     helpText = errorCopy(card.actionsHelp.error).text;
     helpTone = 'red';
+    result = `error:${card.status}`;
   } else if (notice && notice.scope === 'card' && notice.intentId === props.intentId) {
     helpText = notice.text;
     helpTone = notice.tone;
+    result = 'notice';
   } else {
     helpText = card.actionsHelp.text;
     helpTone = card.actionsHelp.tone;
+    if (card.status === 'consequence' && helpTone === 'red') result = 'consequence';
   }
+
+  // Each new result is announced once; hover/focus help (the `else` above) never is.
+  const resultKey = result === null ? null : `${result}\u0000${helpText}`;
+  const resultText = result === null ? null : helpText;
+  useEffect(() => {
+    if (resultKey !== null && resultText !== null) announce(resultText);
+  }, [resultKey, resultText, announce]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (!isEnter(event)) return;
@@ -151,7 +182,8 @@ export function ConfirmCard(props: {
     };
     if (a.primary) {
       return (
-        <div key={a.id} className={`bq-span-${a.span}`} {...hover}>
+        // Keyed by slot, not by id: «Bloqueando…» → «Reintentar» keeps the same focused button.
+        <div key="primary" className={`bq-span-${a.span}`} {...hover}>
           <ConfirmButton
             ref={refs.primary}
             // Busy («Bloqueando…») and locked («Sí, bloquear 6 h» for 2 s) ignore presses like
@@ -170,7 +202,7 @@ export function ConfirmCard(props: {
     }
     const repairing = a.id === 'repair' && repair.running;
     return (
-      <div key={a.id} className={`bq-span-${a.span}`} {...hover}>
+      <div key="secondary" className={`bq-span-${a.span}`} {...hover}>
         <Tile
           id={a.id}
           label={repairing ? RENDERER_ES.protection.actions.repairing : a.label}
@@ -212,7 +244,9 @@ export function ConfirmCard(props: {
           field={card.editing}
           initial={chipEditText(draft, card.editing, snapshotNow(snapshot))}
           onCommit={(text) => (card.editing ? actions.commitEdit(card.editing, text) : null)}
-          onError={setEditError}
+          onError={(text) =>
+            setEditError((e) => (text === null ? null : { text, seq: (e?.seq ?? 0) + 1 }))
+          }
         />
       ) : (
         <ChipList
@@ -272,7 +306,8 @@ export function ConfirmCard(props: {
           {card.summary}
         </span>
         <div className="bq-actions-grid">{card.actions.map(renderAction)}</div>
-        <HelpLine id={HELP_ID} tone={helpTone} live="polite">
+        {/* A description only (not live): results are announced by BloqueoSection. */}
+        <HelpLine id={HELP_ID} tone={helpTone}>
           {helpText}
         </HelpLine>
       </div>

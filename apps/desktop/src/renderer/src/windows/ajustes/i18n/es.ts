@@ -143,7 +143,7 @@ export const AJUSTES_ES = {
     /** «Cosa: valor»: where the data lives. */
     title: 'Datos: en este ordenador',
     delete: 'Borrar todos mis datos',
-    deleteDesc: 'Puntos, racha, historial y tus plantillas. Los bloqueos en curso siguen.',
+    deleteDesc: 'Puntos, racha, historial y plantillas; los bloqueos siguen',
     deleteWordLabel: 'Escribe BORRAR para confirmar',
     deleteWordPlaceholder: 'BORRAR',
     deleteButton: 'Borrar',

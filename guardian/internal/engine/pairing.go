@@ -30,10 +30,12 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/imdlodoem23/centrate/guardian/internal/catalog"
 	"github.com/imdlodoem23/centrate/guardian/internal/platform"
+	"github.com/imdlodoem23/centrate/guardian/internal/procwatch"
 )
 
 // Token scopes of Request.Scope (§8.2).
@@ -101,6 +103,8 @@ type pairingMem struct {
 	scanned bool
 	scanAt  time.Duration
 	running map[string]*runningBrowser
+	// closing: a closeBrowsersWithoutExtension kill runs on a worker.
+	closing bool
 }
 
 // pairingCode is the one live pairing code.
@@ -763,6 +767,157 @@ func (e *Engine) browsersWithoutExtension() []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// maxParallelBrowserKills bounds the Kill calls of one browser close that wait at the
+// same time (a browser runs many processes; each Kill can wait for its grace period).
+const maxParallelBrowserKills = 8
+
+// browserKill is one browser family to close: the PIDs of its processes.
+type browserKill struct {
+	family string
+	procs  []procwatch.Process
+}
+
+// closeBrowsersStep closes the browsers without a protecting extension while
+// closeBrowsersWithoutExtension is on and a block is active (§10.8): the families of
+// browsersWithoutExtension, whose processes are listed again right here (so an extension
+// whose heartbeat just arrived spares its browser) and closed by PID on a worker; each
+// family closed commits process_closed{browser_without_extension} without points. Only
+// user processes are closed: never system processes, protected names or PIDs ≤ 4, nor
+// the guardian itself (the Killer checks again right before signalling).
+func (e *Engine) closeBrowsersStep() {
+	if e.isFrozen() || !e.state.Settings.CloseBrowsersWithoutExtension {
+		return
+	}
+	blocks := e.activeBlocks()
+	if len(blocks) == 0 {
+		return
+	}
+	m := e.pairingMem()
+	if m.closing {
+		return
+	}
+	fams := e.browsersWithoutExtension()
+	if len(fams) == 0 {
+		return
+	}
+	procs, err := e.o.ProcessLister.List()
+	if err != nil {
+		return
+	}
+	kills := e.browserKills(procs, fams)
+	if len(kills) == 0 {
+		return
+	}
+	ids := make([]string, len(blocks))
+	for i, b := range blocks {
+		ids[i] = b.ID
+	}
+	m.closing = true
+	killer := e.o.ProcessKiller
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		closed := killBrowsers(killer, kills)
+		_ = e.exec(context.Background(), func() {
+			if e.opened {
+				e.browsersClosed(closed, ids)
+			}
+		})
+	}()
+}
+
+// browserKills picks, from a fresh listing, the processes of the families in fams that
+// still have no protecting extension, grouped by family (in fams order).
+func (e *Engine) browserKills(procs []procwatch.Process, fams []string) []browserKill {
+	want := map[string]bool{}
+	for _, f := range fams {
+		want[f] = true
+	}
+	protected := map[string]bool{}
+	for _, st := range e.extensionsStatus() {
+		if st.Protecting {
+			protected[st.Browser] = true
+		}
+	}
+	self := os.Getpid()
+	byFam := map[string][]procwatch.Process{}
+	for _, p := range procs {
+		if p.System || p.PID <= 4 || p.PID == self || procwatch.IsProtected(p.Name) || e.cat.IsProtectedProcessName(p.Name) {
+			continue
+		}
+		bs := e.cat.BrowsersForProcess(p.Name, e.platform)
+		if len(bs) == 0 || !want[bs[0].ExtensionFamily] {
+			continue
+		}
+		if slices.ContainsFunc(bs, func(b catalog.Browser) bool { return protected[b.ExtensionFamily] }) {
+			continue
+		}
+		byFam[bs[0].ExtensionFamily] = append(byFam[bs[0].ExtensionFamily], p)
+	}
+	var out []browserKill
+	for _, f := range fams {
+		if ps := byFam[f]; len(ps) > 0 {
+			out = append(out, browserKill{family: f, procs: ps})
+		}
+	}
+	return out
+}
+
+// killBrowsers closes the processes (worker goroutine, bounded parallelism) and returns
+// the families of which at least one process was closed.
+func killBrowsers(killer ProcessKiller, kills []browserKill) []string {
+	closed := make([]bool, len(kills))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxParallelBrowserKills)
+	for i, k := range kills {
+		for _, p := range k.procs {
+			wg.Add(1)
+			sem <- struct{}{}
+			go func() {
+				defer wg.Done()
+				defer func() { <-sem }()
+				defer func() { _ = recover() }()
+				if killer.Kill(p.PID, p.Name) == nil {
+					mu.Lock()
+					closed[i] = true
+					mu.Unlock()
+				}
+			}()
+		}
+	}
+	wg.Wait()
+	var out []string
+	for i, k := range kills {
+		if closed[i] {
+			out = append(out, k.family)
+		}
+	}
+	return out
+}
+
+// browsersClosed records a finished browser close (engine goroutine): one
+// process_closed per closed family, and the family's grace starts again (a relaunched
+// browser gets browserWithoutExtensionGraceMs for its extension to connect).
+func (e *Engine) browsersClosed(families []string, blockIDs []string) {
+	m := e.pairingMem()
+	m.closing = false
+	if len(families) == 0 || e.isFrozen() {
+		return
+	}
+	e.kills = append(e.kills, e.now)
+	b := e.newBatch()
+	for _, f := range families {
+		delete(m.running, f)
+		b.add(EvProcessClosed, ProcessClosedData{
+			Reason:   "browser_without_extension",
+			Browser:  ptr(f),
+			BlockIDs: slices.Clone(blockIDs),
+		})
+	}
+	e.commitNow(b, "process_closed")
 }
 
 // Reducers.

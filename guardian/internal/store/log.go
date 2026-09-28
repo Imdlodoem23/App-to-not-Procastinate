@@ -482,8 +482,9 @@ func (s *Store) macAt(seq int64) (string, error) {
 
 // Page is one page of /v1/events (EventsResponse without the wire encoding).
 type Page struct {
-	// Epoch is the current epoch; Reset is true when the requested one differed (the
-	// page then starts at the beginning of the current epoch).
+	// Epoch is the current epoch; Reset is true when the requested cursor is not a
+	// position in the current log: another epoch, or a seq past its tail (the page then
+	// starts at the beginning of the current epoch).
 	Epoch string
 	Reset bool
 	// Events are ordered by seq and never split a batch.
@@ -497,8 +498,11 @@ type Page struct {
 // ReadEvents returns the committed events of the current epoch with seq > after (§8.8
 // GET /v1/events): at most limit events ending on a txEnd line, unless the first batch
 // alone is longer (then exactly that batch). An epoch other than the current one
-// ("" included) resets the cursor to the start of the current epoch. Lines are
-// verified again as they are read (ErrCorrupt).
+// ("" included) resets the cursor to the start of the current epoch, and so does an
+// after past the last committed seq of the current epoch: a ledger repair (§11.4) or a
+// restored older data folder keeps the epoch but reuses seqs, so a client holding a
+// newer cursor would otherwise skip the reused seqs silently and keep events that no
+// longer exist. Lines are verified again as they are read (ErrCorrupt).
 func (s *Store) ReadEvents(epoch string, after int64, limit int) (Page, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -512,7 +516,7 @@ func (s *Store) ReadEvents(epoch string, after int64, limit int) (Page, error) {
 		return Page{}, invalid("limit %d", limit)
 	}
 	p := Page{Epoch: s.epoch}
-	if epoch != s.epoch {
+	if epoch != s.epoch || after > s.lastSeq {
 		p.Reset, after = true, 0
 	}
 	after = max(after, 0)

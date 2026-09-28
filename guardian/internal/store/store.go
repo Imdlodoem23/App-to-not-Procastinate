@@ -300,10 +300,13 @@ func Open(dir string, opts Options) (*Store, RecoveryReport, error) {
 		took.Removed = append(took.Removed, tr.Removed...)
 		return err
 	}
-	for _, d := range []string{"", dirRun} {
-		if err := ensure(d, false); err != nil {
-			return nil, rep, err
-		}
+	if err := ensure("", false); err != nil {
+		return nil, rep, err
+	}
+	// run/ is private (like secret/): no local account but the administrators may open
+	// guardian.lock or the markers, so none can hold them across a restart.
+	if err := ensure(dirRun, true); err != nil {
+		return nil, rep, err
 	}
 	if s.lock, err = acquireLock(s.path(dirRun, lockName)); err != nil {
 		return nil, rep, err
@@ -314,10 +317,16 @@ func Open(dir string, opts Options) (*Store, RecoveryReport, error) {
 			s.release()
 		}
 	}()
-	for _, d := range []string{dirEvents, dirQuarantine, dirBackups} {
-		if err := ensure(d, false); err != nil {
+	// events/ and quarantine/ are private too: nothing outside the guardian reads them
+	// (clients use GET /v1/events), and a Windows handle with share mode 0 held on
+	// events/current across a restart would make the log unreadable (log_unreadable).
+	for _, d := range []string{dirEvents, dirQuarantine} {
+		if err := ensure(d, true); err != nil {
 			return nil, rep, err
 		}
+	}
+	if err := ensure(dirBackups, false); err != nil {
+		return nil, rep, err
 	}
 	if err := ensure(dirSecret, true); err != nil {
 		return nil, rep, err

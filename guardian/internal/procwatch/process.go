@@ -16,8 +16,16 @@ type Process struct {
 	// without extra work: /proc/<pid>/exe on Linux, and on macOS the exec path
 	// the kernel saved when it agrees with the kernel's name for the process.
 	// List leaves it empty on Windows (resolving it means opening every
-	// process); Kill reads it through the process handle there.
+	// process); OSLister fills it there for processes in user sessions, and
+	// Kill reads it through the process handle.
 	Path string
+	// Identity is what the executable file says it is, whatever its name
+	// (docs/ARCHITECTURE.md §10.8): on Windows the OriginalFilename of its
+	// version resource (InternalName when that is missing), on macOS the
+	// identifier of its code signature (see PEIdentity and MachOIdentity).
+	// OSLister fills it for processes that are not System; List does not.
+	// Empty on Linux. It only widens matching and never protects.
+	Identity string
 	// Bundle is, on macOS, the name of the innermost .app bundle that holds
 	// the executable, without ".app" ("Discord" for
 	// /Applications/Discord.app/Contents/MacOS/Discord), taken from Path.
@@ -39,6 +47,9 @@ type Process struct {
 	CmdName string
 	// PPID is the parent process ID, or 0 when unknown.
 	PPID int
+	// created is the Windows creation time (FILETIME) from the process
+	// table, which with PID identifies the process for OSLister's cache.
+	created int64
 	// System reports that the process does not belong to an interactive user
 	// and must never be matched or killed: on Windows it runs in session 0
 	// (services) or, when checked before a kill, as LocalSystem,
@@ -72,11 +83,21 @@ type KillerFunc func(pid int, name string) error
 // Kill calls f.
 func (f KillerFunc) Kill(pid int, name string) error { return f(pid, name) }
 
-// OSLister is the Lister backed by the operating system (see List).
+// OSLister is the Lister backed by the operating system (see List). On top
+// of List it fills Process.Identity (Windows, macOS) and Process.Path
+// (Windows) for processes that are not System, reading each executable once
+// (results are cached by process and by file size and modification time).
 type OSLister struct{}
 
-// List calls the package-level List.
-func (OSLister) List() ([]Process, error) { return List() }
+// List calls the package-level List and adds the identities.
+func (OSLister) List() ([]Process, error) {
+	procs, err := List()
+	if err != nil {
+		return nil, err
+	}
+	identify(procs)
+	return procs, nil
+}
 
 // OSKiller is the Killer backed by the operating system.
 type OSKiller struct {

@@ -224,6 +224,18 @@ describe('section 5 «Pie»', () => {
     });
   });
 
+  it('says «Guardián sin respuesta · Reparar» next to a create that timed out', () => {
+    const s = snapshotOf('guardian-timeout');
+    expect(s.link.status).toBe('ok');
+    expect(deriveFooterView(s).guardian).toEqual({
+      tone: 'orange',
+      label: 'Guardián sin respuesta',
+      action: 'repair',
+    });
+    // Cleared create (a later one succeeded or the card was dropped): back to «activo».
+    expect(deriveFooterView({ ...s, ops: { ...s.ops, create: null } }).guardian.tone).toBe('green');
+  });
+
   it('distinguishes a missing and a disconnected extension', () => {
     expect(deriveFooterView(snapshotOf('extension-missing')).extension).toEqual({
       tone: 'orange',
@@ -263,6 +275,8 @@ describe('section 5 «Pie»', () => {
       const s = snapshotOf(id);
       const view = deriveFooterView(s);
       if (s.link.status === 'down') expect(view.guardian.tone).toBe('red');
+      else if (s.ops.create?.status === 'failed' && s.ops.create.error?.code === 'timeout')
+        expect(view.guardian.tone).toBe('orange');
       else expect(view.guardian.tone).toBe('green');
     }
   });

@@ -288,7 +288,8 @@
     background: var(--tile);
   }
 
-  /* Chips live on the 16 px help line, so they are 16 px tall (hit area extended below). */
+  /* Chips live on the 16 px help line, so they are 16 px tall (hit area extended to 32 px,
+     centred, whatever the chip's border). */
   .c-chip {
     display: inline-flex;
     flex: none;
@@ -313,7 +314,10 @@
   button.c-chip::after {
     content: '';
     position: absolute;
-    inset: -8px 0;
+    top: calc(50% - var(--size-min-target) / 2);
+    right: 0;
+    bottom: calc(50% - var(--size-min-target) / 2);
+    left: 0;
   }
 
   button.c-chip:hover {
@@ -624,8 +628,15 @@
       opacity: 1;
     }
 
+    /* Canvas track + Highlight fill (a system pair built to contrast); the outline still
+       marks the full length. */
     .c-bar {
       outline: var(--size-border) solid CanvasText;
+      background: Canvas;
+    }
+
+    .c-bar-fill {
+      background: Highlight;
     }
 
     .c-pill,

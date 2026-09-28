@@ -13,6 +13,7 @@ import (
 
 	"github.com/imdlodoem23/centrate/guardian/internal/catalog"
 	"github.com/imdlodoem23/centrate/guardian/internal/hosts"
+	"github.com/imdlodoem23/centrate/guardian/internal/points"
 	"github.com/imdlodoem23/centrate/guardian/internal/procwatch"
 )
 
@@ -74,6 +75,15 @@ type hostsState struct {
 	failing bool
 	// recheck: the watcher reported a change while a write ran; verify once it ends.
 	recheck bool
+	// Sustained tampering while blocks are active (checkHostsSustained): since when
+	// (boot clock) the writes fail for lack of permission or the file is contested,
+	// whether the lock was reported, the priced tamper kinds waiting for a batch and the
+	// blocks already priced (once per block).
+	lockedSeen, contestedSeen bool
+	lockedAt, contestedAt     time.Duration
+	lockReported              bool
+	pendingPriced             []string
+	pricedBlocks              map[string]bool
 }
 
 // hostsJob is one hosts write (§11.3 step 5).
@@ -94,6 +104,13 @@ const hostsRetryAfter = 5 * time.Second
 
 // ioStopWait bounds how long Stop waits for a hosts write or flush still running.
 const ioStopWait = 2 * time.Second
+
+// hostsSustainedAfter is how long the section may stay unwritable for lack of
+// permission (a lock: chattr +i, chflags uchg, a deny ACE) or contested (another
+// program keeps stripping it) while blocks are active before it costs like an
+// emergency unlock, once per block (§16.3): an antivirus false positive is re-applied
+// and logged for free, a lasting bypass is not free.
+const hostsSustainedAfter = 2 * time.Minute
 
 // modeRank orders modes for the hosts cap and schedule weakening (§10.3, §10.10).
 func modeRank(mode string) int {
@@ -391,6 +408,7 @@ func (e *Engine) applyHosts(domains []string, until int64) {
 		job.done <- writeHosts(hm, desired, until)
 	}()
 	h.job = job
+	h.retryAtBoot = 0
 	if hash := hashDomains(desired); hash != e.state.HostsHash {
 		e.state.HostsPendingHash = hash
 		e.markDirty(true)
@@ -614,7 +632,10 @@ func (e *Engine) hostsTampered() {
 	h := &e.hosts
 	h.appliedValid = false
 	delay := e.contention.Rewritten(time.UnixMilli(e.now))
-	if delay > 0 {
+	// A retry already scheduled (even one due now, which the reconcile after this
+	// notice performs) is not postponed: a rewrite faster than the delay must not keep
+	// the section away for good.
+	if delay > 0 && h.retryAtBoot == 0 {
 		h.retryAtBoot = e.bootNow + delay
 	}
 	if e.hasActiveBlocks() && (h.lastTamper == 0 || e.now-h.lastTamper >= hostsTamperEventGap.Milliseconds()) {
@@ -637,18 +658,90 @@ func (e *Engine) checkHostsPathOverride() {
 }
 
 // flushTamper writes the pending tamper_detected events (balanceCorrection 0).
+// The priced ones (checkHostsSustained) cost −emergencyPenalty(balance +
+// allowanceValue) and the streak.
 func (e *Engine) flushTamper() {
-	if len(e.hosts.pendingTamper) == 0 || e.isFrozen() {
+	h := &e.hosts
+	if (len(h.pendingTamper) == 0 && len(h.pendingPriced) == 0) || e.isFrozen() {
 		return
 	}
 	b := e.newBatch()
-	for _, k := range e.hosts.pendingTamper {
+	for _, k := range h.pendingTamper {
 		b.add(EvTamperDetected, TamperDetectedData{Kind: k})
 	}
+	for _, k := range h.pendingPriced {
+		pen := points.EmergencyPenalty(b.balance()+e.allowanceValue(e.now), points.DefaultPointRules())
+		b.add(EvTamperDetected, TamperDetectedData{Kind: k, BalanceCorrection: -pen, VoidStreak: true})
+	}
 	if e.commitNow(b, "tamper_detected") {
-		e.hosts.pendingTamper = nil
+		h.pendingTamper, h.pendingPriced = nil, nil
 		e.tampers = append(e.tampers, e.now)
 	}
+}
+
+// checkHostsSustained prices a hosts bypass that lasts while blocks are active: writes
+// failing for lack of permission (tamper_detected{hosts_locked}, logged at once with
+// balanceCorrection 0 and priced after hostsSustainedAfter) or a file contested for
+// that long (tamper_detected{hosts}, priced). Each block is priced at most once; a
+// successful re-apply or a quiet file starts over.
+func (e *Engine) checkHostsSustained() {
+	h := &e.hosts
+	active := e.activeBlocks()
+	if len(active) == 0 || e.isFrozen() {
+		h.lockedSeen, h.contestedSeen, h.lockReported = false, false, false
+		h.pricedBlocks = nil
+		return
+	}
+	locked := h.failing && h.status == "locked"
+	if !locked {
+		h.lockedSeen, h.lockReported = false, false
+	} else if !h.lockedSeen {
+		h.lockedSeen, h.lockedAt = true, e.bootNow
+	}
+	if locked && !h.lockReported {
+		h.lockReported = true
+		h.pendingTamper = append(h.pendingTamper, "hosts_locked")
+	}
+	contested := e.contention.Contested(time.UnixMilli(e.now))
+	if !contested {
+		h.contestedSeen = false
+	} else if !h.contestedSeen {
+		h.contestedSeen, h.contestedAt = true, e.bootNow
+	}
+	kind := ""
+	switch {
+	case locked && e.bootNow-h.lockedAt >= hostsSustainedAfter:
+		kind = "hosts_locked"
+	case contested && e.bootNow-h.contestedAt >= hostsSustainedAfter:
+		kind = "hosts"
+	}
+	if kind == "" {
+		return
+	}
+	fresh := false
+	for _, b := range active {
+		if !h.pricedBlocks[b.ID] {
+			fresh = true
+		}
+	}
+	if !fresh {
+		return
+	}
+	if h.pricedBlocks == nil {
+		h.pricedBlocks = map[string]bool{}
+	}
+	for _, b := range active {
+		h.pricedBlocks[b.ID] = true
+	}
+	e.log.Warn("hosts protection bypassed while blocks are active; priced", "kind", kind)
+	h.pendingPriced = append(h.pendingPriced, kind)
+}
+
+// hostsRetryDue reports whether a postponed hosts write (contention backoff, failed
+// write) is due: the reconcile runs at once instead of at the next periodic one.
+func (e *Engine) hostsRetryDue() bool {
+	h := &e.hosts
+	return h.job == nil && h.retryAtBoot != 0 && e.bootNow >= h.retryAtBoot
 }
 
 // hostsStatus is ProtectionStatus.hosts.status.

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"bytes"
+	"errors"
 	"slices"
 
 	"github.com/imdlodoem23/centrate/guardian/internal/store"
@@ -10,6 +11,9 @@ import (
 // Persistence (§11.3 step 8): state.json with the engine state, the enforcement core and
 // the idempotency records; the rollback anchor; idempotent replays (§8.6).
 
+// errCriticalPending: state.json waits for the critical startup batch.
+var errCriticalPending = errors.New("engine: startup evidence not logged yet")
+
 // saveState writes state.json now (SaveState keeps state.prev.json).
 func (e *Engine) saveState() error { return e.saveStateWith(e.st.SaveState) }
 
@@ -17,6 +21,9 @@ func (e *Engine) saveState() error { return e.saveStateWith(e.st.SaveState) }
 func (e *Engine) saveStateAll() error { return e.saveStateWith(e.st.SaveStateAll) }
 
 func (e *Engine) saveStateWith(save func(store.StateSnapshot) error) error {
+	if e.criticalHeld() {
+		return errCriticalPending
+	}
 	snap := e.det.Snapshot()
 	e.state.Clock.Snapshot = &snap
 	e.idem = store.PruneIdempotency(e.idem, e.now)
@@ -38,8 +45,11 @@ func (e *Engine) saveStateWith(save func(store.StateSnapshot) error) error {
 }
 
 // putAnchor stores the rollback anchor at the current log position (§11.3 steps 6, 8).
+//
+// It waits while startup evidence is pending (critical.go): the anchor must keep the
+// position that proves a rollback until the correction is logged.
 func (e *Engine) putAnchor() {
-	if e.state.LastEventSeq == 0 {
+	if e.state.LastEventSeq == 0 || e.criticalHeld() {
 		return
 	}
 	l := e.state.Ledger

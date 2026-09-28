@@ -205,6 +205,23 @@ describe('KeyRegistry', () => {
     expect(keys.handle(key({ key: 'a', code: 'KeyA', alt: true, ctrl: true }))).toBe(false);
   });
 
+  it('lets macOS Option compose text in fields, but not on Windows or Linux', () => {
+    const mac = new KeyRegistry('darwin', () => undefined);
+    const press = vi.fn();
+    mac.registerMnemonic('e', { enabled: () => true, press });
+    // Option+E is the acute accent dead key («está»): it must reach the field.
+    expect(mac.handle(key({ key: 'Dead', code: 'KeyE', alt: true, inText: true }))).toBe(false);
+    expect(press).not.toHaveBeenCalled();
+    expect(mac.handle(key({ key: '´', code: 'KeyE', alt: true }))).toBe(true);
+    expect(press).toHaveBeenCalledTimes(1);
+
+    const win = new KeyRegistry('win32', () => undefined);
+    const winPress = vi.fn();
+    win.registerMnemonic('e', { enabled: () => true, press: winPress });
+    expect(win.handle(key({ key: 'e', code: 'KeyE', alt: true, inText: true }))).toBe(true);
+    expect(winPress).toHaveBeenCalledTimes(1);
+  });
+
   it('maps physical keys to mnemonic characters', () => {
     expect(mnemonicFromCode('KeyQ')).toBe('q');
     expect(mnemonicFromCode('Digit3')).toBe('3');

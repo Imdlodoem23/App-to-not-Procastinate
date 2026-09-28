@@ -11,7 +11,7 @@ import type { Page } from '@playwright/test';
 import type { RecordedGuardianCall } from '../src/main/contracts';
 import { TRAY_ITEM } from '../src/main/tray/model';
 import { splitCountdown } from '../src/shared/format';
-import { primaryBlock } from '../src/shared/ui-state';
+import { UI_TIMINGS, primaryBlock } from '../src/shared/ui-state';
 import { advanceInSteps, launchApp, type LaunchedApp } from './support/app';
 import { expect, test } from './support/test';
 
@@ -180,6 +180,39 @@ test('extend +15 min: undo within 5 s sends nothing; otherwise one call after 5 
     .toBe(15 * 60_000);
   await expect(bigCountdown(main)).toHaveText(await expectedCountdown(app));
   await expect(undo).toHaveCount(0);
+});
+
+test('raising a covered window under a block keeps the Bloqueo layout (tray click, «Abrir»)', async () => {
+  app = await launchApp({ state: 'one-block', show: true });
+  const main = await app.page('main');
+  const nuevo = main.getByRole('button', { name: /^Nuevo/ });
+  const field = main.getByRole('textbox', { name: FIELD });
+  await expect(nuevo).toBeVisible();
+  await expect(field).toHaveCount(0);
+  const height = async () => (await app!.harness.bounds()).main?.content.height;
+  const before = await height();
+  expect(before).toBeTruthy();
+
+  const cover = async (): Promise<void> => {
+    await app!.electron.evaluate(({ BrowserWindow }) => {
+      for (const w of BrowserWindow.getAllWindows()) w.blur();
+    });
+    // Past the tray's blur grace, so the click reads as «covered», not «just blurred».
+    await main.waitForTimeout(UI_TIMINGS.trayBlurGraceMs + 350);
+  };
+
+  for (const raise of [
+    () => app!.harness.trayClick(),
+    () => app!.harness.clickTrayItem(TRAY_ITEM.open),
+  ]) {
+    await cover();
+    await raise();
+    await expect.poll(async () => (await app?.harness.bounds())?.main?.visible).toBe(true);
+    await main.waitForTimeout(300);
+    await expect(field).toHaveCount(0);
+    await expect(nuevo).toBeVisible();
+    expect(await height()).toBe(before);
+  }
 });
 
 test('«Reintentar» after a timeout resends the same Idempotency-Key', async () => {

@@ -64,10 +64,11 @@ func parseSystemProcesses(buf []byte) ([]Process, error) {
 			return nil, errMalformed
 		}
 		p := Process{
-			PID:    int(e.UniqueProcessID),
-			PPID:   int(e.InheritedFromUniqueProcessID),
-			Name:   name,
-			System: e.SessionID == 0,
+			PID:     int(e.UniqueProcessID),
+			PPID:    int(e.InheritedFromUniqueProcessID),
+			Name:    name,
+			System:  e.SessionID == 0,
+			created: e.CreateTime,
 		}
 		switch {
 		case p.PID == 0 && p.Name == "":

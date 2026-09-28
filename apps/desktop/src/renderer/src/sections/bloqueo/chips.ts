@@ -1,8 +1,9 @@
 /**
  * Chips of section 2 (PROMPT §10): what the parser understood while typing («YouTube · 1 h ·
  * hasta 17:42», a click selects that part of the phrase to correct it) and what the
- * confirmation card blocks (a click edits it in place). Also a conservative text-width
- * estimate, so one-line rows pick shorter copy instead of being clipped. Pure module.
+ * confirmation card blocks (a click edits it in place), and the lists to try when they must
+ * fit one line. Also a conservative text-width estimate, so one-line rows pick shorter copy
+ * instead of being clipped. Pure module.
  */
 import type { CategoryId } from '@centrate/shared/catalog';
 import { getApp, getCategory, getService } from '@centrate/shared/catalog';
@@ -198,47 +199,38 @@ export function estimateTextWidth(text: string, fontPx: number, semibold = false
   return Math.ceil(em * fontPx * WIDTH_SCALE * (semibold ? 1.08 : 1));
 }
 
-/** Chip geometry (px): 12 px text, 6 px side padding, 16 px icon + 4 px gap, 4 px between. */
-export const CHIP_METRICS = Object.freeze({
-  fontPx: 12,
-  padX: 6,
-  icon: 16,
-  iconGap: 4,
-  gap: 4,
-  border: 1,
-});
-
-function hasIcon(c: ChipView): boolean {
-  return c.kind !== 'more';
+function isFixed(c: ChipView): boolean {
+  return c.kind === 'duration' || c.kind === 'until' || c.kind === 'task';
 }
 
-export function estimateChipWidth(c: ChipView): number {
-  const m = CHIP_METRICS;
-  return (
-    estimateTextWidth(c.label, m.fontPx) +
-    2 * (m.padX + m.border) +
-    (hasIcon(c) ? m.icon + m.iconGap : 0)
-  );
+/** «+2» next to targets still shown; «3 webs» when every target hides behind it. */
+function moreChip(hidden: readonly ChipView[], shown: number): ChipView {
+  const label =
+    shown > 0
+      ? BLOQUEO_ES.field.moreChips(hidden.length)
+      : BLOQUEO_ES.field.hiddenTargets(
+          hidden.length,
+          hidden.every((c) => c.kind === 'category')
+            ? 'category'
+            : hidden.some((c) => c.kind === 'category')
+              ? 'mixed'
+              : 'web',
+        );
+  return chip({ key: 'more', kind: 'more', label });
 }
 
 /**
- * The chips that fit in `budgetPx`, hiding targets first behind a «+N» chip (duration and
- * end stay visible: they are what the user checks).
+ * The chip lists to try on one line, widest first: every chip, then fewer targets with a
+ * «+N» chip, down to none behind «N webs» (duration, end and task always stay: they are what
+ * the user checks). The renderer measures them in the real font and keeps the first that
+ * fits (`ChipList`'s `candidates`); the last one is used even if it does not.
  */
-export function fitChips(chips: readonly ChipView[], budgetPx: number): ChipView[] {
-  const width = (list: readonly ChipView[]): number =>
-    list.reduce((sum, c) => sum + estimateChipWidth(c), 0) +
-    Math.max(0, list.length - 1) * CHIP_METRICS.gap;
-  if (width(chips) <= budgetPx) return [...chips];
-  const fixed = chips.filter(
-    (c) => c.kind === 'duration' || c.kind === 'until' || c.kind === 'task',
-  );
-  const flexible = chips.filter((c) => !fixed.includes(c));
+export function chipCandidates(chips: readonly ChipView[]): ChipView[][] {
+  const fixed = chips.filter(isFixed);
+  const flexible = chips.filter((c) => !isFixed(c));
+  const out: ChipView[][] = [[...chips]];
   for (let keep = flexible.length - 1; keep >= 0; keep -= 1) {
-    const hidden = flexible.length - keep;
-    const more = chip({ key: 'more', kind: 'more', label: BLOQUEO_ES.field.moreChips(hidden) });
-    const candidate = [...flexible.slice(0, keep), more, ...fixed];
-    if (width(candidate) <= budgetPx || keep === 0) return candidate;
+    out.push([...flexible.slice(0, keep), moreChip(flexible.slice(keep), keep), ...fixed]);
   }
-  return [...chips];
+  return out;
 }

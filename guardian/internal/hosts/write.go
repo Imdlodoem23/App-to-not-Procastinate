@@ -54,7 +54,10 @@ func (e *tempCreateError) Unwrap() error { return e.err }
 //     file is a bind mount, as /etc/hosts is in Docker containers, or the
 //     directory is not writable), the file is rewritten in place: write from
 //     offset 0, truncate to the new size, fsync. That is not atomic, which is
-//     why Damaged and RestoreFromBackup exist.
+//     why Damaged and RestoreFromBackup exist;
+//  4. if that is still refused by a lock and BreakLocks is set, the
+//     interactive processes holding the file are closed (see BreakLocks) and
+//     steps 2 and 3 run once more.
 //
 // Callers hold m.mu and have called m.read in the same critical section.
 func (m *Manager) write(data []byte) error {
@@ -85,6 +88,25 @@ func (m *Manager) write(data []byte) error {
 		return fmt.Errorf("hosts: replace: %w", err)
 	}
 	m.logger().Warn("hosts: atomic replace failed, rewriting in place", "err", err)
+	err = m.writeInPlaceRetry(target, data, meta)
+	if err == nil {
+		return nil
+	}
+	if !isTransientLock(err) || !m.BreakLocks || !m.blocking {
+		return fmt.Errorf("hosts: write in place: %w", err)
+	}
+	// Still held after several seconds of retries: close the interactive
+	// processes that hold the file (see BreakLocks) and try once more.
+	closed := m.breakLocks(target)
+	if len(closed) == 0 {
+		return fmt.Errorf("hosts: write in place: %w", err)
+	}
+	m.broken = append(m.broken, closed...)
+	if err := m.writeAtomic(dir, target, data, meta); err == nil {
+		return nil
+	} else if !canWriteInPlace(err) {
+		return fmt.Errorf("hosts: replace: %w", err)
+	}
 	if err := m.writeInPlaceRetry(target, data, meta); err != nil {
 		return fmt.Errorf("hosts: write in place: %w", err)
 	}

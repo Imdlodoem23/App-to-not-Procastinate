@@ -93,6 +93,10 @@ type Options struct {
 	// Version is the guardian version (default version.Version); Commit its commit.
 	Version string
 	Commit  string
+	// BinaryID identifies this build of the guardian, sealed in run/clock.json at every
+	// save: an update planned-stop marker exempts a stop only when the binary changed
+	// (§10.12 step 9). Default: Version and the SHA-256 of the executable.
+	BinaryID string
 	// Port is the API port (health, diagnostics). Default the embedded default port.
 	Port int
 	// ServiceManager names the service manager for diagnostics.
@@ -179,6 +183,9 @@ type Engine struct {
 	// replayedReqs are the req fingerprints of the events replayed at startup (with
 	// their latest trusted time), for addLostResponses.
 	replayedReqs map[string]int64
+	// lastAppliedAt is the trusted time of the last event applied (the reboot restore
+	// jump's lower bound when rebuilt from the log).
+	lastAppliedAt int64
 
 	enf           enforcementPlan
 	enfDirty      bool
@@ -191,6 +198,11 @@ type Engine struct {
 	cal        calibration
 	hold       *bootHold
 	startJumps []jumpRec
+
+	// critical is the startup evidence not committed yet (critical.go).
+	critical         []criticalEv
+	flushingCritical bool
+	criticalRetryAt  time.Duration
 
 	dirty        bool
 	urgent       bool
@@ -256,6 +268,9 @@ func New(o Options) (*Engine, error) {
 	if o.Version == "" {
 		o.Version = version.Version
 	}
+	if o.BinaryID == "" {
+		o.BinaryID = defaultBinaryID(o.Version)
+	}
 	if o.Port == 0 {
 		o.Port = embedded.API().DefaultPort
 	}
@@ -288,6 +303,9 @@ func New(o Options) (*Engine, error) {
 		integrity:    "ok",
 	}
 	e.matcher.Store(&procwatch.Matcher{})
+	// Contested: retry every 10 s, not with a growing backoff (§10.10): a script that
+	// strips the section must not push the re-apply minutes away.
+	e.contention.MaxDelay = hosts.DefaultContentionMinDelay
 	return e, nil
 }
 
@@ -479,15 +497,20 @@ func (e *Engine) Stop() error {
 		return nil
 	}
 	var errs []error
-	if !e.isFrozen() {
+	// Evidence of the previous stop that could not be logged keeps the snapshots as they
+	// were, so the next start finds it again (critical.go).
+	held := e.criticalHeld()
+	if !e.isFrozen() && !held {
 		e.readClocks()
 		e.now = e.trustedNowMs()
 		if err := e.saveState(); err != nil {
 			errs = append(errs, err)
 		}
 	}
-	if err := e.saveClock(e.st.LastSeq(), true); err != nil {
-		errs = append(errs, err)
+	if !held {
+		if err := e.saveClock(e.st.LastSeq(), true); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	if err := e.st.MarkCleanShutdown(); err != nil {
 		errs = append(errs, err)
@@ -613,15 +636,18 @@ func (e *Engine) Step() {
 func (e *Engine) step() {
 	e.timeStep()
 	e.nuclearReconcile()
+	e.closeBrowsersStep()
 	e.afterTurn()
 }
 
 // afterTurn reconciles enforcement when dirty or due and saves state when due.
 func (e *Engine) afterTurn() {
+	e.retryCritical()
 	e.pollHosts()
-	if e.enfDirty || e.bootNow-e.lastReconcile >= reconcileEvery {
+	if e.enfDirty || e.bootNow-e.lastReconcile >= reconcileEvery || e.hostsRetryDue() {
 		e.reconcile()
 	}
+	e.checkHostsSustained()
 	e.flushTamper()
 	if e.enfDirty {
 		e.reconcile()
@@ -713,13 +739,25 @@ func (e *Engine) serverNow() string { return fmtTime(e.o.Clock.Wall()) }
 // next start a snapshot older than the log can only be an old copy put back or the
 // result of a failed write (restoreClock), and a calibration correction in the batch is
 // already in it.
+//
+// While startup evidence is pending (critical.go) it is committed first, and a batch
+// never goes ahead of it. The critical batch itself saves the clock snapshot only once
+// it is in the log: a failed append must leave the snapshot that measures the stop.
 func (e *Engine) commit(b *batch) error {
 	if b.empty() {
 		return nil
 	}
-	if err := e.saveClock(e.st.LastSeq()+int64(len(b.events)), false); err != nil {
-		e.countError("clock_save")
-		e.log.Warn("clock snapshot save failed", "err", err)
+	if len(e.critical) > 0 && !e.flushingCritical {
+		if err := e.flushCritical(); err != nil {
+			return err
+		}
+		b = e.rebatch(b)
+	}
+	if !e.flushingCritical {
+		if err := e.saveClock(e.st.LastSeq()+int64(len(b.events)), false); err != nil {
+			e.countError("clock_save")
+			e.log.Warn("clock snapshot save failed", "err", err)
+		}
 	}
 	out, err := e.st.AppendBatch(b.events)
 	if err != nil {
@@ -731,6 +769,12 @@ func (e *Engine) commit(b *batch) error {
 		return storeWriteErr(err)
 	}
 	e.diskFull = false
+	if e.flushingCritical {
+		if err := e.saveClock(e.st.LastSeq(), false); err != nil {
+			e.countError("clock_save")
+			e.log.Warn("clock snapshot save failed", "err", err)
+		}
+	}
 	for i := range out {
 		if aerr := e.applyEvent(&out[i]); aerr != nil {
 			e.log.Error("applying a committed event failed", "seq", out[i].Seq, "type", out[i].Type, "err", aerr)
@@ -775,7 +819,7 @@ func (e *Engine) markDirty(urgent bool) {
 
 // persistIfDue writes state.json (and the clock snapshot) when due (§11.3 step 8).
 func (e *Engine) persistIfDue() {
-	if e.isFrozen() || !e.dirty {
+	if e.isFrozen() || !e.dirty || e.criticalHeld() {
 		return
 	}
 	if !e.urgent && e.bootNow-e.lastSave < saveEvery {

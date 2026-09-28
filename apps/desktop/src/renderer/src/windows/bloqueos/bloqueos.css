@@ -9,7 +9,8 @@
 @layer components {
   .blq {
     /* Height of the pinned action bar (top air + door tile + gap + help line + bottom air):
-       form controls scroll into view above it, never under it. */
+       form controls scroll into view above it, never under it. FormActions overwrites it with
+       the measured height (the naming row is taller); this is the first-paint fallback. */
     --blq-actions-height: calc(
       var(--space-2) + var(--size-tile-door) + var(--space-1) + var(--line-height-12) +
         var(--layout-margin)

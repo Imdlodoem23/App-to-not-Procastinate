@@ -23,14 +23,18 @@ type clockFile struct {
 	Epoch string `json:"epoch,omitempty"`
 	Seq   int64  `json:"seq,omitempty"`
 	Clean bool   `json:"clean,omitempty"`
+	// Binary identifies the guardian build that wrote it (Options.BinaryID): an update
+	// marker exempts a stop only when the binary that starts is another one.
+	Binary string `json:"binary,omitempty"`
 }
 
 // clockCand is a snapshot found at startup with its log position.
 type clockCand struct {
-	snap  clock.Snapshot
-	epoch string
-	seq   int64
-	clean bool
+	snap   clock.Snapshot
+	epoch  string
+	seq    int64
+	clean  bool
+	binary string
 }
 
 // known reports whether the position refers to the current epoch.
@@ -64,7 +68,7 @@ func (c *clockCand) olderThan(epoch string, last *store.Event) bool {
 // saveClock writes run/clock.json at log position seq of the current epoch; clean
 // marks the final save of a clean stop.
 func (e *Engine) saveClock(seq int64, clean bool) error {
-	return e.st.SaveClock(clockFile{Snapshot: e.det.Snapshot(), Epoch: e.st.Epoch(), Seq: seq, Clean: clean})
+	return e.st.SaveClock(clockFile{Snapshot: e.det.Snapshot(), Epoch: e.st.Epoch(), Seq: seq, Clean: clean, Binary: e.binaryID()})
 }
 
 // clockFileCand reads run/clock.json; a missing, unreadable or tampered file is none.
@@ -78,7 +82,7 @@ func (e *Engine) clockFileCand() *clockCand {
 	if !ok || f.Trusted.IsZero() {
 		return nil
 	}
-	return &clockCand{snap: f.Snapshot, epoch: f.Epoch, seq: f.Seq, clean: f.Clean}
+	return &clockCand{snap: f.Snapshot, epoch: f.Epoch, seq: f.Seq, clean: f.Clean, binary: f.Binary}
 }
 
 // lastLogged returns the last committed event of the current epoch, or nil.
@@ -152,6 +156,9 @@ func (e *Engine) restoreClock(si *startInfo) {
 		rr := e.det.Restore(cand.snap)
 		stale := last != nil && cand.olderThan(epoch, last)
 		si.cleanStop = si.cleanStop || (cand.clean && !stale)
+		if !stale {
+			si.prevBinary = cand.binary
+		}
 		var corr int64
 		if stale && cand.known(epoch) {
 			corr = e.correctionsAfter(cand.seq)
@@ -182,9 +189,10 @@ func (e *Engine) restoreClock(si *startInfo) {
 			e.startClock()
 			si.restored, si.rebooted = true, true
 			si.savedT = snapT
-			if rr.WallBehind {
-				e.pendingStartJump("reboot", e.wallOffsetMs()-cand.snap.Offset.Milliseconds())
-			}
+			// Logged on every reboot, not only when the wall clock went back: its
+			// reducer rebuilds the restore jump (Clock.Restore) when state.json is lost,
+			// and with it the completions a calibration may resurrect (§10.2).
+			e.pendingStartJump("reboot", e.wallOffsetMs()-cand.snap.Offset.Milliseconds())
 			return
 		default:
 			// Taken in another boot and older than the log.
@@ -199,7 +207,7 @@ func (e *Engine) restoreClock(si *startInfo) {
 		return
 	}
 	// The stop cannot be measured: resume like after a reboot from the last trace.
-	rr := e.det.Restore(clock.Snapshot{
+	e.det.Restore(clock.Snapshot{
 		Wall:    time.UnixMilli(floorT + floorOff).UTC(),
 		Trusted: time.UnixMilli(floorT).UTC(),
 		Offset:  msDuration(floorOff),
@@ -207,8 +215,6 @@ func (e *Engine) restoreClock(si *startInfo) {
 	e.startClock()
 	si.restored, si.rebooted, si.unverified = true, true, true
 	si.savedT = floorT
-	if rr.WallBehind {
-		e.pendingStartJump("reboot", e.wallOffsetMs()-floorOff)
-	}
+	e.pendingStartJump("reboot", e.wallOffsetMs()-floorOff)
 	e.log.Warn("clock snapshot missing or older than the event log; the stop is treated as unmeasured")
 }

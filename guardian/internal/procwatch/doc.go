@@ -11,7 +11,8 @@
 //     other program:
 //     Windows: NtQuerySystemInformation(SystemProcessInformation), which gives
 //     the image name, PID, parent PID and session of every process without
-//     opening any of them; Path stays empty.
+//     opening any of them; Path stays empty (OSLister then fills Path and
+//     Identity for processes in user sessions, opening each one once).
 //     Linux: readlink /proc/<pid>/exe (basename, " (deleted)" removed), with
 //     comm, parent PID and flags from /proc/<pid>/stat and the effective UID
 //     from /proc/<pid>/status. When exe cannot be read Name falls back to
@@ -79,11 +80,17 @@
 //
 // # Known limitations
 //
-// Matching is by executable file name only. A copy of a blocked executable
-// under another name (Discord.exe copied to x.exe in a folder the user can
-// write to, or a renamed macOS binary) is not recognised; identity by
-// version resource (Windows OriginalFilename) or code signature (macOS bundle
-// id) is not implemented yet. On macOS the name comes from p_comm, cut at 16
+// Renamed executables are recognised by identity where the file carries one
+// (see Process.Identity, filled by OSLister and cached per process and per
+// file): on Windows the OriginalFilename (or InternalName) of the version
+// resource, parsed in Go from the PE file of every user-session process, is
+// compared with the target names; on macOS the code-signing identifier of the
+// Mach-O is compared with the target names and with the bundle ids given to
+// Matcher.WithIdentities. Residuals: an executable without a version
+// resource, one whose resource was edited, or a macOS binary re-signed under
+// another identifier is matched by name only, and on Linux, where
+// executables carry no identity, a renamed copy is not recognised
+// (docs/ARCHITECTURE.md §16.2 #30, §16.3). On macOS the name comes from p_comm, cut at 16
 // bytes: when the exec path cannot confirm the full name, only a target equal
 // to the cut name matches. Processes of other interactive users (fast user
 // switching, RDP) are matched like the current user's; the engine decides

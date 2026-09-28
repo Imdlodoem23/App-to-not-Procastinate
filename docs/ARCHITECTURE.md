@@ -1276,7 +1276,11 @@ navigation to a blocked host: `details.frameId === 0`, `frameType === "outermost
 ignored), recorded when the redirected navigation commits (`webNavigation.onCommitted` of
 `blocked.html` in that tab, matched with the original URL seen in `onBeforeNavigate`,
 checked against the cached rules). It passes the response (`episodePointsDelta`, reason,
-`endsAt`) to the page it redirected. Sub-frame embeds are blocked but never counted. (PROMPT
+`endsAt`) to the page it redirected. Sub-frame embeds are blocked but never counted.
+Navigations a web page starts are blocked but not counted either: commits qualified
+`client_redirect` (meta refresh), and requests whose `initiator` (Chromium) or `originUrl`
+(Firefox) is not the origin of the document the tab showed (an opener driving its popup, a
+frame navigating the top; `webRequest.onBeforeRequest`, non-blocking). (PROMPT
 §6 says blocked.html reports; this deviation needs the `webNavigation` permission and a
 spike, §17.)
 
@@ -2123,7 +2127,7 @@ timeout 3 s («si no responde en 3 s»), long polls add their `waitMs`.
 | 25  | Install an older guardian                                                                                                      | Frozen mode: enforces the v1 core until each end, never writes                                                                                                                                                                                                                                                                            |
 | 26  | Fake server on :47600 to empty or replay the extension's rules (any local user, while the guardian is down or before it binds) | Rules are ECDSA-signed with a key only the guardian holds; a nonce and a monotonic `extRulesVersion` stop replays. Residual: none short of reading `secret/` (admin)                                                                                                                                                                      |
 | 27  | Web page CSRF / DNS rebinding / fingerprinting                                                                                 | Host check, Origin allowlist on every route, JSON content type, token                                                                                                                                                                                                                                                                     |
-| 28  | A page opens `blocked.html` to forge attempts; omnibox prerenders                                                              | The page never reports; only the background, on committed top-level `main_frame` navigations (prerenders ignored)                                                                                                                                                                                                                         |
+| 28  | A page opens `blocked.html`, or sends a tab to blocked sites (meta refresh, popup), to forge attempts; omnibox prerenders      | Only the background reports, on committed top-level `main_frame` navigations (no prerenders); navigations a page starts (`client_redirect`, initiator not the tab's document, §9.5) are blocked, not counted. Residual: in Chromium a page's own `location = …` after load looks like a click and counts                                  |
 | 29  | Another extension or local program calls the API                                                                               | No token; origin not allowed; app token + Origin → 403; pairing and extension heartbeats require a browser peer process of the bound family. Residual: local programs can read `client.json` (by design, §9.2)                                                                                                                            |
 | 30  | Rename a blocked app's executable                                                                                              | Identity match (OriginalFilename, bundle id). Residual: portable or unknown apps                                                                                                                                                                                                                                                          |
 | 31  | Another browser, incognito, portable browser, DoH, VPN, Tor                                                                    | Hosts still applies to the system resolver; the app warns; optional closing of browsers without a protecting extension (peer-verified, host permission, current rules, incognito) and optional browser policies. Residual: remote-DNS proxies, Tor, VPNs, a second profile of a protected family without policies                         |
@@ -2146,7 +2150,10 @@ deliberate, slow and visible in the log, and every bypass it can detect after th
 (stopping the service during a block, editing the section while stopped, rolling the ledger
 back) costs at least as much as the emergency unlock. It cannot price what it cannot see: an
 uninstall (allowed by design) or booting another OS that edits the hosts file and never
-returns. The camera AI and window-title layer run in a user process and can be patched. On
+returns. In whitelist mode the extension redirects only top-level http(s) documents
+and never sub-frames (§8.8): it moves typed `data:`, `file:` and non-allowed `blob:`
+documents to `blocked.html`, but an allowed page used as a frame host (a `javascript:` URL
+or devtools on it) can still show another site inside it. The camera AI and window-title layer run in a user process and can be patched. On
 shared PCs the ledger is machine-wide and `client.json` is readable by every local account
 (another account could start sessions or report window attempts); v1 assumes one person per
 machine (future hardening: peer PID/exe checks for app-token requests too, as already done

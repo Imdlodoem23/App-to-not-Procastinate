@@ -3,8 +3,10 @@ package hosts
 import (
 	"bytes"
 	"errors"
+	"net/netip"
 	"runtime"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -21,6 +23,13 @@ const (
 	// headerUTF8 is the header written by earlier builds. It is still
 	// recognised as ours and replaced by Header on the next write.
 	headerUTF8 = "# Managed by C\u00e9ntrate. Do not edit: changes are restored."
+
+	// ShadowMarker prefixes a user line outside the section that the guardian
+	// commented out because it maps a blocked domain to a real address (see
+	// the package documentation, «Lines that override the section»). The
+	// rest of the line is the user's line, byte for byte; it is restored as
+	// soon as none of its names is blocked any more, and always by Remove.
+	ShadowMarker = "#centrate-shadowed# "
 
 	// IPv4Sink and IPv6Sink are the unroutable addresses blocked domains map to.
 	IPv4Sink = "0.0.0.0"
@@ -347,23 +356,29 @@ func isBlank(l line) bool { return len(bytes.TrimSpace(l.text)) == 0 }
 // A non-zero until adds the header line (FormatSectionHeader). Lines outside
 // the section are copied byte for byte, and the BOM and the presence of a
 // final line break are preserved.
+//
+// The one exception to the byte-for-byte rule: a user line that maps one of
+// domains to anything but a sink address is commented out with ShadowMarker
+// (see shadowLines), and lines commented out earlier are restored once none
+// of their names is in domains (always when domains is empty).
 func (d *document) render(domains []string, until time.Time) []byte {
 	s := scan(d.lines)
+	user := shadowLines(s.user, domains)
 	var out []line
 	switch {
 	case len(domains) == 0:
-		out = s.user
+		out = user
 		if s.at >= 0 {
-			out = collapseBlank(s.user, s.at)
+			out = collapseBlank(user, s.at)
 		}
 	case s.at >= 0:
-		out = make([]line, 0, len(s.user)+2*len(domains)+3)
-		out = append(out, s.user[:s.at]...)
+		out = make([]line, 0, len(user)+2*len(domains)+3)
+		out = append(out, user[:s.at]...)
 		out = append(out, d.section(domains, until)...)
-		out = append(out, s.user[s.at:]...)
+		out = append(out, user[s.at:]...)
 	default:
-		out = make([]line, 0, len(s.user)+2*len(domains)+4)
-		out = append(out, s.user...)
+		out = make([]line, 0, len(user)+2*len(domains)+4)
+		out = append(out, user...)
 		if len(out) > 0 {
 			out = append(out, line{eol: d.eol}) // blank separator, removed again by Remove
 		}
@@ -446,4 +461,111 @@ func (d *document) sectionInfo() SectionInfo {
 		info.Domains = slices.Compact(s.domains)
 	}
 	return info
+}
+
+// effectiveDomains returns the section's domains (sorted, deduplicated, never
+// nil) minus those that an active user line outside the section maps to a
+// real address (see overriddenNames): the domains the hosts layer really
+// blocks for a resolver that honours the first matching line.
+func (d *document) effectiveDomains() []string {
+	s := scan(d.lines)
+	listed := d.sectionInfo().Domains
+	if len(listed) == 0 {
+		return listed
+	}
+	set := domainSet(listed)
+	over := make(map[string]bool)
+	for _, l := range s.user {
+		if bytes.HasPrefix(l.text, []byte(ShadowMarker)) {
+			continue
+		}
+		for _, n := range overriddenNames(l.text, set) {
+			over[n] = true
+		}
+	}
+	if len(over) == 0 {
+		return listed
+	}
+	out := make([]string, 0, len(listed))
+	for _, dom := range listed {
+		if !over[dom] {
+			out = append(out, dom)
+		}
+	}
+	return out
+}
+
+func domainSet(domains []string) map[string]bool {
+	set := make(map[string]bool, len(domains))
+	for _, dom := range domains {
+		set[dom] = true
+	}
+	return set
+}
+
+// shadowLines returns user with every line that overrides one of domains
+// commented out with ShadowMarker, and every line commented out earlier whose
+// names are no longer all unblocked restored. The result is user itself when
+// nothing changes. Resolvers that stop at the first matching line (the
+// Windows DNS Client, Chromium's built-in resolver) would otherwise follow a
+// user line such as "142.250.184.14 youtube.com" written above the section,
+// and glibc with "multi on" merges the addresses of every matching line.
+func shadowLines(user []line, domains []string) []line {
+	var set map[string]bool
+	if len(domains) > 0 {
+		set = domainSet(domains)
+	}
+	var out []line
+	for i, l := range user {
+		text := l.text
+		switch orig, marked := bytes.CutPrefix(l.text, []byte(ShadowMarker)); {
+		case marked && len(overriddenNames(orig, set)) == 0:
+			text = orig
+		case !marked && len(overriddenNames(l.text, set)) > 0:
+			text = append([]byte(ShadowMarker), l.text...)
+		}
+		if out == nil {
+			if bytes.Equal(text, l.text) {
+				continue
+			}
+			out = make([]line, len(user))
+			copy(out, user[:i])
+		}
+		out[i] = line{text: text, eol: l.eol}
+	}
+	if out == nil {
+		return user
+	}
+	return out
+}
+
+// overriddenNames returns the names of set that a hosts line maps to an
+// address other than a sink: any parseable address except 0.0.0.0 and ::
+// (loopback included, since a local proxy can serve the real site). Names
+// compare case-insensitively and without a final dot, as resolvers do.
+// Comments, blank lines and lines whose first field is not an address (which
+// resolvers ignore) override nothing.
+func overriddenNames(text []byte, set map[string]bool) []string {
+	if len(set) == 0 {
+		return nil
+	}
+	if i := bytes.IndexByte(text, '#'); i >= 0 {
+		text = text[:i]
+	}
+	fields := bytes.Fields(text)
+	if len(fields) < 2 {
+		return nil
+	}
+	addr, err := netip.ParseAddr(string(fields[0]))
+	if err != nil || addr.IsUnspecified() {
+		return nil
+	}
+	var out []string
+	for _, f := range fields[1:] {
+		name := strings.TrimSuffix(strings.ToLower(string(f)), ".")
+		if set[name] {
+			out = append(out, name)
+		}
+	}
+	return out
 }

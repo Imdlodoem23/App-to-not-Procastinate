@@ -112,6 +112,7 @@ export const RENDERER_ES = {
   footer: {
     guardianOk: 'Guardián activo',
     guardianConnecting: 'Conectando con el guardián…',
+    guardianUnresponsive: 'Guardián sin respuesta',
     guardianStopped: 'Guardián detenido',
     guardianNotInstalled: 'Guardián no instalado',
     guardianOutdated: 'Guardián desactualizado',

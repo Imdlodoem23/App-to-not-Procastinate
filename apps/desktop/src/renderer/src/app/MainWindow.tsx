@@ -8,7 +8,7 @@
  * are `<main>` (the sections, with a hidden `<h1>`) and `<footer>`.
  */
 import { Lock } from 'lucide-react';
-import { useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { HelpLine, Section } from '../components';
 import { useAutoLayout } from '../hooks/useAutoLayout';
 import { RENDERER_ES } from '../i18n/es';
@@ -44,6 +44,39 @@ export function MainWindow(): React.JSX.Element {
   useLayoutEffect(() => {
     if (api.getState().env.visible && document.hasFocus()) services.focusField();
   }, [api, services]);
+
+  // Safety net: a focused control that unmounts («Reparar» when the warning goes away on the
+  // next good poll, the footer's «Reparar» when it flips to «Guardián activo», …) must not
+  // leave the keyboard on <body>. Sections restore their own focus first (their layout effects
+  // run before this one); whatever is still lost goes to the field (else the Bloqueo root).
+  const lastFocused = useRef<Element | null>(null);
+  const recoverFocus = useRef<() => void>(() => undefined);
+  recoverFocus.current = () => {
+    const last = lastFocused.current;
+    if (!last || last.isConnected) return;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    lastFocused.current = null;
+    if (api.getState().env.visible && document.hasFocus()) services.focusField();
+  };
+  useLayoutEffect(() => {
+    recoverFocus.current();
+  });
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const onFocusIn = (event: FocusEvent): void => {
+      lastFocused.current = event.target instanceof Element ? event.target : null;
+    };
+    // Chromium may fire `focusout` when the focused node is removed; check once it is gone.
+    const onFocusOut = (): void => queueMicrotask(() => recoverFocus.current());
+    root.addEventListener('focusin', onFocusIn);
+    root.addEventListener('focusout', onFocusOut);
+    return () => {
+      root.removeEventListener('focusin', onFocusIn);
+      root.removeEventListener('focusout', onFocusOut);
+    };
+  }, []);
 
   return (
     <div ref={rootRef} className="main-shell">

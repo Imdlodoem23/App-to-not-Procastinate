@@ -84,9 +84,28 @@ func (e *Engine) applyEvent(ev *store.Event) error {
 	default:
 		// Unknown types (written by a newer guardian): recorded deltas only (§7.1).
 	}
+	e.advanceOpenDay(ev.Day)
 	e.state.Epoch = ev.Epoch
 	e.state.LastEventSeq = ev.Seq
+	e.lastAppliedAt = atMs(ev)
 	return err
+}
+
+// advanceOpenDay derives the open day from the log (§6.3), so a state rebuilt from the
+// events still closes it at startup: the first day after the last closed one that has
+// events. The live path keeps it at today already; a day whose day_closed failed stays
+// open (closeDays retries it).
+func (e *Engine) advanceOpenDay(day string) {
+	if day == "" {
+		return
+	}
+	lc := e.state.Ledger.LastClosedDay
+	if lc != nil && day <= *lc {
+		return
+	}
+	if open := e.state.OpenDay; open == "" || (lc != nil && open <= *lc) {
+		e.state.OpenDay = day
+	}
 }
 
 // applyLedger applies the recorded deltas and derives everything else, exactly like
@@ -163,6 +182,16 @@ func (e *Engine) applyClockJump(ev *store.Event) error {
 		return err
 	}
 	at := atMs(ev)
+	if d.Source == "reboot" {
+		// Every reboot restore is logged (restoreClock): the restore jump runs from the
+		// last trace of the previous run (the event before it) to this start. Startup
+		// replaces it with the exact snapshot time; a rebuild keeps this bound, which
+		// can only widen the completions a calibration checks (§10.2).
+		e.state.Clock.Restore = &restoreJump{SavedT: e.lastAppliedAt, RestoredT: at}
+		if d.DeltaMs == 0 {
+			return nil // a reboot without a wall-clock change is no jump
+		}
+	}
 	e.state.Clock.LastJump = &jumpRec{AtMs: at, DeltaMs: d.DeltaMs, Source: d.Source}
 	e.state.Clock.Jumps = append(e.state.Clock.Jumps, at)
 	if d.Source != "calibrate" {
@@ -250,7 +279,41 @@ func (e *Engine) applyBlockCreated(ev *store.Event) error {
 		return err
 	}
 	e.state.Blocks = append(e.state.Blocks, rec)
+	if d.Source == "schedule" {
+		e.markScheduleOccurrence(rec, atMs(ev))
+	}
 	return nil
+}
+
+// markScheduleOccurrence records the occurrence a schedule block materialized (the one
+// of its schedule that contains the block's start and ends at its original end), so a
+// state rebuilt from the log never materializes it again, even after an emergency
+// cancelled the block (§10.3). The live path marks it too (schMark), with the same key.
+func (e *Engine) markScheduleOccurrence(rec *blockRec, at int64) {
+	if rec.ScheduleID == nil {
+		return
+	}
+	s := e.schedule(*rec.ScheduleID)
+	if s == nil {
+		return
+	}
+	loc, ok := loadLocation(s.Timezone)
+	if !ok {
+		return
+	}
+	for _, occ := range schOccurrences(s, loc, rec.StartsAt, -1, 0) {
+		if occ.End != rec.OriginalEndsAt || rec.StartsAt < occ.Start {
+			continue
+		}
+		st := &e.state.Schedules
+		if st.Materialized == nil {
+			st.Materialized = map[string]schOccMark{}
+		}
+		if _, done := st.Materialized[occ.Key]; !done {
+			st.Materialized[occ.Key] = schOccMark{At: at, StartsAt: occ.Start, EndsAt: occ.End}
+		}
+		return
+	}
 }
 
 func (e *Engine) applyBlockExtended(ev *store.Event) error {
