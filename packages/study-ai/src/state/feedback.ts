@@ -41,7 +41,9 @@ export function evenlySpaced<T>(items: readonly T[], max: number): T[] {
 }
 
 export class FeedbackBook {
+  /** Observations of the last 90 s from `head` on (older ones are compacted away). */
   private ring: RingEntry[] = [];
+  private head = 0;
   private latest: Episode | null = null;
   private nextId = 1;
   private appliedCount = 0;
@@ -49,9 +51,12 @@ export class FeedbackBook {
   push(at: MonoMs, work: boolean, obs: Observation): void {
     this.ring.push({ at, work, obs });
     const from = at - STUDY_AI_CONSTANTS.feedbackBufferMs;
-    let drop = 0;
-    while (drop < this.ring.length && (this.ring[drop] as RingEntry).at < from) drop += 1;
-    if (drop > 0) this.ring.splice(0, drop);
+    while (this.head < this.ring.length && (this.ring[this.head] as RingEntry).at < from)
+      this.head += 1;
+    if (this.head >= 256 && this.head * 2 >= this.ring.length) {
+      this.ring = this.ring.slice(this.head);
+      this.head = 0;
+    }
   }
 
   open(trigger: Episode['trigger'], at: MonoMs): void {
@@ -72,24 +77,24 @@ export class FeedbackBook {
       return { ok: false, reason: 'no_episode' };
     if (ep.used) return { ok: false, reason: 'already_used' };
     const from = Math.max(ep.openedAt - doubtAfterMs, now - c.feedbackEpisodeMaxMs);
-    const usable = this.ring.filter(
-      (e) =>
-        e.at >= from &&
-        e.at <= now &&
-        e.work &&
-        e.obs.frame !== null &&
-        (e.obs.presence === 'visible' || e.obs.presence === 'hidden') &&
-        !e.obs.evidence.phone,
-    );
+    const usable = this.ring
+      .slice(this.head)
+      .filter(
+        (e) =>
+          e.at >= from &&
+          e.at <= now &&
+          e.work &&
+          e.obs.frame !== null &&
+          (e.obs.presence === 'visible' || e.obs.presence === 'hidden') &&
+          !e.obs.evidence.phone,
+      );
     if (usable.length === 0) return { ok: false, reason: 'no_usable_frames' };
-    const frames = evenlySpaced(usable, c.feedbackMaxFrames).map(
-      (e): FeedbackFrame => ({
-        frame: e.obs.frame as NonNullable<Observation['frame']>,
-        rel: e.obs.rel,
-        book: e.obs.evidence.book,
-        lookingDown: e.obs.evidence.lookingDown,
-      }),
-    );
+    const frames = evenlySpaced(usable, c.feedbackMaxFrames).map((e): FeedbackFrame => ({
+      frame: e.obs.frame as NonNullable<Observation['frame']>,
+      rel: e.obs.rel,
+      book: e.obs.evidence.book,
+      lookingDown: e.obs.evidence.lookingDown,
+    }));
     return { ok: true, episodeId: ep.id, trigger: ep.trigger, frames };
   }
 
@@ -101,10 +106,5 @@ export class FeedbackBook {
     ep.used = true;
     this.appliedCount += 1;
     return true;
-  }
-
-  /** Forgets the observations (they belong to the time before a reset). Episodes stay. */
-  clearRing(): void {
-    this.ring = [];
   }
 }

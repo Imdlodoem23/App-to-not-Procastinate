@@ -5,23 +5,32 @@
  */
 
 // Detector runs (evidence persistence, §7.2)
-/** Runs older than this are forgotten (the evidence windows are 5–6 s). */
-export const RUN_RING_MS = 6_000;
+/** Longest evidence window (the E_phone hold); runs older than this never count by time. */
+export const RUN_RING_MS = 8_000;
 /** At slow loop levels (one run every 4 s) the last runs are kept this long anyway. */
 export const RUN_MAX_AGE_MS = 12_000;
-/** Hard cap on stored runs (2 Hz × 6 s plus slack). */
-export const RUN_RING_MAX = 16;
+/** Hard cap on stored runs (2 Hz × 12 s). */
+export const RUN_RING_MAX = 24;
 
-/** E_phone: phone in hand in ≥ 60 % of the runs of the last max(5 s, 2 runs). */
+/**
+ * E_phone turns on with the phone in hand in ≥ 2 runs and ≥ 40 % of the runs of the last
+ * max(5 s, 2 runs). The detector sees a phone in hand in about 70 % of its runs, so the
+ * design's 60 % sometimes waited 8–9 s for a third hit; a false positive still has to last
+ * ~20 s to produce even a DUDA.
+ */
 export const PHONE_SPAN_MS = 5_000;
 export const PHONE_MIN_RUNS = 2;
-export const PHONE_ENTER_SHARE = 0.6;
+export const PHONE_ENTER_HITS = 2;
+export const PHONE_ENTER_SHARE = 0.4;
 /**
- * Once on, E_phone stays on while ≥ 40 % of the runs still see the phone in hand. A
- * detector that misses one run in three must not turn a phone into «reading» (looking down
- * gets the study floor without E_phone).
+ * Once on, E_phone stays on while the phone was seen in hand in any run of the last
+ * max(8 s, 4 runs). The detector misses a phone in hand one run in three or so, and a
+ * dropout must not turn it into «reading» (looking down gets the study floor without
+ * E_phone). Eight misses in a row at 1 Hz are needed to let go; putting the phone away
+ * still clears DUDA well within its 30 s.
  */
-export const PHONE_HOLD_SHARE = 0.4;
+export const PHONE_HOLD_MS = 8_000;
+export const PHONE_HOLD_MIN_RUNS = 4;
 /** A phone box that has not moved for this long is lying on the desk, not in hand. */
 export const PHONE_STILL_MS = 20_000;
 

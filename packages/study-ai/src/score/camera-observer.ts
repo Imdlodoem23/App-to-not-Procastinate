@@ -238,7 +238,11 @@ export class CameraObserver implements Observer {
     let yawn = false;
     if (face) {
       const eyes = classifier.eyes;
-      if (eyes.reliable && frame.quality >= EYES_MIN_QUALITY && face.lookDown < EYES_MAX_LOOK_DOWN) {
+      if (
+        eyes.reliable &&
+        frame.quality >= EYES_MIN_QUALITY &&
+        face.lookDown < EYES_MAX_LOOK_DOWN
+      ) {
         const dpitch = rel ? rel.dpitch : 0;
         const expected = eyes.blinkFit[0] + eyes.blinkFit[1] * dpitch;
         closed = face.blink - expected > eyes.closedDelta;
@@ -327,7 +331,9 @@ export class CameraObserver implements Observer {
     if (!last || now - last.at > HIDDEN_LOOKBACK_MS) return 'unknown';
     const yaw = last.rel ? last.rel.dyaw : last.pose.yaw;
     if (Math.abs(yaw) >= HIDDEN_TURNED_YAW) return 'turned';
-    const down = last.rel ? last.rel.dpitch <= LOOK_DOWN_DPITCH : last.pose.pitch <= LOOK_DOWN_ABS_PITCH;
+    const down = last.rel
+      ? last.rel.dpitch <= LOOK_DOWN_DPITCH
+      : last.pose.pitch <= LOOK_DOWN_ABS_PITCH;
     return down || last.lookingDown ? 'down' : 'unknown';
   }
 
@@ -362,8 +368,7 @@ export class CameraObserver implements Observer {
     if (presence === 'covered') out.push('camera_covered');
     const hiddenLong =
       presence === 'hidden' && this.hidden !== null && now - this.hidden.since > CANT_SEE_HIDDEN_MS;
-    const truncated =
-      presence === 'visible' && (frame?.face?.truncated ?? 0) > CANT_SEE_TRUNCATED;
+    const truncated = presence === 'visible' && (frame?.face?.truncated ?? 0) > CANT_SEE_TRUNCATED;
     if (hiddenLong || truncated) out.push('camera_cant_see_you');
     if (this.stale) out.push('recalibrate');
     return out;

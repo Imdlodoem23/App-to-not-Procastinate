@@ -148,17 +148,17 @@ export function minuteTicks(maxMinutes: number): Tick[] {
   return ticks;
 }
 
-/** Ticks around zero for points won (up) and lost (down), at most 5 in all. */
+/** Ticks around zero for points won (up) and lost (down), at most 6 in all. */
 export function pointTicks(maxEarned: number, maxLost: number): Tick[] {
   const up = Math.max(0, maxEarned);
   const down = Math.max(0, maxLost);
   const steps = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10_000, 20_000, 50_000, 100_000];
-  const fits = (s: number) => Math.ceil(up / s) + Math.ceil(down / s) <= 4;
+  const fits = (s: number) => Math.ceil(up / s) + Math.ceil(down / s) <= 5;
   const step = steps.find(fits) ?? 100_000;
   const top = Math.max(up > 0 || down === 0 ? step : 0, Math.ceil(up / step) * step);
   const bottom = Math.ceil(down / step) * step;
   const ticks: Tick[] = [];
-  for (let v = -bottom; v <= top; v += step) {
+  for (let v = 0 - bottom; v <= top; v += step) {
     ticks.push({ value: v, label: formatSignedPoints(v) });
   }
   return ticks;
@@ -188,9 +188,16 @@ export interface ChartOptions {
   labelSlot?: { index: number; text: string } | null;
 }
 
-const WIDTH = 560;
-const HEIGHT = 200;
-const PAD = { top: 18, right: 8, bottom: 26, left: 48 };
+/**
+ * Two drawings of every chart: `wide` for the 600 px page, `narrow` for phones, where the wide
+ * one would shrink its text below legibility. panel.css shows one of them (a media query), so
+ * screen readers meet only the visible one. Font sizes (panel.css) are in these units.
+ */
+const GEOMETRY = {
+  wide: { width: 560, height: 200, top: 18, right: 8, bottom: 26, left: 48 },
+  narrow: { width: 320, height: 200, top: 18, right: 6, bottom: 24, left: 42 },
+} as const;
+export type ChartSize = keyof typeof GEOMETRY;
 const BAR_MAX = 20;
 const RADIUS = 4;
 
@@ -217,13 +224,14 @@ function columnPath(x: number, w: number, y0: number, y1: number): string {
  * An SVG column chart built from numbers only. Text (ticks, labels, titles) is escaped even
  * though it comes from our own formats.
  */
-export function columnChart(options: ChartOptions): SafeHtml {
+export function columnChart(options: ChartOptions, size: ChartSize = 'wide'): SafeHtml {
   const { slots, ticks } = options;
+  const g = GEOMETRY[size];
   const min = Math.min(0, ...ticks.map((t) => t.value));
   const max = Math.max(1, ...ticks.map((t) => t.value));
-  const plotW = WIDTH - PAD.left - PAD.right;
-  const plotH = HEIGHT - PAD.top - PAD.bottom;
-  const y = (v: number) => PAD.top + ((max - v) / (max - min)) * plotH;
+  const plotW = g.width - g.left - g.right;
+  const plotH = g.height - g.top - g.bottom;
+  const y = (v: number) => g.top + ((max - v) / (max - min)) * plotH;
   const slotW = plotW / Math.max(1, slots.length);
   const barW = Math.min(BAR_MAX, slotW * 0.5);
   const base = y(0);
@@ -231,11 +239,11 @@ export function columnChart(options: ChartOptions): SafeHtml {
   const parts: string[] = [];
   for (const t of ticks) {
     parts.push(
-      `<text class="chart-tick" x="${n(PAD.left - 8)}" y="${n(y(t.value) + 4)}" text-anchor="end">${escapeHtml(t.label)}</text>`,
+      `<text class="chart-tick" x="${n(g.left - 8)}" y="${n(y(t.value) + 4)}" text-anchor="end">${escapeHtml(t.label)}</text>`,
     );
   }
   slots.forEach((slot, i) => {
-    const x0 = PAD.left + i * slotW;
+    const x0 = g.left + i * slotW;
     const cx = x0 + slotW / 2;
     const marks = slot.bars
       .map((b) => {
@@ -245,27 +253,27 @@ export function columnChart(options: ChartOptions): SafeHtml {
       .join('');
     parts.push(
       `<g class="slot"><title>${escapeHtml(slot.title)}</title>` +
-        `<rect class="slot-hit" x="${n(x0 + 1)}" y="${n(PAD.top)}" width="${n(slotW - 2)}" height="${n(plotH)}" rx="4"/>` +
+        `<rect class="slot-hit" x="${n(x0 + 1)}" y="${n(g.top)}" width="${n(slotW - 2)}" height="${n(plotH)}" rx="4"/>` +
         `${marks}</g>`,
     );
     if (slot.label !== null) {
       parts.push(
-        `<text class="chart-tick" x="${n(cx)}" y="${n(HEIGHT - 8)}" text-anchor="middle">${escapeHtml(slot.label)}</text>`,
+        `<text class="chart-tick" x="${n(cx)}" y="${n(g.height - 8)}" text-anchor="middle">${escapeHtml(slot.label)}</text>`,
       );
     }
   });
   parts.push(
-    `<line class="chart-baseline" x1="${n(PAD.left)}" x2="${n(WIDTH - PAD.right)}" y1="${n(base)}" y2="${n(base)}"/>`,
+    `<line class="chart-baseline" x1="${n(g.left)}" x2="${n(g.width - g.right)}" y1="${n(base)}" y2="${n(base)}"/>`,
   );
   const label = options.labelSlot;
   if (label && slots[label.index]) {
     const top = Math.max(...(slots[label.index]?.bars.map((b) => b.value) ?? [0]));
     parts.push(
-      `<text class="chart-value" x="${n(PAD.left + (label.index + 0.5) * slotW)}" y="${n(y(top) - 6)}" text-anchor="middle">${escapeHtml(label.text)}</text>`,
+      `<text class="chart-value" x="${n(g.left + (label.index + 0.5) * slotW)}" y="${n(y(top) - 6)}" text-anchor="middle">${escapeHtml(label.text)}</text>`,
     );
   }
   return raw(
-    `<svg class="chart-svg" viewBox="0 0 ${WIDTH} ${HEIGHT}" role="img" aria-label="${escapeHtml(options.ariaLabel)}" preserveAspectRatio="xMidYMid meet">${parts.join('')}</svg>`,
+    `<svg class="chart-svg chart-${size}" viewBox="0 0 ${g.width} ${g.height}" role="img" aria-label="${escapeHtml(options.ariaLabel)}" preserveAspectRatio="xMidYMid meet">${parts.join('')}</svg>`,
   );
 }
 
@@ -273,4 +281,9 @@ export function columnChart(options: ChartOptions): SafeHtml {
 export function weekAxisLabels(mondays: readonly LocalDay[]): Array<string | null> {
   const last = mondays.length - 1;
   return mondays.map((m, i) => ((last - i) % 3 === 0 ? shortDay(m) : null));
+}
+
+/** Both drawings of a chart; CSS shows the one that fits the screen. */
+export function responsiveChart(options: ChartOptions): SafeHtml {
+  return raw(`${columnChart(options, 'wide').value}${columnChart(options, 'narrow').value}`);
 }

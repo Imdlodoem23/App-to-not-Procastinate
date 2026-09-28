@@ -83,8 +83,8 @@
     {
       "state": "bloqueos-prefilled",
       "alt": {
-        "es": "Ventana Bloqueos con lo que se entendió de la frase: qué bloquear, duración, modo y motivo.",
-        "en": "Blocks window with what was understood from the phrase: what to block, duration, mode and reason."
+        "es": "Ventana Bloqueos: YouTube marcado a partir de tu frase, el catálogo de servicios, la duración, el modo y tu motivo.",
+        "en": "Blocks window: YouTube ticked from your phrase, the service catalog, the duration, the mode and your reason."
       }
     }
   ],

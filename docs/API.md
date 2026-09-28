@@ -151,6 +151,8 @@ apps/api/
     pages/account.ts     /cuenta, /cuenta/codigo, /cuenta/conectar, assets    CORE
     pages/assets.ts      tokens.css, pages.css, cuenta.js                     CORE
     pages/panel.ts       /cuenta/panel, /cuenta/avisos                        CLIENT
+    pages/panel-charts.ts  weekly totals, formats, SVG column charts         CLIENT
+    pages/panel-assets.ts  panel.css, panel.js, avisos.js                    CLIENT
     pages/social.ts      /i/:code                                             SOCIAL
     jobs/janitor.ts      retention sweep                                      CORE
   test/
@@ -732,8 +734,19 @@ http://127.0.0.1:*` (the connect form redirects to the loopback), `frame-ancesto
 | `/cuenta/avisos`   | CLIENT | A partner's inbox: recent alerts, «Aprobar» / «Rechazar» for pending approvals                                                                                                                                                                            |
 | `/i/:code`         | SOCIAL | Public invite landing: «Te han invitado a Céntrate», the code with «Copiar», how to add it in the app (Amigos → «Tengo un código»), download link. Never looks the code up or shows who invited                                                           |
 
-Pages that need a session redirect to `/cuenta?volver=…`. They call the JSON API with the
-cookie session from their own scripts (same origin; §4.1 CSRF rule applies).
+Pages that need a session redirect to `/cuenta?volver=…`. Their scripts call the JSON API with
+the cookie session (same origin; §4.1 CSRF rule applies).
+
+`/cuenta/panel` and `/cuenta/avisos` are rendered on the server from what the JSON API answers
+to the same session (`GET /v1/me`, `/v1/stats`, `/v1/accountability/inbox` through
+`app.inject`): the same checks and numbers, no second copy of the queries, and they read
+without JavaScript. The 12 weeks are ISO weeks in the profile's zone, the current one last.
+Each chart has one color (tokens), no grid but the baseline, a `<title>` per week (hover), an
+`aria-label` and a text summary, plus a data table; it is drawn twice (wide and narrow) and
+`panel.css` shows the one that fits. Actions (`panel.js`, `avisos.js`) need JavaScript:
+«Quitar» a device and «Borrar las estadísticas» confirm with a second click («¿Seguro?»),
+«Borrar mi cuenta» needs `BORRAR` typed and, on `reauth_required`, signs out and sends the user
+to `/cuenta?volver=/cuenta/panel#datos`; «Aprobar» / «Rechazar» take an optional note (≤ 140).
 
 ## 12. Rate and size limits
 
@@ -799,15 +812,37 @@ For the desktop team (and the CLIENT builder's `cloud-api.ts` client):
 - **The UI never waits on the API.** Timeouts (`CLOUD_TIMEOUTS`): background 10 s, user-started
   60 s with «Despertando el servidor…» (a cold start takes about a minute), coach 90 s. At app
   start, when signed in, fire a `GET /health` to wake the service.
-- **Errors** (`CloudError { kind: 'offline' | 'timeout' | 'http', status, code, retryable,
-retryAfterMs }`): retry network errors, timeouts, 429 (honouring `Retry-After`) and 5xx
-  except `feature_disabled`; never retry other 4xx. **401** → mark the app as signed out, drop
-  the outbox, keep all local data.
+- **Errors** (`CloudError { kind: 'offline' | 'timeout' | 'aborted' | 'http' |
+'invalid_response', operation, status, code, details, retryable, retryAfterMs }`): retry
+  network errors, timeouts, non-JSON answers (captive portals), 429 `rate_limited` (honouring
+  `Retry-After`) and 5xx except `feature_disabled` (unless `reason: 'database_down'`),
+  `not_implemented` and `coach_incomplete`; never retry other 4xx or `quota_exceeded` (its
+  `retryAfterMs` runs to `resetsAt`). **401** → mark the app as signed out, drop the outbox,
+  keep all local data (`onUnauthorized` hook, `error.isUnauthorized`). Messages carry the
+  method name, never a URL, code or token.
 - **Offline outbox** (persisted by the app in its SQLite; the shared helpers are pure):
   - `putDays` items collapse by `(deviceId, day)` keeping the highest `rev`, sent in batches of 100.
   - Accountability events keep their `clientRef` and are never merged away.
   - Presence heartbeats and approval polls are never queued.
   - Backoff with jitter from 30 s to 30 min.
+- **Client** (`createCloudClient({ baseUrl, getToken, fetch?, timeouts?, onUnauthorized? })`):
+  one method per endpoint (`health`, `exchangeLoginCode`, `getMe`, `putDays`, `getRanking`,
+  `postAccountabilityEvent`, `decideApproval`, `splitTask`…), each with the timeout of its
+  class (background, interactive, coach) unless the call passes `timeoutMs`, and an optional
+  `signal`. Fetch runs with `credentials: 'omit'`, `cache: 'no-store'`, `redirect: 'error'`.
+  It never retries by itself. `removePartner` returns null (removed now) or the link (ends in
+  24 h).
+- **Outbox** (`createOutbox({ storage, client })` with `addDays`, `addEvent`, `flush({ force })`,
+  `pending`, `nextFlushAt`, `clear`): the app persists `OutboxState` through `storage` (its
+  SQLite); `memoryOutboxStorage` is for tests. A flush sends events first, then days per
+  device in batches of 100, runs one at a time, and never holds its lock during a request (a
+  newer `rev` queued meanwhile stays). Outcomes: `done`, `retry_later` (backoff saved in
+  `notBefore`), `waiting`, `signed_out` (401: queue emptied) or `empty`. Items the server will
+  never take are dropped: other 4xx, only the rejected days of a `validation_failed` batch, and
+  events older than 7 days; `feature_disabled` keeps them and backs off. Call `flush` after
+  queuing, at `nextFlushAt`, and with `force` when the network comes back.
+- **Helpers:** `approvalOutcome(approval, now)` → `wait | approved | denied` (fails open),
+  `daysToReupload(localDays, syncState)` after a `serverEpoch` change, `newClientRef()`.
 - **Polling:** approval every 15 s while a request is pending; inbox and friends' presence
   every 60 s while the Amigos window is open; ranking on open.
 - **`serverEpoch` changed** → `GET /v1/sync/state`, re-upload what is missing, show «La nube se
@@ -819,16 +854,17 @@ retryAfterMs }`): retry network errors, timeouts, 429 (honouring `Retry-After`) 
 `render.yaml` gains (CLIENT; the static site entry stays exactly as it is):
 
 - **Web service** `centrate-api`: `runtime: node`, `plan: free`, `region: frankfurt`,
-  `buildCommand: npm ci && npm run build -w apps/api`,
+  `buildCommand: npm ci --include=dev && npm run build -w apps/api` (with `NODE_ENV=production`
+  a plain `npm ci` skips the devDependencies the build needs),
   `startCommand: node apps/api/dist/server.mjs`, `healthCheckPath: /health`,
   `buildFilter.paths: [apps/api/**, packages/shared/**, package-lock.json]`.
   Env: `NODE_VERSION=22`, `NODE_ENV=production`, `ELECTRON_SKIP_BINARY_DOWNLOAD=1`,
-  `TRUST_PROXY_HOPS=1`, `AI_ENABLED=true`; `DATABASE_URL` from the database's
+  `TRUST_PROXY_HOPS=1`, `AI_ENABLED=true`, `AI_GLOBAL_DAILY_BUDGET_USD=2`; `DATABASE_URL` from the database's
   `connectionString`; `BETTER_AUTH_SECRET` with `generateValue: true`; `BETTER_AUTH_URL`,
   `APP_ORIGINS`, Google, Resend and Anthropic keys with `sync: false` (filled in the dashboard;
-  left empty means off).
+  left empty means off). `PENDIENTE_PARA_MI.md` §5 lists where each key comes from.
 - **Database** `centrate-db`: `plan: free`, `region: frankfurt`, `ipAllowList: []` (reachable
-  only from Render's private network).
+  only from Render's private network). Render allows one free database per workspace.
 
 **Free-tier limits the app is built around:**
 
@@ -939,9 +975,11 @@ fetch?, timeouts? })` with one typed method per endpoint, `CloudError`, the outb
   TypeScript, no Node imports, erasable syntax only.
 - `pages/panel.ts` (`/cuenta/panel`, `/cuenta/avisos`) per §11, with registered scripts.
 - `render.yaml` additions per §15 and a README section (Spanish) on the optional cloud.
-- Tests (in `apps/api/test/`): the client against `buildTestApp` through a fetch adapter over
-  `app.inject`, timeouts and offline with a fetch stub, error mapping and `retryable`, outbox
-  coalescing, idempotent replay, backoff bounds; panel and avisos pages render and escape.
+- Tests: `packages/shared/test/cloud-api.test.ts` (requests, timeouts per class, offline,
+  abort, error mapping and `retryable`, outbox coalescing, backoff bounds, idempotent replay,
+  drops, 401, restart), `apps/api/test/cloud-client.test.ts` (the client and outbox against
+  `buildTestApp` through a fetch adapter over `app.inject`) and
+  `apps/api/test/panel-pages.test.ts` (gates, content, escaping, CSP-safe markup, helpers).
 
 ### Coordinator notes
 

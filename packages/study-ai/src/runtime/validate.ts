@@ -93,10 +93,7 @@ export function tuple(...checks: readonly Check[]): Check {
 }
 
 /** Discriminated union on `type` (or another key). */
-export function tagged(
-  variants: Readonly<Record<string, Check>>,
-  key: string = 'type',
-): Check {
+export function tagged(variants: Readonly<Record<string, Check>>, key: string = 'type'): Check {
   return (value) => {
     if (!isPlainObject(value)) return false;
     const tag = value[key];

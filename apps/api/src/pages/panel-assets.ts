@@ -10,7 +10,10 @@
  */
 import { registerPageAsset } from './layout';
 
-export const PANEL_CSS = `h3 {
+export const PANEL_CSS = `.card > h2:first-child {
+  margin-top: 0;
+}
+h3 {
   margin: var(--space-4) 0 var(--space-2);
   font-size: var(--font-size-15);
   line-height: var(--line-height-15);
@@ -61,7 +64,25 @@ export const PANEL_CSS = `h3 {
   display: block;
   width: 100%;
   height: auto;
+  overflow: visible;
   font-family: var(--font-sans);
+}
+.chart-narrow {
+  display: none;
+}
+@media (max-width: 480px) {
+  .chart-wide {
+    display: none;
+  }
+  .chart-narrow {
+    display: block;
+  }
+}
+.chart-narrow .chart-tick {
+  font-size: 12.5px;
+}
+.chart-narrow .chart-value {
+  font-size: 13px;
 }
 .chart-tick {
   fill: var(--fg-muted);

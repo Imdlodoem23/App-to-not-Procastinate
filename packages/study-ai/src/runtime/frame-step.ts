@@ -53,6 +53,9 @@ export async function analyseNextFrame(
   }
 }
 
+/** Luma is due a little early so timer jitter never halves its rate (333 × 3 = 999 ms). */
+const LUMA_SLACK_MS = 50;
+
 /** Decides which frames run the object detector and sample luma. */
 export class FrameCadence {
   private framesSinceObjects = Number.POSITIVE_INFINITY;
@@ -61,7 +64,7 @@ export class FrameCadence {
   options(now: MonoMs, plan: Pick<LoopPlan, 'objectEvery' | 'lumaEveryMs'>): VisionFrameOptions {
     return {
       objects: this.framesSinceObjects + 1 >= Math.max(1, plan.objectEvery),
-      luma: now - this.lastLumaAt >= plan.lumaEveryMs,
+      luma: now - this.lastLumaAt >= plan.lumaEveryMs - LUMA_SLACK_MS,
     };
   }
 

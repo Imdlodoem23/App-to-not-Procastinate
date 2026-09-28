@@ -26,7 +26,9 @@ export interface WindowScore {
 }
 
 export class ScoreWindow {
+  /** Live samples are `samples[head…]`; older ones are compacted away. */
   private samples: WindowSample[] = [];
+  private head = 0;
   private lastAt: MonoMs | null = null;
 
   /**
@@ -49,9 +51,12 @@ export class ScoreWindow {
   /** Drops samples outside the longest window. */
   prune(now: MonoMs, windowMs: number): void {
     const from = now - windowMs;
-    let drop = 0;
-    while (drop < this.samples.length && (this.samples[drop] as WindowSample).at <= from) drop += 1;
-    if (drop > 0) this.samples.splice(0, drop);
+    while (this.head < this.samples.length && (this.samples[this.head] as WindowSample).at <= from)
+      this.head += 1;
+    if (this.head >= 128 && this.head * 2 >= this.samples.length) {
+      this.samples = this.samples.slice(this.head);
+      this.head = 0;
+    }
   }
 
   /** Weighted mean over the samples of the last `spanMs`. */
@@ -60,7 +65,7 @@ export class ScoreWindow {
     let num = 0;
     let den = 0;
     let covered = 0;
-    for (let i = this.samples.length - 1; i >= 0; i -= 1) {
+    for (let i = this.samples.length - 1; i >= this.head; i -= 1) {
       const s = this.samples[i] as WindowSample;
       if (s.at <= from) break;
       const w = s.weight * s.span;
@@ -77,20 +82,23 @@ export class ScoreWindow {
   /** Re-scores every sample; `null` removes it. */
   rescore(fn: (sample: WindowSample) => number | null): void {
     const kept: WindowSample[] = [];
-    for (const s of this.samples) {
+    for (let i = this.head; i < this.samples.length; i += 1) {
+      const s = this.samples[i] as WindowSample;
       const value = fn(s);
       if (value === null || !Number.isFinite(value)) continue;
       kept.push({ ...s, value: clamp01(value) });
     }
     this.samples = kept;
+    this.head = 0;
   }
 
   clear(): void {
     this.samples = [];
+    this.head = 0;
     this.lastAt = null;
   }
 
   get size(): number {
-    return this.samples.length;
+    return this.samples.length - this.head;
   }
 }

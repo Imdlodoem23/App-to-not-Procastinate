@@ -67,11 +67,7 @@ const NOT_PUSHED: FusionResult = Object.freeze({ study: null, cause: null });
 
 function argmaxIsAway(p: ClassProbabilities): boolean {
   return (
-    p.away > p.screen &&
-    p.away >= p.paper &&
-    p.away >= p.phone &&
-    p.away >= p.absent &&
-    p.away > 0
+    p.away > p.screen && p.away >= p.paper && p.away >= p.phone && p.away >= p.absent && p.away > 0
   );
 }
 

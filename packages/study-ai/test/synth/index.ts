@@ -21,6 +21,7 @@ import type {
   ObjectDetection,
   ObjectFeatures,
   PhoneDetection,
+  StudyPhase,
 } from '../../src/types';
 import { clamp, clamp01 } from '../../src/util/math';
 import { gaussian, mulberry32, uniform, type Rng } from '../../src/util/rng';
@@ -245,6 +246,8 @@ export interface ScriptStep {
   ms: number;
   foreground?: ForegroundClass;
   camera?: CameraStatus;
+  /** Guardian phase during the step (`work`). */
+  phase?: StudyPhase;
 }
 
 export type Script = readonly (ScriptStep | readonly [Activity, number])[];
@@ -272,6 +275,7 @@ export interface SynthTick {
   frame: FrameFeatures | null;
   context: ContextSignals;
   camera: CameraStatus;
+  phase: StudyPhase;
 }
 
 const OBJECT_HOLD_MS = 4_000;
@@ -288,6 +292,23 @@ function range(rng: Rng, [min, max]: readonly [number, number]): number {
 function boxAround(face: Box, dx: number, dy: number, w: number, h: number): Box {
   return { cx: clamp01(face.cx + dx), cy: clamp01(face.cy + dy), w, h };
 }
+
+function iou(a: Box, b: Box): number {
+  const ix = Math.max(
+    0,
+    Math.min(a.cx + a.w / 2, b.cx + b.w / 2) - Math.max(a.cx - a.w / 2, b.cx - b.w / 2),
+  );
+  const iy = Math.max(
+    0,
+    Math.min(a.cy + a.h / 2, b.cy + b.h / 2) - Math.max(a.cy - a.h / 2, b.cy - b.h / 2),
+  );
+  const inter = ix * iy;
+  const union = a.w * a.h + b.w * b.h - inter;
+  return union > 0 ? inter / union : 0;
+}
+
+/** PERCEPTION's phone tracker: `stillMs` grows while the box stays put (IoU ≥ 0.8). */
+const STILL_IOU = 0.8;
 
 export function synthesize(script: Script, options: SynthOptions = {}): SynthTick[] {
   const persona = options.persona ?? PERSONAS.baseline;
@@ -316,6 +337,7 @@ export function synthesize(script: Script, options: SynthOptions = {}): SynthTic
     const end = t + step.ms;
     const foreground = step.foreground ?? options.foreground ?? 'study';
     const camera = step.camera ?? 'ok';
+    const phase = step.phase ?? 'work';
 
     while (t < end) {
       const dt = interval + uniform(rng, -jitterMs, jitterMs);
@@ -373,7 +395,10 @@ export function synthesize(script: Script, options: SynthOptions = {}): SynthTic
             : prevPhoneBox && !moving
               ? prevPhoneBox
               : { cx: 0.8, cy: 0.9, w: 0.1, h: 0.08 };
-          phoneStillMs = moving || !prevPhoneBox ? 0 : phoneStillMs + objectEveryMs;
+          phoneStillMs =
+            moving || !prevPhoneBox || iou(pbox, prevPhoneBox) < STILL_IOU
+              ? 0
+              : phoneStillMs + objectEveryMs;
           prevPhoneBox = pbox;
           phone = {
             score: range(rng, phoneSpec.score),
@@ -444,6 +469,7 @@ export function synthesize(script: Script, options: SynthOptions = {}): SynthTic
         frame,
         context: { foreground, idleMs: Math.max(0, t - lastInputAt) },
         camera,
+        phase,
       });
       t += dt;
     }

@@ -1,4 +1,5 @@
-# Render Blueprint for Céntrate: the download website as a free Static Site.
+# Render Blueprint for Céntrate: the download website as a free Static Site, plus the optional
+# cloud API (accounts, sync, friends, coach) as a free Web Service with a free Postgres.
 # Render → New → Blueprint → pick this repository. Deploys automatically on every push to main.
 services:
   - type: web
@@ -78,3 +79,85 @@ services:
       - type: rewrite
         source: /sitemap.xml
         destination: /sitemap-index.xml
+
+  # Optional cloud API (PROMPT §14, docs/API.md §15). The desktop app works 100 % without it.
+  # Every feature stays off until its keys are filled in the dashboard: `sync: false` values are
+  # asked for when the Blueprint is applied, and an empty one keeps its feature off
+  # (GET /health lists what is on). PENDIENTE_PARA_MI.md says where each key comes from.
+  # Free plan: the service sleeps after 15 min idle (a cold start takes about a minute) and the
+  # free database expires; the app treats this API as optional (timeouts, offline outbox).
+  - type: web
+    runtime: node
+    name: centrate-api
+    repo: https://github.com/Imdlodoem23/App-to-not-Procastinate
+    branch: main
+    plan: free
+    region: frankfurt
+    autoDeploy: true
+    pullRequestPreviewsEnabled: false
+    # NODE_ENV=production would make `npm ci` skip devDependencies, which the build needs
+    # (esbuild bundles src/server.ts into dist/server.mjs).
+    buildCommand: npm ci --include=dev && npm run build -w apps/api
+    # Migrations run at boot (the free plan has no pre-deploy command).
+    startCommand: node apps/api/dist/server.mjs
+    healthCheckPath: /health
+    buildFilter:
+      paths:
+        - apps/api/**
+        - packages/shared/**
+        - package.json
+        - package-lock.json
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      - key: NODE_ENV
+        value: production
+      - key: ELECTRON_SKIP_BINARY_DOWNLOAD
+        value: '1'
+      # Render's proxy is one hop: the rate limits see the client, not the proxy.
+      - key: TRUST_PROXY_HOPS
+        value: '1'
+      - key: DATABASE_URL
+        fromDatabase:
+          name: centrate-db
+          property: connectionString
+      # Random, at least 32 characters; changing it signs everyone out.
+      - key: BETTER_AUTH_SECRET
+        generateValue: true
+      # This service's public URL, e.g. https://centrate-api.onrender.com (accounts stay off
+      # until it is set).
+      - key: BETTER_AUTH_URL
+        sync: false
+      # CORS allow-list. Leave it empty: the desktop app does not need it.
+      - key: APP_ORIGINS
+        sync: false
+      # Sign-in with Google (optional).
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      # Sign-in codes and partner emails through Resend (optional), e.g.
+      # «Céntrate <hola@tu-dominio.com>» on a domain verified in Resend.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      # Coach (Claude API). The key lives only here, never in the app.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # Global kill switch and daily spend cap in US dollars (0 turns the coach off).
+      - key: AI_ENABLED
+        value: 'true'
+      - key: AI_GLOBAL_DAILY_BUDGET_USD
+        value: '2'
+
+databases:
+  # Free Postgres: 1 GB, one per workspace, expires 30 days after creation (then a grace
+  # period). When it is recreated the app re-uploads its stats; friends and partners are lost.
+  - name: centrate-db
+    plan: free
+    region: frankfurt
+    databaseName: centrate
+    user: centrate
+    # Reachable only from Render's private network (the API), never from the internet.
+    ipAllowList: []

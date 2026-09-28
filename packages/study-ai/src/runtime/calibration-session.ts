@@ -95,9 +95,7 @@ class CalibrationSession implements CalibrationSessionHandle {
     if (camera.status === 'rejected' || vision.status === 'rejected') {
       if (camera.status === 'fulfilled') camera.value.stop();
       if (vision.status === 'fulfilled') vision.value.close();
-      throw camera.status === 'rejected'
-        ? camera.reason
-        : (vision as PromiseRejectedResult).reason;
+      throw camera.status === 'rejected' ? camera.reason : (vision as PromiseRejectedResult).reason;
     }
     let identity: CameraIdentity;
     try {
@@ -139,7 +137,11 @@ class CalibrationSession implements CalibrationSessionHandle {
     });
   }
 
-  private async step(active: ActiveRecording, now: MonoMs, plan: LoopPlan): Promise<StepCost | null> {
+  private async step(
+    active: ActiveRecording,
+    now: MonoMs,
+    plan: LoopPlan,
+  ): Promise<StepCost | null> {
     if (active.done) return null;
     const clock = this.deps.clock;
     const { recorder } = active;
@@ -167,7 +169,8 @@ class CalibrationSession implements CalibrationSessionHandle {
     }
     this.progress(progress);
     const end = clock.now();
-    if (end - recorder.startedAt >= STUDY_AI_CONSTANTS.calibrationDurationMs) this.finish(active, end);
+    if (end - recorder.startedAt >= STUDY_AI_CONSTANTS.calibrationDurationMs)
+      this.finish(active, end);
     if (outcome.kind === 'failed') throw outcome.error;
     return cost;
   }

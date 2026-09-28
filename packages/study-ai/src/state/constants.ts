@@ -8,6 +8,12 @@ import { STUDY_RULES } from '@centrate/shared/points';
 export const SAMPLE_MAX_SPAN_MS = 1_000;
 /** Short-score ceiling for the fast recovery: min(θ + margin, this). */
 export const FAST_RECOVERY_MAX = 90;
+/**
+ * The fast-recovery condition must hold this long. A 2 s glance at the screen in the middle
+ * of a phone session, or one lucky classifier streak, must not clear DUDA; coming back to
+ * study still clears it in ≈ 3.5 s instead of the ≈ 7 s the long window needs.
+ */
+export const FAST_RECOVERY_HOLD_MS = 1_500;
 
 /** Raw presence must hold this long before the snapshot shows it. */
 export const PRESENCE_DEBOUNCE_MS = 1_000;

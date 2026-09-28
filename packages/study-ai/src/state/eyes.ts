@@ -4,6 +4,8 @@
  * Starts when the eyes were closed ≥ 80 % of the visible time of the last 20 s (with ≥ 50 %
  * coverage), or PERCLOS ≥ 0.3 over 60 s; ends when they were open ≥ 70 % of the last 5 s.
  * The ring is cleared on exit, so an old PERCLOS never re-enters at once.
+ *
+ * Running sums over three windows keep `update` O(1) amortised (it runs on every tick).
  */
 import { STUDY_AI_CONSTANTS } from '../config';
 import type { MonoMs } from '../types';
@@ -11,19 +13,48 @@ import { EYES_MIN_COVERAGE, EYES_OPEN_SHARE, EYES_OPEN_WINDOW_MS } from './const
 
 interface EyeSample {
   at: MonoMs;
-  span: number;
-  visible: boolean;
-  closed: boolean;
-}
-
-interface Sums {
   visible: number;
   closed: number;
-  open: number;
+}
+
+/** Sums of the samples with `at` in (now − span, now]. */
+class WindowSums {
+  head = 0;
+  visible = 0;
+  closed = 0;
+
+  constructor(readonly span: number) {}
+
+  add(s: EyeSample): void {
+    this.visible += s.visible;
+    this.closed += s.closed;
+  }
+
+  advance(ring: readonly EyeSample[], now: MonoMs): void {
+    const from = now - this.span;
+    while (this.head < ring.length && (ring[this.head] as EyeSample).at <= from) {
+      const s = ring[this.head] as EyeSample;
+      this.visible -= s.visible;
+      this.closed -= s.closed;
+      this.head += 1;
+    }
+    // Float drift: never below zero.
+    if (this.visible < 1e-6) this.visible = 0;
+    if (this.closed < 1e-6) this.closed = 0;
+  }
+
+  reset(): void {
+    this.head = 0;
+    this.visible = 0;
+    this.closed = 0;
+  }
 }
 
 export class DrowsyTracker {
   private ring: EyeSample[] = [];
+  private readonly open5 = new WindowSums(EYES_OPEN_WINDOW_MS);
+  private readonly short = new WindowSums(STUDY_AI_CONSTANTS.eyesClosedMs);
+  private readonly long = new WindowSums(STUDY_AI_CONSTANTS.perclosWindowMs);
   private on = false;
 
   get drowsy(): boolean {
@@ -33,28 +64,30 @@ export class DrowsyTracker {
   /** Adds one tick; returns true when drowsiness starts on this tick. */
   update(now: MonoMs, span: number, visible: boolean, closed: boolean): boolean {
     const c = STUDY_AI_CONSTANTS;
-    this.ring.push({ at: now, span: Math.max(0, span), visible, closed: visible && closed });
-    const from = now - c.perclosWindowMs;
-    let drop = 0;
-    while (drop < this.ring.length && (this.ring[drop] as EyeSample).at <= from) drop += 1;
-    if (drop > 0) this.ring.splice(0, drop);
+    const ms = Number.isFinite(span) && span > 0 ? span : 0;
+    const sample: EyeSample = {
+      at: now,
+      visible: visible ? ms : 0,
+      closed: visible && closed ? ms : 0,
+    };
+    this.ring.push(sample);
+    for (const w of [this.open5, this.short, this.long]) {
+      w.add(sample);
+      w.advance(this.ring, now);
+    }
+    this.compact();
 
     if (this.on) {
-      const last = this.sums(now, EYES_OPEN_WINDOW_MS);
-      if (last.open >= EYES_OPEN_SHARE * EYES_OPEN_WINDOW_MS) {
-        this.on = false;
-        this.ring = [];
-      }
+      const open = this.open5.visible - this.open5.closed;
+      if (open >= EYES_OPEN_SHARE * EYES_OPEN_WINDOW_MS) this.reset();
       return false;
     }
-    const short = this.sums(now, c.eyesClosedMs);
-    const long = this.sums(now, c.perclosWindowMs);
     const closedLong =
-      short.visible >= EYES_MIN_COVERAGE * c.eyesClosedMs &&
-      short.closed >= c.eyesClosedShare * short.visible;
+      this.short.visible >= EYES_MIN_COVERAGE * c.eyesClosedMs &&
+      this.short.closed >= c.eyesClosedShare * this.short.visible;
     const perclos =
-      long.visible >= EYES_MIN_COVERAGE * c.perclosWindowMs &&
-      long.closed >= c.perclosLimit * long.visible;
+      this.long.visible >= EYES_MIN_COVERAGE * c.perclosWindowMs &&
+      this.long.closed >= c.perclosLimit * this.long.visible;
     if (closedLong || perclos) {
       this.on = true;
       return true;
@@ -64,20 +97,19 @@ export class DrowsyTracker {
 
   reset(): void {
     this.ring = [];
+    this.open5.reset();
+    this.short.reset();
+    this.long.reset();
     this.on = false;
   }
 
-  private sums(now: MonoMs, spanMs: number): Sums {
-    const from = now - spanMs;
-    const out: Sums = { visible: 0, closed: 0, open: 0 };
-    for (let i = this.ring.length - 1; i >= 0; i -= 1) {
-      const s = this.ring[i] as EyeSample;
-      if (s.at <= from) break;
-      if (!s.visible) continue;
-      out.visible += s.span;
-      if (s.closed) out.closed += s.span;
-      else out.open += s.span;
-    }
-    return out;
+  /** Drops samples every window has passed (the 60 s one is the slowest). */
+  private compact(): void {
+    const drop = this.long.head;
+    if (drop < 512 || drop * 2 < this.ring.length) return;
+    this.ring = this.ring.slice(drop);
+    this.open5.head -= drop;
+    this.short.head -= drop;
+    this.long.head = 0;
   }
 }

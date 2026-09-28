@@ -27,7 +27,7 @@ import { deriveCapabilities } from '../config';
 import { registerPanelAssets } from './panel-assets';
 import {
   PANEL_WEEKS,
-  columnChart,
+  responsiveChart,
   formatInt,
   formatMinutes,
   formatSignedPoints,
@@ -61,7 +61,7 @@ async function readApi<T>(
   if (typeof cookie === 'string') headers.cookie = cookie;
   if (typeof authorization === 'string') headers.authorization = authorization;
   const res = await app.inject({ method: 'GET', url, headers });
-  let body: unknown = null;
+  let body: unknown;
   try {
     body = res.body ? JSON.parse(res.body) : null;
   } catch {
@@ -183,7 +183,7 @@ function minutesFigure(
         `Media: ${formatMinutes(total / PANEL_WEEKS)} por semana. ` +
         `Mejor semana: la del ${longDay(weeks[best]?.from ?? mondays[0] ?? '')}, ` +
         `con ${formatMinutes(weeks[best]?.[key] ?? 0)}.`;
-  const chart = columnChart({
+  const chart = responsiveChart({
     ariaLabel: `${caption}. ${summary}`,
     ticks: minuteTicks(maxMinutes),
     slots: weeks.map((w, i) => ({
@@ -209,7 +209,7 @@ function pointsFigure(weeks: readonly WeekTotals[], mondays: readonly string[]):
       ? `Sin puntos ganados ni perdidos en estas ${PANEL_WEEKS} semanas.`
       : `Ganados: ${formatSignedPoints(earned)}. Perdidos: ${formatSignedPoints(-lost)}. ` +
         `Balance: ${formatSignedPoints(earned - lost)}.`;
-  const chart = columnChart({
+  const chart = responsiveChart({
     ariaLabel: `Puntos. ${summary}`,
     ticks: pointTicks(
       Math.max(0, ...weeks.map((w) => w.pointsEarned)),
@@ -254,7 +254,7 @@ function goalFigure(
   const lived = weeks.reduce((t, w) => t + w.daysElapsed, 0);
   const labels = weekAxisLabels(mondays);
   const summary = `Objetivo: ${formatMinutes(goal)} al día. Lo cumpliste ${formatInt(met)} de ${formatInt(lived)} días.`;
-  const chart = columnChart({
+  const chart = responsiveChart({
     ariaLabel: `Días con el objetivo cumplido. ${summary}`,
     ticks: [
       { value: 0, label: '0' },
@@ -323,10 +323,14 @@ function thisWeekCard(week: WeekTotals, hasGoal: boolean): SafeHtml {
         <dt>Puntos</dt>
         <dd>
           ${formatSignedPoints(net)}
-          <span class="kpi-sub"
-            >${formatSignedPoints(week.pointsEarned)} ·
-            ${formatSignedPoints(-week.pointsLost)}</span
-          >
+          ${
+            week.pointsLost > 0 &&
+            week.pointsEarned > 0 &&
+            html`<span class="kpi-sub"
+              >${formatSignedPoints(week.pointsEarned)} ·
+              ${formatSignedPoints(-week.pointsLost)}</span
+            >`
+          }
         </dd>
       </div>
       ${
@@ -451,8 +455,8 @@ export function panelBody(input: PanelInput): SafeHtml {
       input.syncAvailable &&
       !me.sharing.syncStats &&
       html`<p class="notice">
-        La sincronización de estadísticas está desactivada. Actívala en la app (Ajustes → Cuenta)
-        para ver aquí tus
+        La sincronización de estadísticas está desactivada. Actívala en la app, en los ajustes de tu
+        cuenta, para ver aquí tus
         gráficas.${hasData ? ' Lo que ya subiste sigue aquí hasta que lo borres.' : ''}
       </p>`
     }

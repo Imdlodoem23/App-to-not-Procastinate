@@ -3,6 +3,9 @@
  * at a time (the next is scheduled after the current one settles), errors counted and
  * survived. Pure: clock and timers are injected. DESIGN.md §8.1.
  *
+ * The delay is `max(10, interval − elapsed)` measured on a fixed-rate grid (from when the step
+ * was due, not when its timer fired), so timer latency never lowers the rate.
+ *
  * A step that returns `null` did no vision work (a break tick, no-camera mode, a camera that
  * is not delivering): the next step then comes after `STUDY_AI_CONSTANTS.noCameraTickMs`
  * (1 s) instead of the governor's interval, so idle phases wake the window once a second.
@@ -41,6 +44,8 @@ export class AdaptiveLoop {
   private errors = 0;
   private lastTickAt: MonoMs = 0;
   private prevTickAt: MonoMs | null = null;
+  /** When the next step is due on the fixed-rate grid (`null` until the first step). */
+  private dueAt: MonoMs | null = null;
   private maxGapMs = 0;
   /** Start times of recent ticks (all) and of recent vision frames, oldest first. */
   private readonly tickTimes: MonoMs[] = [];
@@ -61,6 +66,7 @@ export class AdaptiveLoop {
     this.frameTimes.length = 0;
     this.maxGapMs = 0;
     this.prevTickAt = null;
+    this.dueAt = null;
     // A step still in flight from before a stop() schedules the next one when it settles.
     if (!this.inFlight) this.schedule(0);
   }
@@ -145,10 +151,16 @@ export class AdaptiveLoop {
     this.prune(startedAt);
 
     if (!this.isRunning) return;
-    const elapsed = this.clock.now() - startedAt;
+    const now = this.clock.now();
     const interval =
       cost === null || plan === null ? STUDY_AI_CONSTANTS.noCameraTickMs : plan.intervalMs;
-    this.schedule(Math.max(MIN_DELAY_MS, interval - elapsed));
+    // Fixed-rate: the next step is due one interval after this one was due, so timer latency
+    // does not accumulate (2 fps stays 2 fps). A step that overran by more than an interval
+    // restarts the grid instead of bursting to catch up.
+    let nextDue = (this.dueAt ?? startedAt) + interval;
+    if (nextDue < now - interval) nextDue = now;
+    this.dueAt = nextDue;
+    this.schedule(Math.max(MIN_DELAY_MS, nextDue - now));
   }
 
   private prune(now: MonoMs): void {

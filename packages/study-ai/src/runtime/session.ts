@@ -258,14 +258,16 @@ class StudySession implements StudySessionHandle {
       observer,
       startedAt: this.startedAt,
     });
-    if (recalibrate) events.push({ type: 'hint', at: this.now(), code: 'recalibrate', active: true });
+    if (recalibrate)
+      events.push({ type: 'hint', at: this.now(), code: 'recalibrate', active: true });
     for (const event of events) this.emit(event);
   }
 
   /** Opens both in parallel; `null` when vision failed (the camera is released then). */
   private async openCameraAndVision(): Promise<{ identity: CameraIdentity | null } | null> {
     const assets = this.options.assets;
-    if (assets === null) throw new TypeError('startStudySession: assets are required in camera mode');
+    if (assets === null)
+      throw new TypeError('startStudySession: assets are required in camera mode');
     const deviceId = this.options.cameraDeviceId ?? null;
     const [camera, vision] = await Promise.allSettled([
       this.deps.openCamera({ deviceId }),
@@ -282,18 +284,17 @@ class StudySession implements StudySessionHandle {
     this.source = camera.value;
     this.vision = vision.value;
     this.lastOpenAt = this.now();
-    let identity: CameraIdentity | null = null;
-    try {
-      identity = await camera.value.identity();
-    } catch {
-      identity = null;
-    }
+    const identity = await camera.value.identity().catch(() => null);
     this.identity = identity;
     return { identity };
   }
 
   private classifierFor(identity: CameraIdentity | null): AttentionClassifier {
-    if (this.profile !== null && identity !== null && profileMatchesCamera(this.profile, identity)) {
+    if (
+      this.profile !== null &&
+      identity !== null &&
+      profileMatchesCamera(this.profile, identity)
+    ) {
       return createPersonalClassifier(this.profile);
     }
     return createGenericClassifier();
@@ -485,12 +486,7 @@ class StudySession implements StudySessionHandle {
 
   /** Another camera after a reopen (unplugged, a different one plugged): re-pick the classifier. */
   private async checkIdentity(source: FrameSource): Promise<void> {
-    let identity: CameraIdentity | null = null;
-    try {
-      identity = await source.identity();
-    } catch {
-      identity = null;
-    }
+    const identity = await source.identity().catch(() => null);
     if (this.stopped || this.source !== source || this.cameraObserver === null) return;
     const same =
       identity !== null &&
@@ -501,7 +497,11 @@ class StudySession implements StudySessionHandle {
     this.identity = identity;
     const classifier = this.classifierFor(identity);
     this.cameraObserver.setClassifier(classifier);
-    if (this.profile !== null && classifier.kind === 'generic' && this.hints.setSticky('recalibrate')) {
+    if (
+      this.profile !== null &&
+      classifier.kind === 'generic' &&
+      this.hints.setSticky('recalibrate')
+    ) {
       this.emit({ type: 'hint', at: this.now(), code: 'recalibrate', active: true });
     }
   }
@@ -587,7 +587,7 @@ class StudySession implements StudySessionHandle {
     const probe = this.deps.cpuProbe;
     if (probe === null || now - this.lastCpuProbeAt < CPU_PROBE_EVERY_MS) return;
     this.lastCpuProbeAt = now;
-    let pct: number | null = null;
+    let pct: number | null;
     try {
       pct = probe();
     } catch {

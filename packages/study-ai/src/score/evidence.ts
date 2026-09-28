@@ -12,8 +12,10 @@ import {
   BOOK_SHARE,
   BOOK_SPAN_MS,
   PERSON_RUNS,
+  PHONE_ENTER_HITS,
   PHONE_ENTER_SHARE,
-  PHONE_HOLD_SHARE,
+  PHONE_HOLD_MIN_RUNS,
+  PHONE_HOLD_MS,
   PHONE_MIN_RUNS,
   PHONE_SPAN_MS,
   PHONE_STILL_MS,
@@ -36,6 +38,9 @@ export function phoneInHandOn(frame: FrameFeatures, threshold: number): boolean 
   if (!phone || !(phone.score >= threshold)) return false;
   return (phone.nearFace || phone.moving) && phone.stillMs < PHONE_STILL_MS;
 }
+
+const isPhone = (run: DetectorRun): boolean => run.phone;
+const isBook = (run: DetectorRun): boolean => run.book;
 
 export class DetectorEvidence {
   private runs: DetectorRun[] = [];
@@ -63,15 +68,13 @@ export class DetectorEvidence {
     while (drop < this.runs.length && (this.runs[drop] as DetectorRun).at < keepFrom) drop += 1;
     if (drop > 0) this.runs.splice(0, drop);
 
-    const phone = this.window(now, PHONE_SPAN_MS, PHONE_MIN_RUNS);
-    if (phone.length === 0) {
-      this.phoneOn = false;
+    if (this.phoneOn) {
+      this.phoneOn = this.count(now, PHONE_HOLD_MS, PHONE_HOLD_MIN_RUNS, isPhone).hits > 0;
       return;
     }
-    const share = phone.filter((r) => r.phone).length / phone.length;
-    this.phoneOn = this.phoneOn
-      ? share >= PHONE_HOLD_SHARE
-      : phone.length >= PHONE_MIN_RUNS && share >= PHONE_ENTER_SHARE;
+    const recent = this.count(now, PHONE_SPAN_MS, PHONE_MIN_RUNS, isPhone);
+    this.phoneOn =
+      recent.hits >= PHONE_ENTER_HITS && recent.hits / recent.runs >= PHONE_ENTER_SHARE;
   }
 
   /** E_phone: a phone in hand, persistent. */
@@ -81,9 +84,8 @@ export class DetectorEvidence {
 
   /** E_book: a book seen in ≥ 50 % of the recent runs. */
   book(now: MonoMs): boolean {
-    const runs = this.window(now, BOOK_SPAN_MS, BOOK_MIN_RUNS);
-    if (runs.length === 0) return false;
-    return runs.filter((r) => r.book).length / runs.length >= BOOK_SHARE;
+    const recent = this.count(now, BOOK_SPAN_MS, BOOK_MIN_RUNS, isBook);
+    return recent.runs > 0 && recent.hits / recent.runs >= BOOK_SHARE;
   }
 
   /** A person above `threshold` in any of the last 3 runs (within the retention time). */
@@ -95,14 +97,24 @@ export class DetectorEvidence {
     return false;
   }
 
-  /** Runs of the last `spanMs` (within the 6 s ring), or at least the last `minRuns`. */
-  private window(now: MonoMs, spanMs: number, minRuns: number): DetectorRun[] {
+  /**
+   * Runs of the last `spanMs` (capped at the ring time), or at least the last `minRuns`
+   * (within the retention time), and how many of them match.
+   */
+  private count(
+    now: MonoMs,
+    spanMs: number,
+    minRuns: number,
+    match: (run: DetectorRun) => boolean,
+  ): { runs: number; hits: number } {
     const from = now - Math.min(spanMs, RUN_RING_MS);
-    let i = this.runs.length;
+    const n = this.runs.length;
+    let i = n;
     while (i > 0 && (this.runs[i - 1] as DetectorRun).at > from) i -= 1;
-    const recent = this.runs.length - i;
-    const start = recent >= minRuns ? i : Math.max(0, this.runs.length - minRuns);
-    return this.runs.slice(start);
+    const start = n - i >= minRuns ? i : Math.max(0, n - minRuns);
+    let hits = 0;
+    for (let k = start; k < n; k += 1) if (match(this.runs[k] as DetectorRun)) hits += 1;
+    return { runs: n - start, hits };
   }
 
   reset(): void {
