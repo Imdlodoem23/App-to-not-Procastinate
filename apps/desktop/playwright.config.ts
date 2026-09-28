@@ -41,6 +41,8 @@ if (capture) {
 }
 
 export default defineConfig({
+  // Downloads the Electron binary once, before the workers race for it (global-setup.ts).
+  globalSetup: './e2e/support/global-setup.ts',
   outputDir: './test-results',
   timeout: 60_000,
   expect: { timeout: 5_000 },

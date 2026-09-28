@@ -43,7 +43,7 @@ import { createPlatformServices } from '../platform';
 import { runFile } from '../system/exec';
 import { TrayController } from '../tray/controller';
 import type { TrayAction } from '../tray/model';
-import { electronDisplaySource } from '../windows/display-source';
+import { electronDisplaySource, primaryHostScreen } from '../windows/display-source';
 import { registerWindowIpc } from '../windows/ipc-window';
 import { WindowShell } from '../windows/shell';
 import type { RendererSource } from '../windows/window-urls';
@@ -123,7 +123,9 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
   const platform = toPlatform(process.platform);
   const harnessModule = launch.harness ? await import('./harness') : null;
   const resolved =
-    harnessModule && launch.harness ? harnessModule.resolveHarness(launch.harness) : null;
+    harnessModule && launch.harness
+      ? harnessModule.resolveHarness(launch.harness, () => primaryHostScreen(platform))
+      : null;
   for (const problem of resolved?.problems ?? []) log.warn('harness_option_ignored', { problem });
 
   const paths = resolveAppPaths({

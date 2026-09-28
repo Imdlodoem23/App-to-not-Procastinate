@@ -206,10 +206,15 @@
     transition: background-color var(--duration-hover) linear;
   }
 
+  /* Centred 32 px, whatever the border: the insets count from inside it (a 1 px border made
+     `inset: -4px 0` 30 px). */
   .blq-chip::after {
     content: '';
     position: absolute;
-    inset: -4px 0;
+    top: calc(50% - var(--size-min-target) / 2);
+    right: 0;
+    bottom: calc(50% - var(--size-min-target) / 2);
+    left: 0;
   }
 
   .blq-chip:hover {

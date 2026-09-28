@@ -7,7 +7,8 @@
  * - the main window never scrolls: no scroll mode, `scrollHeight <= clientHeight` for the
  *   document and the section column;
  * - no clipped text (`[data-fit]` and every text element that clips its overflow);
- * - 440 DIP wide, 10 DIP from the work area on its anchored corner;
+ * - 440 DIP wide, 10 DIP from the work area on its anchored corner (plus the 0–3 DIP that put
+ *   its edges on device pixels at a fractional scale);
  * - on the fixture's own preset, the density the fixture expects;
  * - on 1920×1080 at 100 %: content ≤ 540 DIP at rest and ≤ 600 in any state;
  * - detail fixtures: the detail window is shown beside the main window, inside the work area,
@@ -15,6 +16,7 @@
  */
 import { DISPLAY_PRESETS, SCREEN_INSET, type DisplayPresetId } from '../src/shared/fixtures';
 import type { HarnessFixture } from '../src/shared/fixtures';
+import { pixelSnapSlack } from '../src/main/windows/geometry';
 import type { LaunchedApp } from './support/app';
 import {
   BUDGET_PRESET,
@@ -84,14 +86,20 @@ async function checkLayout(
     Math.abs(probe.width - 440),
     `${where}: viewport width ${probe.width} CSS px (want 440)`,
   ).toBeLessThanOrEqual(tolerance);
-  // At a fractional scale on Linux the window manager places windows in whole physical
-  // pixels (10 DIP = 12.5 px at 125 %), so the inset read back in DIP can be off by the same
-  // rounding the width tolerance allows.
+  // At a fractional scale the geometry puts the left and anchored edges on device pixels by
+  // moving them 0–3 DIP inward (windows/geometry.ts, «PixelGrid»): 10 DIP is 12.5 px at 125 %,
+  // so the insets there are 10–13 DIP (pixel edges every 4 DIP) and 10–11 at 150 %, on every
+  // OS (geometry.test.ts checks the same band). Never closer than 10, but for the X11 width
+  // rounding above.
+  const slack = pixelSnapSlack(app.scaleFactor);
   const inset = (value: number, label: string): void => {
-    soft(
-      Math.abs(value - SCREEN_INSET),
-      `${where}: ${label} ${value} DIP (want ${SCREEN_INSET})`,
-    ).toBeLessThanOrEqual(tolerance);
+    const want = slack > 0 ? `${SCREEN_INSET}–${SCREEN_INSET + slack}` : `${SCREEN_INSET}`;
+    soft(value, `${where}: ${label} ${value} DIP (want ${want})`).toBeGreaterThanOrEqual(
+      SCREEN_INSET - tolerance,
+    );
+    soft(value, `${where}: ${label} ${value} DIP (want ${want})`).toBeLessThanOrEqual(
+      SCREEN_INSET + slack,
+    );
   };
   inset(wa.x + wa.width - (outer.x + outer.width), 'right inset');
   if (EXPECTED_ANCHOR === 'bottom') {

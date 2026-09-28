@@ -5,6 +5,8 @@
  */
 import { screen } from 'electron';
 import type { FrameInsets } from '../../shared/fixtures';
+import type { Platform } from '../../shared/ui-state';
+import type { HostScreen } from './fake-display';
 import type { DisplayInfo, Point } from './geometry';
 
 export interface DisplaySource {
@@ -44,4 +46,21 @@ export function electronDisplaySource(): DisplaySource {
       return () => listeners.delete(listener);
     },
   };
+}
+
+/**
+ * The primary display as the harness's host screen: `fake-display.ts` moves the fake display
+ * onto it when it does not fit. `null` before `ready`.
+ */
+export function primaryHostScreen(platform: Platform): HostScreen | null {
+  try {
+    const primary = screen.getPrimaryDisplay();
+    return {
+      workArea: { ...primary.workArea },
+      scaleFactor: primary.scaleFactor,
+      anchor: platform === 'darwin' ? 'top' : 'bottom',
+    };
+  } catch {
+    return null;
+  }
 }
