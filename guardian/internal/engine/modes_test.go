@@ -89,6 +89,41 @@ func TestSafeMode(t *testing.T) {
 	}
 }
 
+// Safe mode refuses what the user initiates but never a report that can only cost them
+// points (cmdOpts.report): otherwise killing the guardian three times would switch off
+// every penalty that reaches it through the API. Frozen mode refuses both.
+func TestSafeModeAcceptsReports(t *testing.T) {
+	env := newTestEnv(t)
+	env.open()
+	env.create(durationReq(ModeNormal, 60, "youtube"))
+	for i := 0; i < 3; i++ {
+		env.e.crash()
+		env.clk.ServiceRestart(5 * time.Second)
+		env.open()
+	}
+	e := env.e
+	if e.mode != ModeGuardianSafe {
+		t.Fatalf("mode %s", e.mode)
+	}
+	ran := false
+	if _, err := run(e, bg, cmdOpts{write: true, report: true}, func() (struct{}, error) { ran = true; return struct{}{}, nil }); err != nil || !ran {
+		t.Fatalf("report in safe mode: ran %v, err %v", ran, err)
+	}
+	ran = false
+	_, err := run(e, bg, cmdOpts{write: true}, func() (struct{}, error) { ran = true; return struct{}{}, nil })
+	if ran || apiCode(err) != "read_only" || apiDetails(err)["reason"] != "safe_mode" {
+		t.Fatalf("user mutation in safe mode: ran %v, err %v", ran, err)
+	}
+	_, err = run(e, bg, cmdOpts{}, func() (struct{}, error) {
+		e.mode = ModeGuardianFrozen
+		defer func() { e.mode = ModeGuardianSafe }()
+		return struct{}{}, e.acceptsReports()
+	})
+	if apiCode(err) != "read_only" || apiDetails(err)["reason"] != "schema_too_new" {
+		t.Fatalf("report in frozen mode: %v", err)
+	}
+}
+
 // A newer schema (a downgrade): frozen mode enforces the v1 core until each item ends,
 // never writes, and answers writes with read_only{schema_too_new} (§11.5).
 func TestFrozenMode(t *testing.T) {

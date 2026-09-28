@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/imdlodoem23/centrate/guardian/internal/points"
+	"github.com/imdlodoem23/centrate/guardian/internal/store"
 )
 
 // Everything survives a clean restart: blocks with their credit and resolution, the
@@ -133,11 +134,14 @@ func TestStoppedServiceCheck(t *testing.T) {
 		{"short crash restart", false, false, 20 * time.Second, false},
 		{"long stop", false, false, 5 * time.Minute, true},
 		{"planned update", true, true, 2 * time.Minute, false},
+		// The assisted installer wizard may keep the service stopped for minutes: the
+		// marker's TTL is the only cap.
+		{"slow update within the marker's TTL", true, true, store.PlannedStopTTL - time.Minute, false},
 		// A valid «update» marker used to exempt any stop: `prepare-update` then a stop
-		// in a loop suspended a block for free. Without a new binary, or for longer than
-		// an update takes, it is priced.
+		// in a loop suspended a block for free. Without a new binary, or once the marker
+		// expired, it is priced.
 		{"update marker, same binary", true, false, 2 * time.Minute, true},
-		{"update marker, long stop", true, true, 9 * time.Minute, true},
+		{"update marker, expired", true, true, store.PlannedStopTTL + time.Minute, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -141,17 +141,20 @@ func (s *Server) serve(c *call) {
 		c.fail(err)
 		return
 	}
-	// 4. Auth and scope, bound origin, loopback peer.
+	// 4. Auth and scope, bound origin.
 	if err := s.authenticate(c); err != nil {
 		c.fail(err)
 		return
 	}
-	if err := s.checkPeer(c); err != nil {
+	// 5. Rate limit. It runs before the loopback peer check (a deliberate swap of
+	// §8.3 steps 4 and 5): the peer lookup is costly (lsof on macOS, a /proc scan on
+	// Linux) and claimPairing needs no token, so a refused caller must never reach it.
+	if err := s.rateLimit(c); err != nil {
 		c.fail(err)
 		return
 	}
-	// 5. Rate limit.
-	if err := s.rateLimit(c); err != nil {
+	// 4b. Loopback peer process.
+	if err := s.checkPeer(c); err != nil {
 		c.fail(err)
 		return
 	}

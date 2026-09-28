@@ -66,6 +66,9 @@ type system struct {
 	procs  *engine.FakeProcesses
 	anchor store.AnchorStore
 	logs   *syncBuffer
+	// version is the guardian version the next start runs ("" is the default build);
+	// changing it changes the binary identity sealed in run/clock.json, like an update.
+	version string
 
 	r      *daemon.Runner
 	base   string
@@ -119,6 +122,9 @@ func (s *system) options() daemon.Options {
 			var lc net.ListenConfig
 			return lc.Listen(ctx, "tcp4", "127.0.0.1:0")
 		},
+	}
+	if s.version != "" {
+		o.Version = s.version
 	}
 	if s.clk != nil {
 		o.Clock = s.clk

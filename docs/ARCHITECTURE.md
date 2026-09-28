@@ -649,8 +649,13 @@ Missing or unknown token: 401 `unauthorized` (`WWW-Authenticate: Bearer`). Wrong
 4. Auth and scope (§8.2); bound-origin check for extension tokens; loopback peer process
    check for the pairing claim, extension heartbeats and Nuclear heartbeats (§9.3, §10.5).
 5. Rate limit → 429 `rate_limited` with `Retry-After` (§9.6).
-6. Mode: in `frozen` or `safe` mode every write returns 503 `read_only` with
-   `details.reason` (`schema_too_new` / `safe_mode`); reads keep working.
+6. Mode: in `frozen` mode every write returns 503 `read_only` with `details.reason`
+   `schema_too_new`. In `safe` mode the writes the user initiates (blocks, schedules,
+   settings, rewards, emergencies, pairing, data delete) return 503 `read_only`
+   `safe_mode`, but reports that can only cost points or record progress (attempts,
+   study heartbeat/strike/pause/resume/end) are still accepted and study silence keeps
+   counting: safe mode is reachable by killing the guardian three times, so it must
+   never suspend a penalty (§16.2 #41). Reads keep working.
 7. Body: media type, size, JSON, strict shape, semantics.
 8. Idempotency lookup (§8.6), then, in one engine turn, the time-driven step (§10.1),
    validation against current state, the mutation (§11.3 commit order) and the response.
@@ -1800,8 +1805,11 @@ SCM 30 s timeout risk):
 9. **Stopped-service check** (same boot only; a new boot id, i.e. a reboot or shutdown, is
    never penalized): if `downtimeMs > 60 s`, a block or punishment was active at the stop
    and there is no valid planned-stop marker (`run/planned-stop`, root/SYSTEM-only, written
-   by the installer's `customInit`, the updater or the OS-shutdown stop handler, TTL 10 min,
-   consumed here), write `tamper_detected{service_stopped, balanceCorrection:
+   by the installer's `customInit`, the updater or the OS-shutdown stop handler, TTL 10 min
+   from when it is written, consumed here; an «update»/«install» marker only counts when
+   the binary identity sealed in `run/clock.json`, version plus executable SHA-256,
+   changed, so `prepare-update` followed by a stop of the same binary is a plain stop),
+   write `tamper_detected{service_stopped, balanceCorrection:
 −emergencyPenalty(balance + allowanceValue), voidStreak: true}`. The same applies,
    once, as `hosts_changed_while_stopped` when the section found differs from the SHA-256
    of the last section written (persisted in `state.json`). Crash restarts (≤ 30 s by the
@@ -2140,6 +2148,7 @@ timeout 3 s («si no responde en 3 s»), long polls add their `waitMs`.
 | 38  | «Allow» a distraction in a whitelist, exam or level-2 punishment                                                               | `findAllowDistraction` on block/schedule `allow` and `studyWhitelist` (services, parents, public suffixes, distraction apps); snapshots re-checked; the allow set never reopens another block's targets                                                                                                                                   |
 | 39  | Keep the Nuclear overlay from appearing (renamed copy, look-alike bundle, `ELECTRON_RUN_AS_NODE`)                              | Liveness = the exact `appPath` process **and** its authenticated overlay heartbeat; relaunch by absolute path; Electron fuses                                                                                                                                                                                                             |
 | 40  | Pre-create the data folder and plant a known ledger key                                                                        | Untrusted trees are renamed and never adopted; a key not owned by SYSTEM/root starts a new epoch with `tamper_detected{untrusted_key}`                                                                                                                                                                                                    |
+| 41  | Kill the guardian three times within 5 min to reach safe mode                                                                  | Safe mode refuses only user-initiated writes; attempts and study reports are accepted and study silence keeps counting (§8.3 step 6)                                                                                                                                                                                                      |
 
 ### 16.3 Honest limits
 

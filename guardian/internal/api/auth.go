@@ -16,6 +16,10 @@ import (
 // peerTimeout bounds one loopback peer lookup.
 const peerTimeout = 5 * time.Second
 
+// maxPeerLookups caps the loopback peer lookups in flight, so callers (the pairing
+// claim needs no token) can never run lsof or /proc scans in parallel en masse.
+const maxPeerLookups = 2
+
 // authenticate is step 4 of §8.3 (§8.2): the bearer token and its scope. Missing or
 // unknown token: 401 unauthorized (WWW-Authenticate: Bearer); wrong scope: 403
 // insufficient_scope; an app token with any Origin, or an extension token with an
@@ -126,6 +130,13 @@ func (s *Server) lookupPeer(c *call) (PeerInfo, bool) {
 	}
 	ctx, cancel := context.WithTimeout(c.ctx, peerTimeout)
 	defer cancel()
+	select {
+	case s.peerSem <- struct{}{}:
+		defer func() { <-s.peerSem }()
+	case <-ctx.Done():
+		s.log.Debug("loopback peer not resolved", "route", c.routeID(), "errType", "busy")
+		return PeerInfo{}, false
+	}
 	info, err := s.peers.Resolve(ctx, client, server)
 	if err != nil {
 		s.log.Debug("loopback peer not resolved", "route", c.routeID(), "errType", errType(err))

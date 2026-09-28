@@ -117,6 +117,9 @@ func (s *Store) recover(rep *RecoveryReport) error {
 		return nil
 	}
 
+	// A data deletion interrupted after its switch is finished first (§10.11 step 3).
+	s.resumePurge(rep, epoch)
+
 	if logOK {
 		if sc.hasTail() {
 			if err := s.repairTail(epoch, sc, rep); err != nil {
@@ -127,14 +130,24 @@ func (s *Store) recover(rep *RecoveryReport) error {
 		s.removeOrphanEpochs(rep, epoch)
 	}
 	for _, c := range cands {
+		// otherEpoch: a verified snapshot of an epoch other than the readable current
+		// one (stale). It never becomes the previous generation.
+		otherEpoch := logOK && c.macOK && !c.tooNew && c.err == nil && c.doc.Epoch != epoch
 		switch {
+		case s.purgePending && (c.bad || otherEpoch):
+			// It may hold deleted data: delete it instead of keeping or quarantining it.
+			if err := s.fs.Remove(s.path(c.file)); err != nil && !notExist(err) {
+				s.warn(rep, "remove %s: %v", c.file, err)
+			} else {
+				_ = s.fs.SyncDir(s.dir)
+			}
 		case c.bad:
 			if rel, err := s.quarantineMove(s.path(c.file), "state", ".json"); err != nil {
 				s.warn(rep, "quarantine %s: %v", c.file, err)
 			} else {
 				rep.Quarantined = append(rep.Quarantined, rel)
 			}
-		case c.file == stateFile && c.macOK:
+		case c.file == stateFile && c.macOK && !otherEpoch:
 			s.curState = c.raw
 		}
 	}

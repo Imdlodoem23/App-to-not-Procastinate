@@ -8,8 +8,8 @@
 - **Hecho:** Fase 0 fusionada en `main` (PR #1). Configuración de instaladores (`electron-builder.yml`, NSIS, `.deb`) y `release.yml` preparados; el `.deb` y el AppImage se han generado en local.
 - **Hecho en Fase 1:** contrato del guardián, catálogo, parser, puntos, tokens y capa de plataforma del guardián.
 - **Hecho:** web estilo Apple (estructura completa, demo en vivo con el parser real, escena pegajosa, páginas Descargar, Novedades y Privacidad).
-- **En curso (3 workflows):** motor + API HTTP del guardián (`guardian-engine`), app de escritorio (`desktop-app`) y extensión del navegador (`browser-extension`, adelanto de la Fase 3).
-- **Siguiente paso:** integrar los tres, PR de la Fase 1 a `main`, y release `v0.1.0` (Fase 2).
+- **Hecho:** motor + API HTTP del guardián (prueba de humo real: bloquea, sobrevive al reinicio, ignora cambios de hora y se quita solo), app de escritorio (bandeja, ventana de 440 px, confirmación, cuenta atrás, ampliar con deshacer, ventanas Bloqueos/Emergencia/Ajustes) y extensión del navegador.
+- **Siguiente paso:** PR de la Fase 1 a `main` con el CI en verde y release `v0.1.0` (Fase 2).
 
 ## Fase 0 · Esqueleto
 
@@ -29,14 +29,14 @@
 - [x] Reglas de puntos (`packages/shared/src/points.ts`) como función pura sobre el registro de eventos, con vectores compartidos para Go
 - [x] Tokens de diseño (`packages/shared/src/design/tokens.css` y `tokens.ts`) y lint de colores sueltos
 - [x] Guardián: capa de plataforma (servicio, CLI, rutas protegidas, logs, reloj que cuenta en suspensión, hosts, procesos)
-- [ ] Guardián: estado persistente, registro de eventos, API HTTP en `127.0.0.1` con token
-- [ ] Guardián: sección del hosts con marcadores, copia de seguridad, escritura atómica, vigilancia y vaciado de DNS
-- [ ] Guardián: vigilante de procesos
-- [ ] Guardián: fin automático y anti-cambio de hora (reloj que cuenta en suspensión)
-- [ ] Guardián: servicio del sistema (Windows, macOS, Linux) y tests de integración con hosts falso
-- [ ] App: ventana de 440 px desde la bandeja, campo «¿Qué quieres hacer?», tarjeta de confirmación, cuenta atrás, ampliar con deshacer
-- [ ] App: bandeja con tiempo restante, notificaciones y puntos básicos
-- [ ] App: arnés de estados (`?state=…`) y capturas con Playwright
+- [x] Guardián: estado persistente, registro de eventos, API HTTP en `127.0.0.1` con token
+- [x] Guardián: sección del hosts con marcadores, copia de seguridad, escritura atómica, vigilancia y vaciado de DNS
+- [x] Guardián: vigilante de procesos
+- [x] Guardián: fin automático y anti-cambio de hora (reloj que cuenta en suspensión)
+- [x] Guardián: servicio del sistema (Windows, macOS, Linux) y tests de integración con hosts falso
+- [x] App: ventana de 440 px desde la bandeja, campo «¿Qué quieres hacer?», tarjeta de confirmación, cuenta atrás, ampliar con deshacer
+- [x] App: bandeja con tiempo restante, notificaciones y puntos básicos
+- [x] App: arnés de estados (`?state=…`) y capturas con Playwright
 
 ## Fase 2 · Distribución
 
@@ -48,9 +48,9 @@
 
 ## Fase 3 · Extensión e intentos
 
-- [ ] Extensión MV3 (Chromium y Firefox) con reglas `declarativeNetRequest`
-- [ ] `blocked.html` con motivo, tiempo restante y puntos perdidos
-- [ ] Emparejamiento con código
+- [x] Extensión MV3 (Chromium y Firefox) con reglas `declarativeNetRequest`
+- [x] `blocked.html` con motivo, tiempo restante y puntos perdidos
+- [x] Emparejamiento con código
 - [ ] Intentos que restan puntos (con agrupación y duplicado)
 - [ ] Ventana activa como capa de respaldo
 - [ ] Desbloqueo de emergencia

@@ -578,6 +578,11 @@ type Request struct {
 type cmdOpts struct {
 	// write marks a mutation: refused in frozen and safe mode (§8.3 step 6).
 	write bool
+	// report marks a write that can only cost the user points or report progress
+	// (attempts, study heartbeat/strike/pause/resume/end): refused in frozen mode only,
+	// so safe mode, which anyone with admin rights reaches by killing the guardian
+	// three times, never suspends a penalty (§16.2).
+	report bool
 	// idem is the idempotency data of the request, or nil.
 	idem *Idempotency
 	// status is the success status stored with an idempotent response.
@@ -597,8 +602,12 @@ func run[T any](e *Engine, ctx context.Context, o cmdOpts, fn func() (T, error))
 		}
 		e.timeStep()
 		defer e.afterTurn()
-		if o.write {
-			if werr := e.writable(); werr != nil {
+		if o.write || o.report {
+			check := e.writable
+			if o.report {
+				check = e.acceptsReports
+			}
+			if werr := check(); werr != nil {
 				err = werr
 				return
 			}
@@ -662,6 +671,16 @@ func (e *Engine) writable() error {
 		return readOnly("schema_too_new")
 	case ModeGuardianSafe:
 		return readOnly("safe_mode")
+	}
+	return nil
+}
+
+// acceptsReports is nil when report writes (cmdOpts.report) are allowed: in every
+// mode but frozen. Safe mode refuses what the user initiates, never what can cost them
+// points, and silence during study keeps counting there.
+func (e *Engine) acceptsReports() error {
+	if e.mode == ModeGuardianFrozen {
+		return readOnly("schema_too_new")
 	}
 	return nil
 }

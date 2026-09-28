@@ -51,7 +51,7 @@ func OSFS() FS { return osFS{} }
 type osFS struct{}
 
 func (osFS) OpenFile(name string, flag int, perm fs.FileMode) (File, error) {
-	f, err := platform.OpenRegularFile(name, flag, perm)
+	f, err := openFile(name, flag, perm)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,10 @@ func (osFS) Remove(name string) error                   { return os.Remove(name)
 func (osFS) RemoveAll(name string) error                { return os.RemoveAll(name) }
 func (osFS) SyncDir(dir string) error                   { return syncDir(dir) }
 
-// File modes (POSIX; Windows files inherit the directory's protected DACL).
+// File modes. POSIX: the exact mode. Windows: a file created with a perm that grants
+// nothing to group and others (secretPerm, and statePerm there) gets a protected
+// SYSTEM + Administrators DACL at creation; any other file inherits the directory's
+// protected DACL.
 const (
 	filePerm   = platform.FileMode       // 0644: readable by every local account
 	secretPerm = platform.SecretFileMode // 0600: root only

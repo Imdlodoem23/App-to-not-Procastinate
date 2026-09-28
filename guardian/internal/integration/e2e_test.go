@@ -223,19 +223,24 @@ func TestHasActiveLevels(t *testing.T) {
 // emergency (tamper_detected{service_stopped}, §10.12 step 9), unless the stop was part
 // of an OS shutdown (the guardian wrote the planned-stop marker itself, §13) or an
 // update: `centrate-guardian prepare-update` writes the marker (svc.WritePlannedStop,
-// reason update) before it stops the service, and the marker only covers a restart
-// within store.PlannedStopTTL.
+// reason update) before it stops the service. The marker only covers a restart within
+// store.PlannedStopTTL, and only when the binary that starts is another one (its
+// version and executable hash): `prepare-update` then a stop with the same binary is a
+// plain stop.
 func TestStopDuringBlock(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		stop        string // "plain", "shutdown" or "update"
+		updated     bool   // the restart runs another binary
 		down        time.Duration
 		wantPenalty bool
 	}{
-		{"plain stop", "plain", 5 * time.Minute, true},
-		{"stop during an OS shutdown", "shutdown", 5 * time.Minute, false},
-		{"prepare-update", "update", 5 * time.Minute, false},
-		{"prepare-update without a restart in time", "update", store.PlannedStopTTL + time.Minute, true},
+		{"plain stop", "plain", false, 5 * time.Minute, true},
+		{"stop during an OS shutdown", "shutdown", false, 5 * time.Minute, false},
+		{"prepare-update", "update", true, 5 * time.Minute, false},
+		{"prepare-update, slow installer wizard", "update", true, store.PlannedStopTTL - time.Minute, false},
+		{"prepare-update, same binary", "update", false, 2 * time.Minute, true},
+		{"prepare-update without a restart in time", "update", true, store.PlannedStopTTL + time.Minute, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			start := testStart
@@ -262,6 +267,9 @@ func TestStopDuringBlock(t *testing.T) {
 				sys.stop()
 			}
 			clk.ServiceRestart(tc.down)
+			if tc.updated {
+				sys.version = "0.1.1-e2e"
+			}
 			sys.start()
 			var tampers []engine.TamperDetectedData
 			for _, ev := range eventsOf(sys.events(), engine.EvTamperDetected) {

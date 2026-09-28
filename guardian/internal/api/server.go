@@ -71,6 +71,9 @@ type Server struct {
 	peers  PeerResolver
 	now    func() time.Time
 
+	// peerSem bounds the peer lookups in flight (maxPeerLookups).
+	peerSem chan struct{}
+
 	// port is the port the Host check accepts (the bound one once listening).
 	port      atomic.Int32
 	appDigest atomic.Pointer[[sha256.Size]byte]
@@ -141,10 +144,11 @@ func New(o Options) (*Server, error) {
 	l := embedded.API().Limits
 	s := &Server{
 		o: o, eng: o.Engine, cfg: cfg, log: o.Logger, router: rt, peers: o.Peers, now: o.Now,
-		limits: newRateLimiter(),
-		claims: &windowLimiter{n: l.PairingClaimsPerWindow, window: embedded.Millis(l.PairingClaimWindowMs)},
-		polls:  newPollLimiter(),
-		bound:  make(chan struct{}),
+		limits:  newRateLimiter(),
+		claims:  &windowLimiter{n: l.PairingClaimsPerWindow, window: embedded.Millis(l.PairingClaimWindowMs)},
+		polls:   newPollLimiter(),
+		bound:   make(chan struct{}),
+		peerSem: make(chan struct{}, maxPeerLookups),
 	}
 	s.port.Store(int32(cfg.Port))
 	return s, nil

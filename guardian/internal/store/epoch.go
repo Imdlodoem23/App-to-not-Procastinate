@@ -43,6 +43,10 @@ func (s *Store) readCurrent() (string, error) {
 // SaveState (use SaveStateAll after a data deletion), and the anchor must be moved to
 // the new epoch with PutAnchor. A returned error wrapping ErrCleanup means the epoch
 // was started (the events are valid) but some cleanup failed.
+//
+// A data deletion writes run/purge-pending before the switch; it stays until
+// FinishPurge, and every Open until then resumes the deletion (PurgePending). An epoch
+// started while a deletion is pending deletes like data_deleted.
 func (s *Store) NewEpoch(reason EpochReason, batch []Event) ([]Event, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -79,11 +83,31 @@ func (s *Store) NewEpoch(reason EpochReason, batch []Event) ([]Event, error) {
 		_ = s.fs.RemoveAll(dir)
 		return nil, err
 	}
+	// A data deletion (or any epoch started while one is pending) is recorded durably
+	// before the switch, so a crash after it is resumed at the next Open.
+	wasPending := s.purgePending
+	purge := reason == EpochDataDeleted || wasPending
+	if purge {
+		if err := s.writePurgeMarker(id); err != nil {
+			_ = s.closeAppend()
+			_ = s.fs.RemoveAll(dir)
+			return nil, err
+		}
+	}
 	if err := writeAtomic(s.fs, s.path(dirEvents, currentFile), []byte(id+"\n"), filePerm); err != nil {
 		// The rename may have happened before a failing directory fsync.
 		if cur, rerr := s.readCurrent(); rerr != nil || cur != id {
 			_ = s.closeAppend()
 			_ = s.fs.RemoveAll(dir)
+			switch {
+			case purge && !wasPending:
+				// Best effort: a marker left naming an epoch that is not current is
+				// dropped at the next Open.
+				_ = s.removePurgeMarker()
+			case wasPending && s.epoch != "":
+				// The pending deletion is still the current epoch's.
+				_ = s.writePurgeMarker(s.epoch)
+			}
 			return nil, writeErr("switch epoch", err)
 		}
 	}
@@ -91,11 +115,21 @@ func (s *Store) NewEpoch(reason EpochReason, batch []Event) ([]Event, error) {
 	s.segs = []*segment{g}
 	s.lastSeq, s.lastMac = out[len(out)-1].Seq, out[len(out)-1].Mac
 	s.needEpoch = ""
+	if purge {
+		s.purgePending, s.purgeStateSaved = true, false
+		// The snapshots are of the deleted epoch: they go now, and state.json must never
+		// become state.prev.json. SaveStateAll writes both generations anew; until then
+		// a restart rebuilds from the new epoch, which carries what survives.
+		s.curState = nil
+	}
 
 	var errs []error
-	errs = append(errs, s.disposeEpochs(id, reason)...)
-	if reason == EpochDataDeleted {
+	if purge {
+		errs = append(errs, s.disposeEpochs(id, EpochDataDeleted)...)
 		errs = append(errs, s.purgeDeletedData()...)
+		errs = append(errs, s.removeSnapshots()...)
+	} else {
+		errs = append(errs, s.disposeEpochs(id, reason)...)
 	}
 	if len(errs) > 0 {
 		return out, fmt.Errorf("%w: %w", ErrCleanup, errors.Join(errs...))

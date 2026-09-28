@@ -81,6 +81,10 @@ type fakePeer struct {
 	mu   sync.Mutex
 	info PeerInfo
 	err  error
+	// calls counts lookups; inFlight and maxInFlight track concurrent ones; gate, when
+	// set, holds every lookup until it is closed or the lookup's context ends.
+	calls, inFlight, maxInFlight int
+	gate                         chan struct{}
 }
 
 func (f *fakePeer) set(info PeerInfo, err error) {
@@ -89,10 +93,35 @@ func (f *fakePeer) set(info PeerInfo, err error) {
 	f.info, f.err = info, err
 }
 
-func (f *fakePeer) Resolve(context.Context, netip.AddrPort, netip.AddrPort) (PeerInfo, error) {
+func (f *fakePeer) Resolve(ctx context.Context, _, _ netip.AddrPort) (PeerInfo, error) {
+	f.mu.Lock()
+	f.calls++
+	f.inFlight++
+	f.maxInFlight = max(f.maxInFlight, f.inFlight)
+	gate := f.gate
+	f.mu.Unlock()
+	defer func() {
+		f.mu.Lock()
+		f.inFlight--
+		f.mu.Unlock()
+	}()
+	if gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return PeerInfo{}, ctx.Err()
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.info, f.err
+}
+
+// stats returns the lookup count and the peak of concurrent lookups.
+func (f *fakePeer) stats() (calls, maxInFlight int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls, f.maxInFlight
 }
 
 // browserPeer is a Chrome process of an interactive user (engine platform linux).

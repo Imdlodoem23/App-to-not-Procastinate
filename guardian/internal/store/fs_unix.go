@@ -12,6 +12,15 @@ import (
 	"github.com/imdlodoem23/centrate/guardian/internal/platform"
 )
 
+// statePerm is the mode of state.json, state.prev.json and backups/state.v*.json:
+// readable by every local account (§11.1). POSIX has no share modes, so a reader
+// cannot stop the guardian from replacing them.
+const statePerm = filePerm
+
+func openFile(name string, flag int, perm fs.FileMode) (*os.File, error) {
+	return platform.OpenRegularFile(name, flag, perm)
+}
+
 // setMode gives a newly created file exactly perm (the umask filtered it at creation).
 func setMode(f *os.File, perm fs.FileMode) error { return f.Chmod(perm) }
 

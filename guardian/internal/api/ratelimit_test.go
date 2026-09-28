@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -80,6 +81,62 @@ func TestPairingClaimsLimitedGlobally(t *testing.T) {
 	r = env.do("POST", "/v1/pairing/claim", bad)
 	if r.status == http.StatusTooManyRequests {
 		t.Fatalf("still limited after the window: %s", r.body)
+	}
+}
+
+// TestRefusedClaimsNeverResolveThePeer: the claim window is checked before the
+// loopback peer lookup (lsof / a /proc scan), so claims past the window cost no lookup.
+func TestRefusedClaimsNeverResolveThePeer(t *testing.T) {
+	env := newTestEnv(t)
+	l := embedded.API().Limits
+	bad := map[string]any{"code": "000000", "browser": "chrome", "browserVersion": "1", "extVersion": "1"}
+	total := l.PairingClaimsPerWindow * 5
+	limited := 0
+	for range total {
+		if env.do("POST", "/v1/pairing/claim", bad).status == http.StatusTooManyRequests {
+			limited++
+		}
+	}
+	if limited != total-l.PairingClaimsPerWindow {
+		t.Fatalf("limited = %d, want %d", limited, total-l.PairingClaimsPerWindow)
+	}
+	if calls, _ := env.peer.stats(); calls != l.PairingClaimsPerWindow {
+		t.Fatalf("peer lookups = %d, want %d (one per admitted claim)", calls, l.PairingClaimsPerWindow)
+	}
+}
+
+// TestPeerLookupsAreSerialized: concurrent peer-checked requests never run more than
+// maxPeerLookups lookups at once.
+func TestPeerLookupsAreSerialized(t *testing.T) {
+	env := newTestEnv(t)
+	l := embedded.API().Limits
+	gate := make(chan struct{})
+	env.peer.mu.Lock()
+	env.peer.gate = gate
+	env.peer.mu.Unlock()
+	bad := map[string]any{"code": "000000", "browser": "chrome", "browserVersion": "1", "extVersion": "1"}
+	n := l.PairingClaimsPerWindow
+	var wg sync.WaitGroup
+	for range n {
+		wg.Go(func() { env.do("POST", "/v1/pairing/claim", bad) })
+	}
+	// Let the requests pile up on the semaphore, then release them.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, peak := env.peer.stats(); peak >= maxPeerLookups || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(50 * time.Millisecond)
+	close(gate)
+	wg.Wait()
+	calls, peak := env.peer.stats()
+	if peak > maxPeerLookups {
+		t.Fatalf("peak concurrent lookups = %d, want <= %d", peak, maxPeerLookups)
+	}
+	if calls != n {
+		t.Fatalf("lookups = %d, want %d", calls, n)
 	}
 }
 

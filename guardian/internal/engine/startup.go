@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/imdlodoem23/centrate/guardian/internal/catalog"
 	"github.com/imdlodoem23/centrate/guardian/internal/clock"
@@ -535,8 +534,11 @@ const snapshotMaxAge = saveEvery + tickInterval
 // An «update» or «install» marker (written by the installer, the updaters and
 // `centrate-guardian prepare-update`) exempts a stop only when an update really
 // happened: the binary that starts differs from the one that stopped (plannedUpdate).
-// In the same boot the stop must also have been short (plannedUpdateMaxDown). A valid
-// «shutdown» marker exempts a same-boot stop as before.
+// In the same boot the marker must also still be valid, i.e. the restart came within
+// store.PlannedStopTTL of writing it: the assisted NSIS wizard stops the service in
+// .onInit, before the user clicks through its pages, so a shorter cap would price
+// slow updates, and the binary-change check already stops `prepare-update` + stop
+// loops. A valid «shutdown» marker exempts a same-boot stop as before.
 //
 // Otherwise, in the same boot, a section found different from the last one written
 // while blocks were active costs the same once (hosts_changed_while_stopped): no
@@ -556,10 +558,6 @@ func (e *Engine) stoppedServiceCheck(si *startInfo) {
 		b.add(EvTamperDetected, TamperDetectedData{Kind: kind, BalanceCorrection: -pen, VoidStreak: true})
 	})
 }
-
-// plannedUpdateMaxDown is the longest same-boot stop an update marker exempts: an
-// installer or updater replaces the files and starts the service again in far less.
-const plannedUpdateMaxDown = 3 * time.Minute
 
 // stopPenaltyKind is the tamper kind the stop costs, or "".
 func (e *Engine) stopPenaltyKind(si *startInfo) string {
@@ -583,7 +581,7 @@ func (e *Engine) stopPenaltyKind(si *startInfo) string {
 		if !si.cleanStop {
 			down -= snapshotMaxAge.Milliseconds()
 		}
-		planned := (ps.Valid && ps.Reason == plannedShutdown) || (ps.Valid && update && si.downtime <= plannedUpdateMaxDown.Milliseconds())
+		planned := (ps.Valid && ps.Reason == plannedShutdown) || (ps.Valid && update)
 		if !planned && down > stopPenaltyThreshold.Milliseconds() && e.stopCommitments(si) {
 			return "service_stopped"
 		}

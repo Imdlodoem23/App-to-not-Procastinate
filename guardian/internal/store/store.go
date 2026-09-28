@@ -29,6 +29,7 @@ const (
 	plannedMarker = "planned-stop"
 	startsFile    = "starts.json"
 	clockFile     = "clock.json"
+	purgeMarker   = "purge-pending"
 )
 
 // Storage rules of the contract that the generated data does not carry (§10.12, §11).
@@ -240,6 +241,13 @@ type RecoveryReport struct {
 	AnchorCheck AnchorCheck
 	AnchorError string
 
+	// PurgePending: a data deletion was interrupted after its epoch switch (a crash, a
+	// power cut or a failed cleanup; run/purge-pending). Open has redone the store's
+	// part (old epochs, quarantine/*, backups/state.v*.json, snapshots of other
+	// epochs); the engine must scrub the hosts backups and the guardian logs, call
+	// SaveStateAll and then FinishPurge.
+	PurgePending bool
+
 	// Recovery is the suggested guardian_started.recovery value (the engine may
 	// refine it, e.g. hosts_section).
 	Recovery RecoveryKind
@@ -267,6 +275,11 @@ type Store struct {
 	appendF   File
 	appendSeg *segment
 	broken    error
+
+	// purgePending: run/purge-pending exists (a data deletion to finish);
+	// purgeStateSaved: SaveStateAll succeeded since it was set.
+	purgePending    bool
+	purgeStateSaved bool
 
 	loaded   *LoadedState // snapshot recovered at Open
 	curState []byte       // bytes of state.json as last verified or written (prev rotation)

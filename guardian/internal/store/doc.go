@@ -20,11 +20,17 @@
 //	                                consumed by Open (valid for 10 min)
 //	run/starts.json                 recent unclean starts (safe mode at 3 within 5 min)
 //	run/clock.json                  Detector snapshot, sealed (SaveClock, LoadClock)
+//	run/purge-pending               a data deletion to finish: written by NewEpoch
+//	                                before the switch, removed by FinishPurge; Open
+//	                                resumes the deletion while it exists
 //
 // secret/, run/, events/ and quarantine/ are private (SYSTEM and Administrators only;
 // root 0700): no other local account may open a file in them, so none can hold the
-// lock or a share-none handle across a restart. The root files (state.json, …) and
-// backups/ stay readable by every local account (§11.1).
+// lock or a share-none handle across a restart. backups/ stays readable by every local
+// account (§11.1). state.json, state.prev.json and backups/state.v*.json are readable
+// by every local account on POSIX; on Windows they are created with a protected
+// SYSTEM + Administrators DACL (statePerm), since a share-none handle held on a
+// readable snapshot would make every MoveFileEx over it fail.
 //
 // The rollback anchor lives outside the directory, behind [AnchorStore]: the registry
 // on Windows, a plist in /Library/Preferences on macOS, /etc/centrate/anchor.json on

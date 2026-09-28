@@ -175,14 +175,17 @@ func (s *Store) writeState(raw []byte, both bool) error {
 		prev = raw
 	}
 	if prev != nil {
-		if err := writeAtomic(s.fs, s.path(statePrevFile), prev, filePerm); err != nil {
+		if err := writeAtomic(s.fs, s.path(statePrevFile), prev, statePerm); err != nil {
 			return writeErr("write "+statePrevFile, err)
 		}
 	}
-	if err := writeAtomic(s.fs, s.path(stateFile), raw, filePerm); err != nil {
+	if err := writeAtomic(s.fs, s.path(stateFile), raw, statePerm); err != nil {
 		return writeErr("write "+stateFile, err)
 	}
 	s.curState = raw
+	if both && s.purgePending {
+		s.purgeStateSaved = true
+	}
 	return nil
 }
 
@@ -259,7 +262,7 @@ var stateBackupRE = regexp.MustCompile(`^state\.v([0-9]+)\.json$`)
 // keeps the newest KeepStateBackups of them.
 func (s *Store) backupState(version int, raw []byte) error {
 	path := s.path(dirBackups, fmt.Sprintf("state.v%d.json", version))
-	if err := writeAtomic(s.fs, path, raw, filePerm); err != nil {
+	if err := writeAtomic(s.fs, path, raw, statePerm); err != nil {
 		return writeErr("backup state", err)
 	}
 	entries, err := s.fs.ReadDir(s.path(dirBackups))
