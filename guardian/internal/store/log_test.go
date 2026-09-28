@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -302,6 +301,11 @@ func buildLog(t *testing.T, e *env) (seg string, data []byte, epoch string) {
 // A torn write at every byte of the last batch: the final line without newline is
 // truncated, complete lines of the batch without its txEnd are quarantined, and the
 // log ends on the previous batch. Every line boundary of the batch is included.
+//
+// The file each cut quarantines is deleted once checked. Left there, a thousand of
+// them would slow down every later Open, whose takeover walk inspects and secures
+// each entry of the data directory (reading and writing DACLs on Windows): the test
+// would be quadratic, and take over ten minutes on Windows.
 func TestTornTailAtEveryByte(t *testing.T) {
 	e := newEnv(t)
 	seg, full, _ := buildLog(t, e)
@@ -364,6 +368,11 @@ func TestTornTailAtEveryByte(t *testing.T) {
 			s = s2
 		}
 		e.closeClean(s)
+		for _, q := range rep.Quarantined {
+			if err := os.Remove(filepath.Join(e.dir, filepath.FromSlash(q))); err != nil {
+				t.Fatalf("cut %d: %v", cut, err)
+			}
+		}
 	}
 }
 
@@ -582,17 +591,24 @@ func TestAppendDiskFullChangesNothing(t *testing.T) {
 	ffs := newFaultFS()
 	e.fs = ffs
 	s := e.started()
-	ffs.arm(1, false, 40, syscall.ENOSPC)
-	_, err := s.AppendBatch(batchOf(2, "a"))
-	if ReadOnlyReason(err) != ReasonDiskFull {
+	// Each error this OS reports for a full disk (diskFullErrors).
+	for _, full := range diskFullErrors {
+		ffs.arm(1, false, 40, full)
+		_, err := s.AppendBatch(batchOf(2, "a"))
+		if ReadOnlyReason(err) != ReasonDiskFull {
+			t.Fatalf("%v:err %v, reason %q", full, err, ReadOnlyReason(err))
+		}
+		var we *WriteError
+		if !errors.As(err, &we) || !errors.Is(err, full) {
+			t.Fatalf("%v:not a WriteError: %v", full, err)
+		}
+		if fi, _ := os.Stat(e.segments(s)[0]); fi.Size() != s.Stats().LogBytes {
+			t.Fatalf("%v:segment %d bytes, index %d", full, fi.Size(), s.Stats().LogBytes)
+		}
+	}
+	ffs.arm(1, false, 40, errors.New("device error"))
+	if _, err := s.AppendBatch(batchOf(2, "a")); ReadOnlyReason(err) != ReasonIOError {
 		t.Fatalf("err %v, reason %q", err, ReadOnlyReason(err))
-	}
-	var we *WriteError
-	if !errors.As(err, &we) || !errors.Is(err, syscall.ENOSPC) {
-		t.Fatalf("not a WriteError: %v", err)
-	}
-	if fi, _ := os.Stat(e.segments(s)[0]); fi.Size() != s.Stats().LogBytes {
-		t.Fatalf("segment %d bytes, index %d", fi.Size(), s.Stats().LogBytes)
 	}
 	if ReadOnlyReason(errors.New("x")) != "" || ReadOnlyReason(ErrInvalid) != "" || ReadOnlyReason(ErrBroken) != ReasonIOError {
 		t.Fatal("ReadOnlyReason mapping")

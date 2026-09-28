@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"syscall"
 )
 
 var (
@@ -69,6 +70,22 @@ func ReadOnlyReason(err error) string {
 		return ReasonIOError
 	}
 	return ""
+}
+
+// isDiskFull reports whether err, however wrapped, says the file system has no
+// room for a write: syscall.ENOSPC, which Go defines on every OS, or one of the
+// current OS's own codes (diskFullErrnos). On Windows the two differ: the OS
+// reports a full disk as ERROR_DISK_FULL or ERROR_HANDLE_DISK_FULL, never as ENOSPC.
+func isDiskFull(err error) bool {
+	if errors.Is(err, syscall.ENOSPC) {
+		return true
+	}
+	for _, e := range diskFullErrnos {
+		if errors.Is(err, e) {
+			return true
+		}
+	}
+	return false
 }
 
 func writeErr(op string, err error) error {

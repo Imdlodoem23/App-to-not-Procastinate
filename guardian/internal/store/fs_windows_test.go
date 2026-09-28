@@ -2,11 +2,17 @@ package store
 
 import (
 	"path/filepath"
+	"syscall"
 	"testing"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+// diskFullErrors are the errors a write returns on Windows when the disk has no
+// room left, plus the ENOSPC that Go defines there for portable code: a distinct
+// value the OS never returns but code above it may.
+var diskFullErrors = []error{windows.ERROR_DISK_FULL, windows.ERROR_HANDLE_DISK_FULL, syscall.ENOSPC}
 
 // The snapshots get a protected DACL naming only SYSTEM, Administrators and the
 // owner at creation: a standard user can no longer open them, so none can hold a

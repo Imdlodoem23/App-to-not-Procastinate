@@ -108,9 +108,10 @@ func transientRename(err error) bool {
 // once the rename is flushed, and NTFS journals the directory entries.
 func syncDir(string) error { return nil }
 
-func isDiskFull(err error) bool {
-	return errors.Is(err, windows.ERROR_DISK_FULL) || errors.Is(err, windows.ERROR_HANDLE_DISK_FULL)
-}
+// diskFullErrnos are the codes Windows itself returns when a write finds the disk
+// full (see isDiskFull). syscall.ENOSPC is a distinct value there that Go invented
+// for portable code: the OS never returns it, but code above the OS may.
+var diskFullErrnos = []error{windows.ERROR_DISK_FULL, windows.ERROR_HANDLE_DISK_FULL}
 
 // trustedOwner checks that path is a regular file owned by SYSTEM or Administrators
 // (§10.12 step 4). A process without administrator rights (development, unit tests)
