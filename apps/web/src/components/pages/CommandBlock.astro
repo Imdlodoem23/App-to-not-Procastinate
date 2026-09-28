@@ -4,7 +4,10 @@
  * system monospace at 14 px on the raised surface, radius 18. The button only appears when
  * the script can copy; the result is announced to screen readers.
  */
-import { copy, fill } from '../../content/copy';
+import { fill } from '../../content/copy';
+import { copyFor } from '../../content/locale';
+
+const copy = copyFor(Astro.url);
 
 interface Props {
   label: string;

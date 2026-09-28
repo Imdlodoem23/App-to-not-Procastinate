@@ -2,10 +2,18 @@
 /**
  * Site footer (design plan § 4.12), on the `alt` surface: the numbered footnotes of the page
  * when there are any (named slot `footnotes`, filled by the SECTIONS Footnotes component on the
- * home page), a hairline, the links, and the legal lines. Padding 40 on top and 32 below.
+ * home page), a hairline, the links (the last one switches to the same page in the other
+ * language), and the legal lines. Padding 40 on top and 32 below.
  */
-import { copy } from '../content/copy';
+import { copyFor } from '../content/locale';
 import { site } from '../lib/site';
+import { langFromPath, langNames, pathFor, type PageKey } from '../lib/i18n';
+
+interface Props {
+  page?: PageKey;
+}
+
+const copy = copyFor(Astro.url);
 
 const { footer } = copy;
 const links = [
@@ -15,6 +23,8 @@ const links = [
   { label: footer.links.source.label, href: site.repoUrl },
   { label: footer.links.issues.label, href: site.issuesUrl },
 ];
+const other = langFromPath(Astro.url.pathname) === 'es' ? 'en' : 'es';
+const switchTo = { lang: other, label: langNames[other], href: pathFor(Astro.props.page, other) };
 const hasNotes = Astro.slots.has('footnotes');
 ---
 
@@ -36,6 +46,15 @@ const hasNotes = Astro.slots.has('footnotes');
         </li>
       ))
     }
+    <li>
+      <a
+        class="site-footer__link"
+        href={switchTo.href}
+        hreflang={switchTo.lang}
+        lang={switchTo.lang}
+        data-lang-switch={switchTo.lang}>{switchTo.label}</a
+      >
+    </li>
   </ul>
   <div class="site-footer__legal">
     <p>{footer.license} {footer.cookies}</p>

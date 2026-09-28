@@ -1,28 +1,35 @@
 ---
 /**
  * Sticky translucent navigation bar (design plan § 4.1): 52 px, «Céntrate» on the left, the
- * section links and one blue «Descargar» pill on the right.
+ * section links, the language switch (the same page in the other language) and one blue
+ * «Descargar» pill on the right.
  *
  * At 734 px and below the links fold into a disclosure (<details>) labelled with text
  * («Abrir menú» / «Cerrar menú»), so it works without JavaScript; the script only adds Escape,
  * close on link or outside click, and close when the viewport grows past the breakpoint.
  */
-import { copy, ids } from '../content/copy';
-import { routes, type PageKey } from '../lib/site';
+import { copyFor } from '../content/locale';
+import { langFromPath, langNames, pathFor, routes, type PageKey } from '../lib/i18n';
+
+const copy = copyFor(Astro.url);
 
 interface Props {
   page?: PageKey;
 }
 
 const { page } = Astro.props;
-const { nav } = copy;
-// On the home page the pill jumps to the final download block; elsewhere it opens /descargar.
-const ctaHref = page === 'home' ? `#${ids.download}` : routes.download;
+const { nav, ids } = copy;
+const lang = langFromPath(Astro.url.pathname);
+const other = lang === 'es' ? 'en' : 'es';
+// The language switch opens the same page in the other language.
+const switchTo = { lang: other, label: langNames[other], href: pathFor(page, other) };
+// On the home page the pill jumps to the final download block; elsewhere it opens the guide.
+const ctaHref = page === 'home' ? `#${ids.download}` : routes[lang].download;
 ---
 
 <header class="site-nav" data-surface="light">
   <nav class="site-nav__bar" aria-label={nav.ariaLabel}>
-    <a class="site-nav__brand" href={routes.home} aria-label={nav.brandAria}>{nav.brand}</a>
+    <a class="site-nav__brand" href={routes[lang].home} aria-label={nav.brandAria}>{nav.brand}</a>
 
     <ul class="site-nav__links" role="list">
       {
@@ -34,6 +41,15 @@ const ctaHref = page === 'home' ? `#${ids.download}` : routes.download;
           </li>
         ))
       }
+      <li>
+        <a
+          class="site-nav__link"
+          href={switchTo.href}
+          hreflang={switchTo.lang}
+          lang={switchTo.lang}
+          data-lang-switch={switchTo.lang}>{switchTo.label}</a
+        >
+      </li>
     </ul>
 
     <details class="site-nav__menu" data-nav-menu>
@@ -62,6 +78,15 @@ const ctaHref = page === 'home' ? `#${ids.download}` : routes.download;
               </li>
             ))
           }
+          <li>
+            <a
+              class="site-nav__panel-link"
+              href={switchTo.href}
+              hreflang={switchTo.lang}
+              lang={switchTo.lang}
+              data-lang-switch={switchTo.lang}>{switchTo.label}</a
+            >
+          </li>
         </ul>
       </div>
     </details>

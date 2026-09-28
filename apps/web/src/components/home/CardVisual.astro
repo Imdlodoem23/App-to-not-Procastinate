@@ -19,7 +19,9 @@
  * from its points rules. Nothing here is interactive or focusable.
  */
 import AppWindow from '../AppWindow.astro';
-import { copy, fill } from '../../content/copy';
+import { fill } from '../../content/copy';
+import { copyFor } from '../../content/locale';
+import { intlLocale, langFromPath } from '../../lib/i18n';
 import { getService } from '@centrate/shared/catalog';
 import {
   EMERGENCY_RULES,
@@ -30,12 +32,15 @@ import {
 } from '@centrate/shared/points';
 import type { CardVisualSpec } from './chapters';
 
+const copy = copyFor(Astro.url);
+
 interface Props {
   visual: CardVisualSpec;
 }
 
 const { visual } = Astro.props;
 const aw = copy.appWindow;
+const lang = langFromPath(Astro.url.pathname);
 
 // Lucide shapes (ISC), 24 px viewBox, drawn with a 1.75 stroke like the app.
 const icons = {
@@ -69,13 +74,13 @@ const icons = {
 // Data for the compositions
 // ---------------------------------------------------------------------------------------------
 
-/** es-ES number with the typographic minus and «+» on gains (brief § 10, «Números»). */
+/** Number in the page's locale, with the typographic minus and «+» on gains (brief § 10). */
 const signed = (n: number): string =>
-  new Intl.NumberFormat('es-ES', { signDisplay: 'exceptZero', useGrouping: 'always' })
+  new Intl.NumberFormat(intlLocale[lang], { signDisplay: 'exceptZero', useGrouping: 'always' })
     .format(n)
     .replace('-', '−');
 const plainNumber = (n: number): string =>
-  new Intl.NumberFormat('es-ES', { useGrouping: 'always' }).format(n);
+  new Intl.NumberFormat(intlLocale[lang], { useGrouping: 'always' }).format(n);
 
 /** The app's countdown: M:SS under an hour, H:MM:SS above, the seconds apart (at 60 %). */
 function clock(totalMinutes: number): { main: string; seconds: string } {
@@ -104,7 +109,7 @@ const blockedServices = [
 ].map(service);
 
 // «Salir antes tiene un precio»: the commitment phrase, half typed, and the Normal wait.
-const phraseTyped = EMERGENCY_RULES.phrases.es.split(' ').slice(0, 4).join(' ');
+const phraseTyped = EMERGENCY_RULES.phrases[lang].split(' ').slice(0, 4).join(' ');
 const emergencyWait = clock(EMERGENCY_RULES.countdownMinutes.normal);
 
 // «Tres strikes…»: the default punishment and what it costs.

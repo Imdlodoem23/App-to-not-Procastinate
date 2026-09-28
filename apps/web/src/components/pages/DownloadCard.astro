@@ -7,8 +7,10 @@
  * `asset` names the release file whose size the /descargar script fills in
  * ([data-asset-size]); leave it out for links that are not a file (Firefox → GitHub).
  */
-import { copy } from '../../content/copy';
+import { copyFor } from '../../content/locale';
 import type { AssetKey } from '../../lib/downloads';
+
+const copy = copyFor(Astro.url);
 
 interface Props {
   title?: string;

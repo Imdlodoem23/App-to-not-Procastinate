@@ -1,0 +1,71 @@
+---
+/**
+ * Home page: composition only. Order and surfaces follow the design plan (§ 3.2): hero light,
+ * highlights alt, demo light, scene dark, chapters alt, privacy light, numbers alt, more light,
+ * FAQ alt, download dark, notes and footer alt. The navigation bar and the footer come from
+ * the Base layout; the footnotes go to its `footnotes` slot, at the top of the footer.
+ */
+import Base from '../layouts/Base.astro';
+import Hero from '../components/home/Hero.astro';
+import Highlights from '../components/home/Highlights.astro';
+import LiveDemo from '../components/home/LiveDemo.astro';
+import StickyScene from '../components/home/StickyScene.astro';
+import Chapters from '../components/home/Chapters.astro';
+import Privacy from '../components/home/Privacy.astro';
+import Numbers from '../components/home/Numbers.astro';
+import MoreFeatures from '../components/home/MoreFeatures.astro';
+import Faq from '../components/home/Faq.astro';
+import FinalDownload from '../components/home/FinalDownload.astro';
+import Footnotes from '../components/home/Footnotes.astro';
+import { copyFor } from '../content/locale';
+import { site } from '../lib/site';
+import { intlLocale, langFromPath, routes } from '../lib/i18n';
+
+const copy = copyFor(Astro.url);
+
+const { meta } = copy;
+const lang = langFromPath(Astro.url.pathname);
+
+// Structured data for search engines (schema.org SoftwareApplication).
+const structuredData = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: meta.siteName,
+  description: meta.home.description,
+  url: Astro.site ? new URL(routes[lang].home, Astro.site).href : undefined,
+  applicationCategory: 'ProductivityApplication',
+  operatingSystem: 'Windows 10, Windows 11, macOS, Linux',
+  inLanguage: intlLocale[lang],
+  isAccessibleForFree: true,
+  license: 'https://opensource.org/licenses/MIT',
+  codeRepository: site.repoUrl,
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'EUR' },
+};
+---
+
+<Base
+  title={meta.home.title}
+  description={meta.home.description}
+  ogTitle={meta.home.ogTitle}
+  page="home"
+>
+  <script
+    slot="head"
+    type="application/ld+json"
+    is:inline
+    set:html={JSON.stringify(structuredData)}
+  />
+
+  <Hero />
+  <Highlights />
+  <LiveDemo />
+  <StickyScene />
+  <Chapters />
+  <Privacy />
+  <Numbers />
+  <MoreFeatures />
+  <Faq />
+  <FinalDownload />
+
+  <Footnotes slot="footnotes" />
+</Base>

@@ -20,17 +20,20 @@
  * - The h1 is the LCP element: never hidden, never animated. Only the window reveals.
  */
 import AppWindow from '../AppWindow.astro';
-import { copy } from '../../content/copy';
+import { copyFor } from '../../content/locale';
 import { DEFAULT_OS, downloadUrl, primaryAsset, type OS } from '../../lib/downloads';
-import { routes } from '../../lib/site';
+import { langFromPath, routes } from '../../lib/i18n';
+
+const copy = copyFor(Astro.url);
 
 const { hero, ui } = copy;
+const lang = langFromPath(Astro.url.pathname);
 const headline = hero.headline.split(/(?<=\.)\s+/);
 
 const systems: readonly OS[] = ['windows', 'mac', 'linux', 'other'];
 const hrefFor = (os: OS): string => {
   const asset = primaryAsset[os];
-  return asset ? downloadUrl(asset) : routes.download;
+  return asset ? downloadUrl(asset) : routes[lang].download;
 };
 const hrefs = Object.fromEntries(systems.map((os) => [os, hrefFor(os)]));
 ---

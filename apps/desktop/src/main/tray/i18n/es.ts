@@ -3,6 +3,7 @@
  * (PROMPT §10 «Bandeja y otras superficies»). Mode names, remaining-time phrases and points
  * come from `src/shared/i18n/es.ts` through `src/shared/format.ts`.
  */
+import type { Widen } from '../../../shared/i18n/locale';
 import type { LinkDownReason } from '../../../shared/ui-state';
 
 export const TRAY_ES = {
@@ -48,7 +49,5 @@ export const TRAY_ES = {
   },
 } as const;
 
-/** «Guardián detenido» for the menu status line (sentence case). */
-export function capitalise(text: string): string {
-  return text.length === 0 ? text : text.charAt(0).toLocaleUpperCase('es-ES') + text.slice(1);
-}
+/** Shape every tray language file must match. */
+export type TrayMessages = Widen<typeof TRAY_ES>;

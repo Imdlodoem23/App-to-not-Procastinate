@@ -15,6 +15,7 @@ import {
 import {
   DISPLAY_PRESET_IDS,
   HARNESS_STATE_IDS,
+  fixtureInLocale,
   harnessFixture,
   harnessLoad,
   isHarnessStateId,
@@ -22,6 +23,7 @@ import {
   type HarnessFixture,
   type HarnessStateId,
 } from '../../shared/fixtures';
+import type { Locale } from '../../shared/i18n/locale';
 import type { HarnessLoad } from '../../shared/ipc';
 import type { DetailName, DetailRequest } from '../../shared/ui-state';
 import type { TrayController } from '../tray/controller';
@@ -35,6 +37,8 @@ export interface ResolvedHarness {
   fixture: HarnessFixture;
   displays: FakeDisplaySource;
   customWorkArea: boolean;
+  /** `--harness-lang`: every later `load` keeps it unless asked for another. */
+  lang: Locale | null;
   problems: string[];
 }
 
@@ -48,7 +52,8 @@ export function resolveHarness(launch: HarnessLaunch): ResolvedHarness {
   let stateId: HarnessStateId = 'idle';
   if (isHarnessStateId(launch.stateId)) stateId = launch.stateId;
   else problems.push(`unknown harness state "${launch.stateId}", using "idle"`);
-  const fixture = harnessFixture(stateId);
+  const base = harnessFixture(stateId);
+  const fixture = launch.lang ? fixtureInLocale(base, launch.lang) : base;
   let preset: DisplayPresetId = fixture.display;
   if (launch.display !== null) {
     if (isDisplayPresetId(launch.display)) preset = launch.display;
@@ -58,6 +63,7 @@ export function resolveHarness(launch: HarnessLaunch): ResolvedHarness {
     fixture,
     displays: fakeDisplaySource({ preset, workArea: launch.fakeWorkArea }),
     customWorkArea: launch.fakeWorkArea !== null,
+    lang: launch.lang,
     problems,
   };
 }
@@ -72,6 +78,8 @@ export interface HarnessDeps {
   initial: HarnessFixture;
   /** `CENTRATE_FAKE_WORKAREA`: kept across loads unless a preset is asked for explicitly. */
   customWorkArea: boolean;
+  /** Fake OS language of the launch (`--harness-lang`). */
+  lang: Locale | null;
 }
 
 /** What renderers receive in `app:init` for the launch fixture. */
@@ -106,6 +114,7 @@ const FOCUS_PROBE = `new Promise((resolve) => {
 export function createHarnessApi(deps: HarnessDeps): HarnessApi {
   const { core, shell, tray, theme, displays } = deps;
   let fixture = deps.initial;
+  let lang = deps.lang;
 
   const detailFor = (name: DetailName): DetailRequest =>
     fixture.window === name && fixture.detailRequest
@@ -115,8 +124,12 @@ export function createHarnessApi(deps: HarnessDeps): HarnessApi {
   const api: HarnessApi = {
     states: () => HARNESS_STATE_IDS,
 
-    async load(id: HarnessStateId, options: { theme?: ThemeName; display?: DisplayPresetId } = {}) {
-      fixture = harnessFixture(id);
+    async load(
+      id: HarnessStateId,
+      options: { theme?: ThemeName; display?: DisplayPresetId; lang?: Locale } = {},
+    ) {
+      if (options.lang) lang = options.lang;
+      fixture = lang ? fixtureInLocale(harnessFixture(id), lang) : harnessFixture(id);
       if (options.theme) theme.setOverride(options.theme);
       const current = displays.spec();
       if (options.display) displays.set({ preset: options.display, workArea: null });

@@ -4,7 +4,10 @@
  * one after the other on the `alt` surface. Texts: copy.chapters; visuals: ./chapters.ts.
  */
 import Chapter from './Chapter.astro';
-import { chapters } from './chapters';
+import { chaptersFor } from './chapters';
+import { copyFor } from '../../content/locale';
+
+const chapters = chaptersFor(copyFor(Astro.url));
 ---
 
 {chapters.map((chapter) => <Chapter chapter={chapter} />)}

@@ -1,8 +1,9 @@
 /**
  * Numbers, clock times, countdowns and target lists, formatted the one way the whole app
- * shows them (PROMPT §10 «Cuenta atrás, números y textos»):
- * - `Intl` in `es-ES` with `useGrouping: 'always'` («1.240», never «1240»), 24 h clock and the
- *   typographic minus «−»;
+ * shows them (PROMPT §10 «Cuenta atrás, números y textos»), in the active locale
+ * (`src/shared/i18n/locale.ts`):
+ * - `Intl` with `useGrouping: 'always'` («1.240» in es-ES, «1,240» in en-US, never «1240»),
+ *   the locale's clock (24 h in Spanish, «5:42 PM» in English) and the typographic minus «−»;
  * - the countdown is `endsAt − now`, shown as `M:SS` under an hour and `H:MM:SS` above, rounded
  *   **up** to the second (it never reads 0:00 while a block is still enforced), with minute
  *   words rounded up the same way («quedan 43 min» while the countdown reads 42:10).
@@ -13,29 +14,57 @@
 import { getApp, getCategory, getService } from '@centrate/shared/catalog';
 import type { BlockMode, TargetSpec } from '@centrate/shared/domain';
 import { durationLabel } from '@centrate/shared/parser';
-import { SHARED_ES } from './i18n/es';
+import type { CategoryId } from '@centrate/shared/catalog';
+import { SHARED, activeLocale, intlTag, type Locale } from './i18n';
 
-export const LOCALE = 'es-ES';
+/** BCP 47 tag of the active locale for `Intl` («es-ES», «en-US»). */
+export function intlLocale(): string {
+  return intlTag(activeLocale());
+}
 /** Typographic minus for negative points («−10 puntos»). */
 export const MINUS = '−';
 /** Added to every countdown timeout so it fires just after the displayed second changes. */
 export const TICK_EPSILON_MS = 4;
 
-const intFormat = new Intl.NumberFormat(LOCALE, {
-  useGrouping: 'always',
-  maximumFractionDigits: 0,
-});
-const clockFormat = new Intl.DateTimeFormat(LOCALE, {
-  hour: '2-digit',
-  minute: '2-digit',
-  hourCycle: 'h23',
-});
+/** One formatter per locale, built on first use. */
+function perLocale<T>(make: (locale: Locale) => T): () => T {
+  const cache = new Map<Locale, T>();
+  return () => {
+    const locale = activeLocale();
+    let value = cache.get(locale);
+    if (value === undefined) {
+      value = make(locale);
+      cache.set(locale, value);
+    }
+    return value;
+  };
+}
+
+const intFormat = perLocale(
+  (locale) =>
+    new Intl.NumberFormat(intlTag(locale), { useGrouping: 'always', maximumFractionDigits: 0 }),
+);
+const clockFormat = perLocale((locale) =>
+  locale === 'en'
+    ? new Intl.DateTimeFormat(intlTag(locale), { hour: 'numeric', minute: '2-digit', hour12: true })
+    : new Intl.DateTimeFormat(intlTag(locale), {
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+      }),
+);
+const weekdayFormat = perLocale(
+  (locale) => new Intl.DateTimeFormat(intlTag(locale), { weekday: 'short' }),
+);
+const listFormat = perLocale(
+  (locale) => new Intl.ListFormat(intlTag(locale), { style: 'long', type: 'conjunction' }),
+);
 
 /** «1.240», «−340», «0». Rounds to an integer. */
 export function formatInt(value: number): string {
   const rounded = Math.round(value);
-  if (rounded === 0) return intFormat.format(0);
-  return `${rounded < 0 ? MINUS : ''}${intFormat.format(Math.abs(rounded))}`;
+  if (rounded === 0) return intFormat().format(0);
+  return `${rounded < 0 ? MINUS : ''}${intFormat().format(Math.abs(rounded))}`;
 }
 
 /** «+80», «−10», «0». */
@@ -47,17 +76,33 @@ export function formatSignedInt(value: number): string {
 /** «1.240 puntos», «1 punto»; with `signed`, «+80 puntos», «−10 puntos». */
 export function formatPoints(value: number, options: { signed?: boolean } = {}): string {
   const amount = options.signed ? formatSignedInt(value) : formatInt(value);
-  return SHARED_ES.points.long(amount, Math.round(value));
+  return SHARED.points.long(amount, Math.round(value));
 }
 
 /** «1.240 pts» (tray tooltip). */
 export function formatPointsShort(value: number): string {
-  return SHARED_ES.points.short(formatInt(value));
+  return SHARED.points.short(formatInt(value));
 }
 
-/** «17:42» (24 h, local time). */
+/** «17:42» in Spanish, «5:42 PM» in English (local time). */
 export function formatClock(ms: number): string {
-  return clockFormat.format(new Date(ms));
+  return clockFormat().format(new Date(ms));
+}
+
+/** Short weekday of `ms` without a trailing dot («jue», «Thu»). */
+export function formatWeekday(ms: number): string {
+  return weekdayFormat().format(new Date(ms)).replace(/\.$/, '');
+}
+
+/** «YouTube e Instagram», «YouTube, TikTok y Twitch»; «YouTube and Instagram» in English. */
+export function formatList(items: readonly string[]): string {
+  return listFormat().format(items);
+}
+
+/** Display name of a catalog category in the active locale («Redes sociales», «Social media»). */
+export function categoryName(id: CategoryId | string): string {
+  const names: Readonly<Record<string, string>> = SHARED.categories;
+  return names[id] ?? getCategory(id)?.name ?? id;
 }
 
 /** Whole minutes left, rounded up; 0 when the time has passed. */
@@ -73,7 +118,7 @@ export function formatMinutes(minutes: number): string {
 /** «quedan 42 min», «queda 1 min», «quedan 1 h 5 min» (title, tooltip, rows). */
 export function formatRemaining(remainingMs: number): string {
   const minutes = remainingMinutes(remainingMs);
-  return SHARED_ES.remaining.words(minutes, durationLabel(minutes));
+  return SHARED.remaining.words(minutes, durationLabel(minutes));
 }
 
 export interface CountdownParts {
@@ -110,7 +155,7 @@ export function nextTickDelay(remainingMs: number): number | null {
 /** `role="timer"` label: «Quedan 43 minutos», «Quedan 1 hora y 5 minutos». */
 export function countdownAria(remainingMs: number): string {
   const minutes = remainingMinutes(remainingMs);
-  return SHARED_ES.remaining.aria(Math.floor(minutes / 60), minutes % 60);
+  return SHARED.remaining.aria(Math.floor(minutes / 60), minutes % 60);
 }
 
 const ANNOUNCE_AT_MINUTES = [1, 5, 15] as const;
@@ -121,25 +166,25 @@ const ANNOUNCE_AT_MINUTES = [1, 5, 15] as const;
  * waking from sleep never reads a stale one). `null` otherwise.
  */
 export function countdownAnnouncement(prevMs: number, nextMs: number): string | null {
-  if (prevMs > 0 && nextMs <= 0) return SHARED_ES.remaining.ended;
+  if (prevMs > 0 && nextMs <= 0) return SHARED.remaining.ended;
   for (const minutes of ANNOUNCE_AT_MINUTES) {
     const mark = minutes * 60_000;
-    if (prevMs > mark && nextMs <= mark && nextMs > 0) return SHARED_ES.remaining.announce(minutes);
+    if (prevMs > mark && nextMs <= mark && nextMs > 0) return SHARED.remaining.announce(minutes);
   }
   return null;
 }
 
 /** «Normal», «Estricto», «Hardcore», «Examen». */
 export function modeLabel(mode: BlockMode): string {
-  return SHARED_ES.modes[mode];
+  return SHARED.modes[mode];
 }
 
 /** Display names of what a block blocks, in the order services, categories, apps, custom. */
 export function targetNames(targets: TargetSpec, whitelistOnly: boolean): string[] {
-  if (whitelistOnly) return [SHARED_ES.targets.whitelistOnly];
+  if (whitelistOnly) return [SHARED.targets.whitelistOnly];
   return [
     ...targets.serviceIds.map((id) => getService(id)?.name ?? id),
-    ...targets.categoryIds.map((id) => getCategory(id)?.name ?? id),
+    ...targets.categoryIds.map((id) => categoryName(id)),
     ...targets.appIds.map((id) => getApp(id)?.name ?? id),
     ...targets.customDomains,
     ...targets.customProcesses,
@@ -156,11 +201,11 @@ export function targetsLabel(
   maxNames: number = 2,
 ): string {
   const names = targetNames(targets, whitelistOnly);
-  if (names.length === 0) return SHARED_ES.targets.none;
+  if (names.length === 0) return SHARED.targets.none;
   const shown = Math.max(1, maxNames);
-  if (names.length <= shown) return names.join(SHARED_ES.targets.separator);
-  const head = names.slice(0, shown).join(SHARED_ES.targets.separator);
-  return `${head} ${SHARED_ES.targets.more(names.length - shown)}`;
+  if (names.length <= shown) return names.join(SHARED.targets.separator);
+  const head = names.slice(0, shown).join(SHARED.targets.separator);
+  return `${head} ${SHARED.targets.more(names.length - shown)}`;
 }
 
 function pad2(value: number): string {

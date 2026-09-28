@@ -2,10 +2,11 @@
  * Spanish strings of section 2 «Bloqueo» (PROMPT §10 «Secciones, 2. Bloqueo», §4). Shared
  * wording (mode names, target lists, points, remaining time) comes from
  * `src/shared/i18n/es.ts` through `src/shared/format.ts`; this file only holds what the
- * section says itself. Ready for an `en.ts` with the same shape (`BloqueoMessages`).
+ * section says itself. `en.ts` has the same shape (`BloqueoMessages`); `index.ts` serves the active one.
  */
 import type { CategoryId } from '@centrate/shared/catalog';
 import type { BlockMode, PunishmentCause, PunishmentLevel } from '@centrate/shared/domain';
+import type { Widen } from '../../../../../shared/i18n/locale';
 
 export const BLOQUEO_ES = {
   sectionName: 'Bloqueo',
@@ -48,6 +49,8 @@ export const BLOQUEO_ES = {
     label: '¿Qué quieres hacer?',
     /** Help line while the field is empty. */
     hint: '¿Qué quieres hacer? Escríbelo y pulsa Enter',
+    /** The field's placeholder around one of `examples`. */
+    placeholder: (example: string): string => example,
     /**
      * Placeholder examples, one every 4 s while the field is empty. Every one must be fully
      * understood by the parser (a test checks it).
@@ -243,15 +246,13 @@ export const BLOQUEO_ES = {
     tomorrow: (time: string): string => `hasta mañana a las ${time}`,
     weekday: (day: string, time: string): string => `hasta el ${day} a las ${time}`,
   },
+  /** «hasta 17:42», «hasta mañana 08:00», «hasta el 30/9 08:00» (as the parser's chips). */
+  untilShort: {
+    today: (time: string): string => `hasta ${time}`,
+    tomorrow: (time: string): string => `hasta mañana ${time}`,
+    date: (date: string, time: string): string => `hasta el ${date} ${time}`,
+  },
 } as const;
-
-type Widen<T> = T extends string
-  ? string
-  : T extends (...args: infer A) => infer R
-    ? (...args: A) => Widen<R>
-    : T extends readonly (infer U)[]
-      ? readonly Widen<U>[]
-      : { [K in keyof T]: Widen<T[K]> };
 
 /** Shape every language file of the section must match. */
 export type BloqueoMessages = Widen<typeof BLOQUEO_ES>;

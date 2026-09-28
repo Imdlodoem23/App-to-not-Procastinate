@@ -2,9 +2,10 @@
  * Spanish strings of the Emergencia window (PROMPT §7 «Desbloqueo de emergencia», §10
  * «Ventanas de detalle › Emergencia»). Penalties are a fact, never a reproach; the way back is
  * always the recommended one. Points and clock times are formatted before they get here.
- * Ready for an `en.ts` with the same shape (`EmergenciaMessages`).
+ * `en.ts` has the same shape (`EmergenciaMessages`).
  */
 import type { BlockMode } from '@centrate/shared/domain';
+import type { Widen } from '../../../../../shared/i18n/locale';
 
 export const EMERGENCIA_ES = {
   title: {
@@ -120,12 +121,6 @@ export const EMERGENCIA_ES = {
     exam: 'Examen',
   } satisfies Partial<Record<BlockMode, string>>,
 } as const;
-
-type Widen<T> = T extends string
-  ? string
-  : T extends (...args: infer A) => infer R
-    ? (...args: A) => Widen<R>
-    : { [K in keyof T]: Widen<T[K]> };
 
 /** Shape every language file of the window must match. */
 export type EmergenciaMessages = Widen<typeof EMERGENCIA_ES>;

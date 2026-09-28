@@ -44,6 +44,7 @@ describe('launch options', () => {
       display: '1366x768@125',
       fakeWorkArea: null,
       theme: 'dark',
+      lang: null,
       show: true,
     });
     expect(options.userDataDir).toBe('/tmp/e2e-1');
@@ -73,6 +74,28 @@ describe('launch options', () => {
     });
     expect(envOnly.harness?.stateId).toBe('idle');
     expect(envOnly.harness?.show).toBe(false);
+  });
+
+  it('reads the fake OS language from --harness-lang or CENTRATE_HARNESS_LANG', () => {
+    const arg = parseLaunchOptions({
+      argv: [...EXE, '--harness-state=idle', '--harness-lang=en'],
+      env: {},
+      packaged: false,
+    });
+    expect(arg.harness?.lang).toBe('en');
+    const env = parseLaunchOptions({
+      argv: [...EXE, '--harness'],
+      env: { CENTRATE_HARNESS_LANG: 'en' },
+      packaged: false,
+    });
+    expect(env.harness?.lang).toBe('en');
+    const bad = parseLaunchOptions({
+      argv: [...EXE, '--harness-state=idle', '--harness-lang=fr'],
+      env: {},
+      packaged: false,
+    });
+    expect(bad.harness?.lang).toBeNull();
+    expect(bad.problems).toHaveLength(1);
   });
 
   it('reports what it could not understand', () => {

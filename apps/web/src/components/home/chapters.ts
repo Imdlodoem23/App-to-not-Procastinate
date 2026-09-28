@@ -8,7 +8,7 @@
  * hand-written words: only strings from copy.ts, names from the catalog of @centrate/shared and
  * numbers from its points rules.
  */
-import { copy, type AppWindowState, type FootnoteId } from '../../content/copy';
+import type { AppWindowState, Copy, FootnoteId } from '../../content/copy';
 
 export type AppWindowPart = 'block' | 'study' | 'progress' | 'footer';
 
@@ -103,7 +103,7 @@ const visuals = {
     compose('pet'),
     compose('ledger'),
   ],
-} as const satisfies Record<keyof typeof copy.chapters, readonly CardVisualSpec[]>;
+} as const satisfies Record<keyof Copy['chapters'], readonly CardVisualSpec[]>;
 
 function visualAt(list: readonly CardVisualSpec[], i: number, id: string): CardVisualSpec {
   const visual = list[i];
@@ -111,7 +111,7 @@ function visualAt(list: readonly CardVisualSpec[], i: number, id: string): CardV
   return visual;
 }
 
-type ChapterCopy = (typeof copy.chapters)[keyof typeof copy.chapters];
+type ChapterCopy = Copy['chapters'][keyof Copy['chapters']];
 
 function build(chapter: ChapterCopy, cardVisuals: readonly CardVisualSpec[]): ChapterData {
   return {
@@ -129,8 +129,11 @@ function build(chapter: ChapterCopy, cardVisuals: readonly CardVisualSpec[]): Ch
   };
 }
 
-export const chapters: readonly ChapterData[] = [
-  build(copy.chapters.block, visuals.block),
-  build(copy.chapters.study, visuals.study),
-  build(copy.chapters.progress, visuals.progress),
-];
+/** The three chapters in the language of `copy`. */
+export function chaptersFor(copy: Copy): readonly ChapterData[] {
+  return [
+    build(copy.chapters.block, visuals.block),
+    build(copy.chapters.study, visuals.study),
+    build(copy.chapters.progress, visuals.progress),
+  ];
+}

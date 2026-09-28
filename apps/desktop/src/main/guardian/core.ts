@@ -150,6 +150,7 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
             platform: options.platform,
             packaged: options.packaged,
             updateVersion: null,
+            systemLocale: options.systemLocale ?? 'es',
           },
           options.clock.now(),
           stored?.prefs,

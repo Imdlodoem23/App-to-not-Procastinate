@@ -24,7 +24,13 @@ import {
 } from 'electron';
 import type { Core, CreateCore, WindowHost } from '../contracts';
 import { FEATURES } from '../../shared/features';
-import { primaryBlock, toPlatform, type UiSnapshot } from '../../shared/ui-state';
+import {
+  activeLocale,
+  setActiveLocale,
+  systemLocaleFrom,
+  type Locale,
+} from '../../shared/i18n/locale';
+import { primaryBlock, snapshotLocale, toPlatform, type UiSnapshot } from '../../shared/ui-state';
 import { TrayController } from '../tray/controller';
 import type { TrayAction } from '../tray/model';
 import { electronDisplaySource } from '../windows/display-source';
@@ -79,6 +85,22 @@ export function startApp(deps: BootstrapDeps): void {
     log.error('startup_failed', { message: describe(error) });
     app.exit(1);
   });
+}
+
+/**
+ * The OS language as an app locale: `en…` gives English, anything else Spanish. Read before
+ * `ready` (`getLocale` is not available yet), so it falls back to the environment.
+ */
+function readSystemLocale(): Locale {
+  const languages: string[] = [];
+  try {
+    languages.push(...app.getPreferredSystemLanguages());
+  } catch {
+    // older platforms: fall through to the environment
+  }
+  const env = process.env;
+  languages.push(env['LC_ALL'] ?? '', env['LC_MESSAGES'] ?? '', env['LANG'] ?? '');
+  return systemLocaleFrom(languages.filter((l) => l !== '' && l !== 'C' && l !== 'POSIX'));
 }
 
 function describe(error: unknown): string {
@@ -138,9 +160,12 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
     guardianBinary: existsSync(paths.guardianBinary) ? paths.guardianBinary : null,
     clock: systemClock,
     features: resolved ? resolved.fixture.snapshot.features : FEATURES,
+    systemLocale: readSystemLocale(),
     harness: resolved?.fixture ?? null,
     host: windows,
   });
+
+  setActiveLocale(snapshotLocale(core.getSnapshot()));
 
   app.on('second-instance', () => windows.showMain('second-instance'));
   // macOS: clicking the Dock icon. The `activate` sent while launching is ignored, or a
@@ -241,9 +266,20 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
     autostart.apply(snapshot.prefs.autostart);
   };
 
+  // The tray, titles and notifications read their copy in the active locale: set it from
+  // each snapshot before anything is built from it.
+  const applyLocale = (snapshot: UiSnapshot): void => {
+    const locale = snapshotLocale(snapshot);
+    if (locale === activeLocale()) return;
+    setActiveLocale(locale);
+    windows.relocalize();
+  };
+
+  applyLocale(core.getSnapshot());
   tray.create(core.getSnapshot());
   applyPrefs(core.getSnapshot());
   core.subscribe((snapshot) => {
+    applyLocale(snapshot);
     windows.pushSnapshot(snapshot);
     tray.update(snapshot);
     applyPrefs(snapshot);
@@ -264,6 +300,7 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
         displays: resolved.displays,
         initial: resolved.fixture,
         customWorkArea: resolved.customWorkArea,
+        lang: resolved.lang,
       }),
     );
   }

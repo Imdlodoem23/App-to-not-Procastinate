@@ -19,7 +19,7 @@ import type { WireEvent } from '@centrate/shared/domain';
 import type { GuardianStateResponse } from '@centrate/shared/guardian-api';
 import { UI_TIMINGS } from '../../shared/ui-state';
 import type { Clock, ShownNotification, TimerHandle } from '../contracts';
-import { NOTIFY_ES } from './i18n/es';
+import { NOTIFY } from './i18n';
 import {
   composeNotification,
   isStale,
@@ -77,8 +77,8 @@ export class NotificationScheduler {
   showCloseHint(): void {
     if (this.stopped) return;
     this.show({
-      title: NOTIFY_ES.closeHint.title,
-      body: NOTIFY_ES.closeHint.body,
+      title: NOTIFY.closeHint.title,
+      body: NOTIFY.closeHint.body,
       kinds: ['close_hint'],
     });
   }

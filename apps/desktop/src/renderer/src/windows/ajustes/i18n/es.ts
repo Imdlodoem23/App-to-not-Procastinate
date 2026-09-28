@@ -1,10 +1,11 @@
 /**
  * Spanish strings of the Ajustes window (PROMPT §9 «Ajustes», §10 «Ventanas de detalle ›
- * Ajustes»). Numbers, points and clock times are formatted before they get here. Ready for an
- * `en.ts` with the same shape (`AjustesMessages`).
+ * Ajustes»). Numbers, points and clock times are formatted before they get here. `en.ts` has the same
+ * shape (`AjustesMessages`).
  */
 import type { ThemePreference } from '@centrate/shared/design/tokens';
 import type { DefaultBlockMode } from '../../../../../shared/ui-state';
+import type { LanguagePreference, Widen } from '../../../../../shared/i18n/locale';
 
 export const AJUSTES_ES = {
   general: {
@@ -28,8 +29,18 @@ export const AJUSTES_ES = {
     /** Description of the «Tema» row while no option is hovered or focused. */
     themeRowHelp: 'Se aplica al momento',
     language: 'Idioma',
-    languageDesc: 'El idioma de la app',
-    languageValue: 'Español',
+    /** Description of the «Idioma» row while no option is hovered or focused. */
+    languageDesc: 'El idioma de la app; se aplica al momento',
+    languages: {
+      system: 'Sistema',
+      es: 'Español',
+      en: 'English',
+    } satisfies Record<LanguagePreference, string>,
+    languageHelp: {
+      system: 'Sigue el idioma de tu ordenador',
+      es: 'Siempre en español',
+      en: 'Siempre en inglés',
+    } satisfies Record<LanguagePreference, string>,
     autostart: 'Arranque automático',
     autostartDesc: 'Céntrate se abre en la bandeja al iniciar sesión',
     dailyGoal: 'Objetivo diario',
@@ -170,12 +181,6 @@ export const AJUSTES_ES = {
   },
   saveFailed: 'No se ha podido guardar',
 } as const;
-
-type Widen<T> = T extends string
-  ? string
-  : T extends (...args: infer A) => infer R
-    ? (...args: A) => Widen<R>
-    : { [K in keyof T]: Widen<T[K]> };
 
 /** Shape every language file of the window must match. */
 export type AjustesMessages = Widen<typeof AJUSTES_ES>;

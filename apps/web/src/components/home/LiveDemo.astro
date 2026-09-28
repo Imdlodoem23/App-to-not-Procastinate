@@ -11,12 +11,20 @@
  *   section gets within a screen of the viewport. Once loaded, the result is recomputed with
  *   the real time, and then on every change (250 ms after the last key).
  * - Nothing is sent anywhere and nothing is blocked; the note under the demo says so.
+ * - The parser reads Spanish only. On the English page the examples stay Spanish (marked
+ *   lang="es") and a line under the lead says so; the results are written in English.
  */
-import { copy } from '../../content/copy';
+import { copyFor } from '../../content/locale';
+import { langFromPath } from '../../lib/i18n';
 import { describeIntent, type DemoStrings, type DemoView } from './live-demo';
 
+const copy = copyFor(Astro.url);
+
 const { demo, ui } = copy;
-const strings: DemoStrings = { result: demo.result, duration: ui.duration };
+const lang = langFromPath(Astro.url.pathname);
+const strings: DemoStrings = { lang, result: demo.result, duration: ui.duration };
+/** The phrases are Spanish whatever the page's language. */
+const phraseLang = lang === 'es' ? undefined : 'es';
 
 /** Examples offered as chips: the six phrases of the brief. */
 const examples = demo.examples.slice(0, 6);
@@ -36,6 +44,13 @@ const view: DemoView = describeIntent(initialText, sampleNow, strings);
   <div class="demo-header" data-reveal-group>
     <h2 class="text-section" data-reveal>{demo.headline}</h2>
     <p class="demo-lead text-lead text-secondary" data-reveal>{demo.lead}</p>
+    {
+      demo.languageNote && (
+        <p class="demo-language text-body text-secondary" data-reveal>
+          {demo.languageNote}
+        </p>
+      )
+    }
   </div>
 
   <div class="demo-grid">
@@ -47,6 +62,7 @@ const view: DemoView = describeIntent(initialText, sampleNow, strings);
           class="demo-control"
           type="text"
           value={initialText}
+          lang={phraseLang}
           placeholder={demo.inputHint}
           autocomplete="off"
           autocapitalize="off"
@@ -91,7 +107,12 @@ const view: DemoView = describeIntent(initialText, sampleNow, strings);
         {
           examples.map((example) => (
             <li>
-              <button type="button" class="demo-example text-small" data-demo-example={example}>
+              <button
+                type="button"
+                class="demo-example text-small"
+                lang={phraseLang}
+                data-demo-example={example}
+              >
                 {example}
               </button>
             </li>
@@ -108,6 +129,11 @@ const view: DemoView = describeIntent(initialText, sampleNow, strings);
   .demo-lead {
     max-width: var(--measure-lead);
     margin-block-start: var(--space-headline-lead);
+  }
+
+  .demo-language {
+    max-width: var(--measure-lead);
+    margin-block-start: 12px;
   }
 
   .demo-header {

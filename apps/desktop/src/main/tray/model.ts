@@ -30,7 +30,7 @@ import {
   type UiSnapshot,
 } from '../../shared/ui-state';
 import type { TrayIconKey } from './icons';
-import { TRAY_ES, capitalise } from './i18n/es';
+import { TRAY, capitalise } from './i18n';
 
 /** Windows truncates tooltips at 127 UTF-16 units (`NOTIFYICONDATA.szTip`). */
 export const TOOLTIP_MAX = 127;
@@ -108,7 +108,7 @@ type Situation =
 function situation(snapshot: UiSnapshot, nowMs: number): Situation {
   const { link, state } = snapshot;
   if (link.status === 'down') {
-    return { kind: 'down', text: TRAY_ES.linkDown[link.reason ?? 'unreachable'] };
+    return { kind: 'down', text: TRAY.linkDown[link.reason ?? 'unreachable'] };
   }
   if (!state) return { kind: 'connecting' };
   const points = state.points.balance;
@@ -161,17 +161,17 @@ function iconFor(s: Situation): TrayIconState {
 /** What a set of blocks is called in one line: «YouTube, Instagram» or «3 bloqueos». */
 function blocksLabel(blocks: readonly Block[], primary: Block): string {
   return blocks.length > 1
-    ? TRAY_ES.tooltip.blocks(blocks.length)
+    ? TRAY.tooltip.blocks(blocks.length)
     : targetsLabel(primary.targets, primary.whitelistOnly, 2);
 }
 
 function join(parts: readonly string[]): string {
-  return parts.join(TRAY_ES.separator);
+  return parts.join(TRAY.separator);
 }
 
 function remainingText(s: { remainingMs: number; bootHold?: boolean }): string {
   return s.bootHold || s.remainingMs <= 0
-    ? TRAY_ES.tooltip.checkingClock
+    ? TRAY.tooltip.checkingClock
     : formatRemaining(s.remainingMs);
 }
 
@@ -180,18 +180,18 @@ export function trayTooltip(snapshot: UiSnapshot, nowMs: number): string {
 }
 
 function tooltipFor(s: Situation): string {
-  const app = TRAY_ES.appName;
+  const app = TRAY.appName;
   switch (s.kind) {
     case 'connecting':
       return app;
     case 'down':
       return join([app, s.text]);
     case 'idle':
-      return join([app, TRAY_ES.tooltip.noBlocks, formatPointsShort(s.points)]);
+      return join([app, TRAY.tooltip.noBlocks, formatPointsShort(s.points)]);
     case 'study':
-      return join([app, TRAY_ES.tooltip.studying, formatPointsShort(s.points)]);
+      return join([app, TRAY.tooltip.studying, formatPointsShort(s.points)]);
     case 'punishment':
-      return join([app, TRAY_ES.tooltip.punishment, remainingText(s), formatPointsShort(s.points)]);
+      return join([app, TRAY.tooltip.punishment, remainingText(s), formatPointsShort(s.points)]);
     case 'blocks':
       return join([
         app,
@@ -211,7 +211,7 @@ export function windowTitle(snapshot: UiSnapshot, nowMs: number): string {
 }
 
 function titleFor(s: Situation): string {
-  const app = TRAY_ES.appName;
+  const app = TRAY.appName;
   switch (s.kind) {
     case 'connecting':
     case 'idle':
@@ -219,14 +219,14 @@ function titleFor(s: Situation): string {
     case 'down':
       return join([app, s.text]);
     case 'study':
-      return join([app, TRAY_ES.title.studying]);
+      return join([app, TRAY.title.studying]);
     case 'punishment':
       return s.remainingMs <= 0
-        ? join([app, TRAY_ES.title.checkingClock])
-        : join([app, TRAY_ES.title.punishment(formatMinutes(remainingMinutes(s.remainingMs)))]);
+        ? join([app, TRAY.title.checkingClock])
+        : join([app, TRAY.title.punishment(formatMinutes(remainingMinutes(s.remainingMs)))]);
     case 'blocks':
       return s.bootHold || s.remainingMs <= 0
-        ? join([app, TRAY_ES.title.checkingClock])
+        ? join([app, TRAY.title.checkingClock])
         : join([app, formatRemaining(s.remainingMs)]);
   }
 }
@@ -259,7 +259,7 @@ function separator(id: string): TrayMenuItemModel {
 }
 
 function statusLabel(s: Situation): string {
-  const status = TRAY_ES.menu.status;
+  const status = TRAY.menu.status;
   switch (s.kind) {
     case 'connecting':
       return status.connecting;
@@ -268,7 +268,7 @@ function statusLabel(s: Situation): string {
     case 'idle':
       return status.noBlocks;
     case 'study':
-      return capitalise(TRAY_ES.tooltip.studying);
+      return capitalise(TRAY.tooltip.studying);
     case 'punishment':
       return join([status.punishment, remainingText(s)]);
     case 'blocks':
@@ -297,10 +297,10 @@ export function trayMenu(snapshot: UiSnapshot, nowMs: number): TrayMenuItemModel
   const smallest = Math.min(...EXTEND_PRESETS);
   if (max >= smallest) {
     items.push(
-      item(TRAY_ITEM.extend, TRAY_ES.menu.extend, {
+      item(TRAY_ITEM.extend, TRAY.menu.extend, {
         type: 'submenu',
         submenu: EXTEND_PRESETS.map((minutes) =>
-          item(TRAY_ITEM.extendBy(minutes), TRAY_ES.menu.extendItem(formatMinutes(minutes)), {
+          item(TRAY_ITEM.extendBy(minutes), TRAY.menu.extendItem(formatMinutes(minutes)), {
             enabled: minutes <= max,
           }),
         ),
@@ -310,7 +310,7 @@ export function trayMenu(snapshot: UiSnapshot, nowMs: number): TrayMenuItemModel
 
   if (snapshot.templates.length > 0) {
     items.push(
-      item(TRAY_ITEM.quick, TRAY_ES.menu.quick, {
+      item(TRAY_ITEM.quick, TRAY.menu.quick, {
         type: 'submenu',
         submenu: snapshot.templates.map((t) => item(TRAY_ITEM.template(t.id), t.label)),
       }),
@@ -320,8 +320,8 @@ export function trayMenu(snapshot: UiSnapshot, nowMs: number): TrayMenuItemModel
 
   items.push(
     separator('sep-actions'),
-    item(TRAY_ITEM.open, TRAY_ES.menu.open),
-    item(TRAY_ITEM.quit, TRAY_ES.menu.quit),
+    item(TRAY_ITEM.open, TRAY.menu.open),
+    item(TRAY_ITEM.quit, TRAY.menu.quit),
   );
   return items;
 }

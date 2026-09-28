@@ -1,6 +1,7 @@
 /**
- * Every user-facing string of the website (es-ES). Components import from here and never
- * hardcode copy. The human-readable version, with the editorial rules and the open questions,
+ * Every user-facing string of the website in Spanish (es-ES), the source language. The English
+ * translation (copy.en.ts) has the same shape (type `Copy`); components get the right one with
+ * `copyFor(Astro.url)` from ./locale.ts and never hardcode copy. The human-readable version, with the editorial rules and the open questions,
  * lives in docs/web/copy.md: keep both in sync.
  *
  * Conventions baked into the strings:
@@ -17,7 +18,7 @@
  */
 
 /** Section ids on the home page (anchors for the navigation, FAQ links and footnotes). */
-export const ids = {
+const ids = {
   highlights: 'funciones',
   demo: 'prueba',
   scene: 'guardian',
@@ -65,7 +66,7 @@ const notes = {
 } as const;
 export type FootnoteId = keyof typeof notes;
 
-export const copy = {
+export const es = {
   ids,
 
   /** Strings shared by several components. */
@@ -112,6 +113,19 @@ export const copy = {
     ctaAria: 'Descargar Céntrate',
     menuOpen: 'Abrir menú',
     menuClose: 'Cerrar menú',
+  },
+
+  /**
+   * Language: the switch in the bar and the footer names the other language in that language
+   * (lib/i18n.ts, `langNames`); `hint` is the one-line banner offered on the other language's
+   * pages to visitors whose browser prefers this one (it is shown in this language).
+   */
+  language: {
+    hint: {
+      text: 'Ver esta página en español',
+      dismiss: 'Cerrar',
+      dismissAria: 'Cerrar el aviso de idioma',
+    },
   },
 
   hero: {
@@ -180,6 +194,8 @@ export const copy = {
     id: ids.demo,
     headline: 'Pruébalo sin instalar nada.',
     lead: 'Escribe lo que quieres evitar, como lo dirías tú, y mira lo que haría Céntrate.',
+    /** Language of the parser, when it is not the page's (empty here: it is Spanish). */
+    languageNote: '',
     label: '¿Qué quieres hacer?',
     inputHint: 'Por ejemplo, «no veo YouTube en una hora».',
     clear: 'Borrar',
@@ -208,6 +224,7 @@ export const copy = {
       category: 'toda la categoría {category}',
       mode: 'En modo Normal: después solo se podría ampliar, nunca acortar.',
       study: 'Céntrate te propondría un Study Mode de {duration} con la tarea «{task}».',
+      studyNoTask: 'Céntrate te propondría un Study Mode de {duration}.',
       over4h: 'Son más de 4\u00a0horas: la app te pediría confirmarlo dos veces.',
       over24h: 'El máximo es 24\u00a0horas por bloqueo.',
       partial:
@@ -215,6 +232,24 @@ export const copy = {
       none: 'No he entendido «{text}». La app no se inventaría nada: abriría el formulario avanzado para que lo elijas tú.',
       tryHint: 'Prueba con un servicio y un tiempo, como «no quiero ver Netflix 2h».',
       empty: 'Escribe una frase o elige un ejemplo.',
+      /** Joins the fragments of {rest} in `partial`. */
+      restSeparator: '», «',
+      /** Chips under the field and the «Termina a las» value; {date} is «30/9». */
+      untilToday: 'hasta {time}',
+      untilTomorrow: 'hasta mañana {time}',
+      untilDate: 'hasta el {date} {time}',
+      endsToday: '{time}',
+      endsTomorrow: 'mañana {time}',
+      endsDate: 'el {date} {time}',
+      /** Category names, as in the catalog of @centrate/shared. */
+      categoryNames: {
+        social: 'Redes sociales',
+        video: 'Vídeo y streaming',
+        games: 'Juegos',
+        messaging: 'Mensajería',
+        shopping: 'Compras',
+        news: 'Noticias y deportes',
+      },
       fields: {
         what: 'Qué se bloquea',
         duration: 'Duración',
@@ -1003,7 +1038,7 @@ export const copy = {
           blocks: [
             {
               list: [
-                '**Sin cookies.** No usamos cookies ni herramientas de analítica o publicidad, así que no verás un aviso de cookies. La web puede recordar en tu navegador alguna preferencia, como si has pausado el avance de las tarjetas, y ese dato no sale de él.',
+                '**Sin cookies.** No usamos cookies ni herramientas de analítica o publicidad, así que no verás un aviso de cookies. La web puede recordar en tu navegador alguna preferencia, como si has pausado el avance de las tarjetas o el idioma que has elegido, y ese dato no sale de él.',
                 '**Tipografía propia.** Las fuentes se sirven desde esta misma web, sin conectar con servicios de terceros.',
                 '**Alojamiento.** La web está alojada en Render. Como cualquier servidor, registra datos técnicos de cada visita (dirección IP, fecha, página pedida y navegador) para servirla y protegerla de abusos. No los usamos para saber quién eres ni los cruzamos con nada.',
                 '**GitHub.** Para enseñarte la última versión, la web puede consultar desde tu navegador la API pública de GitHub, y las descargas salen de GitHub Releases. En los dos casos, GitHub recibe tu dirección IP, como en cualquier visita a su web.',
@@ -1119,14 +1154,32 @@ export const copy = {
   },
 } as const;
 
-export type Copy = typeof copy;
+/** Keys whose values are identifiers shared by every language, never translated. */
+type FixedKey = 'note' | 'leadNote' | 'visual';
+
+/**
+ * The shape of a translation: the Spanish copy with every string widened to `string`, except
+ * the identifiers of `FixedKey`. Arrays keep their length (they are tuples), so a translation
+ * has exactly the same keys, items and footnote references as the Spanish original.
+ */
+export type Localized<T> = T extends string
+  ? string
+  : T extends object
+    ? { readonly [K in keyof T]: K extends FixedKey ? T[K] : Localized<T[K]> }
+    : T;
+
+export type Copy = Localized<typeof es>;
 
 /** Footnotes in display order, numbered from 1. */
-export const footnoteList: readonly { id: FootnoteId; n: number; text: string }[] = (
-  Object.keys(notes) as FootnoteId[]
-).map((id, index) => ({ id, n: index + 1, text: notes[id] }));
+export function footnoteList(copy: Copy): readonly { id: FootnoteId; n: number; text: string }[] {
+  return (Object.keys(notes) as FootnoteId[]).map((id, index) => ({
+    id,
+    n: index + 1,
+    text: copy.footnotes.items[id],
+  }));
+}
 
-/** Number shown for a footnote reference. */
+/** Number shown for a footnote reference (the same in every language). */
 export function footnoteNumber(id: FootnoteId): number {
   return (Object.keys(notes) as FootnoteId[]).indexOf(id) + 1;
 }
@@ -1135,15 +1188,61 @@ type Placeholders<S extends string> = S extends `${string}{${infer Key}}${infer 
   ? Key | Placeholders<Rest>
   : never;
 
-/** Fills {placeholders}; the keys are checked against the template at compile time. */
+/**
+ * Fills {placeholders}. With a literal template the keys are checked at compile time; with a
+ * `Copy` string (any language) they are checked against the Spanish original at build time by
+ * `translationProblems()`.
+ */
 export function fill<S extends string>(
   template: S,
-  values: { readonly [K in Placeholders<S>]: string | number },
+  values: string extends S
+    ? Readonly<Record<string, string | number>>
+    : { readonly [K in Placeholders<S>]: string | number },
 ): string {
   const lookup = values as Readonly<Record<string, string | number>>;
   return template.replace(/\{(\w+)\}/g, (match, key: string) =>
     key in lookup ? String(lookup[key]) : match,
   );
+}
+
+const placeholdersOf = (text: string): string =>
+  [...text.matchAll(/\{(\w+)\}/g)]
+    .map((match) => match[1])
+    .sort()
+    .join(',');
+const linksOf = (text: string): number => [...text.matchAll(/\]\([^)\s]+\)/g)].length;
+
+/**
+ * Differences between the Spanish copy and a translation that the type cannot see: the order
+ * of keys, the {placeholders} and the number of [links](…) of every string, and empty strings
+ * where the original has text. Empty list when they match.
+ */
+export function translationProblems(source: unknown, target: unknown, path = 'copy'): string[] {
+  if (typeof source === 'string') {
+    if (typeof target !== 'string') return [`${path}: not a string`];
+    const problems: string[] = [];
+    if (placeholdersOf(source) !== placeholdersOf(target)) {
+      problems.push(`${path}: placeholders differ («${source}» / «${target}»)`);
+    }
+    if (linksOf(source) !== linksOf(target)) problems.push(`${path}: links differ`);
+    if (source !== '' && target.trim() === '') problems.push(`${path}: empty`);
+    return problems;
+  }
+  if (Array.isArray(source)) {
+    if (!Array.isArray(target) || target.length !== source.length) {
+      return [`${path}: length differs`];
+    }
+    return source.flatMap((item, i) => translationProblems(item, target[i], `${path}[${i}]`));
+  }
+  if (typeof source === 'object' && source !== null) {
+    if (typeof target !== 'object' || target === null) return [`${path}: not an object`];
+    const keys = Object.keys(source);
+    if (keys.join() !== Object.keys(target).join()) return [`${path}: keys differ`];
+    const a = source as Record<string, unknown>;
+    const b = target as Record<string, unknown>;
+    return keys.flatMap((key) => translationProblems(a[key], b[key], `${path}.${key}`));
+  }
+  return source === target ? [] : [`${path}: ${String(source)} / ${String(target)}`];
 }
 
 export type InlineToken =

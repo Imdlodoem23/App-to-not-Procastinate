@@ -16,8 +16,10 @@
  * - Standalone links are 44 px targets; their margins give back what that adds.
  */
 import FootnoteRef from './FootnoteRef.astro';
-import { copy } from '../../content/copy';
+import { copyFor } from '../../content/locale';
 import { DEFAULT_OS, downloadUrl, primaryAsset, type AssetKey } from '../../lib/downloads';
+
+const copy = copyFor(Astro.url);
 
 const { download, ui } = copy;
 const headingId = `${download.id}-titulo`;

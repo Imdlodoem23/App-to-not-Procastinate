@@ -1,0 +1,495 @@
+---
+/**
+ * /descargar: the install guide (design plan § 5). Header with the button for the visitor's
+ * system and the current version; then, next to a sticky index, one section per system with
+ * its download tile (fixed, version-less links to the latest GitHub release), the steps
+ * (including how to get past SmartScreen and Gatekeeper), the extension for Chromium and
+ * Firefox, why the warnings appear, how to check the SHA-256, antivirus, what gets installed,
+ * common problems, how to uninstall and the requirements.
+ *
+ * Static first: everything reads well without JavaScript. The page script only swaps the header
+ * button to the detected system and fills in version, date, sizes and digests from the API.
+ */
+import Base from '../layouts/Base.astro';
+import ActionLink from '../components/pages/ActionLink.astro';
+import CommandBlock from '../components/pages/CommandBlock.astro';
+import DocPage from '../components/pages/DocPage.astro';
+import DocSection from '../components/pages/DocSection.astro';
+import DownloadCard from '../components/pages/DownloadCard.astro';
+import Inline from '../components/pages/Inline.astro';
+import Notes from '../components/pages/Notes.astro';
+import Steps from '../components/pages/Steps.astro';
+import { copyFor } from '../content/locale';
+import { DEFAULT_OS, downloadUrl } from '../lib/downloads';
+import { site } from '../lib/site';
+
+const copy = copyFor(Astro.url);
+
+const { ui, hero } = copy;
+const d = copy.pages.descargar;
+
+// Header button: one option per desktop system (Linux gets the .deb, like on the home page).
+const primaryOptions = {
+  windows: { label: hero.cta.windows.label, href: downloadUrl('windows') },
+  mac: { label: hero.cta.mac.label, href: downloadUrl('mac') },
+  linux: { label: hero.cta.linux.label, href: downloadUrl('deb') },
+} as const;
+// Static HTML: the default system (Windows, the priority); the script adjusts it.
+const defaultOption = DEFAULT_OS === 'other' ? primaryOptions.windows : primaryOptions[DEFAULT_OS];
+
+const sections = [
+  d.windows,
+  d.macos,
+  d.linux,
+  d.extension,
+  d.warnings,
+  d.checksum,
+  d.antivirus,
+  d.installs,
+  d.problems,
+  d.uninstall,
+  d.requirements,
+] as const;
+const toc = { label: d.tocLabel, items: sections.map(({ id, toc: label }) => ({ id, label })) };
+
+const sumsUrl = `${site.latestDownloadBase}SHA256SUMS.txt`;
+---
+
+<Base
+  title={copy.meta.descargar.title}
+  description={copy.meta.descargar.description}
+  page="download"
+>
+  <link slot="head" rel="preconnect" href="https://api.github.com" crossorigin />
+
+  <DocPage headline={d.headline} lead={d.lead} toc={toc}>
+    <div
+      slot="header"
+      class="primary"
+      data-primary-download
+      data-options={JSON.stringify(primaryOptions)}
+    >
+      <a class="button-pill" href={defaultOption.href} data-primary-button>{defaultOption.label}</a>
+      <p class="primary-note text-body" data-mobile-note hidden>{d.mobileNote}</p>
+      <p class="primary-version text-small text-secondary">
+        <span data-release-version data-template={ui.version}>{d.versionFallback}</span>
+        <span data-release-date data-template={ui.published} hidden></span>
+      </p>
+    </div>
+
+    <DocSection id={d.windows.id} title={d.windows.headline}>
+      <DownloadCard
+        text={d.windows.requirement}
+        button={d.windows.button}
+        href={downloadUrl('windows')}
+        asset="windows"
+      />
+      <Steps steps={d.windows.steps} />
+      <Notes notes={d.windows.notes} />
+    </DocSection>
+
+    <DocSection id={d.macos.id} title={d.macos.headline}>
+      <DownloadCard
+        text={d.macos.requirement}
+        button={d.macos.button}
+        href={downloadUrl('mac')}
+        asset="mac"
+      />
+      <Steps steps={d.macos.steps} />
+      <Notes notes={d.macos.notes} />
+    </DocSection>
+
+    <DocSection id={d.linux.id} title={d.linux.headline}>
+      <p class="text-body text-secondary">{d.linux.requirement}</p>
+      <div class="option doc-block">
+        <DownloadCard
+          title={d.linux.deb.title}
+          text={d.linux.deb.text}
+          button={d.linux.deb.button}
+          href={downloadUrl('deb')}
+          asset="deb"
+        />
+        <Steps steps={d.linux.deb.steps} />
+      </div>
+      <div class="option doc-block">
+        <DownloadCard
+          title={d.linux.appImage.title}
+          text={d.linux.appImage.text}
+          button={d.linux.appImage.button}
+          href={downloadUrl('appImage')}
+          asset="appImage"
+        />
+        <Steps steps={d.linux.appImage.steps} />
+      </div>
+      <Notes notes={d.linux.notes} />
+    </DocSection>
+
+    <DocSection id={d.extension.id} title={d.extension.headline}>
+      <p class="text-body text-secondary max-w-text">{d.extension.lead}</p>
+      <div class="option doc-block">
+        <DownloadCard
+          title={d.extension.chromium.title}
+          text={d.extension.chromium.text}
+          button={d.extension.chromium.button}
+          href={downloadUrl('extension')}
+          asset="extension"
+        />
+        <Steps steps={d.extension.chromium.steps} />
+        <Notes notes={d.extension.chromium.notes} />
+      </div>
+      <div class="option doc-block">
+        <DownloadCard
+          title={d.extension.firefox.title}
+          button={d.extension.firefox.button}
+          href={site.latestReleaseUrl}
+        />
+        <Steps steps={d.extension.firefox.steps} />
+        <Notes notes={d.extension.firefox.notes} />
+      </div>
+    </DocSection>
+
+    <DocSection id={d.warnings.id} title={d.warnings.headline}>
+      <p class="text-body max-w-text">{d.warnings.text}</p>
+      <dl class="pairs">
+        {
+          d.warnings.items.map((item) => (
+            <div class="pair">
+              <dt class="font-semibold">{item.label}</dt>
+              <dd>
+                <Inline text={item.text} />
+              </dd>
+            </div>
+          ))
+        }
+      </dl>
+    </DocSection>
+
+    <DocSection id={d.checksum.id} title={d.checksum.headline}>
+      <p class="text-body max-w-text"><Inline text={d.checksum.text} /></p>
+      <div class="commands doc-block">
+        {
+          d.checksum.commands.map((command) => (
+            <CommandBlock label={command.label} command={command.command} />
+          ))
+        }
+      </div>
+      <p class="text-body">
+        <ActionLink href={sumsUrl}>{d.checksum.sumsLink}</ActionLink>
+      </p>
+      <p class="text-body text-secondary max-w-text">{d.checksum.mismatch}</p>
+      <div
+        class="sums doc-block"
+        data-sums
+        data-size-label={d.checksum.table.size}
+        data-hash-label={d.checksum.table.hash}
+        data-unavailable={ui.notAvailable}
+        hidden
+      >
+        <table class="sums-table">
+          <thead>
+            <tr>
+              <th scope="col">{d.checksum.table.file}</th>
+              <th scope="col">{d.checksum.table.size}</th>
+              <th scope="col" class="sums-hash-head">{d.checksum.table.hash}</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </DocSection>
+
+    <DocSection id={d.antivirus.id} title={d.antivirus.headline}>
+      <p class="text-body max-w-text"><Inline text={d.antivirus.text} /></p>
+      <ul class="bullets">
+        {
+          d.antivirus.items.map((item) => (
+            <li>
+              <Inline text={item} />
+            </li>
+          ))
+        }
+      </ul>
+    </DocSection>
+
+    <DocSection id={d.installs.id} title={d.installs.headline}>
+      <ul class="bullets">
+        {
+          d.installs.items.map((item) => (
+            <li>
+              <Inline text={item} />
+            </li>
+          ))
+        }
+      </ul>
+    </DocSection>
+
+    <DocSection id={d.problems.id} title={d.problems.headline}>
+      <div class="problems">
+        {
+          d.problems.items.map((item) => (
+            <div class="problem">
+              <h3 class="text-title">{item.title}</h3>
+              <p class="text-body">
+                <Inline text={item.text} />
+              </p>
+            </div>
+          ))
+        }
+      </div>
+    </DocSection>
+
+    <DocSection id={d.uninstall.id} title={d.uninstall.headline}>
+      <p class="text-body max-w-text">{d.uninstall.text}</p>
+      <dl class="pairs">
+        {
+          d.uninstall.items.map((item) => (
+            <div class="pair">
+              <dt class="font-semibold">{item.label}</dt>
+              <dd>
+                <Inline text={item.text} />
+              </dd>
+            </div>
+          ))
+        }
+      </dl>
+      <p class="text-small text-secondary max-w-text"><Inline text={d.uninstall.dataNote} /></p>
+    </DocSection>
+
+    <DocSection id={d.requirements.id} title={d.requirements.headline}>
+      <ul class="bullets">
+        {d.requirements.items.map((item) => <li>{item}</li>)}
+      </ul>
+    </DocSection>
+
+    <div class="closing">
+      <ul class="closing-links" role="list">
+        <li><ActionLink href={site.releasesUrl}>{d.closing.releases}</ActionLink></li>
+        <li>
+          <ActionLink href={d.closing.changelog.href}>{d.closing.changelog.label}</ActionLink>
+        </li>
+      </ul>
+      <p class="text-body text-secondary">
+        {d.closing.issuePrompt}
+        <a class="link-inline" href={site.newIssueUrl}>{d.closing.issueLink}</a>
+      </p>
+    </div>
+  </DocPage>
+</Base>
+
+<style>
+  /* Header: the button and, beside it (below on phones), the version. The version block keeps
+     two lines of height, so the date appearing later moves nothing. */
+  .primary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 24px;
+    min-height: var(--button-h);
+    margin-top: 40px;
+  }
+
+  .primary-note {
+    max-width: var(--measure-text);
+  }
+
+  .primary-version {
+    display: flex;
+    flex-direction: column;
+    min-height: calc(2 * var(--type-small-size) * var(--type-small-lh));
+    justify-content: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Children are other components' roots, so the selectors reach them with :global(). */
+  .option > :global(* + *) {
+    margin-top: 32px;
+  }
+
+  .option > :global(.steps + .notes) {
+    margin-top: 20px;
+  }
+
+  /* Label and text pairs (warnings, uninstall): one row each, split by hairlines. */
+  .pairs {
+    max-width: var(--measure-text);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .pair {
+    padding-block: 16px;
+    border-bottom: 1px solid var(--hairline);
+    font-size: var(--type-body-size);
+    line-height: var(--type-body-lh);
+    letter-spacing: var(--type-body-ls);
+  }
+
+  .pair dd {
+    margin-top: 4px;
+  }
+
+  .commands {
+    display: grid;
+    gap: 20px;
+    max-width: var(--measure-text);
+  }
+
+  /* Published files: hairlines between rows; the digest can break anywhere. */
+  .sums {
+    max-width: var(--measure-text);
+  }
+
+  .sums-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--type-small-size);
+    line-height: var(--type-small-lh);
+    letter-spacing: var(--type-small-ls);
+  }
+
+  .sums-table :global(:where(th, td)) {
+    padding: 12px 16px 12px 0;
+    border-bottom: 1px solid var(--hairline);
+    text-align: start;
+    vertical-align: top;
+  }
+
+  .sums-table thead th {
+    font-weight: var(--weight-semibold);
+  }
+
+  .sums-table :global(tbody th) {
+    font-weight: var(--weight-regular);
+    white-space: nowrap;
+  }
+
+  .sums-table :global(td:nth-child(2)) {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sums-table :global(.sums-hash) {
+    padding-right: 0;
+    font-family: var(--family-mono);
+    font-size: var(--type-note-size);
+    line-height: var(--type-note-lh);
+    letter-spacing: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .sums:not([data-with-digests]) .sums-hash-head {
+    display: none;
+  }
+
+  /* File links on phones and touch screens: a 44 px tall target, like ActionLink. The box is
+     one line (20 px) and its hit area reaches 12 px up and down into the cell's padding, so the
+     text does not move and the target never covers the size or the digest. */
+  @media (max-width: 734px), (pointer: coarse) {
+    .sums-table :global(tbody th a) {
+      position: relative;
+      display: inline-block;
+    }
+
+    .sums-table :global(tbody th a)::after {
+      content: '';
+      position: absolute;
+      inset: -12px 0;
+    }
+  }
+
+  .bullets {
+    max-width: var(--measure-text);
+    padding-inline-start: 1.25em;
+    list-style: disc;
+    font-size: var(--type-body-size);
+    line-height: var(--type-body-lh);
+    letter-spacing: var(--type-body-ls);
+  }
+
+  .bullets > li + li {
+    margin-top: 12px;
+  }
+
+  .bullets > li::marker {
+    color: var(--text-secondary);
+  }
+
+  .problems {
+    display: grid;
+    gap: 32px;
+    max-width: var(--measure-text);
+  }
+
+  .problem > p {
+    margin-top: 8px;
+  }
+
+  .closing {
+    display: grid;
+    gap: 16px;
+    margin-top: var(--space-block);
+    padding-top: var(--space-doc-section);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .closing-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 32px;
+    font-size: var(--type-body-size);
+    line-height: var(--type-body-lh);
+    letter-spacing: var(--type-body-ls);
+  }
+
+  @media (max-width: 734px) {
+    .primary {
+      flex-direction: column;
+      align-items: flex-start;
+      /* Button, gap and the two lines of the version: the phone note fits in the same box. */
+      min-height: calc(var(--button-h) + 12px + 2 * var(--type-small-size) * var(--type-small-lh));
+    }
+
+    /* Phones: the table becomes one block per file, each value under its label. */
+    .sums-table thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    .sums-table :global(tr) {
+      display: block;
+      padding-block: 12px;
+      border-bottom: 1px solid var(--hairline);
+    }
+
+    .sums-table :global(:where(tbody th, td)) {
+      display: block;
+      padding: 0;
+      border: 0;
+    }
+
+    /* Room for the lower half of the file link's target (above it is the row's padding). */
+    .sums-table :global(tbody th) {
+      padding-bottom: 12px;
+    }
+
+    .sums-table :global(td[data-label])::before {
+      content: attr(data-label) ' ';
+      font-family: var(--family-sans);
+      font-size: var(--type-note-size);
+      color: var(--text-secondary);
+    }
+
+    .sums-table :global(td + td) {
+      margin-top: 4px;
+    }
+  }
+</style>
+
+<script>
+  import { initDownloadPage } from '../components/pages/download-page';
+
+  initDownloadPage();
+</script>

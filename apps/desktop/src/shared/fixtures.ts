@@ -53,6 +53,7 @@ import {
   emptyTargets,
 } from '@centrate/shared/guardian-api';
 import { parseIntent } from '@centrate/shared/parser';
+import type { Locale } from './i18n/locale';
 import { EMERGENCY_RULES, RULES_VERSION, emergencyPenalty } from '@centrate/shared/points';
 import { FEATURES, type FeatureFlags } from './features';
 import type { HarnessLoad } from './ipc';
@@ -735,7 +736,13 @@ function build(id: HarnessStateId, now: number, spec: Spec): HarnessFixture {
     prefs,
     templates: DEFAULT_TEMPLATES.map((t) => ({ ...t })),
     features: spec.features ?? FEATURES,
-    app: { version: '0.1.0', platform: 'win32', packaged: false, updateVersion: null },
+    app: {
+      version: '0.1.0',
+      platform: 'win32',
+      packaged: false,
+      updateVersion: null,
+      systemLocale: 'es',
+    },
     harness: { stateId: id, frozenNowMs: now },
   };
   const main = spec.main ?? initialMainLocal();
@@ -1219,6 +1226,15 @@ function extendEntry(block: Block, minutes: number, now: number): ExtendEntry {
 /** One fixture, built fresh (callers may mutate it). */
 export function harnessFixture(id: HarnessStateId, nowMs: number = HARNESS_NOW): HarnessFixture {
   return BUILDERS[id](nowMs);
+}
+
+/**
+ * The fixture as seen on an OS in `locale` (`--harness-lang`, `?lang=`): «Idioma» stays
+ * «Sistema», so every surface shows that language. Returns a copy.
+ */
+export function fixtureInLocale(fixture: HarnessFixture, locale: Locale): HarnessFixture {
+  const snapshot = fixture.snapshot;
+  return { ...fixture, snapshot: { ...snapshot, app: { ...snapshot.app, systemLocale: locale } } };
 }
 
 /** Every fixture, in `HARNESS_STATE_IDS` order. */

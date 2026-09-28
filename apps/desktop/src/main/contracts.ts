@@ -10,6 +10,7 @@
  *
  * Changing this file is a lead decision: every owner compiles against it.
  */
+import type { Locale } from '../shared/i18n/locale';
 import type { ThemeName } from '@centrate/shared/design/tokens';
 import type { GuardianClient } from '@centrate/shared/guardian-api';
 import type { FeatureFlags } from '../shared/features';
@@ -59,6 +60,8 @@ export interface CoreOptions {
   guardianBinary: string | null;
   clock: Clock;
   features: FeatureFlags;
+  /** The OS language as an app locale (`app.getPreferredSystemLanguages()`); default `es`. */
+  systemLocale?: Locale;
   /** Harness mode: `FakeGuardianClient` and the frozen clock come from this fixture. */
   harness: HarnessFixture | null;
   host: CoreHost;
@@ -157,6 +160,8 @@ export const HARNESS_ARGS = Object.freeze({
   state: '--harness-state',
   display: '--harness-display',
   theme: '--harness-theme',
+  /** `es` or `en`: the language the fake OS reports («Idioma: Sistema» follows it). */
+  lang: '--harness-lang',
   /** Start with the main window shown (screenshots); otherwise it starts hidden like `--hidden`. */
   show: '--harness-show',
 });
@@ -183,7 +188,7 @@ export interface HarnessApi {
    */
   load(
     id: HarnessStateId,
-    options?: { theme?: ThemeName; display?: DisplayPresetId },
+    options?: { theme?: ThemeName; display?: DisplayPresetId; lang?: Locale },
   ): Promise<void>;
   /** Tray-click show path; resolves with ms from the call to the field having focus. */
   showMain(): Promise<number>;

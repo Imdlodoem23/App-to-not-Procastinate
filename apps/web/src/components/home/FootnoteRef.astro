@@ -13,7 +13,10 @@
  * Put it right after the text, on the same line (`{text}<FootnoteRef … />`), so no space is
  * rendered before the number.
  */
-import { copy, fill, footnoteNumber, type FootnoteId } from '../../content/copy';
+import { fill, footnoteNumber, type FootnoteId } from '../../content/copy';
+import { copyFor } from '../../content/locale';
+
+const copy = copyFor(Astro.url);
 
 interface Props {
   id: FootnoteId;

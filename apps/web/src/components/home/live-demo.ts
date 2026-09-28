@@ -6,12 +6,18 @@
  * browser, loaded with a deferred import() so the parser and the catalog never weigh on the
  * first view. It does not import copy.ts (that would put every string of the site in the
  * bundle): the strings arrive as an argument, which the page passes through a data attribute.
+ *
+ * The parser reads Spanish only. On the English page the phrases stay Spanish, but everything
+ * the demo writes (sentence, chips, fields, times, lists) comes from the English copy and the
+ * page's locale: nothing here is worded in a fixed language.
  */
 import { getCategory, getService } from '@centrate/shared/catalog';
-import { PARSER_ES, parseIntent, untilLabel, type ParseResult } from '@centrate/shared/parser';
+import { parseIntent, type ParseResult } from '@centrate/shared/parser';
 import type { Copy } from '../../content/copy';
+import { formatDayMonth, formatTime, intlLocale, type Lang } from '../../lib/i18n';
 
 export interface DemoStrings {
+  lang: Lang;
   result: Copy['demo']['result'];
   duration: Copy['ui']['duration'];
 }
@@ -49,18 +55,68 @@ export function formatDuration(minutes: number, t: DemoStrings['duration']): str
   return m === 0 ? fillIn(t.hours, { h }) : fillIn(t.hoursMinutes, { h, m });
 }
 
-const pad = (value: number): string => String(value).padStart(2, '0');
-const clock = (date: Date): string => `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-
-/** «17:42», or «mañana 08:00» when it ends another day (the parser's own wording). */
-function endsLabel(endsAt: Date, now: Date): string {
-  const label = untilLabel(endsAt, now);
-  const prefix = PARSER_ES.until('');
-  return label.startsWith(prefix) ? label.slice(prefix.length) : label;
+function calendarDays(from: Date, to: Date): number {
+  const a = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
+  const b = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
+  return Math.round((b - a) / 86_400_000);
 }
 
-function list(items: readonly string[]): string {
-  return new Intl.ListFormat('es', { style: 'long', type: 'conjunction' }).format(items);
+type EndsTemplates = Pick<
+  DemoStrings['result'],
+  'untilToday' | 'untilTomorrow' | 'untilDate' | 'endsToday' | 'endsTomorrow' | 'endsDate'
+>;
+
+/**
+ * When a block ends, like the app's parser words it: today («17:42»; the midnight that ends
+ * today counts as today), tomorrow («mañana 08:00») or another day («el 30/9 08:00»).
+ * `kind` picks the chip form («hasta 17:42») or the field form («17:42»).
+ */
+function whenLabel(
+  endsAt: Date,
+  now: Date,
+  strings: DemoStrings,
+  kind: 'until' | 'ends',
+): string {
+  const t: EndsTemplates = strings.result;
+  const time = formatTime(endsAt, strings.lang);
+  const days = calendarDays(now, endsAt);
+  const midnight = endsAt.getHours() === 0 && endsAt.getMinutes() === 0;
+  if (days <= 0 || (days === 1 && midnight)) {
+    return fillIn(kind === 'until' ? t.untilToday : t.endsToday, { time });
+  }
+  if (days === 1) return fillIn(kind === 'until' ? t.untilTomorrow : t.endsTomorrow, { time });
+  const date = formatDayMonth(endsAt, strings.lang);
+  return fillIn(kind === 'until' ? t.untilDate : t.endsDate, { date, time });
+}
+
+function list(items: readonly string[], lang: Lang): string {
+  return new Intl.ListFormat(intlLocale[lang], { style: 'long', type: 'conjunction' }).format(
+    items,
+  );
+}
+
+/** A category's name in the page's language (the catalog's own name as a fallback). */
+function categoryName(id: string, strings: DemoStrings): string {
+  const names: Readonly<Record<string, string>> = strings.result.categoryNames;
+  return names[id] ?? getCategory(id)?.name ?? id;
+}
+
+/** The chip under the field for one understood piece of the phrase. */
+function chipLabel(chip: ParseResult['chips'][number], now: Date, strings: DemoStrings): string {
+  switch (chip.kind) {
+    case 'duration':
+      return formatDuration(Number(chip.value), strings.duration);
+    case 'category':
+      return categoryName(chip.value, strings);
+    case 'service':
+      return getService(chip.value)?.name ?? chip.label;
+    case 'until': {
+      const endsAt = new Date(chip.value);
+      return Number.isNaN(endsAt.getTime()) ? chip.label : whenLabel(endsAt, now, strings, 'until');
+    }
+    default:
+      return chip.label;
+  }
 }
 
 /** Describes a parse result the way the app would act on it. Never invents anything. */
@@ -71,9 +127,8 @@ export function describe(
   strings: DemoStrings,
 ): DemoView {
   const t = strings.result;
-  const chips = result.chips.map((chip) =>
-    chip.kind === 'duration' ? formatDuration(Number(chip.value), strings.duration) : chip.label,
-  );
+  const lang = strings.lang;
+  const chips = result.chips.map((chip) => chipLabel(chip, now, strings));
   const trimmed = text.trim();
   if (trimmed === '') {
     return { status: 'empty', chips: [], sentence: t.empty, fields: [], notes: [] };
@@ -89,16 +144,15 @@ export function describe(
 
   if (result.complete && minutes !== undefined && endsAt) {
     const duration = formatDuration(minutes, strings.duration);
-    const time = clock(endsAt);
-    const ends = endsLabel(endsAt, now);
+    const time = formatTime(endsAt, lang);
+    const ends = whenLabel(endsAt, now, strings, 'ends');
     const notes: string[] = [];
     if (minutes > DOUBLE_CONFIRM_MINUTES) notes.push(t.over4h);
 
     if (result.kind === 'study') {
       const sentence = result.task
         ? fillIn(t.study, { duration, task: result.task })
-        : // No task typed: the same sentence without its task clause.
-          fillIn(t.study.replace(/\s[^{}]*«\{task\}»/, ''), { duration });
+        : fillIn(t.studyNoTask, { duration });
       return {
         status: 'study',
         chips,
@@ -120,7 +174,7 @@ export function describe(
         inSentence.push(name);
         inField.push(name);
       } else if (chip.kind === 'category') {
-        const name = getCategory(chip.value)?.name ?? chip.label;
+        const name = categoryName(chip.value, strings);
         inSentence.push(fillIn(t.category, { category: name }));
         inField.push(name);
       } else if (chip.kind === 'domain') {
@@ -130,7 +184,7 @@ export function describe(
     }
     const byTime = result.chips.some((chip) => chip.kind === 'until');
     const sentence = fillIn(byTime ? t.blockUntil : t.block, {
-      services: list(inSentence),
+      services: list(inSentence, lang),
       duration,
       time,
     });
@@ -140,7 +194,7 @@ export function describe(
       chips,
       sentence,
       fields: [
-        { label: t.fields.what, value: list(inField) },
+        { label: t.fields.what, value: list(inField, lang) },
         { label: t.fields.duration, value: duration },
         { label: t.fields.ends, value: ends },
         { label: t.fields.mode, value: t.defaultMode },
@@ -153,7 +207,10 @@ export function describe(
     // Part of it was understood: say what, and what was not (the app opens the advanced form).
     const sentence =
       result.unparsed.length > 0
-        ? fillIn(t.partial, { understood: list(chips), rest: result.unparsed.join('», «') })
+        ? fillIn(t.partial, {
+            understood: list(chips, lang),
+            rest: result.unparsed.join(t.restSeparator),
+          })
         : t.tryHint;
     return { status: 'partial', chips, sentence, fields: [], notes: [] };
   }

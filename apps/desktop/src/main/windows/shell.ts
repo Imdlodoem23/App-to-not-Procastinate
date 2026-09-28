@@ -55,7 +55,7 @@ import {
   type PixelGrid,
   type Rect,
 } from './geometry';
-import { WINDOWS_ES } from './i18n/es';
+import { WINDOWS } from './i18n';
 import { MoveTracker } from './move-tracker';
 import { ShowAckWaiter, decideToggle, type ToggleAction } from './toggle';
 import { isTrustedFrameUrl, type RendererSource } from './window-urls';
@@ -145,7 +145,7 @@ export class WindowShell implements WindowHost, CoreHost {
   private lastBlurAt: number | null = null;
   private detailRequest: DetailRequest | null = null;
   /** The state title («Céntrate · quedan 42 min»), kept for a (re)created main window. */
-  private title: string = WINDOWS_ES.appName;
+  private title: string = WINDOWS.appName;
 
   private harnessLoad: HarnessLoad | null = null;
   private readonly readyIds = new Map<WindowKind, string | null>();
@@ -351,8 +351,17 @@ export class WindowShell implements WindowHost, CoreHost {
     if (win && win.getTitle() !== title) win.setTitle(title);
   }
 
+  /** The app language changed: re-title the detail window (the tray re-titles main). */
+  relocalize(): void {
+    const detail = this.detail;
+    const request = this.detailRequest;
+    if (detail && !detail.isDestroyed() && request) {
+      detail.setTitle(WINDOWS.detailTitles[request.name]);
+    }
+  }
+
   mainTitle(): string {
-    return this.window('main')?.getTitle() ?? WINDOWS_ES.appName;
+    return this.window('main')?.getTitle() ?? WINDOWS.appName;
   }
 
   private setBackground(color: string): void {
@@ -697,7 +706,7 @@ export class WindowShell implements WindowHost, CoreHost {
     this.detailOpenSeq += 1;
     const token = this.detailOpenSeq;
     this.push('detail', 'ui:detail', request);
-    detail.setTitle(WINDOWS_ES.detailTitles[request.name]);
+    detail.setTitle(WINDOWS.detailTitles[request.name]);
     const show = options.show ?? this.window('main')?.isVisible() ?? false;
     if (!show) return;
     const current = (): boolean =>
@@ -770,11 +779,11 @@ export class WindowShell implements WindowHost, CoreHost {
     const { core } = this.attached;
     const snapshot = core.getSnapshot();
     if (snapshot.prefs.closeHintShown) return;
-    this.options.notify(WINDOWS_ES.closeHint.title, WINDOWS_ES.closeHint.body);
+    this.options.notify(WINDOWS.closeHint.title, WINDOWS.closeHint.body);
     this.localNotifications.push({
       at: snapshotNow(snapshot),
-      title: WINDOWS_ES.closeHint.title,
-      body: WINDOWS_ES.closeHint.body,
+      title: WINDOWS.closeHint.title,
+      body: WINDOWS.closeHint.body,
       kinds: ['close_hint'],
     });
     void Promise.resolve(

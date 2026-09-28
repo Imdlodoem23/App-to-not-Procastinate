@@ -26,6 +26,7 @@ import {
   type UiPrefs,
   type UiPrefsPatch,
 } from '../../shared/ui-state';
+import { isLanguagePreference } from '../../shared/i18n/locale';
 
 export const PREFS_FILE = 'prefs.json';
 export const TEMPLATE_LABEL_MAX = 40;
@@ -69,7 +70,7 @@ export function sanitizePrefs(value: unknown): UiPrefs {
     lastReason: isReason(r['lastReason']) ? r['lastReason'] : DEFAULT_PREFS.lastReason,
     closeHintShown:
       typeof r['closeHintShown'] === 'boolean' ? r['closeHintShown'] : DEFAULT_PREFS.closeHintShown,
-    language: 'es',
+    language: isLanguagePreference(r['language']) ? r['language'] : DEFAULT_PREFS.language,
   };
 }
 
@@ -93,6 +94,9 @@ export function isUiPrefsPatch(value: unknown): value is UiPrefsPatch {
       case 'lastReason':
         if (!isReason(v)) return false;
         break;
+      case 'language':
+        if (!isLanguagePreference(v)) return false;
+        break;
       default:
         return false;
     }
@@ -107,6 +111,7 @@ export function applyPrefsPatch(prefs: UiPrefs, patch: UiPrefsPatch): UiPrefs {
   if (patch.defaultMode !== undefined) next.defaultMode = patch.defaultMode;
   if (patch.lastReason !== undefined) next.lastReason = patch.lastReason;
   if (patch.closeHintShown !== undefined) next.closeHintShown = patch.closeHintShown;
+  if (patch.language !== undefined) next.language = patch.language;
   return next;
 }
 

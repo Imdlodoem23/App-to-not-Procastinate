@@ -2,10 +2,11 @@
  * Spanish strings of the Bloqueos window (PROMPT §4 «Formulario avanzado», §9 «Horarios» and
  * «Modo examen», §10 «Ventanas de detalle › Bloqueos»). Mode names, target lists and points
  * come from `src/shared/format.ts`; numbers and clock times are formatted before they get here.
- * Ready for an `en.ts` with the same shape (`BloqueosMessages`).
+ * `en.ts` has the same shape (`BloqueosMessages`).
  */
 import type { BlockMode } from '@centrate/shared/domain';
 import type { DraftProblem } from '../../../../../shared/ui-state';
+import type { Widen } from '../../../../../shared/i18n/locale';
 
 /** Why «Bloquear…» is disabled (`FormProblem` in `../view.ts`). */
 type FormProblemKey = DraftProblem | 'no_duration';
@@ -213,14 +214,6 @@ export const BLOQUEOS_ES = {
     weekday: (day: string, time: string): string => `${day} ${time}`,
   },
 } as const;
-
-type Widen<T> = T extends string
-  ? string
-  : T extends (...args: infer A) => infer R
-    ? (...args: A) => Widen<R>
-    : T extends readonly (infer U)[]
-      ? readonly Widen<U>[]
-      : { [K in keyof T]: Widen<T[K]> };
 
 /** Shape every language file of the window must match. */
 export type BloqueosMessages = Widen<typeof BLOQUEOS_ES>;

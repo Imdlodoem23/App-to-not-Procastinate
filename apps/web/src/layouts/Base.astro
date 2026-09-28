@@ -1,7 +1,13 @@
 ---
 /**
- * Page shell for every page: <head> (meta, canonical, Open Graph, favicon, font preload), the
- * skip link, the navigation bar, <main id="contenido">, and the footer.
+ * Page shell for every page: <head> (meta, canonical, hreflang alternates, Open Graph, favicon,
+ * font preload), the skip link, the navigation bar, <main id="contenido">, the footer and the
+ * language hint.
+ *
+ * Language: the page's own (from its URL: /en… is English) sets <html lang>, the copy and the
+ * Open Graph locale. The hint is a one-line banner, hidden by default, that offers the same page
+ * in the other language when the browser prefers it and the visitor has not chosen a language
+ * yet (lib/i18n.ts, LANG_CHOICE_KEY). It never redirects.
  *
  * Slots:
  * - default: the page content, inside <main>. Each section sets data-surface.
@@ -12,8 +18,23 @@ import '../styles/global.css';
 import interLatinUrl from '@fontsource-variable/inter/files/inter-latin-opsz-normal.woff2?url';
 import NavBar from '../components/NavBar.astro';
 import Footer from '../components/Footer.astro';
-import { copy } from '../content/copy';
-import { site, type PageKey } from '../lib/site';
+import { copyFor, getCopy } from '../content/locale';
+import { site } from '../lib/site';
+import {
+  langFromPath,
+  langs,
+  ogLocale,
+  langNames,
+  pathFor,
+  defaultLang,
+  type PageKey,
+} from '../lib/i18n';
+
+const copy = copyFor(Astro.url);
+const lang = langFromPath(Astro.url.pathname);
+const other = lang === 'es' ? 'en' : 'es';
+/** The hint speaks the language it offers. */
+const hint = getCopy(other).language.hint;
 
 interface Props {
   /** <title>, from copy.meta.<page>.title. */
@@ -22,7 +43,10 @@ interface Props {
   description: string;
   /** Open Graph title when it differs from <title> (copy.meta.home.ogTitle). */
   ogTitle?: string;
-  /** Which page this is: the home page makes the bar's «Descargar» pill jump to #descargar. */
+  /**
+   * Which page this is: the home page makes the bar's download pill jump to its final block,
+   * and the language switch and the hreflang links point to the same page in each language.
+   */
   page?: PageKey;
   /** Keep the page out of search results, without a canonical URL (the 404). */
   noindex?: boolean;
@@ -35,11 +59,16 @@ const siteUrl = Astro.site ?? new URL(Astro.url.origin);
 const path = Astro.url.pathname.replace(/\/(index)?(\.html)?$/, '') || '/';
 const canonical = new URL(path, siteUrl).href;
 const ogImage = new URL(site.ogImage.path, siteUrl).href;
+const alternates = langs.map((l) => ({
+  hreflang: l,
+  href: new URL(pathFor(page, l), siteUrl).href,
+}));
+const xDefault = new URL(pathFor(page, defaultLang), siteUrl).href;
 const hasFootnotes = Astro.slots.has('footnotes');
 ---
 
 <!doctype html>
-<html lang="es" dir="ltr">
+<html lang={lang} dir="ltr">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -59,7 +88,13 @@ const hasFootnotes = Astro.slots.has('footnotes');
       noindex ? (
         <meta name="robots" content="noindex" />
       ) : (
-        <link rel="canonical" href={canonical} />
+        <>
+          <link rel="canonical" href={canonical} />
+          {alternates.map((alt) => (
+            <link rel="alternate" hreflang={alt.hreflang} href={alt.href} />
+          ))}
+          <link rel="alternate" hreflang="x-default" href={xDefault} />
+        </>
       )
     }
     <meta name="color-scheme" content="light" />
@@ -72,6 +107,7 @@ const hasFootnotes = Astro.slots.has('footnotes');
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content={copy.meta.siteName} />
     <meta property="og:locale" content={copy.meta.locale} />
+    <meta property="og:locale:alternate" content={ogLocale[other]} />
     <meta property="og:title" content={ogTitle ?? title} />
     <meta property="og:description" content={description} />
     {!noindex && <meta property="og:url" content={canonical} />}
@@ -92,17 +128,115 @@ const hasFootnotes = Astro.slots.has('footnotes');
     </main>
     {
       hasFootnotes ? (
-        <Footer>
+        <Footer page={page}>
           <slot name="footnotes" slot="footnotes" />
         </Footer>
       ) : (
-        <Footer />
+        <Footer page={page} />
       )
     }
+    <aside
+      class="lang-hint"
+      data-surface="light"
+      lang={other} aria-label={langNames[other]} data-lang-hint={other} hidden>
+      <a
+        class="lang-hint__link"
+        href={pathFor(page, other)}
+        hreflang={other}
+        data-lang-switch={other}>{hint.text}</a
+      >
+      <button
+        type="button"
+        class="lang-hint__close"
+        aria-label={hint.dismissAria}
+        data-lang-hint-dismiss={lang}
+      >
+        <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true" focusable="false">
+          <path d="M2.5 2.5l7 7M9.5 2.5l-7 7"></path>
+        </svg>
+      </button>
+    </aside>
     <script>
       import { initReveal } from '../scripts/reveal';
+      import { initLanguage } from '../scripts/language';
 
       initReveal();
+      initLanguage();
     </script>
   </body>
 </html>
+
+<style>
+  /* The language hint: a small floating bar at the bottom, over the page (it never pushes the
+     layout), shown by scripts/language.ts. */
+  .lang-hint {
+    position: fixed;
+    inset-inline: 0;
+    bottom: 16px;
+    z-index: var(--z-nav);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: max-content;
+    max-width: calc(100% - 2 * var(--page-gutter));
+    margin-inline: auto;
+    padding: 4px 4px 4px 20px;
+    border: 1px solid var(--palette-nav-border);
+    border-radius: var(--shape-pill);
+    background-color: var(--surface);
+    color: var(--text);
+    box-shadow: var(--shadow-window);
+    font-size: var(--type-small-size);
+    line-height: var(--type-small-lh);
+    letter-spacing: var(--type-small-ls);
+  }
+
+  .lang-hint[hidden] {
+    display: none;
+  }
+
+  .lang-hint__link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    color: var(--link);
+    text-underline-offset: 0.18em;
+    text-decoration-thickness: 1px;
+  }
+
+  .lang-hint__link:hover {
+    text-decoration-line: underline;
+  }
+
+  .lang-hint__close {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border: 0;
+    border-radius: var(--shape-pill);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .lang-hint__close:hover {
+    background-color: var(--fill-hover);
+    color: var(--text);
+  }
+
+  .lang-hint__close svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+  }
+
+  @media print {
+    .lang-hint {
+      display: none;
+    }
+  }
+</style>

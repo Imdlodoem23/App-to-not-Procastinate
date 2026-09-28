@@ -9,7 +9,7 @@
  * Imported only behind `import.meta.env.DEV`, so production bundles contain none of it (nor the
  * fixtures).
  */
-import { emptyAllow } from '@centrate/shared/guardian-api';
+import { DATA_DELETE_CONFIRM_WORDS, emptyAllow } from '@centrate/shared/guardian-api';
 import type { Block } from '@centrate/shared/domain';
 import {
   DISPLAY_PRESETS,
@@ -246,7 +246,7 @@ export function createMemoryBridge(route: RendererRoute): CentrateBridge {
     'pairing:new-code': () => ok(fixture.fake.pairingCode),
     'diagnostics:copy': () => ok({ source: 'guardian' as const }),
     'data:delete': ({ confirm }) =>
-      confirm.trim().toUpperCase() === 'BORRAR'
+      DATA_DELETE_CONFIRM_WORDS.includes(confirm.trim().toUpperCase())
         ? ok({
             epoch: 'ep_browser0000000001' as never,
             carryOverBalance: 0,

@@ -11,7 +11,9 @@
  * after the headline starts). It is closed from the start without JavaScript, with reduced
  * motion, when printing, or if the reveal failsafe fired. Decorative: the text says it all.
  */
-import { copy } from '../../content/copy';
+import { copyFor } from '../../content/locale';
+
+const copy = copyFor(Astro.url);
 
 const { privacy } = copy;
 const headingId = `${privacy.id}-titulo`;

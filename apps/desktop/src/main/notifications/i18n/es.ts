@@ -1,8 +1,10 @@
 /**
  * Spanish copy of the native notifications (PROMPT §5 «App de escritorio», §10
  * «Notificaciones»; docs/DESKTOP.md §6.4). Points and clock times arrive formatted
- * («+80 puntos», «−10 puntos», «17:42»). Ready for an `en.ts` with the same shape.
+ * («+80 puntos», «−10 puntos», «17:42»). `en.ts` has the same shape (`NotifyMessages`).
  */
+import type { Widen } from '../../../shared/i18n/locale';
+
 export const NOTIFY_ES = {
   started: {
     title: (count: number): string =>
@@ -42,3 +44,6 @@ export const NOTIFY_ES = {
     body: 'Los bloqueos siguen activos.',
   },
 } as const;
+
+/** Shape every notification language file must match. */
+export type NotifyMessages = Widen<typeof NOTIFY_ES>;

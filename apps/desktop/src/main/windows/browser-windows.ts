@@ -11,7 +11,7 @@ import {
   MAIN_CONTENT_WIDTH,
   MAIN_DEFAULT_CONTENT_HEIGHT,
 } from './geometry';
-import { WINDOWS_ES } from './i18n/es';
+import { WINDOWS } from './i18n';
 import { rendererQuery, rendererUrl, type RendererSource } from './window-urls';
 
 export interface WindowFactoryOptions {
@@ -33,7 +33,7 @@ function baseOptions(options: WindowFactoryOptions): BrowserWindowConstructorOpt
     maximizable: false,
     fullscreenable: false,
     autoHideMenuBar: true,
-    title: WINDOWS_ES.appName,
+    title: WINDOWS.appName,
     paintWhenInitiallyHidden: true,
     backgroundColor: options.backgroundColor,
     webPreferences: {

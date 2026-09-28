@@ -11,11 +11,13 @@
  * - `CENTRATE_FAKE_WORKAREA="x,y,w,h"` (or `--harness-workarea=x,y,w,h`): a custom fake work
  *   area in DIP instead of a preset's (capture scripts).
  * - `--harness-theme=light|dark`, `--harness-show` (or `CENTRATE_HARNESS_SHOW=1`).
+ * - `--harness-lang=es|en` (or `CENTRATE_HARNESS_LANG`): the fake OS language.
  * - `CENTRATE_USER_DATA`, `CENTRATE_DATA_DIR`: isolated userData and guardian sys dir.
  */
 import type { ThemeName } from '@centrate/shared/design/tokens';
 import { HARNESS_ARGS, HARNESS_ENV } from '../contracts';
 import type { Rect } from '../../shared/fixtures';
+import { isLocale, type Locale } from '../../shared/i18n/locale';
 
 export const HIDDEN_ARG = '--hidden';
 export const HARNESS_FLAG = '--harness';
@@ -26,6 +28,7 @@ export const LAUNCH_ENV = Object.freeze({
   harnessState: 'CENTRATE_HARNESS_STATE',
   harnessDisplay: 'CENTRATE_HARNESS_DISPLAY',
   harnessShow: 'CENTRATE_HARNESS_SHOW',
+  harnessLang: 'CENTRATE_HARNESS_LANG',
   fakeWorkArea: 'CENTRATE_FAKE_WORKAREA',
 });
 
@@ -41,6 +44,8 @@ export interface HarnessLaunch {
   fakeWorkArea: Rect | null;
   /** Forced theme; `null`: prefs (`system` in fixtures). */
   theme: ThemeName | null;
+  /** Fake OS language; `null`: the fixture's (Spanish). */
+  lang: Locale | null;
   /** Start with the main window shown (screenshots). */
   show: boolean;
 }
@@ -143,11 +148,20 @@ export function parseLaunchOptions(input: {
     else problems.push(`unknown harness theme "${themeArg}"`);
   }
 
+  const langArg = argValue(argv, HARNESS_ARGS.lang);
+  const langText =
+    (typeof langArg === 'string' ? langArg : null) ?? nonEmpty(env[LAUNCH_ENV.harnessLang]);
+  let lang: Locale | null = null;
+  if (langText !== null) {
+    if (isLocale(langText)) lang = langText;
+    else problems.push(`unknown harness language "${langText}"`);
+  }
+
   const show = hasFlag(argv, HARNESS_ARGS.show) || truthy(env[LAUNCH_ENV.harnessShow]);
 
   return {
     hidden,
-    harness: { stateId, display, fakeWorkArea, theme, show },
+    harness: { stateId, display, fakeWorkArea, theme, lang, show },
     userDataDir,
     sysDir,
     problems,

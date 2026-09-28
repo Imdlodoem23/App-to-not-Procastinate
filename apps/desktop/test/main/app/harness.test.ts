@@ -4,7 +4,7 @@ import { fakeDisplay, fakeDisplaySource } from '../../../src/main/windows/fake-d
 import { windowLayout } from '../../../src/main/windows/geometry';
 import { DISPLAY_PRESETS, layoutForDisplay } from '../../../src/shared/fixtures';
 
-const LAUNCH = { display: null, fakeWorkArea: null, theme: null, show: false };
+const LAUNCH = { display: null, fakeWorkArea: null, theme: null, lang: null, show: false };
 
 describe('harness resolution', () => {
   it('uses the fixture and its display by default', () => {
@@ -26,6 +26,16 @@ describe('harness resolution', () => {
     const resolved = resolveHarness({ ...LAUNCH, stateId: 'idle', fakeWorkArea: wa });
     expect(resolved.customWorkArea).toBe(true);
     expect(resolved.displays.all()[0]?.workArea).toEqual(wa);
+  });
+
+  it('shows the fixture on an English system with --harness-lang=en', () => {
+    const resolved = resolveHarness({ ...LAUNCH, stateId: 'idle', lang: 'en' });
+    expect(resolved.lang).toBe('en');
+    expect(resolved.fixture.snapshot.app.systemLocale).toBe('en');
+    expect(resolved.fixture.snapshot.prefs.language).toBe('system');
+    expect(resolveHarness({ ...LAUNCH, stateId: 'idle' }).fixture.snapshot.app.systemLocale).toBe(
+      'es',
+    );
   });
 
   it('opens each detail window with the request a door would send', () => {

@@ -3,11 +3,18 @@
  * Not found (design plan § 5): centered, hero-size headline, grey lead, and two actions: the
  * blue pill back home and a link to the downloads. Render serves dist/404.html for any
  * missing path; it stays out of search results and of the sitemap.
+ *
+ * One file for both languages: the Spanish message is the static one, and a tiny inline script
+ * swaps in the English one (and <html lang>, and the title) when the missing path is under /en.
  */
 import Base from '../layouts/Base.astro';
-import { copy } from '../content/copy';
+import { copyFor, getCopy } from '../content/locale';
+
+const copy = copyFor(Astro.url);
+const english = getCopy('en');
 
 const { notFound } = copy.pages;
+const notFoundEn = english.pages.notFound;
 ---
 
 <Base
@@ -24,9 +31,40 @@ const { notFound } = copy.pages;
       <a class="not-found__link link" href={notFound.download.href}>{notFound.download.label}</a>
     </div>
   </section>
+  <section
+    class="not-found gutter section-block"
+    data-surface="light"
+    lang="en"
+    data-not-found-en={english.meta.notFound.title}
+    hidden
+  >
+    <h1 class="text-hero">{notFoundEn.headline}</h1>
+    <p class="not-found__lead text-lead text-secondary">{notFoundEn.lead}</p>
+    <div class="not-found__actions">
+      <a class="button-pill" href={notFoundEn.home.href}>{notFoundEn.home.label}</a>
+      <a class="not-found__link link" href={notFoundEn.download.href}>{notFoundEn.download.label}</a>
+    </div>
+  </section>
+  <script is:inline>
+    (function () {
+      if (!/^\/en(\/|$)/.test(location.pathname)) return;
+      var en = document.querySelector('[data-not-found-en]');
+      var es = en && en.previousElementSibling;
+      if (!en || !es) return;
+      es.remove();
+      en.removeAttribute('lang');
+      en.hidden = false;
+      document.documentElement.lang = 'en';
+      document.title = en.getAttribute('data-not-found-en') || document.title;
+    })();
+  </script>
 </Base>
 
 <style>
+  .not-found[hidden] {
+    display: none;
+  }
+
   .not-found {
     display: flex;
     flex-direction: column;

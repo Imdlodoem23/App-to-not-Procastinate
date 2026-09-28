@@ -2,9 +2,11 @@
  * Spanish strings shared by the main process (tray, window title, notifications) and the
  * renderers: mode names, target lists, remaining-time phrases, points and the default
  * templates. Strings used by a single owner live next to its code in its own `i18n/es.ts`
- * (docs/DESKTOP.md §3). Ready for an `en.ts` with the same shape (`SharedMessages`).
+ * (docs/DESKTOP.md §3). `en.ts` has the same shape (`SharedMessages`); `index.ts` serves the active one.
  */
+import type { CategoryId } from '@centrate/shared/catalog';
 import type { BlockMode } from '@centrate/shared/domain';
+import type { Widen } from './locale';
 
 export const SHARED_ES = {
   appName: 'Céntrate',
@@ -14,6 +16,15 @@ export const SHARED_ES = {
     hardcore: 'Hardcore',
     exam: 'Examen',
   } satisfies Record<BlockMode, string>,
+  /** Catalog category names (the same as the catalog's own Spanish `name`). */
+  categories: {
+    social: 'Redes sociales',
+    video: 'Vídeo y streaming',
+    games: 'Juegos',
+    messaging: 'Mensajería',
+    shopping: 'Compras',
+    news: 'Noticias y deportes',
+  } satisfies Record<CategoryId, string>,
   targets: {
     whitelistOnly: 'Todo salvo la lista blanca',
     none: 'Nada',
@@ -50,12 +61,6 @@ export const SHARED_ES = {
     leer: 'Leer 30 min',
   },
 } as const;
-
-type Widen<T> = T extends string
-  ? string
-  : T extends (...args: infer A) => infer R
-    ? (...args: A) => Widen<R>
-    : { [K in keyof T]: Widen<T[K]> };
 
 /** Shape every language file must match. */
 export type SharedMessages = Widen<typeof SHARED_ES>;

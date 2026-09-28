@@ -69,7 +69,10 @@ describe('prefs.json', () => {
     expect(isUiPrefsPatch({ theme: 'dark', autostart: false })).toBe(true);
     expect(isUiPrefsPatch({ theme: 'sepia' })).toBe(false);
     expect(isUiPrefsPatch({ defaultMode: 'exam' })).toBe(false);
-    expect(isUiPrefsPatch({ language: 'en' })).toBe(false);
+    expect(isUiPrefsPatch({ language: 'en' })).toBe(true);
+    expect(isUiPrefsPatch({ language: 'system' })).toBe(true);
+    expect(isUiPrefsPatch({ language: 'fr' })).toBe(false);
+    expect(applyPrefsPatch(DEFAULT_PREFS, { language: 'en' }).language).toBe('en');
     expect(isUiPrefsPatch(null)).toBe(false);
     expect(applyPrefsPatch(DEFAULT_PREFS, { defaultMode: 'strict' }).defaultMode).toBe('strict');
   });

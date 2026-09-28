@@ -1,6 +1,7 @@
 /**
- * Site-wide constants that are not copy: repository coordinates, external URLs, routes and the
- * few values the <head> needs as literals. User-facing strings live in src/content/copy.ts.
+ * Site-wide constants that are not copy: repository coordinates, external URLs and the
+ * few values the <head> needs as literals. User-facing strings live in src/content/copy.ts
+ * (and copy.en.ts); routes and languages in ./i18n.ts.
  *
  * Safe to import from client scripts: it has no dependencies (in particular it does not import
  * copy.ts, which would pull every string of the site into the browser bundle).
@@ -49,14 +50,3 @@ export const site = {
    */
   themeColor: '#ffffff',
 } as const;
-
-/** Internal routes (the pages built from src/pages). */
-export const routes = {
-  home: '/',
-  download: '/descargar',
-  changelog: '/novedades',
-  privacy: '/privacidad',
-} as const;
-
-/** Which page a layout is rendering (drives the navigation bar's download pill). */
-export type PageKey = 'home' | 'descargar' | 'novedades' | 'privacidad' | 'not-found';

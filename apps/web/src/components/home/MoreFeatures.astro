@@ -8,7 +8,9 @@
  * with no container or colour fill. Decorative: the name says what each one is. Only the
  * headline is revealed; the grid is not animated.
  */
-import { copy } from '../../content/copy';
+import { copyFor } from '../../content/locale';
+
+const copy = copyFor(Astro.url);
 
 const { more } = copy;
 const headingId = `${more.id}-titulo`;

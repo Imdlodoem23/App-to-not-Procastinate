@@ -15,7 +15,10 @@
  */
 import AppWindow from '../AppWindow.astro';
 import FootnoteRef from './FootnoteRef.astro';
-import { copy, fill, type AppWindowState, type FootnoteId } from '../../content/copy';
+import { fill, type AppWindowState, type FootnoteId } from '../../content/copy';
+import { copyFor } from '../../content/locale';
+
+const copy = copyFor(Astro.url);
 
 const { highlights, ui } = copy;
 

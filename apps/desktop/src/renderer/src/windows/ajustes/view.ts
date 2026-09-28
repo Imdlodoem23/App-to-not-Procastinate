@@ -19,6 +19,7 @@
 import type { Accent, ThemePreference } from '@centrate/shared/design/tokens';
 import type { BrowserFamily, PendingSettingChange, SettingsField } from '@centrate/shared/domain';
 import {
+  DATA_DELETE_CONFIRM_WORDS,
   DEFAULT_GUARDIAN_PORT,
   GUARDIAN_LIMITS,
   type ExtensionStatus,
@@ -138,9 +139,12 @@ export function pendingNote(change: PendingSettingChange, nowMs: number): string
   }
 }
 
-/** Whether the BORRAR box allows «Borrar todos mis datos» (trimmed, any case). */
+/**
+ * Whether the confirm box allows «Borrar todos mis datos» (trimmed, any case): BORRAR, or
+ * DELETE, which the guardian accepts too (the English UI asks for it).
+ */
 export function deleteWordOk(word: string): boolean {
-  return word.trim().toUpperCase() === 'BORRAR';
+  return DATA_DELETE_CONFIRM_WORDS.includes(word.trim().toUpperCase());
 }
 
 export function guideForBrowser(browser: BrowserFamily): GuideId {

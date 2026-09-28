@@ -3,13 +3,14 @@
  * section 1 «Aviso de protección», section 4 «Progreso», section 5 «Pie» and the guardian error
  * copy (docs/DESKTOP.md §7.5). Strings shared with the main process (modes, targets, remaining
  * time, points) live in `src/shared/i18n/es.ts`; section 2 and the detail windows keep their own
- * `i18n/es.ts`. Ready for an `en.ts` with the same shape (`RendererMessages`).
+ * `i18n/es.ts`. `en.ts` has the same shape (`RendererMessages`).
  *
  * Numbers, clock times and the typographic minus come from `src/shared/format.ts` (es-ES,
  * `useGrouping: 'always'`, 24 h): pass already formatted values into the functions below.
  */
 import type { BrowserFamily } from '@centrate/shared/domain';
 import type { DetailName } from '../../../shared/ui-state';
+import type { Widen } from '../../../shared/i18n/locale';
 
 export const RENDERER_ES = {
   shell: {
@@ -178,12 +179,6 @@ export const RENDERER_ES = {
     },
   },
 } as const;
-
-type Widen<T> = T extends string
-  ? string
-  : T extends (...args: infer A) => infer R
-    ? (...args: A) => Widen<R>
-    : { [K in keyof T]: Widen<T[K]> };
 
 /** Shape every renderer language file must match. */
 export type RendererMessages = Widen<typeof RENDERER_ES>;

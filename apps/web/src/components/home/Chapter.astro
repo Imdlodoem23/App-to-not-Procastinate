@@ -11,8 +11,11 @@
 import Gallery from './Gallery.astro';
 import CardVisual from './CardVisual.astro';
 import FootnoteRef from './FootnoteRef.astro';
-import { copy, fill } from '../../content/copy';
+import { fill } from '../../content/copy';
+import { copyFor } from '../../content/locale';
 import type { ChapterData } from './chapters';
+
+const copy = copyFor(Astro.url);
 
 interface Props {
   chapter: ChapterData;

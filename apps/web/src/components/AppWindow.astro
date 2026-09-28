@@ -20,7 +20,11 @@
  * Plan: docs/web/design-plan.md section 7.
  */
 import type { HTMLAttributes } from 'astro/types';
-import { copy, fill, type AppWindowState } from '../content/copy';
+import { fill, type AppWindowState } from '../content/copy';
+import { copyFor } from '../content/locale';
+import { langFromPath } from '../lib/i18n';
+
+const copy = copyFor(Astro.url);
 
 type AppWindowPart = 'block' | 'study' | 'progress' | 'footer';
 
@@ -54,6 +58,7 @@ const {
 } = Astro.props;
 
 const t = copy.appWindow;
+const lang = langFromPath(Astro.url.pathname);
 const isBlockedPage = state === 'blocked-page';
 const show = (part: AppWindowPart): boolean => !parts || parts.includes(part);
 
@@ -91,7 +96,7 @@ const title =
   (state === 'countdown' ? t.title.blocked : state === 'study' ? t.title.study : t.title.idle);
 
 /** Neutral monogram instead of the service favicon (legal: no brand logos). */
-const monogram = (name: string): string => name.charAt(0).toLocaleUpperCase('es');
+const monogram = (name: string): string => name.charAt(0).toLocaleUpperCase(lang);
 
 const [chipService, chipDuration, chipUntil] = t.block.chips;
 
@@ -280,7 +285,7 @@ const a11y = decorative
                   <>
                     <div class="aw-field">
                       {/* On one line: the span keeps white space (white-space: pre). */}
-                      <span class="aw-typed" data-aw-typed>{blockMode === 'idle' ? '' : t.block.typed}</span>
+                      <span class="aw-typed" data-aw-typed lang={lang === 'es' ? undefined : 'es'}>{blockMode === 'idle' ? '' : t.block.typed}</span>
                       {blockMode !== 'confirm' && (
                         <span class="aw-caret" data-aw-caret hidden={blockMode === 'idle'} />
                       )}

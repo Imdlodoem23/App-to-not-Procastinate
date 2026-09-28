@@ -15,7 +15,9 @@
  *   only turns invisible (`data-idle`), so its height never changes.
  * - The whole track is revealed once (not card by card).
  */
-import { copy } from '../../content/copy';
+import { copyFor } from '../../content/locale';
+
+const copy = copyFor(Astro.url);
 
 interface Props {
   /** Accessible name of the region: fill(copy.ui.gallery, { name }). */

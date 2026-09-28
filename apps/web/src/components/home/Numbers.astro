@@ -5,7 +5,9 @@
  * section is named by copy.numbers.ariaLabel). Each block is revealed on its own.
  */
 import FootnoteRef from './FootnoteRef.astro';
-import { copy } from '../../content/copy';
+import { copyFor } from '../../content/locale';
+
+const copy = copyFor(Astro.url);
 
 const { numbers } = copy;
 

@@ -19,7 +19,7 @@ import { isKnownEvent } from '@centrate/shared/domain';
 import type { GuardianStateResponse } from '@centrate/shared/guardian-api';
 import { formatClock, formatPoints, targetsLabel } from '../../shared/format';
 import { UI_TIMINGS } from '../../shared/ui-state';
-import { NOTIFY_ES } from './i18n/es';
+import { NOTIFY } from './i18n';
 import type { NotificationContent } from './types';
 
 export type NoticeKind = 'block_finished' | 'block_started' | 'five_minutes' | 'attempt';
@@ -200,25 +200,25 @@ export function composeNotification(notices: readonly Notice[]): NotificationCon
   let body: string;
   switch (top) {
     case 'block_finished':
-      title = NOTIFY_ES.finished.title(group.length);
-      body = NOTIFY_ES.finished.body(sum > 0 ? signedPoints(sum) : null);
+      title = NOTIFY.finished.title(group.length);
+      body = NOTIFY.finished.body(sum > 0 ? signedPoints(sum) : null);
       break;
     case 'block_started':
-      title = NOTIFY_ES.started.title(group.length);
-      body = NOTIFY_ES.started.body(
+      title = NOTIFY.started.title(group.length);
+      body = NOTIFY.started.body(
         latest.label ?? '',
         formatClock(latest.endsAtMs ?? latest.atMs),
       );
       break;
     case 'five_minutes':
-      title = NOTIFY_ES.fiveMinutes.title;
-      body = NOTIFY_ES.fiveMinutes.body(
+      title = NOTIFY.fiveMinutes.title;
+      body = NOTIFY.fiveMinutes.body(
         latest.label ?? '',
         formatClock(latest.endsAtMs ?? latest.atMs),
       );
       break;
     case 'attempt': {
-      title = NOTIFY_ES.attempt.title(group.length, signedPoints(sum));
+      title = NOTIFY.attempt.title(group.length, signedPoints(sum));
       const labels = [...new Set(group.map((n) => n.label).filter((l): l is string => !!l))];
       body = labels.slice(0, 2).join(', ');
       break;
@@ -229,17 +229,17 @@ export function composeNotification(notices: readonly Notice[]): NotificationCon
     const points = g.reduce((total, n) => total + n.points, 0);
     switch (kind) {
       case 'block_finished':
-        return NOTIFY_ES.finished.also(g.length, points > 0 ? signedPoints(points) : null);
+        return NOTIFY.finished.also(g.length, points > 0 ? signedPoints(points) : null);
       case 'block_started':
-        return NOTIFY_ES.started.also(g.length);
+        return NOTIFY.started.also(g.length);
       case 'five_minutes':
-        return NOTIFY_ES.fiveMinutes.also;
+        return NOTIFY.fiveMinutes.also;
       case 'attempt':
-        return NOTIFY_ES.attempt.also(g.length, signedPoints(points));
+        return NOTIFY.attempt.also(g.length, signedPoints(points));
     }
   });
   if (also.length > 0) {
-    const line = NOTIFY_ES.also(also);
+    const line = NOTIFY.also(also);
     body = body ? `${body}\n${line}` : line;
   }
   return { title, body, kinds };

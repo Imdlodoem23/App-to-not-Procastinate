@@ -6,7 +6,10 @@
  * opens (a reply to the user's action; instant with reduced motion). Answers may contain
  * links, rendered from copy.ts with inline(). Only the headline is revealed.
  */
-import { copy, inline } from '../../content/copy';
+import { inline } from '../../content/copy';
+import { copyFor } from '../../content/locale';
+
+const copy = copyFor(Astro.url);
 
 const { faq } = copy;
 const headingId = `${faq.id}-titulo`;

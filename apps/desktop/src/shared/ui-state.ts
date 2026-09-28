@@ -41,7 +41,7 @@ import {
 } from '@centrate/shared/guardian-api';
 import type { ParseResult } from '@centrate/shared/parser';
 import { FEATURES, type FeatureFlags } from './features';
-import { SHARED_ES } from './i18n/es';
+import { SHARED, SHARED_EN, SHARED_ES, type LanguagePreference, type Locale } from './i18n';
 
 // ---------------------------------------------------------------------------------------
 // Windows
@@ -281,11 +281,15 @@ export interface UiPrefs {
   lastReason: string;
   /** The one-time «Céntrate sigue en la bandeja» hint after the first X. */
   closeHintShown: boolean;
-  language: 'es';
+  /** «Idioma» in Ajustes: «Sistema» follows `AppInfo.systemLocale`. */
+  language: LanguagePreference;
 }
 
 export type UiPrefsPatch = Partial<
-  Pick<UiPrefs, 'theme' | 'autostart' | 'defaultMode' | 'lastReason' | 'closeHintShown'>
+  Pick<
+    UiPrefs,
+    'theme' | 'autostart' | 'defaultMode' | 'lastReason' | 'closeHintShown' | 'language'
+  >
 >;
 
 export const DEFAULT_PREFS: Readonly<UiPrefs> = Object.freeze({
@@ -295,7 +299,7 @@ export const DEFAULT_PREFS: Readonly<UiPrefs> = Object.freeze({
   defaultMode: 'normal',
   lastReason: '',
   closeHintShown: false,
-  language: 'es',
+  language: 'system',
 });
 
 /** Categories the «Deberes» and «Leer» templates block. */
@@ -392,6 +396,14 @@ export interface AppInfo {
   packaged: boolean;
   /** «Actualizar a v1.3.0» in the footer; `null` when current. */
   updateVersion: string | null;
+  /** The OS language as an app locale (read once by main); what «Sistema» resolves to. */
+  systemLocale: Locale;
+}
+
+/** The locale every surface shows a snapshot in (`prefs.language` over the OS language). */
+export function snapshotLocale(snapshot: Pick<UiSnapshot, 'prefs' | 'app'>): Locale {
+  const preference = snapshot.prefs.language;
+  return preference === 'system' ? snapshot.app.systemLocale : preference;
 }
 
 /** Present only in harness mode (unpackaged app started with a harness state). */
@@ -948,4 +960,23 @@ function cloneTargets(t: TargetSpec): TargetSpec {
     customDomains: [...t.customDomains],
     customProcesses: [...t.customProcesses],
   };
+}
+
+type BuiltinTemplateId = keyof typeof SHARED_ES.templates;
+
+function isBuiltinTemplateId(id: string): id is BuiltinTemplateId {
+  return Object.prototype.hasOwnProperty.call(SHARED_ES.templates, id);
+}
+
+/**
+ * A template's tile label in the active locale: a built-in one still carrying its default
+ * name («Deberes 1 h», stored in Spanish) reads in the app language («Homework 1 h»); a
+ * name the user gave is shown as written.
+ */
+export function templateLabel(t: Pick<BlockTemplate, 'id' | 'builtin' | 'label'>): string {
+  if (!t.builtin || !isBuiltinTemplateId(t.id)) return t.label;
+  const id = t.id;
+  return t.label === SHARED_ES.templates[id] || t.label === SHARED_EN.templates[id]
+    ? SHARED.templates[id]
+    : t.label;
 }
