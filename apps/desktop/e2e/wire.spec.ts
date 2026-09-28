@@ -88,6 +88,24 @@ test('304 answers publish nothing', async () => {
   const s = requireServer();
   const main = await mainPage();
   await waitForState(304);
+  // The start's own publishes are over: Progreso reads the local event copy 300 ms after the
+  // first state (platform/index.ts), and each event page triggers a poll, so the first 304 can
+  // come before it (Windows CI: `progress: null → {…}` among the «304» pushes).
+  await expect
+    .poll(
+      () =>
+        main.evaluate(async () => {
+          const w = window as unknown as {
+            centrate: { invoke(channel: string, payload: null): Promise<unknown> };
+          };
+          const init = (await w.centrate.invoke('app:init', null)) as {
+            snapshot: { progress: unknown };
+          };
+          return init.snapshot.progress !== null;
+        }),
+      { timeout: 10_000 },
+    )
+    .toBe(true);
   await main.evaluate(async () => {
     const w = window as unknown as {
       centrate: {
