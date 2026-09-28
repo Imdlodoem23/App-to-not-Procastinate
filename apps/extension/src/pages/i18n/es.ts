@@ -1,8 +1,8 @@
 /**
  * Spanish strings of the extension pages: blocked.html, the popup and the guide (options).
  * PROMPT §10: sentence case, typographic minus «−», humor only on the blocked page, errors
- * with an action and penalties as a plain fact. Ready for an `en.ts` with the same shape
- * (`PagesMessages`).
+ * with an action and penalties as a plain fact. `en.ts` has the same shape (`PagesMessages`);
+ * pages read the active one through `PAGES` (`index.ts`).
  */
 import type { BlockMode, BrowserFamily, PunishmentLevel } from '@centrate/shared/domain';
 import type { PairErrorCode } from '../../background/state';
@@ -116,6 +116,15 @@ export const PAGES_ES = {
       ended: 'Bloqueo terminado',
       /** Prose duration for the humor lines: «43 minutos», «2 horas y 5 minutos». */
       prose: durationWords,
+    },
+    /**
+     * The popup's header value, the parser's wording (`untilLabel`, like the app): «hasta
+     * 17:42», «hasta mañana 08:00», «hasta el 30/9 08:00». `time` and `date` come formatted.
+     */
+    until: {
+      today: (time: string): string => `hasta ${time}`,
+      tomorrow: (time: string): string => `hasta mañana ${time}`,
+      date: (date: string, time: string): string => `hasta el ${date} ${time}`,
     },
     points: {
       /** «−10 puntos», «1 punto». `amount` is already formatted. */
@@ -248,6 +257,8 @@ export const PAGES_ES = {
     sameAttempt: 'Es el mismo intento: no se ha vuelto a cobrar.',
     enforced: 'Esta pestaña ya estaba abierta al empezar el bloqueo: no cuenta como intento.',
     back: 'Volver a lo mío',
+    /** Alt + the letter presses the tile, like the app's mnemonics (a letter of its label). */
+    shortcuts: { back: 'V', open: 'A' },
     backHelpHistory: 'Vuelve a la página anterior',
     backHelpNewTab: 'Cierra esta página y abre una pestaña nueva',
     /** The single tile once the block has ended: «Abrir YouTube». */

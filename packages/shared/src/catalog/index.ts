@@ -68,3 +68,6 @@ export {
   studyWhitelistProcesses,
 } from './resolve';
 export { catalogSnapshot } from './snapshot';
+export type { CatalogNames } from './i18n/en';
+export { CATALOG_NAMES_EN } from './i18n/en';
+export { appName, categoryName, serviceName, studyAppName, studySiteName } from './names';

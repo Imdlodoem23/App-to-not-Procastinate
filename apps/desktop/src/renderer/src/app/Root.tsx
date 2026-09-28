@@ -5,13 +5,7 @@
  * also sets `nativeTheme.themeSource`, so the native title bar and `prefers-color-scheme`
  * agree), and the main or detail shell.
  */
-import {
-  Fragment,
-  StrictMode,
-  useLayoutEffect,
-  type ComponentType,
-  type ReactNode,
-} from 'react';
+import { Fragment, StrictMode, useLayoutEffect, type ComponentType, type ReactNode } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
 import { useKeyListener } from '../hooks/useKeys';
 import { StoreProvider, useAppStore } from '../store/context';

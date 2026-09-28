@@ -1,4 +1,5 @@
-import { findServiceByAlias, type CategoryId } from '../catalog';
+import { categoryName, findServiceByAlias, type CategoryId } from '../catalog';
+import { toLocale } from '../i18n/locale';
 import { findExcluded, markQualifiers } from './clauses';
 import { matchUntil } from './clock';
 import { matchDuration } from './duration';
@@ -136,6 +137,7 @@ export function parseIntent(text: string, opts: ParseOptions): ParseResult {
   if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
     throw new TypeError('parseIntent: opts.now must be a valid Date');
   }
+  const locale = toLocale(opts.locale);
   const input = typeof text === 'string' ? text.slice(0, PARSER_LIMITS.maxInputLength) : '';
   const tokens = tokenize(input);
   const used: boolean[] = tokens.map(() => false);
@@ -216,7 +218,12 @@ export function parseIntent(text: string, opts: ParseOptions): ParseResult {
     if (hit.kind === 'service') serviceIds.push(hit.id);
     else if (hit.kind === 'category') categoryIds.push(hit.id);
     else domains.push(hit.id);
-    const label = hit.kind === 'domain' ? hit.id : hit.label;
+    const label =
+      hit.kind === 'domain'
+        ? hit.id
+        : hit.kind === 'category'
+          ? categoryName(hit.id, locale)
+          : hit.label;
     const chip: ParseChip = {
       kind: hit.kind,
       label,
@@ -247,14 +254,14 @@ export function parseIntent(text: string, opts: ParseOptions): ParseResult {
         time.kind === 'duration'
           ? {
               kind: 'duration',
-              label: durationLabel(durationMinutes),
+              label: durationLabel(durationMinutes, locale),
               value: String(durationMinutes),
               start: first.start,
               end: last.end,
             }
           : {
               kind: 'until',
-              label: untilLabel(endsAt, now),
+              label: untilLabel(endsAt, now, locale),
               value: endsAt.toISOString(),
               start: first.start,
               end: last.end,

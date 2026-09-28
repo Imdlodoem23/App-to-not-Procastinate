@@ -5,7 +5,7 @@
 import { findServiceByDomain, getService, isSameOrSubdomain } from '@centrate/shared/catalog';
 import type { BlockMode, PunishmentLevel } from '@centrate/shared/domain';
 import type { ExtRuleBlock } from '@centrate/shared/guardian-api';
-import { PAGES_ES } from '../i18n/es';
+import { PAGES } from '../i18n';
 import { parseIso } from './format';
 
 /** Mode accents (PROMPT §10): Normal blue, Estricto orange, Hardcore and Examen red. */
@@ -24,12 +24,12 @@ export function modeAccent(mode: BlockMode, kind?: ExtRuleBlock['kind']): ModeAc
 }
 
 export function modeLabel(mode: BlockMode): string {
-  return PAGES_ES.common.modes[mode];
+  return PAGES.common.modes[mode];
 }
 
 /** «Castigo: todas las distracciones». */
 export function punishmentTitle(level: PunishmentLevel | null): string {
-  return PAGES_ES.popup.punishment(PAGES_ES.common.punishmentLevels[level ?? 'distractions']);
+  return PAGES.popup.punishment(PAGES.common.punishmentLevels[level ?? 'distractions']);
 }
 
 /** A host without a leading `www.` («www.marca.com» → «marca.com»). */
@@ -52,7 +52,7 @@ export function blockTargetNames(
   position: TargetsPosition = 'start',
 ): string[] {
   if (block.whitelistOnly) {
-    const t = PAGES_ES.common.targets;
+    const t = PAGES.common.targets;
     return [position === 'inline' ? t.whitelistShort : t.whitelistOnly];
   }
   const names: string[] = [];
@@ -79,7 +79,7 @@ export function blockTargets(
   maxNames = 2,
   position: TargetsPosition = 'start',
 ): string {
-  const t = PAGES_ES.common.targets;
+  const t = PAGES.common.targets;
   const names = blockTargetNames(block, position);
   if (names.length <= maxNames) return names.join(t.separator);
   return `${names.slice(0, maxNames).join(t.separator)} ${t.more(names.length - maxNames)}`;

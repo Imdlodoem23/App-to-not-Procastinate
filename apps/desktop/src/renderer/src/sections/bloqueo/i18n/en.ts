@@ -35,7 +35,7 @@ export const BLOQUEO_EN: BloqueoMessages = {
   field: {
     label: 'What do you want to do?',
     hint: 'What do you want to do? Type it in Spanish for now and press Enter',
-    placeholder: (example: string): string => `Type in Spanish for now, e.g. ${example}`,
+    placeholder: (example: string): string => `e.g. ${example}`,
     // The parser is Spanish-only: these stay Spanish phrases it fully understands.
     examples: [
       'no veo YouTube en una hora',

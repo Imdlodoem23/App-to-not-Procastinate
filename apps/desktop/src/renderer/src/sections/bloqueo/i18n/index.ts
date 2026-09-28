@@ -4,4 +4,7 @@ import { BLOQUEO_EN } from './en';
 import { BLOQUEO_ES, type BloqueoMessages } from './es';
 
 export { BLOQUEO_EN, BLOQUEO_ES, type BloqueoMessages };
-export const BLOQUEO: BloqueoMessages = localized<BloqueoMessages>({ es: BLOQUEO_ES, en: BLOQUEO_EN });
+export const BLOQUEO: BloqueoMessages = localized<BloqueoMessages>({
+  es: BLOQUEO_ES,
+  en: BLOQUEO_EN,
+});

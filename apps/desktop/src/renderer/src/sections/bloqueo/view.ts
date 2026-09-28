@@ -351,9 +351,7 @@ export function assignMnemonics(
 function shortTargetNames(block: Block): string[] {
   if (block.whitelistOnly) return [BLOQUEO.header.whitelistShort];
   const short = { ...block.targets, categoryIds: [] };
-  const categories = block.targets.categoryIds.map(
-    (id) => BLOQUEO.header.categoryShort[id] ?? id,
-  );
+  const categories = block.targets.categoryIds.map((id) => BLOQUEO.header.categoryShort[id] ?? id);
   // `targetNames` order: services, categories, apps, custom domains, custom processes.
   const names = targetNames(short, false);
   const services = block.targets.serviceIds.length;
@@ -455,9 +453,7 @@ function deriveHeader(
   return {
     title: BLOQUEO.header.none,
     titles: [BLOQUEO.header.none],
-    datum: next
-      ? BLOQUEO.header.nextSchedule(whenLabel(Date.parse(next.startsAt), nowMs))
-      : null,
+    datum: next ? BLOQUEO.header.nextSchedule(whenLabel(Date.parse(next.startsAt), nowMs)) : null,
     datumTone: 'default',
     newPill: false,
   };
@@ -509,9 +505,7 @@ function fieldLine(text: string, nowMs: number, enter: FieldEnter['kind']): Fiel
 function templateHelp(template: BlockTemplate, prefs: UiPrefs): string {
   const mode = template.mode ?? prefs.defaultMode;
   const modeText =
-    template.mode === null
-      ? BLOQUEO.templates.modeFromSettings(modeLabel(mode))
-      : modeLabel(mode);
+    template.mode === null ? BLOQUEO.templates.modeFromSettings(modeLabel(mode)) : modeLabel(mode);
   for (const names of [2, 1]) {
     const text = BLOQUEO.templates.help(
       targetsLabel(template.targets, template.whitelistOnly || mode === 'exam', names),
@@ -586,7 +580,6 @@ function composerView(
 
 const MODE_ORDER: readonly BlockMode[] = BLOCK_MODES;
 
-
 /** «Bloquea YouTube e Instagram durante 1 hora, hasta las 18:00, modo Estricto». */
 function cardSummary(draft: BlockDraft, minutes: number, endsAtMs: number, nowMs: number): string {
   const names = draft.whitelistOnly
@@ -643,12 +636,7 @@ function cardView(
       disabledReason: !editable ? BLOQUEO.card.pendingHelp : null,
     }),
   );
-  const modeHelp = rowHelp(
-    main.help,
-    BLOQUEO_ROWS.modes,
-    modes,
-    BLOQUEO.card.modeHelp[draft.mode],
-  );
+  const modeHelp = rowHelp(main.help, BLOQUEO_ROWS.modes, modes, BLOQUEO.card.modeHelp[draft.mode]);
 
   const edit: CardActionView = {
     id: 'edit',
@@ -916,10 +904,7 @@ const ROW_COUNTDOWN_WIDTH = 64 + 12; // «2:10:05» at 13 px tabular + gap.
 function rowView(state: GuardianStateResponse, block: Block): RowView {
   const punishment = block.kind === 'punishment' ? punishmentOf(state, block) : null;
   const mode = punishment
-    ? BLOQUEO.header.punishment(
-        BLOQUEO.punishment.level[punishment.level],
-        punishment.minutes,
-      )
+    ? BLOQUEO.header.punishment(BLOQUEO.punishment.level[punishment.level], punishment.minutes)
     : null;
   let label = mode ?? '';
   if (!mode) {

@@ -1,0 +1,466 @@
+/**
+ * Seeded synthetic streams of `FrameFeatures` (numbers only) for every test suite.
+ * Owner: DECISION (created by the lead). Other builders import it read-only; ask the
+ * coordinator for changes, or build extra fixtures in your own test folder.
+ *
+ * A script is a list of activities with durations. `synthesize` turns it into ticks the way
+ * the real loop would produce them: a face frame every 1000/fps ms, object detector runs
+ * every `objectEveryMs` (held between runs), luma every `lumaEveryMs`, and the context
+ * (foreground, keyboard/mouse idle time) main would send.
+ */
+import type {
+  Box,
+  CalibrationClass,
+  CameraStatus,
+  ContextSignals,
+  FaceFeatures,
+  ForegroundClass,
+  FrameFeatures,
+  LumaFeatures,
+  MonoMs,
+  ObjectDetection,
+  ObjectFeatures,
+  PhoneDetection,
+} from '../../src/types';
+import { clamp, clamp01 } from '../../src/util/math';
+import { gaussian, mulberry32, uniform, type Rng } from '../../src/util/rng';
+
+export const FRAME_WIDTH = 320;
+export const FRAME_HEIGHT = 240;
+
+// ---------------------------------------------------------------------------------------
+// Personas
+// ---------------------------------------------------------------------------------------
+
+export type PersonaId =
+  'baseline' | 'glasses' | 'lowLight' | 'secondMonitor' | 'offAxisCamera' | 'calculator';
+
+export interface Persona {
+  id: PersonaId;
+  /** Absolute pose (degrees) when looking at the main screen. */
+  screen: { yaw: number; pitch: number; roll: number };
+  box: Box;
+  poseSd: number;
+  /** Resting blink value at the screen and blendshape noise. */
+  blink: number;
+  eyeSd: number;
+  /** Extra probability of losing the face on any frame. */
+  faceDrop: number;
+  quality: number;
+  lumaMean: number;
+  secondScreenYaw: number;
+  /** A calculator or a phone lying on the desk that the detector half-believes. */
+  deskPhoneScore: number;
+}
+
+const BASE: Persona = {
+  id: 'baseline',
+  screen: { yaw: 0, pitch: -5, roll: 0 },
+  box: { cx: 0.5, cy: 0.42, w: 0.22, h: 0.3 },
+  poseSd: 3,
+  blink: 0.12,
+  eyeSd: 0.05,
+  faceDrop: 0,
+  quality: 0.95,
+  lumaMean: 0.45,
+  secondScreenYaw: 30,
+  deskPhoneScore: 0,
+};
+
+export const PERSONAS: Readonly<Record<PersonaId, Persona>> = Object.freeze({
+  baseline: BASE,
+  glasses: { ...BASE, id: 'glasses', blink: 0.3, eyeSd: 0.2 },
+  lowLight: { ...BASE, id: 'lowLight', lumaMean: 0.12, faceDrop: 0.2, poseSd: 5, quality: 0.6 },
+  secondMonitor: { ...BASE, id: 'secondMonitor', secondScreenYaw: 35 },
+  offAxisCamera: {
+    ...BASE,
+    id: 'offAxisCamera',
+    screen: { yaw: 25, pitch: -15, roll: 2 },
+    box: { cx: 0.62, cy: 0.4, w: 0.2, h: 0.28 },
+  },
+  calculator: { ...BASE, id: 'calculator', deskPhoneScore: 0.5 },
+});
+
+// ---------------------------------------------------------------------------------------
+// Activities
+// ---------------------------------------------------------------------------------------
+
+export const ACTIVITIES = [
+  'screen',
+  'secondMonitor',
+  'typing',
+  'notebook',
+  'readBook',
+  'phoneInHand',
+  'phoneOnDesk',
+  'lookAway',
+  'talkToSomeone',
+  'stretch',
+  'coffeeSip',
+  'eyesClosed',
+  'absent',
+  'covered',
+  'dark',
+] as const;
+export type Activity = (typeof ACTIVITIES)[number];
+
+/** The activity each calibration situation is recorded with. */
+export const CALIBRATION_ACTIVITY: Readonly<Record<CalibrationClass, Activity>> = Object.freeze({
+  screen: 'screen',
+  paper: 'notebook',
+  phone: 'phoneInHand',
+  away: 'lookAway',
+  absent: 'absent',
+});
+
+interface ObjectSpec {
+  score: readonly [number, number];
+  /** Probability that a detector run sees it. */
+  detectP: number;
+}
+
+interface PhoneSpec extends ObjectSpec {
+  nearFace: boolean;
+  /** Probability the box moved since the previous run. */
+  movingP: number;
+}
+
+interface ActivitySpec {
+  /** Offsets from the persona's screen pose (side = ±1, chosen per activity instance). */
+  yaw: (p: Persona, side: number) => number;
+  pitch: number;
+  roll: number;
+  poseSd: number;
+  blinkAdd: number;
+  lookDown: number;
+  lookUp: number;
+  gazeX: (side: number) => number;
+  jaw: number;
+  truncated: number;
+  boxDy: number;
+  faceDrop: number;
+  person: number;
+  phone: PhoneSpec | null;
+  book: ObjectSpec | null;
+  /** Probability per second of a keyboard/mouse event. */
+  inputRate: number;
+  luma: 'normal' | 'dark' | 'covered';
+}
+
+const SCREEN: ActivitySpec = {
+  yaw: () => 0,
+  pitch: 0,
+  roll: 0,
+  poseSd: 1,
+  blinkAdd: 0,
+  lookDown: 0.1,
+  lookUp: 0.05,
+  gazeX: () => 0,
+  jaw: 0.02,
+  truncated: 0,
+  boxDy: 0,
+  faceDrop: 0,
+  person: 0.9,
+  phone: null,
+  book: null,
+  inputRate: 0.5,
+  luma: 'normal',
+};
+
+const NO_FACE = 1;
+
+const SPECS: Readonly<Record<Activity, ActivitySpec>> = {
+  screen: SCREEN,
+  secondMonitor: { ...SCREEN, yaw: (p) => p.secondScreenYaw, gazeX: () => 0.2 },
+  typing: { ...SCREEN, pitch: -15, poseSd: 2, lookDown: 0.35, inputRate: 1 },
+  notebook: {
+    ...SCREEN,
+    pitch: -35,
+    poseSd: 2.5,
+    blinkAdd: 0.3,
+    lookDown: 0.6,
+    truncated: 0.1,
+    boxDy: 0.06,
+    faceDrop: 0.3,
+    book: { score: [0.4, 0.7], detectP: 0.3 },
+    inputRate: 0,
+  },
+  readBook: {
+    ...SCREEN,
+    pitch: -25,
+    poseSd: 2,
+    blinkAdd: 0.2,
+    lookDown: 0.5,
+    truncated: 0.15,
+    boxDy: 0.04,
+    faceDrop: 0.1,
+    book: { score: [0.5, 0.9], detectP: 0.6 },
+    inputRate: 0,
+  },
+  phoneInHand: {
+    ...SCREEN,
+    pitch: -30,
+    poseSd: 2.5,
+    blinkAdd: 0.2,
+    lookDown: 0.6,
+    boxDy: 0.04,
+    faceDrop: 0.1,
+    phone: { score: [0.5, 0.9], detectP: 0.7, nearFace: true, movingP: 0.4 },
+    inputRate: 0,
+  },
+  phoneOnDesk: {
+    ...SCREEN,
+    phone: { score: [0.45, 0.6], detectP: 0.5, nearFace: false, movingP: 0 },
+  },
+  lookAway: {
+    ...SCREEN,
+    yaw: (_p, side) => side * 50,
+    pitch: 5,
+    poseSd: 3,
+    gazeX: (side) => side * 0.3,
+    inputRate: 0,
+  },
+  talkToSomeone: {
+    ...SCREEN,
+    yaw: (_p, side) => side * 45,
+    poseSd: 3,
+    jaw: 0.35,
+    gazeX: (side) => side * 0.2,
+    inputRate: 0,
+  },
+  stretch: { ...SCREEN, yaw: (_p, side) => side * 20, pitch: 25, poseSd: 5, inputRate: 0 },
+  coffeeSip: { ...SCREEN, pitch: 10, truncated: 0.2, inputRate: 0.3 },
+  eyesClosed: { ...SCREEN, pitch: -5, blinkAdd: 0.8, lookDown: 0.2, inputRate: 0 },
+  absent: { ...SCREEN, faceDrop: NO_FACE, person: 0.05, inputRate: 0 },
+  covered: { ...SCREEN, faceDrop: NO_FACE, person: 0, luma: 'covered', inputRate: 1 },
+  dark: { ...SCREEN, poseSd: 2, faceDrop: 0.2, luma: 'dark' },
+};
+
+// ---------------------------------------------------------------------------------------
+// Generator
+// ---------------------------------------------------------------------------------------
+
+export interface ScriptStep {
+  activity: Activity;
+  ms: number;
+  foreground?: ForegroundClass;
+  camera?: CameraStatus;
+}
+
+export type Script = readonly (ScriptStep | readonly [Activity, number])[];
+
+export interface SynthOptions {
+  persona?: Persona;
+  /** Face frames per second (3). */
+  fps?: number;
+  seed?: number;
+  /** Object detector period (1 000). */
+  objectEveryMs?: number;
+  /** Luma thumbnail period (1 000). */
+  lumaEveryMs?: number;
+  /** First tick time (0). */
+  startAt?: MonoMs;
+  /** ± uniform jitter on frame times (20). */
+  jitterMs?: number;
+  /** Default foreground (`study`). */
+  foreground?: ForegroundClass;
+}
+
+export interface SynthTick {
+  now: MonoMs;
+  activity: Activity;
+  frame: FrameFeatures | null;
+  context: ContextSignals;
+  camera: CameraStatus;
+}
+
+const OBJECT_HOLD_MS = 4_000;
+const LUMA_HOLD_MS = 2_000;
+
+function norm(step: ScriptStep | readonly [Activity, number]): ScriptStep {
+  return 'activity' in step ? step : { activity: step[0], ms: step[1] };
+}
+
+function range(rng: Rng, [min, max]: readonly [number, number]): number {
+  return uniform(rng, min, max);
+}
+
+function boxAround(face: Box, dx: number, dy: number, w: number, h: number): Box {
+  return { cx: clamp01(face.cx + dx), cy: clamp01(face.cy + dy), w, h };
+}
+
+export function synthesize(script: Script, options: SynthOptions = {}): SynthTick[] {
+  const persona = options.persona ?? PERSONAS.baseline;
+  const fps = options.fps ?? 3;
+  const rng = mulberry32(options.seed ?? 1);
+  const objectEveryMs = options.objectEveryMs ?? 1_000;
+  const lumaEveryMs = options.lumaEveryMs ?? 1_000;
+  const jitterMs = options.jitterMs ?? 20;
+  const interval = 1_000 / fps;
+  const ticks: SynthTick[] = [];
+
+  let t = options.startAt ?? 0;
+  let lastInputAt = t;
+  let nextObjectAt = t;
+  let nextLumaAt = t;
+  let heldObjects: ObjectFeatures | null = null;
+  let heldLuma: LumaFeatures | null = null;
+  let prevPhoneBox: Box | null = null;
+  let phoneStillMs = 0;
+  let prevLumaMean = persona.lumaMean;
+
+  for (const raw of script) {
+    const step = norm(raw);
+    const spec = SPECS[step.activity];
+    const side = rng() < 0.5 ? -1 : 1;
+    const end = t + step.ms;
+    const foreground = step.foreground ?? options.foreground ?? 'study';
+    const camera = step.camera ?? 'ok';
+
+    while (t < end) {
+      const dt = interval + uniform(rng, -jitterMs, jitterMs);
+      // inputRate ≥ 1 means continuous typing; otherwise a Poisson-ish event rate per second.
+      if (spec.inputRate >= 1 || rng() < spec.inputRate * (dt / 1_000)) lastInputAt = t;
+
+      const lost = rng() < Math.min(1, spec.faceDrop + persona.faceDrop);
+      let face: FaceFeatures | null = null;
+      const sd = persona.poseSd * spec.poseSd;
+      const box: Box = {
+        cx: clamp01(persona.box.cx + gaussian(rng, 0, 0.01)),
+        cy: clamp01(persona.box.cy + spec.boxDy + gaussian(rng, 0, 0.01)),
+        w: persona.box.w * (1 + gaussian(rng, 0, 0.02)),
+        h: persona.box.h * (1 + gaussian(rng, 0, 0.02)),
+      };
+      if (!lost && camera === 'ok') {
+        face = {
+          pose: {
+            yaw: persona.screen.yaw + spec.yaw(persona, side) + gaussian(rng, 0, sd),
+            pitch: persona.screen.pitch + spec.pitch + gaussian(rng, 0, sd),
+            roll: persona.screen.roll + spec.roll + gaussian(rng, 0, sd / 2),
+          },
+          box,
+          truncated: clamp01(spec.truncated + gaussian(rng, 0, 0.02)),
+          blink: clamp01(persona.blink + spec.blinkAdd + gaussian(rng, 0, persona.eyeSd)),
+          lookDown: clamp01(spec.lookDown + gaussian(rng, 0, persona.eyeSd)),
+          lookUp: clamp01(spec.lookUp + gaussian(rng, 0, persona.eyeSd / 2)),
+          gazeX: clamp(spec.gazeX(side) + gaussian(rng, 0, persona.eyeSd), -1, 1),
+          jawOpen: clamp01(spec.jaw + gaussian(rng, 0, 0.03)),
+          jitter: Math.abs(gaussian(rng, 0, persona.id === 'lowLight' ? 0.02 : 0.005)),
+          faces: 1,
+        };
+      }
+
+      // Object detector
+      let objects: ObjectFeatures | null = null;
+      if (camera === 'ok' && t >= nextObjectAt) {
+        // Fixed cadence on average (like "every N frames" in the real loop), no catch-up burst.
+        nextObjectAt = Math.max(nextObjectAt + objectEveryMs, t + objectEveryMs / 2);
+        let phone: PhoneDetection | null = null;
+        const phoneSpec: PhoneSpec | null =
+          spec.phone ??
+          (persona.deskPhoneScore > 0 && step.activity !== 'absent' && step.activity !== 'covered'
+            ? {
+                score: [persona.deskPhoneScore - 0.15, persona.deskPhoneScore + 0.1],
+                detectP: 0.5,
+                nearFace: false,
+                movingP: 0,
+              }
+            : null);
+        if (phoneSpec && rng() < phoneSpec.detectP) {
+          const moving = rng() < phoneSpec.movingP;
+          const pbox: Box = phoneSpec.nearFace
+            ? boxAround(box, gaussian(rng, 0, 0.05), box.h * 0.9, 0.12, 0.18)
+            : prevPhoneBox && !moving
+              ? prevPhoneBox
+              : { cx: 0.8, cy: 0.9, w: 0.1, h: 0.08 };
+          phoneStillMs = moving || !prevPhoneBox ? 0 : phoneStillMs + objectEveryMs;
+          prevPhoneBox = pbox;
+          phone = {
+            score: range(rng, phoneSpec.score),
+            box: pbox,
+            nearFace: phoneSpec.nearFace,
+            moving,
+            stillMs: phoneStillMs,
+          };
+        }
+        let book: ObjectDetection | null = null;
+        if (spec.book && rng() < spec.book.detectP) {
+          book = { score: range(rng, spec.book.score), box: boxAround(box, 0, 0.45, 0.35, 0.2) };
+        }
+        let person: ObjectDetection | null = null;
+        const personScore = spec.person + gaussian(rng, 0, 0.03);
+        if (personScore > 0.3) {
+          person = { score: clamp01(personScore), box: boxAround(box, 0, 0.2, 0.6, 0.8) };
+        }
+        heldObjects = { ranAt: t, ageMs: 0, fresh: true, phone, book, person };
+        objects = heldObjects;
+      } else if (camera === 'ok' && heldObjects && t - heldObjects.ranAt <= OBJECT_HOLD_MS) {
+        objects = { ...heldObjects, ageMs: t - heldObjects.ranAt, fresh: false };
+      }
+
+      // Luma
+      let luma: LumaFeatures | null = null;
+      if (camera === 'ok' && t >= nextLumaAt) {
+        nextLumaAt = Math.max(nextLumaAt + lumaEveryMs, t + lumaEveryMs / 2);
+        const covered = spec.luma === 'covered';
+        const mean = covered
+          ? 0.03
+          : clamp01((spec.luma === 'dark' ? 0.12 : persona.lumaMean) + gaussian(rng, 0, 0.01));
+        heldLuma = {
+          at: t,
+          mean,
+          spatialStd: covered ? 0.01 : 0.12,
+          temporalDiff: covered ? 0.001 : Math.abs(mean - prevLumaMean) + 0.01,
+          motionNearFace: face ? 0.02 : spec.person > 0.3 ? 0.03 : 0.003,
+          covered,
+          lowLight: !covered && mean < 0.18,
+        };
+        prevLumaMean = mean;
+        luma = heldLuma;
+      } else if (camera === 'ok' && heldLuma && t - heldLuma.at <= LUMA_HOLD_MS) {
+        luma = heldLuma;
+      }
+
+      const frame: FrameFeatures | null =
+        camera === 'ok'
+          ? {
+              t,
+              width: FRAME_WIDTH,
+              height: FRAME_HEIGHT,
+              face,
+              objects,
+              luma,
+              quality: face
+                ? clamp(persona.quality - 0.5 * face.truncated + gaussian(rng, 0, 0.02), 0.2, 1)
+                : objects?.person
+                  ? 0.6
+                  : 0.2,
+            }
+          : null;
+
+      ticks.push({
+        now: t,
+        activity: step.activity,
+        frame,
+        context: { foreground, idleMs: Math.max(0, t - lastInputAt) },
+        camera,
+      });
+      t += dt;
+    }
+  }
+  return ticks;
+}
+
+/** Frames of one calibration situation (20 s at 4 fps, objects at 2 Hz). */
+export function calibrationFrames(
+  cls: CalibrationClass,
+  options: Omit<SynthOptions, 'fps' | 'objectEveryMs'> = {},
+): FrameFeatures[] {
+  return synthesize([[CALIBRATION_ACTIVITY[cls], 20_000]], {
+    ...options,
+    fps: 4,
+    objectEveryMs: 500,
+  })
+    .map((tick) => tick.frame)
+    .filter((frame): frame is FrameFeatures => frame !== null);
+}

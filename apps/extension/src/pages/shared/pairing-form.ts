@@ -1,19 +1,20 @@
 /**
  * The pairing form of the popup and the guide (docs/ARCHITECTURE.md §9.3): the 6-digit code
  * the app shows (and the port, only when the app shows «Puerto: N»). The background claims
- * the token; this form only collects the code and explains errors in Spanish, each with
- * what to do. Success is the page's to say: it hides the form, so it confirms in a live
- * region of its own and moves the focus (a live region inside the hidden form is never read).
+ * the token; this form only collects the code and explains errors in the pages' language,
+ * each with what to do. Success is the page's to say: it hides the form, so it confirms in a
+ * live region of its own and moves the focus (a live region inside the hidden form is never
+ * read).
  */
 import type { ExtensionStateSnapshot } from '../../background/state';
-import { PAGES_ES } from '../i18n/es';
+import { PAGES } from '../i18n';
 import { el, nextId, setText, show } from './dom';
 import type { PairAnswer } from './runtime';
 import { pair as pairWithBackground } from './runtime';
 
 /** The error line for a failed claim (`null` answer: the background did not reply). */
 export function pairErrorText(answer: Exclude<PairAnswer, { ok: true }>): string {
-  const p = PAGES_ES.pairing;
+  const p = PAGES.pairing;
   if (answer === null) return p.extensionUnavailable;
   if (!('retryAfterSeconds' in answer)) return p.errors.unexpected;
   const wait = answer.retryAfterSeconds;
@@ -54,7 +55,7 @@ export interface PairingForm {
 }
 
 export function createPairingForm(options: PairingFormOptions): PairingForm {
-  const p = PAGES_ES.pairing;
+  const p = PAGES.pairing;
   const pair = options.pair ?? pairWithBackground;
   const codeId = nextId('pair-code');
   const portId = nextId('pair-port');

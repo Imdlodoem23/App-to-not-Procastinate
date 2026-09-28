@@ -15,7 +15,7 @@
  */
 import './popup.css';
 import type { ExtensionStateSnapshot, GuideSection } from '../../background/state';
-import { PAGES_ES } from '../i18n/es';
+import { PAGES, applyDocumentLanguage } from '../i18n';
 import { createAnnouncer, createCountdownView, startTicker } from '../shared/countdown';
 import { bindHelp, byId, el, icon, setAttr, setText, show } from '../shared/dom';
 import { createPairingForm } from '../shared/pairing-form';
@@ -54,8 +54,9 @@ function wait(ms: number): Promise<void> {
 }
 
 function main(): void {
-  const p = PAGES_ES.popup;
-  const c = PAGES_ES.common;
+  const p = PAGES.popup;
+  const c = PAGES.common;
+  applyDocumentLanguage();
   followSystemTheme(document.documentElement);
   document.title = p.documentTitle;
 
@@ -86,7 +87,7 @@ function main(): void {
   const pairingSection = byId('pairing');
   const pairingTitle = byId('pairing-title');
   pairingTitle.before(icon('link'));
-  setText(byId('pairing-intro'), PAGES_ES.pairing.intro);
+  setText(byId('pairing-intro'), PAGES.pairing.intro);
 
   // Footer.
   const statusDot = byId('status-dot');
@@ -132,7 +133,7 @@ function main(): void {
       renderAll();
       if (document.activeElement === document.body) focusStable();
       // The green notice is not live, and the form's own help line is hidden now.
-      setText(popupLive, PAGES_ES.pairing.success);
+      setText(popupLive, PAGES.pairing.success);
     },
   });
   byId('pairing-slot').replaceWith(pairingForm.element);
@@ -194,7 +195,7 @@ function main(): void {
         el('div', { className: 'notice', attrs: { 'data-accent': 'green' } }, [
           el('div', { className: 'notice-line' }, [
             icon('shield-check'),
-            el('p', { className: 'notice-text', text: PAGES_ES.pairing.success }),
+            el('p', { className: 'notice-text', text: PAGES.pairing.success }),
           ]),
         ]),
       );
@@ -285,7 +286,7 @@ function main(): void {
   const renderPairing = (): void => {
     const need = pairingNeed(state);
     show(pairingSection, need !== 'none');
-    setText(pairingTitle, need === 'again' ? PAGES_ES.pairing.titleAgain : PAGES_ES.pairing.title);
+    setText(pairingTitle, need === 'again' ? PAGES.pairing.titleAgain : PAGES.pairing.title);
     if (need !== 'none' && !focusedPairing) {
       focusedPairing = true;
       pairingForm.focus();

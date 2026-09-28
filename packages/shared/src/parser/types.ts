@@ -1,4 +1,5 @@
 import type { CategoryId } from '../catalog';
+import type { Locale } from '../i18n/locale';
 
 /**
  * What the phrase asks for: create a block, propose a Study Mode session, or nothing we
@@ -11,7 +12,10 @@ export type ParseChipKind = 'service' | 'category' | 'domain' | 'duration' | 'un
 /** One piece of the phrase that was understood, for the chips under the input field. */
 export interface ParseChip {
   kind: ParseChipKind;
-  /** Spanish text for the chip: «YouTube», «Redes sociales», «1 h 30 min», «hasta 20:30». */
+  /**
+   * Text for the chip in `ParseOptions.locale`: «YouTube», «Redes sociales», «1 h 30 min»,
+   * «hasta 20:30» (Spanish, the default); «Social media», «until 8:30 PM» (English).
+   */
   label: string;
   /**
    * Machine value: the service or category id, the domain, the minutes (as a string), the
@@ -35,6 +39,11 @@ export type ParseWarning = 'over_24h' | 'too_short' | 'past_time' | 'ambiguous_t
 export interface ParseOptions {
   /** Reference time for «hasta las 18:00» and for `endsAt`. */
   now: Date;
+  /**
+   * Language of the chip labels only (`es` by default). The phrase is always read as
+   * Spanish and every other field of the result is the same in every locale.
+   */
+  locale?: Locale;
 }
 
 export interface ParseResult {

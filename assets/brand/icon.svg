@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    Céntrate app icon master (docs/brand.md). Original work, MIT.
+    Plate: colors.light.blue. Mark: colors.light.tile (packages/shared/src/design/tokens.ts);
+    generators read the tokens and swap the fills by id.
+    macOS .icns: this 1024 canvas as is (824 plate, 100 margin).
+    .ico, Linux PNG, favicon and 48 px or less: crop with viewBox="100 100 824 824".
+    Pixel grid: at 16 px 1 px = 51.5 units, so ring 2 px thick, radius 5 px, dot radius 2 px.
+  -->
+  <rect id="plate" x="100" y="100" width="824" height="824" rx="185" fill="#0A6AA8"/>
+  <path id="ring" d="M709.26 346.48A257.5 257.5 0 1 0 709.26 677.52" fill="none" stroke="#FFFFFF" stroke-width="103" stroke-linecap="round"/>
+  <circle id="dot" cx="512" cy="512" r="103" fill="#FFFFFF"/>
+</svg>

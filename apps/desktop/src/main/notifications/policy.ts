@@ -205,10 +205,7 @@ export function composeNotification(notices: readonly Notice[]): NotificationCon
       break;
     case 'block_started':
       title = NOTIFY.started.title(group.length);
-      body = NOTIFY.started.body(
-        latest.label ?? '',
-        formatClock(latest.endsAtMs ?? latest.atMs),
-      );
+      body = NOTIFY.started.body(latest.label ?? '', formatClock(latest.endsAtMs ?? latest.atMs));
       break;
     case 'five_minutes':
       title = NOTIFY.fiveMinutes.title;

@@ -42,6 +42,142 @@
         "apps/web/src/components/home/MoreFeatures.astro (inline SVG paths)",
         "apps/desktop/package.json (lucide-react dependency for the app's icons)"
       ]
+    },
+    {
+      "name": "Céntrate brand mark and mascot",
+      "kind": "icons",
+      "source": "original work of the Céntrate project, drawn by hand as SVG (no third-party, Apple, G-Helper or brand shapes)",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2026 Imdlodoem23 and Céntrate contributors",
+      "licenseText": "LICENSE",
+      "colors": "packages/shared/src/design/tokens.ts (colors.light.blue plate, colors.light.tile mark; the mascot uses currentColor)",
+      "files": [
+        "assets/brand/icon.svg (app icon master: .icns, .ico, Linux PNG, favicon)",
+        "assets/brand/icon-mono.svg (monochrome template: macOS menu bar, idle tray glyph)",
+        "assets/brand/mascot-brote.svg",
+        "assets/brand/mascot-planta.svg",
+        "assets/brand/mascot-arbol.svg",
+        "assets/brand/mascot-marchita.svg"
+      ],
+      "generated": "Every PNG, .ico and .icns made from these masters (marketing-assets.yml, tray and extension icon generators) is covered by this entry.",
+      "generatedFiles": [
+        {
+          "generator": "scripts/gen-app-icons.mjs (npm run gen:icons; --check for CI freshness). Rendered with @resvg/resvg-js; .ico and .icns containers written in plain JS.",
+          "from": "assets/brand/icon.svg, colors from packages/shared/src/design/tokens.ts",
+          "files": [
+            "apps/desktop/build/icon.icns (macOS, 1024 canvas with margin; PNG entries ic07-ic14)",
+            "apps/desktop/build/icon.ico (Windows, cropped to the plate; PNG entries 16, 20, 24, 32, 40, 48, 64, 128, 256)",
+            "apps/desktop/build/icon.png (1024, cropped to the plate)",
+            "apps/desktop/build/icons/16x16.png … 512x512.png (Linux hicolor: 16, 24, 32, 48, 64, 128, 256, 512)",
+            "apps/web/public/favicon-32.png",
+            "apps/web/public/apple-touch-icon.png (180, square plate)"
+          ]
+        },
+        {
+          "generator": "by hand, no script: the masters' paths unchanged, comments stripped. Header files add vector-effect=\"non-scaling-stroke\" (1.75 px at any size, like lucide's absoluteStrokeWidth); -large files use stroke-width 1.25 (docs/brand.md «Mascota»). No colors: currentColor, painted with tokens through a CSS mask.",
+          "from": "assets/brand/mascot-brote.svg, mascot-planta.svg, mascot-arbol.svg, mascot-marchita.svg",
+          "files": [
+            "apps/desktop/src/renderer/src/assets/mascot/sprout.svg",
+            "apps/desktop/src/renderer/src/assets/mascot/plant.svg",
+            "apps/desktop/src/renderer/src/assets/mascot/tree.svg",
+            "apps/desktop/src/renderer/src/assets/mascot/wilted.svg",
+            "apps/desktop/src/renderer/src/assets/mascot/sprout-large.svg",
+            "apps/desktop/src/renderer/src/assets/mascot/plant-large.svg",
+            "apps/desktop/src/renderer/src/assets/mascot/tree-large.svg",
+            "apps/desktop/src/renderer/src/assets/mascot/wilted-large.svg"
+          ],
+          "usedBy": [
+            "apps/desktop/src/renderer/src/assets/mascot/index.ts (MASCOT_SVGS, mascotStageFor, mascotStyle)"
+          ]
+        }
+      ],
+      "usedBy": [
+        "docs/brand.md (usage rules)",
+        "apps/desktop/electron-builder.yml (buildResources: icon.icns, icon.ico and icons/ are picked up by name)"
+      ]
+    },
+    {
+      "name": "Céntrate achievement badges",
+      "kind": "icons",
+      "source": "original work of the Céntrate project, drawn by hand as SVG on the 24 grid with lucide's conventions (stroke 1.75, round caps and joins) but no lucide path data; the frame is the brand ring of assets/brand/icon-mono.svg (closed when earned, 80° gap when pending). No third-party, Apple, G-Helper or brand shapes.",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2026 Imdlodoem23 and Céntrate contributors",
+      "licenseText": "LICENSE",
+      "colors": "none in the files (currentColor); painted through a CSS mask with packages/shared/src/design/tokens.ts (green when earned, fgMuted while pending)",
+      "files": [
+        "apps/desktop/src/renderer/src/assets/achievements/first-session.svg («1»)",
+        "apps/desktop/src/renderer/src/assets/achievements/first-block.svg (padlock)",
+        "apps/desktop/src/renderer/src/assets/achievements/streak-7.svg (flame)",
+        "apps/desktop/src/renderer/src/assets/achievements/study-10h.svg (open book)",
+        "apps/desktop/src/renderer/src/assets/achievements/clean-week.svg (sparkle)",
+        "apps/desktop/src/renderer/src/assets/achievements/sessions-25.svg (tally)",
+        "apps/desktop/src/renderer/src/assets/achievements/streak-30.svg (bonfire)",
+        "apps/desktop/src/renderer/src/assets/achievements/study-50h.svg (books)"
+      ],
+      "usedBy": [
+        "apps/desktop/src/renderer/src/assets/achievements/index.ts (ACHIEVEMENT_BADGES, achievementBadgeFor, achievementBadgeStyle)",
+        "docs/brand.md («Logros»: usage rules)"
+      ]
+    },
+    {
+      "name": "MediaPipe Face Landmarker model",
+      "kind": "model",
+      "source": "https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker",
+      "download": "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+      "version": "float16/1",
+      "license": "Apache-2.0",
+      "copyright": "Copyright The MediaPipe Authors (Google LLC)",
+      "licenseText": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+      "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff",
+      "bytes": 3758596,
+      "contents": "Bundle of face_detector, face_landmarks_detector, face_blendshapes and geometry_pipeline_metadata.",
+      "exception": "Apache-2.0: exception to the CC0/OFL rule (PROMPT.md §11), to be recorded in DECISIONS.md like Lucide. Ship the Apache-2.0 text and this notice in the app third-party notices.",
+      "files": ["apps/desktop/resources/models/face_landmarker.task"],
+      "usedBy": [
+        "packages/study-ai/src/assets.ts (MODEL_MANIFEST: url, size, sha256)",
+        "packages/study-ai/src/perception/vision.ts (FaceLandmarker, loaded offline)",
+        "packages/study-ai/scripts/fetch-models.mjs (download + sha256 check)"
+      ]
+    },
+    {
+      "name": "EfficientDet-Lite0 object detector (int8)",
+      "kind": "model",
+      "source": "https://ai.google.dev/edge/mediapipe/solutions/vision/object_detector",
+      "download": "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/int8/1/efficientdet_lite0.tflite",
+      "version": "int8/1",
+      "license": "Apache-2.0",
+      "copyright": "Copyright The TensorFlow Authors and The MediaPipe Authors (Google LLC)",
+      "licenseText": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+      "sha256": "0720bf247bd76e6594ea28fa9c6f7c5242be774818997dbbeffc4da460c723bb",
+      "bytes": 4602795,
+      "trainingData": "COCO 2017 (annotations CC BY 4.0, COCO Consortium). Only the labels person, cell phone and book are used.",
+      "exception": "Apache-2.0: exception to the CC0/OFL rule (PROMPT.md §11), to be recorded in DECISIONS.md like Lucide. Ship the Apache-2.0 text and this notice in the app third-party notices.",
+      "files": ["apps/desktop/resources/models/efficientdet_lite0_int8.tflite"],
+      "usedBy": [
+        "packages/study-ai/src/assets.ts (MODEL_MANIFEST: url, size, sha256)",
+        "packages/study-ai/src/perception/vision.ts (ObjectDetector, loaded offline)",
+        "packages/study-ai/scripts/fetch-models.mjs (download + sha256 check)"
+      ]
+    },
+    {
+      "name": "MediaPipe Tasks Vision (JS + WASM runtime)",
+      "kind": "wasm",
+      "source": "https://github.com/google-ai-edge/mediapipe",
+      "package": "@mediapipe/tasks-vision",
+      "version": "1.0.1",
+      "license": "Apache-2.0",
+      "copyright": "Copyright The MediaPipe Authors (Google LLC)",
+      "licenseText": "https://www.apache.org/licenses/LICENSE-2.0.txt (the npm package ships no LICENSE file)",
+      "exception": "Apache-2.0: exception to the CC0/OFL rule (PROMPT.md §11), to be recorded in DECISIONS.md like Lucide. Ship the Apache-2.0 text and this notice in the app third-party notices.",
+      "privacy": "The bundle contains a usage logger that POSTs to odml.pa.googleapis.com; the analysis window blocks all network (packages/study-ai HANDOFF.md).",
+      "files": [
+        "node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_internal.js (copied at desktop build time)",
+        "node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_internal.wasm (copied at desktop build time)"
+      ],
+      "usedBy": [
+        "packages/study-ai/src/perception/vision.ts (dynamic import, FilesetResolver.forVisionTasks)",
+        "packages/study-ai/src/assets.ts (MEDIAPIPE_WASM_FILES, MEDIAPIPE_NETWORK_HOSTS)"
+      ]
     }
   ]
 }

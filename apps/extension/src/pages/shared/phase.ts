@@ -6,7 +6,7 @@
  * «hasta 05:50» in the past, «quedan 0 min» or «Bloqueo terminado», and the screen reader
  * hears «Bloqueo terminado» only once the block has really gone.
  */
-import { PAGES_ES } from '../i18n/es';
+import { PAGES } from '../i18n';
 import { countdownAnnouncement } from './format';
 
 /**
@@ -62,7 +62,7 @@ export function createEndAnnouncer(): EndAnnouncer {
           lastMs = null;
           break;
         case 'ended':
-          if (tracked !== null) said = PAGES_ES.common.remaining.ended;
+          if (tracked !== null) said = PAGES.common.remaining.ended;
           tracked = null;
           lastMs = null;
           break;

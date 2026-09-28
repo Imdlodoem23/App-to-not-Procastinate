@@ -1,6 +1,8 @@
 /**
- * The extension pages' HTML (public/*.html): Spanish, landmarks, and MV3's CSP (no inline
- * scripts or handlers: each page loads its esbuild bundle, named like the build entries).
+ * The extension pages' HTML (public/*.html): Spanish by default (each script then sets
+ * `<html lang>` to the browser's language, i18n/index.ts), landmarks, and MV3's CSP (no
+ * inline scripts or handlers: each page loads its esbuild bundle, named like the build
+ * entries).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

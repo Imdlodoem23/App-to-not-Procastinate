@@ -10,9 +10,9 @@
 import './options.css';
 import type { BrowserFamily } from '@centrate/shared/domain';
 import type { ExtensionStateSnapshot } from '../../background/state';
-import { PAGES_ES } from '../i18n/es';
+import { PAGES, applyDocumentLanguage } from '../i18n';
 import { bindHelp, byId, el, icon, nextId, setAttr, setText, show } from '../shared/dom';
-import { formatClock } from '../shared/format';
+import { formatClock, formatDayMonth } from '../shared/format';
 import type { IconName } from '../shared/icons';
 import { createPairingForm } from '../shared/pairing-form';
 import {
@@ -25,7 +25,7 @@ import {
 import { connectionLine, pairingNeed } from '../shared/status';
 import { followSystemTheme } from '../shared/theme';
 
-type SectionId = keyof typeof PAGES_ES.guide.toc;
+type SectionId = keyof typeof PAGES.guide.toc;
 
 interface SectionParts {
   section: HTMLElement;
@@ -58,14 +58,12 @@ function list(tag: 'ol' | 'ul', items: readonly string[], className: string): HT
   );
 }
 
-/** «hoy a las 17:42», «el 28/9 a las 17:42». */
+/** «hoy a las 17:42», «el 28/9 a las 17:42»; «today at 5:42 PM», «on 9/28 at 5:42 PM». */
 function formatWhen(ms: number, now: number): string {
-  const g = PAGES_ES.guide;
-  const date = new Date(ms);
-  const today = new Date(now);
+  const g = PAGES.guide;
   const time = formatClock(ms);
-  if (date.toDateString() === today.toDateString()) return g.whenToday(time);
-  return g.whenDate(`${date.getDate()}/${date.getMonth() + 1}`, time);
+  if (new Date(ms).toDateString() === new Date(now).toDateString()) return g.whenToday(time);
+  return g.whenDate(formatDayMonth(ms), time);
 }
 
 function externalLink(href: string, text: string): HTMLAnchorElement {
@@ -73,8 +71,9 @@ function externalLink(href: string, text: string): HTMLAnchorElement {
 }
 
 function main(): void {
-  const g = PAGES_ES.guide;
-  const c = PAGES_ES.common;
+  const g = PAGES.guide;
+  const c = PAGES.common;
+  applyDocumentLanguage();
   followSystemTheme(document.documentElement);
   document.title = g.documentTitle;
 

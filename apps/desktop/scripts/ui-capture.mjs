@@ -6,7 +6,7 @@
 //
 // Usage (from apps/desktop, after `npm run build`):
 //   npm run capture [-- --states idle,typing] [--themes dark] [--presets 1366x768@125]
-//                   [--out <dir>] [--index-only] [--any-font]
+//                   [--out <dir>] [--index-only] [--any-font] [--lang en]
 //
 // - The shots are taken by the Playwright project `capture` (e2e/capture/screens.capture.ts),
 //   which this script runs with CENTRATE_CAPTURE=1; one app per scale factor, in parallel.
@@ -54,6 +54,7 @@ function parseArgs(argv) {
     out: DEFAULT_OUT,
     indexOnly: false,
     anyFont: false,
+    lang: '',
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -70,6 +71,7 @@ function parseArgs(argv) {
     else if (name === '--out') options.out = resolve(value());
     else if (name === '--index-only') options.indexOnly = true;
     else if (name === '--any-font') options.anyFont = true;
+    else if (name === '--lang') options.lang = value();
     else if (name === '--help' || name === '-h') {
       console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n\n')[0]);
       process.exit(0);
@@ -171,6 +173,7 @@ function runCapture(options) {
     CENTRATE_CAPTURE_THEMES: options.themes,
     CENTRATE_CAPTURE_PRESETS: options.presets,
     CENTRATE_CAPTURE_ANY_FONT: options.anyFont ? '1' : '',
+    CENTRATE_CAPTURE_LANG: options.lang,
   };
   const result = spawnSync(
     process.execPath,

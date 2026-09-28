@@ -5,7 +5,7 @@
  */
 import { getService } from '@centrate/shared/catalog';
 import type { ExtensionStateSnapshot } from '../../background/state';
-import { PAGES_ES } from '../i18n/es';
+import { PAGES } from '../i18n';
 import type { ModeAccent } from '../shared/blocks';
 import { blockTargets, modeAccent, modeLabel, punishmentTitle } from '../shared/blocks';
 import {
@@ -58,7 +58,7 @@ export function blockSection(state: ExtensionStateSnapshot | null): BlockSection
   if (state === null) return null;
   const rules = state.rules;
   if (!state.paired && (rules === null || rules.blocks.length === 0)) return null;
-  const p = PAGES_ES.popup;
+  const p = PAGES.popup;
   const blocks = rules?.blocks ?? [];
   const [primary, ...others] = blocks;
   if (primary === undefined) {
@@ -111,7 +111,7 @@ export function blockSection(state: ExtensionStateSnapshot | null): BlockSection
 function allowanceRows(state: ExtensionStateSnapshot): BlockRow[] {
   return (state.rules?.allowances ?? []).map((allowance) => ({
     key: `allowance:${allowance.serviceId}`,
-    title: PAGES_ES.popup.allowance(getService(allowance.serviceId)?.name ?? allowance.serviceId),
+    title: PAGES.popup.allowance(getService(allowance.serviceId)?.name ?? allowance.serviceId),
     endsAt: parseIso(allowance.endsAt),
   }));
 }
@@ -140,7 +140,7 @@ export interface PopupTimes {
  * end reads «Comprobando la hora…», never 0:00, «quedan 0 min» or «Bloqueo terminado».
  */
 export function popupTimes(section: BlockSection | null, now: number): PopupTimes {
-  const checking = PAGES_ES.blocked.checking;
+  const checking = PAGES.blocked.checking;
   let nextTickMs: number | null = null;
   const consider = (delay: number | null): void => {
     if (delay !== null && (nextTickMs === null || delay < nextTickMs)) nextTickMs = delay;

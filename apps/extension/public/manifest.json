@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Céntrate",
-  "short_name": "Céntrate",
+  "name": "__MSG_extName__",
+  "short_name": "__MSG_extName__",
   "version": "0.0.0",
-  "description": "Bloquea tus distracciones con Céntrate: aplica en el navegador los bloqueos de la app y del guardián.",
+  "description": "__MSG_extDescription__",
+  "default_locale": "es",
   "minimum_chrome_version": "121",
   "icons": {
     "16": "icons/icon-16.png",
@@ -12,7 +13,7 @@
     "128": "icons/icon-128.png"
   },
   "action": {
-    "default_title": "Céntrate",
+    "default_title": "__MSG_extName__",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",

@@ -9,13 +9,19 @@
  *   must cost nothing, like a tab that was open when the block started;
  * - the event page is suspended when idle and its persistent listeners wake it up;
  * - whitelist host patterns go through DNR `regexFilter` (`isRegexSupported`).
+ *
+ * The pages speak Firefox's UI language (`browser.i18n.getUILanguage()`; the en-US builds CI
+ * downloads have no Spanish, whatever `intl.locale.requested` says), so the texts below come
+ * from the table the extension uses there (`copyOf`).
  */
 import { MESSAGE_TYPES } from '../../src/background/state';
+import type { PagesMessages } from '../../src/pages/i18n';
+import { PAGES_EN, PAGES_ES, localeFromLanguage } from '../../src/pages/i18n';
 import { addBlockAndWait, fakeTitle } from '../support/extension';
 import type { BlockedPageExpectation } from '../support/pages';
-import { POINTS_LOST, minutesLeftText } from '../support/pages';
+import { minutesLeftText, pointsLost, pointsText } from '../support/pages';
 import { REDIRECT_PARAM } from './fake-web';
-import type { FirefoxTab } from './harness';
+import type { FirefoxHarness, FirefoxTab } from './harness';
 import { FIREFOX_ORIGIN, expect, firefoxBlockedUrl, firefoxExtensionUrl, test } from './harness';
 
 const REASON = 'Estudiar física para el lunes';
@@ -31,13 +37,23 @@ const button = (text: string): string => `//button[normalize-space(.)='${text}']
  */
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 1_500));
 
+/** The pages' copy in this Firefox's UI language (`src/pages/i18n`). */
+async function copyOf(firefox: FirefoxHarness): Promise<PagesMessages> {
+  const tag = await firefox.inExtensionPage<string>('return browser.i18n.getUILanguage();');
+  return localeFromLanguage(tag) === 'en' ? PAGES_EN : PAGES_ES;
+}
+
 /** support/pages.ts `expectBlockedPage`, on the page's text. */
-async function expectBlockedPage(tab: FirefoxTab, expected: BlockedPageExpectation) {
-  const wanted: Array<string | RegExp> = [expected.reason, 'Volver a lo mío'];
-  if (expected.service !== undefined) {
-    wanted.push(new RegExp(`${expected.service}:\\s*bloquead`, 'i'));
+async function expectBlockedPage(
+  tab: FirefoxTab,
+  expected: BlockedPageExpectation,
+  copy: PagesMessages,
+) {
+  const wanted: Array<string | RegExp> = [expected.reason, copy.blocked.back];
+  if (expected.service !== undefined) wanted.push(copy.blocked.title(expected.service));
+  if (expected.minutesLeft !== undefined) {
+    wanted.push(minutesLeftText(expected.minutesLeft, copy));
   }
-  if (expected.minutesLeft !== undefined) wanted.push(minutesLeftText(expected.minutesLeft));
   if (typeof expected.points === 'string') wanted.push(expected.points);
   await expect
     .poll(async () => {
@@ -47,22 +63,20 @@ async function expectBlockedPage(tab: FirefoxTab, expected: BlockedPageExpectati
         .map(String);
     })
     .toEqual([]);
-  if (expected.points === null) expect(await tab.text()).not.toMatch(POINTS_LOST);
+  if (expected.points === null) expect(await tab.text()).not.toMatch(pointsLost(copy));
 }
 
 test('pairs from the popup with the code and the port the app shows', async ({
   firefox,
   guardian,
 }) => {
+  const t = await copyOf(firefox);
   const code = guardian.newPairingCode();
   const popup = await firefox.openPopup();
-  await popup.type(
-    inputLabelled('Código de emparejamiento'),
-    `${code.slice(0, 3)} ${code.slice(3)}`,
-  );
-  await popup.click(button('Otro puerto…'));
-  await popup.type(inputLabelled('Puerto'), String(guardian.port));
-  await popup.click(button('Emparejar'));
+  await popup.type(inputLabelled(t.pairing.codeLabel), `${code.slice(0, 3)} ${code.slice(3)}`);
+  await popup.click(button(t.pairing.portToggle));
+  await popup.type(inputLabelled(t.pairing.portLabel), String(guardian.port));
+  await popup.click(button(t.pairing.submit));
 
   await expect.poll(async () => (await firefox.state()).paired).toBe(true);
   const [paired] = guardian.extensions();
@@ -84,6 +98,7 @@ test('a blocked site lands on blocked.html and counts one attempt, also through 
   guardian,
 }) => {
   await firefox.pair(guardian);
+  const t = await copyOf(firefox);
   await addBlockAndWait(guardian, {
     services: ['youtube', 'instagram'],
     minutes: 25,
@@ -100,19 +115,23 @@ test('a blocked site lands on blocked.html and counts one attempt, also through 
     incognito: false,
   });
   expect(attempt.response).toMatchObject({ counted: true, pointsDelta: -10 });
-  await expectBlockedPage(tab, {
-    service: 'YouTube',
-    reason: REASON,
-    minutesLeft: [24, 25],
-    points: '−10 puntos',
-  });
+  await expectBlockedPage(
+    tab,
+    {
+      service: 'YouTube',
+      reason: REASON,
+      minutesLeft: [24, 25],
+      points: pointsText(-10, t),
+    },
+    t,
+  );
   await expect
     .poll(async () => (await firefox.blockedTabs()).map((info) => info.status))
     .toEqual(['counted']);
 
   // Reloading the blocked page is not another attempt.
   await tab.reload();
-  await expectBlockedPage(tab, { reason: REASON, points: '−10 puntos' });
+  await expectBlockedPage(tab, { reason: REASON, points: pointsText(-10, t) }, t);
 
   // A link through a redirector counts the site it led to (−20: within 5 min).
   const target = encodeURIComponent('https://www.instagram.com/');
@@ -121,7 +140,11 @@ test('a blocked site lands on blocked.html and counts one attempt, also through 
   const second = await guardian.waitForAttempt((a) => a.request.target.value !== 'www.youtube.com');
   expect(second.request.target).toEqual({ type: 'domain', value: 'www.instagram.com' });
   expect(second.response).toMatchObject({ counted: true, pointsDelta: -20 });
-  await expectBlockedPage(via, { service: 'Instagram', reason: REASON, points: '−20 puntos' });
+  await expectBlockedPage(
+    via,
+    { service: 'Instagram', reason: REASON, points: pointsText(-20, t) },
+    t,
+  );
 
   await settle();
   expect(guardian.attempts()).toHaveLength(2);
@@ -133,6 +156,7 @@ test('a tab already on the site moves to blocked.html when a block starts, witho
   guardian,
 }) => {
   await firefox.pair(guardian);
+  const t = await copyOf(firefox);
   const tab = await firefox.open('http://www.youtube.com/watch?v=dQw4w9WgXcQ');
   expect(await tab.title()).toBe(fakeTitle('http://www.youtube.com/'));
 
@@ -140,12 +164,16 @@ test('a tab already on the site moves to blocked.html when a block starts, witho
   await expect
     .poll(() => tab.url())
     .toBe(firefoxBlockedUrl({ cause: 'domain', serviceId: 'youtube', enforced: true }));
-  await expectBlockedPage(tab, {
-    service: 'YouTube',
-    reason: REASON,
-    minutesLeft: [24, 25],
-    points: null,
-  });
+  await expectBlockedPage(
+    tab,
+    {
+      service: 'YouTube',
+      reason: REASON,
+      minutesLeft: [24, 25],
+      points: null,
+    },
+    t,
+  );
   await expect
     .poll(async () => (await firefox.blockedTabs()).map((info) => info.status))
     .toEqual(['enforced']);
@@ -159,6 +187,7 @@ test('a tab already on the site moves to blocked.html when a block starts, witho
 
 test('a reopened tab of a site blocked meanwhile costs nothing', async ({ firefox, guardian }) => {
   await firefox.pair(guardian);
+  const t = await copyOf(firefox);
   const tab = await firefox.open('http://www.youtube.com/watch?v=abc');
   expect(await tab.title()).toBe(fakeTitle('http://www.youtube.com/'));
   await tab.close();
@@ -170,7 +199,7 @@ test('a reopened tab of a site blocked meanwhile costs nothing', async ({ firefo
   await expect
     .poll(() => restored.url())
     .toMatch(/^moz-extension:\/\/[^/]+\/blocked\.html\?cause=domain&service=youtube/);
-  await expectBlockedPage(restored, { service: 'YouTube', reason: REASON, points: null });
+  await expectBlockedPage(restored, { service: 'YouTube', reason: REASON, points: null }, t);
   await settle();
   expect(guardian.attempts()).toHaveLength(0);
   const statuses = (await firefox.blockedTabs()).map((info) => info.status);
@@ -183,6 +212,7 @@ test('the guardian stops: the cached block stays in force and the popup says so'
   guardian,
 }) => {
   await firefox.pair(guardian);
+  const t = await copyOf(firefox);
   await addBlockAndWait(guardian, { services: ['youtube'], minutes: 25, reason: REASON });
 
   await guardian.stop();
@@ -197,16 +227,20 @@ test('the guardian stops: the cached block stays in force and the popup says so'
   await expect
     .poll(async () => (await firefox.blockedTabs()).map((info) => info.status))
     .toEqual(['unreported']);
-  await expectBlockedPage(tab, {
-    service: 'YouTube',
-    reason: REASON,
-    minutesLeft: [24, 25],
-    points: null,
-  });
+  await expectBlockedPage(
+    tab,
+    {
+      service: 'YouTube',
+      reason: REASON,
+      minutesLeft: [24, 25],
+      points: null,
+    },
+    t,
+  );
   expect(guardian.attempts()).toHaveLength(0);
 
   const popup = await firefox.openPopup();
-  await expect.poll(() => popup.text()).toMatch(/guardián no responde/i);
+  await expect.poll(() => popup.text()).toContain(t.status.unreachable);
   expect(await popup.text()).toMatch(/YouTube/);
 
   // Back online: the extension reconnects and the block is still there.
@@ -223,6 +257,7 @@ test('whitelist mode: host patterns (regexFilter) let lh3.googleusercontent.com 
   guardian,
 }) => {
   await firefox.pair(guardian);
+  const t = await copyOf(firefox);
   const block = await addBlockAndWait(guardian, {
     whitelistOnly: true,
     minutes: 60,
@@ -241,7 +276,7 @@ test('whitelist mode: host patterns (regexFilter) let lh3.googleusercontent.com 
   expect(attempt.request.target).toEqual({ type: 'domain', value: 'lh9.googleusercontent.com' });
   expect(attempt.response).toMatchObject({ counted: true, pointsDelta: -10 });
   expect(attempt.response.block?.id).toBe(block.id);
-  await expectBlockedPage(other, { reason: 'Examen de historia', points: '−10 puntos' });
+  await expectBlockedPage(other, { reason: 'Examen de historia', points: pointsText(-10, t) }, t);
 });
 
 test('site access withdrawn: the guide asks for it again and the extension recovers', async ({
@@ -249,9 +284,10 @@ test('site access withdrawn: the guide asks for it again and the extension recov
   guardian,
 }) => {
   await firefox.pair(guardian);
+  const t = await copyOf(firefox);
   expect((await firefox.state()).needsHostPermission).toBe(false);
 
-  // Firefox lets the user withdraw MV3 host permissions (about:addons › Permisos).
+  // Firefox lets the user withdraw MV3 host permissions (about:addons › Permissions).
   expect(
     await firefox.inExtensionPage<boolean>(
       'return browser.permissions.remove({ origins: ["<all_urls>"] });',
@@ -261,13 +297,13 @@ test('site access withdrawn: the guide asks for it again and the extension recov
   expect((await firefox.state()).problems).toContain('host_permission_missing');
   await guardian.waitForHeartbeat((beat) => beat.body.hostPermission === false);
   const popup = await firefox.openPopup();
-  await expect.poll(() => popup.text()).toContain('Dar permiso');
+  await expect.poll(() => popup.text()).toContain(t.notices.actions.grant);
 
   // permissions.request from a click in the guide shows Firefox's prompt; the background
   // hears permissions.onAdded by itself (the popup, which that prompt closes, is not needed).
   const guide = await firefox.open(firefoxExtensionUrl('options.html#host-permission'));
   const since = Date.now();
-  await guide.click(button('Dar permiso'));
+  await guide.click(button(t.guide.hostPermission.grant));
   await firefox.acceptPermissionPrompt();
   await expect.poll(async () => (await firefox.state()).protection).toBe('active');
   expect((await firefox.state()).needsHostPermission).toBe(false);
@@ -287,6 +323,7 @@ test.describe('with a short idle timeout', () => {
   }) => {
     guardian.addBlock({ services: ['youtube'], minutes: 25, reason: REASON });
     await firefox.pair(guardian);
+    const t = await copyOf(firefox);
     await expect.poll(() => firefox.backgroundState(), { timeout: 20_000 }).toBe('stopped');
 
     const tab = await firefox.open('https://www.youtube.com/');
@@ -294,6 +331,10 @@ test.describe('with a short idle timeout', () => {
     const attempt = await guardian.waitForAttempt();
     expect(attempt.request.target).toEqual({ type: 'domain', value: 'www.youtube.com' });
     expect(attempt.response).toMatchObject({ counted: true, pointsDelta: -10 });
-    await expectBlockedPage(tab, { service: 'YouTube', reason: REASON, points: '−10 puntos' });
+    await expectBlockedPage(
+      tab,
+      { service: 'YouTube', reason: REASON, points: pointsText(-10, t) },
+      t,
+    );
   });
 });

@@ -22,6 +22,7 @@ import { existsSync } from 'node:fs';
 import { posix, win32 } from 'node:path';
 import type { Platform } from '../../shared/ui-state';
 import type { ExecResult, ExecRunner } from './exec';
+import { localized } from '../../shared/i18n/locale';
 
 export type GuardianAction = 'install' | 'start' | 'restart';
 export type ElevationOutcome = 'started' | 'cancelled' | 'failed' | 'unsupported';
@@ -74,8 +75,11 @@ export function windowsElevationScript(action: GuardianAction): string {
   );
 }
 
-const MAC_PROMPT =
-  'Céntrate necesita permiso de administrador para instalar y arrancar el guardián.';
+/** The macOS password prompt, in the app language (constant text, never user data). */
+const MAC_PROMPT: { readonly text: string } = localized({
+  es: { text: 'Céntrate necesita permiso de administrador para instalar y arrancar el guardián.' },
+  en: { text: 'Céntrate needs administrator permission to install and start the guardian.' },
+});
 
 /** The elevated command for an action (pure: tested per OS). */
 export function elevatedCommand(
@@ -106,7 +110,7 @@ export function elevatedCommand(
         '-e',
         'on run argv',
         '-e',
-        `do shell script (quoted form of (item 1 of argv)) & " " & (quoted form of (item 2 of argv)) with prompt "${MAC_PROMPT}" with administrator privileges`,
+        `do shell script (quoted form of (item 1 of argv)) & " " & (quoted form of (item 2 of argv)) with prompt "${MAC_PROMPT.text}" with administrator privileges`,
         '-e',
         'end run',
         binary,

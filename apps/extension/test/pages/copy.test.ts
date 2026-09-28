@@ -1,6 +1,7 @@
 /**
  * The pages' Spanish copy (PROMPT §10 «Textos»): sentence case, typographic minus, no
- * leftover English, and the page strings live in i18n/es.ts (not in the page scripts).
+ * leftover English, and the page strings live in i18n/ (es.ts and en.ts, not in the page
+ * scripts). The English copy has its own checks (copy-en.test.ts).
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';

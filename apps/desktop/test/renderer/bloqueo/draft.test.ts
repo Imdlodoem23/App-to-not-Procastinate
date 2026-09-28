@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { emptyTargets } from '@centrate/shared/guardian-api';
 import type { ParseResult } from '@centrate/shared/parser';
 import { HARNESS_NOW } from '../../../src/shared/fixtures';
+import { withLocale } from '../../../src/shared/i18n/locale';
 import {
   DEFAULT_PREFS,
   DEFAULT_TEMPLATES,
@@ -331,6 +332,15 @@ describe('chip corrections', () => {
     expect(chipEditText(d, 'targets', NOW)).toBe('YouTube');
     expect(chipEditText(d, 'duration', NOW)).toBe('1 h');
     expect(chipEditText(d, 'end', NOW)).toBe('18:00');
+  });
+
+  it('starts the editor in Spanish in the English UI too (it is parser input)', () => {
+    const d = { ...draft(), targets: { ...draft().targets, categoryIds: ['social' as const] } };
+    withLocale('en', () => {
+      expect(chipEditText(d, 'targets', NOW)).toBe('YouTube, Redes sociales');
+      expect(chipEditText(d, 'end', NOW)).toBe('18:00');
+      expect(draftEndLabels(d, NOW).until).toMatch(/^until 6:00\sPM$/u);
+    });
   });
 
   it('replaces services, categories and domains, keeping apps and processes', () => {

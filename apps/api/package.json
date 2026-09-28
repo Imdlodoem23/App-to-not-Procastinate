@@ -5,10 +5,12 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "dev": "node --watch --experimental-strip-types src/server.ts",
-    "start": "node --experimental-strip-types src/server.ts",
+    "build": "node build.mjs",
+    "start": "node dist/server.mjs",
+    "dev": "node build.mjs && node --enable-source-maps --watch dist/server.mjs",
+    "db:generate": "drizzle-kit generate",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

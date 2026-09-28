@@ -8,11 +8,11 @@ export const NOTIFY_EN: NotifyMessages = {
   started: {
     title: (count: number): string => (count === 1 ? 'Block started' : `${count} blocks started`),
     body: (label: string, clock: string): string => `${label} until ${clock}`,
-    also: (count: number): string => (count === 1 ? 'one block started' : `${count} blocks started`),
+    also: (count: number): string =>
+      count === 1 ? 'one block started' : `${count} blocks started`,
   },
   finished: {
-    title: (count: number): string =>
-      count === 1 ? 'Block finished' : `${count} blocks finished`,
+    title: (count: number): string => (count === 1 ? 'Block finished' : `${count} blocks finished`),
     body: (points: string | null): string => (points ? `Done. ${points}` : 'Done.'),
     also: (count: number, points: string | null): string => {
       const head = count === 1 ? 'one block finished' : `${count} blocks finished`;

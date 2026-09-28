@@ -92,7 +92,7 @@ function RequestStage(props: { api: EmergenciaApi }): React.JSX.Element | null {
   return (
     <>
       <p className="emg-text emg-muted">
-        {E.phrase.intro} <span className="emg-phrase">«{view.phrase.target}»</span>
+        {E.phrase.intro} <span className="emg-phrase">{E.phrase.quoted(view.phrase.target)}</span>
       </p>
       <Field
         id={EMERGENCIA_IDS.phrase}

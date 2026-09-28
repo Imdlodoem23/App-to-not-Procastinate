@@ -36,6 +36,7 @@ import {
 import type { BlockMode } from '@centrate/shared/domain';
 import { durationLabel } from '@centrate/shared/parser';
 import { intlLocale, targetNames } from '../../../../shared/format';
+import { withLocale } from '../../../../shared/i18n/locale';
 import { BLOQUEO } from './i18n';
 import { untilShort } from './time';
 
@@ -287,8 +288,16 @@ export function draftEndLabels(
 // Chip corrections («clic en una ficha para corregirla»)
 // ---------------------------------------------------------------------------------------
 
-/** Text the inline editor starts with. */
+/**
+ * Text the inline editor starts with. It is parser input, and the parser reads Spanish only,
+ * so it is always written in Spanish («Redes sociales», «mañana 08:00»), whatever the app
+ * language.
+ */
 export function chipEditText(draft: BlockDraft, field: CardField, nowMs: number): string {
+  return withLocale('es', () => spanishChipEditText(draft, field, nowMs));
+}
+
+function spanishChipEditText(draft: BlockDraft, field: CardField, nowMs: number): string {
   switch (field) {
     case 'targets':
       return draft.whitelistOnly

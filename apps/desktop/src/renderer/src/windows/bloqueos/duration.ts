@@ -8,7 +8,7 @@
 import type { IsoUtc } from '@centrate/shared/domain';
 import { GUARDIAN_LIMITS } from '@centrate/shared/guardian-api';
 import { durationLabel, parseIntent } from '@centrate/shared/parser';
-import { formatClock } from '../../../../shared/format';
+import { formatClock24 } from '../../../../shared/format';
 import {
   draftEndsAtMs,
   draftMinutes,
@@ -96,7 +96,7 @@ export function durationFields(draft: BlockDraft, nowMs: number): DurationFields
   const endsAtMs = draftEndsAtMs(draft, nowMs);
   return {
     minutesText: durationLabel(minutes),
-    untilText: formatClock(endsAtMs),
+    untilText: formatClock24(endsAtMs),
     minutes,
     endsAtMs,
   };

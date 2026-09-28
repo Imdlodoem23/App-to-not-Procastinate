@@ -130,11 +130,15 @@ export async function addBlockAndWait(
   return block;
 }
 
-async function launch(profileDir: string): Promise<BrowserContext> {
+/**
+ * `locale` is also the browser's UI language here (`chrome.i18n.getUILanguage()`), which
+ * picks the pages' language (src/pages/i18n): Spanish unless a spec sets `uiLocale`.
+ */
+async function launch(profileDir: string, uiLocale: string): Promise<BrowserContext> {
   return chromium.launchPersistentContext(profileDir, {
     executablePath: process.env['PW_CHROMIUM_PATH'] || undefined,
     headless: HEADLESS,
-    locale: 'es-ES',
+    locale: uiLocale,
     viewport: { width: 1280, height: 800 },
     args: [
       `--disable-extensions-except=${EXTENSION_DIR}`,
@@ -219,7 +223,14 @@ interface Fixtures {
   extension: ExtensionHarness;
 }
 
-export const test = base.extend<Fixtures>({
+interface Options {
+  /** The browser's UI language (`test.use({ uiLocale: 'en-US' })` for the English pages). */
+  uiLocale: string;
+}
+
+export const test = base.extend<Fixtures & Options>({
+  uiLocale: ['es-ES', { option: true }],
+
   // eslint-disable-next-line no-empty-pattern
   guardian: async ({}, use) => {
     const guardian = await startMockGuardian();
@@ -227,8 +238,7 @@ export const test = base.extend<Fixtures>({
     await guardian.close();
   },
 
-  // eslint-disable-next-line no-empty-pattern
-  extension: async ({}, use, testInfo) => {
+  extension: async ({ uiLocale }, use, testInfo) => {
     const missing = REQUIRED_FILES.filter((f) => !existsSync(join(EXTENSION_DIR, f)));
     if (missing.length > 0) {
       throw new Error(
@@ -236,7 +246,7 @@ export const test = base.extend<Fixtures>({
       );
     }
     const profileDir = mkdtempSync(join(tmpdir(), 'centrate-ext-e2e-'));
-    const context = await launch(profileDir);
+    const context = await launch(profileDir, uiLocale);
     try {
       await context.tracing.start({ screenshots: true, snapshots: true });
       await context.route(FAKE_WEB, fulfillFakePage);

@@ -21,7 +21,7 @@ export const BLOQUEOS_EN: BloqueosMessages = {
     show: (n: number): string => (n === 1 ? 'Show 1 service' : `Show ${n} services`),
     hide: 'Hide',
     otros: 'Other',
-    otrosNote: 'only if you pick them',
+    otrosNote: 'only if picked',
     includedIn: (category: string): string => `Already blocked by “${category}”`,
     domains: {
       label: 'Custom domains',

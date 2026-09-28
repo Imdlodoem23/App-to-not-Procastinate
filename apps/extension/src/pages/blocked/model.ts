@@ -22,7 +22,7 @@ import type { BlockKind, BlockMode } from '@centrate/shared/domain';
 import type { ExtRuleBlock } from '@centrate/shared/guardian-api';
 import type { BlockedPageParams, BlockedTabBlock, BlockedTabInfo } from '../../background/rules';
 import type { ExtensionStateSnapshot } from '../../background/state';
-import { PAGES_ES } from '../i18n/es';
+import { PAGES } from '../i18n';
 import type { BlockedSite } from '../shared/blocks';
 import { blockCovers, displayHost, latestCovering } from '../shared/blocks';
 import {
@@ -91,7 +91,7 @@ export function blockedSubject(
     const host = displayHost(info.host);
     return { name: host, inlineName: host, known: true };
   }
-  const b = PAGES_ES.blocked;
+  const b = PAGES.blocked;
   return { name: b.unknownName, inlineName: b.unknownInlineName, known: false };
 }
 
@@ -222,7 +222,7 @@ export interface PointsLine {
  */
 export function pointsLine(info: BlockedTabInfo | null): PointsLine | 'pending' | null {
   if (info === null) return null;
-  const b = PAGES_ES.blocked;
+  const b = PAGES.blocked;
   switch (info.status) {
     case 'reporting':
       return 'pending';
@@ -254,7 +254,7 @@ export function humorLine(
     mode: BlockMode | null;
   },
 ): string {
-  const b = PAGES_ES.blocked;
+  const b = PAGES.blocked;
   if (input.remainingMs !== null && input.remainingMs <= 0) return b.endedLine;
   const pick = <T>(lines: readonly T[]): T => {
     const i = ((Math.trunc(index) % lines.length) + lines.length) % lines.length;
@@ -345,7 +345,7 @@ const SITE_KEY = 'site';
 
 export function blockedView(input: BlockedViewInput): BlockedView {
   const { params, info, snapshot, now } = input;
-  const b = PAGES_ES.blocked;
+  const b = PAGES.blocked;
   const subject = blockedSubject(params, info);
   const block = shownBlock(params, info, snapshot);
   const endsAt = block?.endsAt ?? null;

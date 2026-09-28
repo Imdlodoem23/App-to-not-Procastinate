@@ -8,7 +8,7 @@ import type {
   ExtensionStateSnapshot,
   GuideSection,
 } from '../../background/state';
-import { PAGES_ES } from '../i18n/es';
+import { PAGES } from '../i18n';
 import { formatClock } from './format';
 
 /** Accent of a dot or a notice (`neutral`: nothing wrong, nothing to do). */
@@ -21,7 +21,7 @@ export interface ConnectionLine {
 
 /** The status dot and its text. `null` snapshot: the background did not answer. */
 export function connectionLine(state: ExtensionStateSnapshot | null): ConnectionLine {
-  const s = PAGES_ES.status;
+  const s = PAGES.status;
   if (state === null) return { tone: 'neutral', text: s.connecting };
   if (!state.paired) return { tone: 'neutral', text: s.notPaired };
   if (state.problems.includes('unauthorized')) return { tone: 'red', text: s.unauthorized };
@@ -53,14 +53,12 @@ export interface Notice {
   action: NoticeAction | null;
 }
 
-const RETRY: NoticeAction = {
-  kind: 'retry',
-  label: PAGES_ES.common.retry,
-  help: PAGES_ES.common.retryHelp,
-};
+function retry(): NoticeAction {
+  return { kind: 'retry', label: PAGES.common.retry, help: PAGES.common.retryHelp };
+}
 
 function guide(section: GuideSection, label: string): NoticeAction {
-  return { kind: 'guide', section, label, help: PAGES_ES.notices.actions.howToHelp };
+  return { kind: 'guide', section, label, help: PAGES.notices.actions.howToHelp };
 }
 
 /**
@@ -69,7 +67,7 @@ function guide(section: GuideSection, label: string): NoticeAction {
  */
 export function noticesFor(state: ExtensionStateSnapshot | null): Notice[] {
   if (state === null) return [];
-  const n = PAGES_ES.notices;
+  const n = PAGES.notices;
   const hasRules = (state.rules?.blocks.length ?? 0) > 0;
   const notices: Notice[] = [];
   for (const problem of state.problems) {
@@ -92,11 +90,11 @@ export function noticesFor(state: ExtensionStateSnapshot | null): Notice[] {
           problem,
           tone: 'orange',
           text: hasRules ? n.guardian_unreachable : n.guardian_unreachable_empty,
-          action: RETRY,
+          action: retry(),
         });
         break;
       case 'untrusted_rules':
-        notices.push({ problem, tone: 'orange', text: n.untrusted_rules, action: RETRY });
+        notices.push({ problem, tone: 'orange', text: n.untrusted_rules, action: retry() });
         break;
       case 'browser_mismatch':
         notices.push({ problem, tone: 'red', text: n.browser_mismatch, action: null });
@@ -118,7 +116,7 @@ export function noticesFor(state: ExtensionStateSnapshot | null): Notice[] {
         });
         break;
       case 'guardian_error':
-        notices.push({ problem, tone: 'orange', text: n.guardian_error, action: RETRY });
+        notices.push({ problem, tone: 'orange', text: n.guardian_error, action: retry() });
         break;
       case 'incognito_not_allowed':
         notices.push({
@@ -181,7 +179,7 @@ export function retryResult(
   checkedAt: number | null,
 ): RetryResult | null {
   if (checkedAt === null || state === null || !retryOffered(state)) return null;
-  const p = PAGES_ES.popup;
+  const p = PAGES.popup;
   const checked = p.checkedAt(formatClock(checkedAt));
   return {
     notice: p.retryStill(state.link === 'unreachable', checked),

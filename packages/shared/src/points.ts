@@ -26,6 +26,7 @@ import type {
   WireEvent,
 } from './domain';
 import { isKnownEvent } from './domain';
+import { DEFAULT_LOCALE, toLocale, type Locale } from './i18n/locale';
 
 /**
  * Version of the points rules below; recorded as `rulesVersion` in `guardian_started`,
@@ -114,8 +115,11 @@ export interface EmergencyRules {
   countdownMinutes: { normal: number; strict: number };
   /** Once ready, the unlock must be confirmed within this window or it expires. */
   confirmWindowMinutes: number;
-  /** Commitment phrase the user types by hand, per UI language. ASCII only. */
-  phrases: { es: string; en: string };
+  /**
+   * Commitment phrase the user types by hand, per UI language. ASCII only. Any language's
+   * phrase is accepted (`emergencyPhraseMatches`); the UI shows its own (`emergencyPhrase`).
+   */
+  phrases: Readonly<Record<Locale, string>>;
 }
 
 export const EMERGENCY_RULES: Readonly<EmergencyRules> = Object.freeze({
@@ -371,6 +375,14 @@ export function normalizePhrase(text: string): string {
     if (out.endsWith(' ')) out = out.slice(0, -1);
   }
   return out;
+}
+
+/** The commitment phrase shown to the user in `locale` (Spanish by default). */
+export function emergencyPhrase(
+  locale: Locale = DEFAULT_LOCALE,
+  rules: Readonly<EmergencyRules> = EMERGENCY_RULES,
+): string {
+  return rules.phrases[toLocale(locale)];
 }
 
 /** True when `typed` matches any language's emergency phrase. */
@@ -1036,33 +1048,39 @@ export interface AchievementMetrics {
 
 export type AchievementMetric = keyof AchievementMetrics;
 
+const ACHIEVEMENT_DATA = [
+  { id: 'first-session', metric: 'completedStudySessions', threshold: 1 },
+  { id: 'first-block', metric: 'completedBlocks', threshold: 1 },
+  { id: 'streak-7', metric: 'bestStreakDays', threshold: 7 },
+  { id: 'study-10h', metric: 'focusMinutesTotal', threshold: 600 },
+  { id: 'clean-week', metric: 'bestCleanDayRun', threshold: 7 },
+  { id: 'sessions-25', metric: 'completedStudySessions', threshold: 25 },
+  { id: 'streak-30', metric: 'bestStreakDays', threshold: 30 },
+  { id: 'study-50h', metric: 'focusMinutesTotal', threshold: 3000 },
+] as const;
+
+/** Stable achievement ids. */
+export type AchievementId = (typeof ACHIEVEMENT_DATA)[number]['id'];
+
 /** One achievement: reached when `metrics[metric] ≥ threshold`. Ids are stable. */
 export interface Achievement {
-  id: string;
+  id: AchievementId;
   metric: AchievementMetric;
   threshold: number;
 }
 
-/** The Logros grid, in display order (the UI maps ids to Spanish names and help lines). */
+/**
+ * The Logros grid, in display order. Names and help lines per language:
+ * `achievementText` (`@centrate/shared/i18n`).
+ */
 export const ACHIEVEMENTS: readonly Achievement[] = Object.freeze(
-  (
-    [
-      { id: 'first-session', metric: 'completedStudySessions', threshold: 1 },
-      { id: 'first-block', metric: 'completedBlocks', threshold: 1 },
-      { id: 'streak-7', metric: 'bestStreakDays', threshold: 7 },
-      { id: 'study-10h', metric: 'focusMinutesTotal', threshold: 600 },
-      { id: 'clean-week', metric: 'bestCleanDayRun', threshold: 7 },
-      { id: 'sessions-25', metric: 'completedStudySessions', threshold: 25 },
-      { id: 'streak-30', metric: 'bestStreakDays', threshold: 30 },
-      { id: 'study-50h', metric: 'focusMinutesTotal', threshold: 3000 },
-    ] as const
-  ).map((a) => Object.freeze({ ...a })),
+  ACHIEVEMENT_DATA.map((a): Achievement => Object.freeze({ ...a })),
 );
 
 /** Each achievement with its progress («la línea de ayuda dice cómo conseguirlos»). */
 export function evaluateAchievements(
   metrics: Readonly<AchievementMetrics>,
-): Array<{ id: string; achieved: boolean; current: number; threshold: number }> {
+): Array<{ id: AchievementId; achieved: boolean; current: number; threshold: number }> {
   return ACHIEVEMENTS.map((a) => {
     const current = Math.max(0, Math.trunc(metrics[a.metric]));
     return { id: a.id, achieved: current >= a.threshold, current, threshold: a.threshold };

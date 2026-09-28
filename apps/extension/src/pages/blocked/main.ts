@@ -20,7 +20,7 @@ import {
   watchBlockedTabInfo,
 } from '../../background/rules';
 import type { ExtensionStateSnapshot } from '../../background/state';
-import { PAGES_ES } from '../i18n/es';
+import { PAGES, applyDocumentLanguage } from '../i18n';
 import { createAnnouncer, startTicker } from '../shared/countdown';
 import { byId, icon, setAttr, setText, show } from '../shared/dom';
 import { extensionAvailable, getState, watchState } from '../shared/runtime';
@@ -40,11 +40,25 @@ const READY_TIMEOUT_MS = 400;
 const BACK_FALLBACK_MS = 700;
 /** While «Comprobando la hora…», ask the background again this often (besides broadcasts). */
 const CHECKING_POLL_MS = 5_000;
-/** Alt + V («Volver a lo mío») and Alt + A («Abrir YouTube»), like the app's tile mnemonics. */
-const SHORTCUTS: Readonly<Record<BlockedAction['kind'], { code: string; label: string }>> = {
-  back: { code: 'KeyV', label: 'Alt+V' },
-  open: { code: 'KeyA', label: 'Alt+A' },
-};
+interface Shortcut {
+  /** `KeyboardEvent.code` of the letter. */
+  code: string;
+  /** `aria-keyshortcuts`. */
+  label: string;
+}
+
+/**
+ * Alt + a letter of the tile's label, like the app's mnemonics: Alt + V («Volver a lo mío»)
+ * and Alt + A («Abrir YouTube»); Alt + B («Back to my work») and Alt + O («Open YouTube»).
+ */
+function shortcuts(): Readonly<Record<BlockedAction['kind'], Shortcut>> {
+  const letters = PAGES.blocked.shortcuts;
+  const shortcut = (letter: string): Shortcut => ({
+    code: `Key${letter.toUpperCase()}`,
+    label: `Alt+${letter.toUpperCase()}`,
+  });
+  return { back: shortcut(letters.back), open: shortcut(letters.open) };
+}
 
 function isFramed(): boolean {
   try {
@@ -115,7 +129,9 @@ async function openNewTabHere(): Promise<void> {
 }
 
 function main(): void {
-  const b = PAGES_ES.blocked;
+  const b = PAGES.blocked;
+  const keys = shortcuts();
+  applyDocumentLanguage();
   followSystemTheme(document.documentElement);
   const framed = isFramed();
   if (framed) {
@@ -201,7 +217,7 @@ function main(): void {
     setText(backLabel, view.actionLabel);
     const opening = action.kind === 'open';
     swapIcon(backIcon, forwardIcon, opening);
-    back.setAttribute('aria-keyshortcuts', SHORTCUTS[action.kind].label);
+    back.setAttribute('aria-keyshortcuts', keys[action.kind].label);
     let help: string = b.openHelp;
     if (!opening) help = currentBackAction() === 'history' ? b.backHelpHistory : b.backHelpNewTab;
     setText(backHelp, help);
@@ -314,7 +330,7 @@ function main(): void {
   back.addEventListener('click', runAction);
   document.addEventListener('keydown', (event) => {
     if (!event.altKey || event.ctrlKey || event.metaKey) return;
-    if (event.code === SHORTCUTS[action.kind].code) {
+    if (event.code === keys[action.kind].code) {
       event.preventDefault();
       runAction();
     }

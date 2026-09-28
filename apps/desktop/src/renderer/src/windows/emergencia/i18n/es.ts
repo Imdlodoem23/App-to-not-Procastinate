@@ -39,6 +39,8 @@ export const EMERGENCIA_ES = {
 
   phrase: {
     intro: 'Escribe a mano esta frase:',
+    /** The phrase to copy, in the language's quotes. */
+    quoted: (text: string): string => `«${text}»`,
     label: 'Frase de compromiso',
     empty: 'Escríbela tú: pegar no vale',
     typing: 'Sigue escribiendo…',

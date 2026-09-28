@@ -44,8 +44,8 @@ export const SHARED_EN: SharedMessages = {
     short: (amount: string): string => `${amount} pts`,
   },
   templates: {
-    deberes: 'Homework 1 h',
+    deberes: 'Study 1 h',
     examen: 'Exam 3 h',
-    leer: 'Reading 30 min',
+    leer: 'Read 30 min',
   },
 };

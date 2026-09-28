@@ -89,6 +89,12 @@ export function formatClock(ms: number): string {
   return clockFormat().format(new Date(ms));
 }
 
+/** «17:42» whatever the locale: what the Spanish parser reads back from an input field. */
+export function formatClock24(ms: number): string {
+  const d = new Date(ms);
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
 /** Short weekday of `ms` without a trailing dot («jue», «Thu»). */
 export function formatWeekday(ms: number): string {
   return weekdayFormat().format(new Date(ms)).replace(/\.$/, '');

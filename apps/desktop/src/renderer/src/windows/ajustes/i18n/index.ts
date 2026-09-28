@@ -4,4 +4,7 @@ import { AJUSTES_EN } from './en';
 import { AJUSTES_ES, type AjustesMessages } from './es';
 
 export { AJUSTES_EN, AJUSTES_ES, type AjustesMessages };
-export const AJUSTES: AjustesMessages = localized<AjustesMessages>({ es: AJUSTES_ES, en: AJUSTES_EN });
+export const AJUSTES: AjustesMessages = localized<AjustesMessages>({
+  es: AJUSTES_ES,
+  en: AJUSTES_EN,
+});

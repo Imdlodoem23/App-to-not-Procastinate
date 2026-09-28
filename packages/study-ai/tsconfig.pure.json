@@ -1,0 +1,9 @@
+{
+  "$comment": "Proves the pure entry stays DOM-free: Electron main (lib ES2023, no DOM) imports it.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["node"]
+  },
+  "files": ["src/index.ts"]
+}

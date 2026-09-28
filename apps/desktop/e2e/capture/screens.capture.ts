@@ -6,7 +6,8 @@
  *
  * Run through `npm run capture -w apps/desktop` (scripts/ui-capture.mjs), which sets:
  * - `CENTRATE_CAPTURE=1` (enables this Playwright project) and `CENTRATE_CAPTURE_OUT`;
- * - optional filters `E2E_STATES`, `CENTRATE_CAPTURE_THEMES`, `CENTRATE_CAPTURE_PRESETS`.
+ * - optional filters `E2E_STATES`, `CENTRATE_CAPTURE_THEMES`, `CENTRATE_CAPTURE_PRESETS`;
+ * - optional `CENTRATE_CAPTURE_LANG=en`: the fake OS language (docs/ui/en/).
  *
  * Output, per shot, in `CENTRATE_CAPTURE_OUT` (docs/ui):
  * - `<state>-<theme>-<w>x<h>@<scale>.png`: the window the state is about (the detail window
@@ -31,6 +32,7 @@ import {
   type DisplayPresetId,
   type HarnessFixture,
 } from '../../src/shared/fixtures';
+import { isLocale } from '../../src/shared/i18n/locale';
 import type { WindowKind } from '../../src/shared/ui-state';
 import type { LaunchedApp } from '../support/app';
 import { settleWindow } from '../support/checks';
@@ -81,6 +83,8 @@ export interface CaptureEntry {
 
 const OUT = process.env['CENTRATE_CAPTURE_OUT'];
 const ANY_FONT = process.env['CENTRATE_CAPTURE_ANY_FONT'] === '1';
+const LANG_ENV = process.env['CENTRATE_CAPTURE_LANG'];
+const LANG = isLocale(LANG_ENV) ? LANG_ENV : null;
 const FONT_HELP =
   'install a family of the stack (Linux: `sudo apt-get install fonts-ubuntu`, or ' +
   'fonts-noto-core; Selawik via CENTRATE_FONT_DIRS for Windows metrics), or pass --any-font';
@@ -150,7 +154,7 @@ async function capture(
   theme: CaptureTheme,
   preset: DisplayPresetId,
 ): Promise<CaptureEntry> {
-  await app.harness.load(fixture.id, { display: preset, theme });
+  await app.harness.load(fixture.id, { display: preset, theme, ...(LANG ? { lang: LANG } : {}) });
   const kinds: WindowKind[] = fixture.window === 'main' ? ['main'] : ['detail', 'main'];
   let settled = (await settleWindow(app, 'main')).settled;
   if (fixture.window !== 'main') {

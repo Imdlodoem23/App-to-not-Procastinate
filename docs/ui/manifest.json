@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-28T04:26:05.754Z",
+  "generatedAt": "2026-09-28T12:13:26.463Z",
   "fonts": [
     {
       "family": "Ubuntu",
@@ -1900,14 +1900,14 @@
         {
           "file": "ajustes-light-1366x768@125.png",
           "window": "detail",
-          "width": 753,
-          "height": 603
+          "width": 750,
+          "height": 600
         },
         {
           "file": "ajustes-light-1366x768@125.main.png",
           "window": "main",
-          "width": 553,
-          "height": 438
+          "width": 550,
+          "height": 435
         }
       ],
       "settled": true,
@@ -2128,14 +2128,14 @@
         {
           "file": "ajustes-pairing-light-1366x768@125.png",
           "window": "detail",
-          "width": 753,
-          "height": 603
+          "width": 750,
+          "height": 600
         },
         {
           "file": "ajustes-pairing-light-1366x768@125.main.png",
           "window": "main",
-          "width": 553,
-          "height": 438
+          "width": 550,
+          "height": 435
         }
       ],
       "settled": true,
@@ -2170,14 +2170,14 @@
         {
           "file": "ajustes-delete-light-1366x768@125.png",
           "window": "detail",
-          "width": 753,
-          "height": 603
+          "width": 750,
+          "height": 600
         },
         {
           "file": "ajustes-delete-light-1366x768@125.main.png",
           "window": "main",
-          "width": 553,
-          "height": 438
+          "width": 550,
+          "height": 435
         }
       ],
       "settled": true,
@@ -2878,14 +2878,14 @@
         {
           "file": "ajustes-dark-1366x768@125.png",
           "window": "detail",
-          "width": 753,
-          "height": 603
+          "width": 750,
+          "height": 600
         },
         {
           "file": "ajustes-dark-1366x768@125.main.png",
           "window": "main",
-          "width": 553,
-          "height": 438
+          "width": 550,
+          "height": 435
         }
       ],
       "settled": true,
@@ -3106,14 +3106,14 @@
         {
           "file": "ajustes-pairing-dark-1366x768@125.png",
           "window": "detail",
-          "width": 753,
-          "height": 603
+          "width": 750,
+          "height": 600
         },
         {
           "file": "ajustes-pairing-dark-1366x768@125.main.png",
           "window": "main",
-          "width": 553,
-          "height": 438
+          "width": 550,
+          "height": 435
         }
       ],
       "settled": true,
@@ -3148,14 +3148,14 @@
         {
           "file": "ajustes-delete-dark-1366x768@125.png",
           "window": "detail",
-          "width": 753,
-          "height": 603
+          "width": 750,
+          "height": 600
         },
         {
           "file": "ajustes-delete-dark-1366x768@125.main.png",
           "window": "main",
-          "width": 553,
-          "height": 438
+          "width": 550,
+          "height": 435
         }
       ],
       "settled": true,
@@ -3856,14 +3856,14 @@
         {
           "file": "ajustes-light-1920x1080@150.png",
           "window": "detail",
-          "width": 902,
-          "height": 722
+          "width": 900,
+          "height": 720
         },
         {
           "file": "ajustes-light-1920x1080@150.main.png",
           "window": "main",
-          "width": 662,
-          "height": 524
+          "width": 660,
+          "height": 522
         }
       ],
       "settled": true,
@@ -4084,14 +4084,14 @@
         {
           "file": "ajustes-pairing-light-1920x1080@150.png",
           "window": "detail",
-          "width": 902,
-          "height": 722
+          "width": 900,
+          "height": 720
         },
         {
           "file": "ajustes-pairing-light-1920x1080@150.main.png",
           "window": "main",
-          "width": 662,
-          "height": 524
+          "width": 660,
+          "height": 522
         }
       ],
       "settled": true,
@@ -4126,14 +4126,14 @@
         {
           "file": "ajustes-delete-light-1920x1080@150.png",
           "window": "detail",
-          "width": 902,
-          "height": 722
+          "width": 900,
+          "height": 720
         },
         {
           "file": "ajustes-delete-light-1920x1080@150.main.png",
           "window": "main",
-          "width": 662,
-          "height": 524
+          "width": 660,
+          "height": 522
         }
       ],
       "settled": true,
@@ -4834,14 +4834,14 @@
         {
           "file": "ajustes-dark-1920x1080@150.png",
           "window": "detail",
-          "width": 902,
-          "height": 722
+          "width": 900,
+          "height": 720
         },
         {
           "file": "ajustes-dark-1920x1080@150.main.png",
           "window": "main",
-          "width": 662,
-          "height": 524
+          "width": 660,
+          "height": 522
         }
       ],
       "settled": true,
@@ -5062,14 +5062,14 @@
         {
           "file": "ajustes-pairing-dark-1920x1080@150.png",
           "window": "detail",
-          "width": 902,
-          "height": 722
+          "width": 900,
+          "height": 720
         },
         {
           "file": "ajustes-pairing-dark-1920x1080@150.main.png",
           "window": "main",
-          "width": 662,
-          "height": 524
+          "width": 660,
+          "height": 522
         }
       ],
       "settled": true,
@@ -5104,14 +5104,14 @@
         {
           "file": "ajustes-delete-dark-1920x1080@150.png",
           "window": "detail",
-          "width": 902,
-          "height": 722
+          "width": 900,
+          "height": 720
         },
         {
           "file": "ajustes-delete-dark-1920x1080@150.main.png",
           "window": "main",
-          "width": 662,
-          "height": 524
+          "width": 660,
+          "height": 522
         }
       ],
       "settled": true,

@@ -6,11 +6,14 @@
   "license": "MIT",
   "exports": {
     ".": "./src/index.ts",
-    "./*": "./src/*.ts"
+    "./runtime": "./src/runtime.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --passWithNoTests"
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.pure.json",
+    "test": "vitest run --passWithNoTests",
+    "demo": "vite --config demo/vite.config.ts",
+    "test:browser": "playwright test -c demo/playwright.config.ts",
+    "fetch-models": "node scripts/fetch-models.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "1.0.1"

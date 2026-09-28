@@ -7,6 +7,7 @@ import {
   makeExtensionStatus,
   type HarnessStateId,
 } from '../../../src/shared/fixtures';
+import { withLocale } from '../../../src/shared/i18n/locale';
 import type { UiState } from '../../../src/shared/ui-state';
 import { duplicateKeys } from '../../../src/renderer/src/windows/bloqueos/mnemonics';
 import type { AjustesView } from '../../../src/renderer/src/windows/ajustes/view';
@@ -47,6 +48,7 @@ function withState(
 function ajustesKeys(view: AjustesView): (string | undefined)[] {
   return [
     ...view.general.themeOptions.map((o) => o.mnemonic),
+    ...view.general.languageOptions.map((o) => o.mnemonic),
     ...view.bloqueo.modeOptions.map((o) => o.mnemonic),
     AJUSTES_KEYS.repair,
     ...view.sistema.extensions.map((e) => e.guideKey),
@@ -178,8 +180,8 @@ describe('Ajustes view per fixture', () => {
       ['Extensión en Edge', 'Sin permiso', 'extension-chromium'],
       ['Extensión en Brave', 'Falta incógnito', 'extension-incognito'],
     ]);
-    // Three «Guía…» tiles, three different keys, none taken by another tile.
-    expect(rows.map((r) => r.guideKey)).toEqual(['g', 'a', 'd']);
+    // Three «Guía…» tiles, three different keys, none taken by another tile («English» has g).
+    expect(rows.map((r) => r.guideKey)).toEqual(['a', 'd', 'j']);
     expect(duplicateKeys(ajustesKeys(view))).toEqual([]);
   });
 
@@ -274,6 +276,11 @@ describe('Ajustes Alt + letter', () => {
       ['Claro', 'c'],
       ['Oscuro', 'o'],
     ]);
+    expect(view.general.languageOptions.map((o) => [o.label, o.mnemonic])).toEqual([
+      ['Sistema', 't'],
+      ['Español', 'l'],
+      ['English', 'g'],
+    ]);
     expect(view.bloqueo.modeOptions.map((o) => o.mnemonic)).toEqual(['n', 'e', 'h']);
     expect(view.sistema.guides.map((g) => [g.label, g.mnemonic])).toEqual([
       ['Chrome y Edge', 'm'],
@@ -283,9 +290,41 @@ describe('Ajustes Alt + letter', () => {
     expect(duplicateKeys(ajustesKeys(view))).toEqual([]);
   });
 
+  it('gives every English tile its own key, a letter of its label', () => {
+    const view = withLocale('en', () => deriveAjustesView(detailState('ajustes'), NOW));
+    const keys = withLocale('en', () => ajustesKeys(view));
+    expect(view.general.languageOptions.map((o) => [o.label, o.mnemonic])).toEqual([
+      ['System', 'y'],
+      ['Español', 'p'],
+      ['English', 'e'],
+    ]);
+    for (const o of [
+      ...view.general.themeOptions,
+      ...view.general.languageOptions,
+      ...view.bloqueo.modeOptions,
+      ...view.sistema.guides,
+    ]) {
+      expect(o.label.toLowerCase(), o.label).toContain(o.mnemonic);
+    }
+    expect(duplicateKeys(keys)).toEqual([]);
+  });
+
+  it('shows the language row and saves the choice (Sistema by default)', () => {
+    const view = deriveAjustesView(detailState('ajustes'), NOW);
+    expect(view.general.language).toBe('system');
+    expect(view.general.languageOptions.map((o) => o.value)).toEqual(['system', 'es', 'en']);
+    const en = withLocale('en', () => deriveAjustesView(detailState('ajustes'), NOW));
+    expect(en.general.title).toBe('General: system theme');
+    expect(en.sistema.title).toBe('System: all good');
+  });
+
   it('keeps the description beside the tiles to one line of help per option', () => {
     const view = deriveAjustesView(detailState('ajustes'), NOW);
-    for (const o of [...view.general.themeOptions, ...view.bloqueo.modeOptions]) {
+    for (const o of [
+      ...view.general.themeOptions,
+      ...view.general.languageOptions,
+      ...view.bloqueo.modeOptions,
+    ]) {
       expect(o.help.length, o.label).toBeLessThanOrEqual(56);
     }
   });

@@ -88,7 +88,7 @@ test('a custom site behind a redirector is named on blocked.html, with its count
   expect(attempt.request.target).toEqual({ type: 'domain', value: 'www.example.org' });
   expect(attempt.response).toMatchObject({ counted: true, pointsDelta: -10 });
   await expectBlockedPage(page, {
-    service: 'example\\.org',
+    service: 'example.org',
     reason: REASON,
     minutesLeft: [24, 25],
     points: '−10 puntos',

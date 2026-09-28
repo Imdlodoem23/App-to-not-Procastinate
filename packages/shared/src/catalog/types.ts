@@ -4,7 +4,10 @@
  */
 import type { BrowserFamily } from '../domain';
 
-/** Distraction categories. Ids are stable identifiers; names are Spanish UI strings. */
+/**
+ * Distraction categories. Ids are stable identifiers; names are Spanish UI strings (English
+ * ones: `categoryName(id, 'en')`).
+ */
 export type CategoryId = 'social' | 'video' | 'games' | 'messaging' | 'shopping' | 'news';
 
 /**
@@ -15,7 +18,7 @@ export type CatalogPlatform = 'win' | 'mac' | 'linux';
 
 export interface Category {
   readonly id: CategoryId;
-  /** Spanish display name, e.g. «Redes sociales». */
+  /** Spanish display name, e.g. «Redes sociales» (any language: `categoryName`). */
   readonly name: string;
   /** Lowercase words users type for the whole category («redes», «juegos», «series»…). */
   readonly aliases: readonly string[];

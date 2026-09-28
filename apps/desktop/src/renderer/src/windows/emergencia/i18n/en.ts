@@ -28,6 +28,7 @@ export const EMERGENCIA_EN: EmergenciaMessages = {
 
   phrase: {
     intro: 'Type this phrase by hand:',
+    quoted: (text: string): string => `“${text}”`,
     label: 'Commitment phrase',
     empty: 'Type it yourself: pasting does not count',
     typing: 'Keep typing…',
