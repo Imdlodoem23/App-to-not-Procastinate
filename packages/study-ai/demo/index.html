@@ -9,9 +9,10 @@
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' ws://127.0.0.1:*; style-src 'self' 'unsafe-inline'; img-src 'self'; media-src 'self' mediastream: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' ws://127.0.0.1:*; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' mediastream: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
     <title>Céntrate · Study AI (demo local)</title>
+    <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/tokens.css" />
     <style>
       * {
@@ -75,6 +76,7 @@
         border-radius: var(--radius-md);
         min-height: var(--size-min-target);
         padding: 0 var(--space-3);
+        white-space: nowrap;
       }
       button:disabled {
         opacity: var(--disabled-opacity);
@@ -144,7 +146,7 @@
         width: 100%;
       }
       td {
-        padding: var(--space-1) 0;
+        padding: var(--space-1) var(--space-2) var(--space-1) 0;
         border-bottom: var(--size-border) solid var(--border);
         vertical-align: middle;
       }

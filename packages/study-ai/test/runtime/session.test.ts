@@ -317,6 +317,25 @@ describe('study session facade (wiring)', () => {
     await handle.stop();
   });
 
+  it('feeds the process-CPU probe to the governor, which slows the loop down', async () => {
+    const r = rig();
+    let pct = 5;
+    r.deps.cpuProbe = () => pct;
+    const f = fakeParts();
+    const handle = await startStudySessionWith(r.options(), f.parts);
+    await run(r, handle, 4_000);
+    expect(handle.report().loop?.level).toBe(1);
+    expect(handle.report().loop?.processCpuPct).toBe(5);
+    pct = 30; // measured over the 12 % limit
+    await run(r, handle, 30_000);
+    const loop = handle.report().loop;
+    expect(loop?.processCpuPct).toBe(30);
+    expect(loop?.level).toBe(4);
+    expect(loop?.overBudget).toBe(true);
+    expect(handle.report().snapshot.hints).toContain('over_budget');
+    await handle.stop();
+  });
+
   it('rejects with the CameraOpenError when the camera cannot be opened', async () => {
     const r = rig();
     r.camera.failWith = new CameraError('permission_denied');

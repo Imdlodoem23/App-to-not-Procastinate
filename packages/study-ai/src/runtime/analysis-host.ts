@@ -15,6 +15,7 @@ import type {
   AnalysisHostOptions,
   AnalysisInbound,
   AnalysisOutbound,
+  CalibrationBuildOutcome,
   CalibrationSessionHandle,
   StudySessionHandle,
 } from '../types';
@@ -49,6 +50,18 @@ const CALIBRATION_MESSAGES: ReadonlySet<AnalysisInbound['type']> = new Set([
 
 /** Starting jobs queue at most this many messages (main sends context at 1 Hz). */
 const MAX_QUEUE = 64;
+
+/**
+ * Runs a handler; an unexpected exception must not escape into the IPC listener. The job
+ * keeps running, and main notices real trouble through the reports (ticks stop advancing).
+ */
+function guarded(fn: () => void): void {
+  try {
+    fn();
+  } catch {
+    // Nothing to report through the contract; the session or calibration stays as it was.
+  }
+}
 
 export function createAnalysisHost(options: AnalysisHostOptions): AnalysisHost {
   return new Host(options);
@@ -121,13 +134,13 @@ class Host implements AnalysisHost {
     if (SESSION_MESSAGES.has(message.type)) {
       if (job.kind === 'session_starting') return this.enqueue(job.queue, message);
       if (job.kind !== 'session') return this.error('not_running');
-      this.sessionMessage(job.handle, message);
+      guarded(() => this.sessionMessage(job.handle, message));
       return;
     }
     if (CALIBRATION_MESSAGES.has(message.type)) {
       if (job.kind === 'calibration_starting') return this.enqueue(job.queue, message);
       if (job.kind !== 'calibration') return this.error('not_running');
-      this.calibrationMessage(job.handle, message);
+      guarded(() => this.calibrationMessage(job.handle, message));
     }
   }
 
@@ -266,9 +279,16 @@ class Host implements AnalysisHost {
       case 'calibration_cancel':
         handle.cancel();
         return;
-      case 'calibration_build':
-        this.post({ type: 'calibration_built', outcome: handle.build() });
+      case 'calibration_build': {
+        let outcome: CalibrationBuildOutcome;
+        try {
+          outcome = handle.build();
+        } catch {
+          outcome = { ok: false, issues: [] };
+        }
+        this.post({ type: 'calibration_built', outcome });
         return;
+      }
       case 'calibration_close':
         handle.close();
         this.job = { kind: 'idle' };

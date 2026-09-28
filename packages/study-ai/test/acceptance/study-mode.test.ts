@@ -5,10 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { serializeProfile } from '../../src/calibration/profile';
-import { AttentionEngine } from '../../src/state/engine';
-import { NoCameraObserver } from '../../src/runtime/no-camera';
 import { startStudySession } from '../../src/runtime/session';
-import { resolveStudyAiSettings } from '../../src/config';
 import type {
   AttentionEvent,
   ContextInput,
@@ -18,7 +15,6 @@ import type {
   VisionAssets,
 } from '../../src/types';
 import { profileFor } from '../calibration/fixtures';
-import { implemented } from '../helpers/implemented';
 import { PERSONAS, synthesize, type Script, type SynthTick } from '../synth';
 import { FakeCamera, FakeScheduler, FakeVision, plainFeatures, shiftFrame } from '../runtime/fakes';
 
@@ -27,20 +23,6 @@ const ASSETS: VisionAssets = {
   faceModel: { url: 'centrate-ai://assets/models/face_landmarker.task' },
   objectModel: { url: 'centrate-ai://assets/models/efficientdet_lite0_int8.tflite' },
 };
-
-const ready = implemented(() =>
-  new AttentionEngine({
-    settings: resolveStudyAiSettings(),
-    observer: new NoCameraObserver(),
-    startedAt: 0,
-  }).tick({
-    now: 0,
-    phase: 'work',
-    context: { foreground: 'study', idleMs: 0 },
-    camera: 'off',
-    frame: null,
-  }),
-);
 
 interface Run {
   events: SessionEvent[];
@@ -127,7 +109,7 @@ const attention = (run: Run): AttentionEvent[] =>
       e.type !== 'profile_updated' && e.type !== 'camera' && e.type !== 'mode',
   );
 
-describe.runIf(ready)('acceptance: calibrated persona through the facade', () => {
+describe('acceptance: calibrated persona through the facade', () => {
   it('uses the personal classifier for the calibrated camera', async () => {
     const run = await play([['screen', 20_000]]);
     const last = run.reports[run.reports.length - 1];

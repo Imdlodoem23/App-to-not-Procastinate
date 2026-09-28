@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { HeartbeatAccumulator } from '../../src/runtime/heartbeat';
-import { heartbeatState } from '../../src/state/heartbeat-state';
 import type { AttentionSnapshot, AttentionTotals, SessionReport } from '../../src/types';
-import { implemented } from '../helpers/implemented';
 
 const SNAPSHOT: AttentionSnapshot = {
   at: 0,
@@ -38,7 +36,7 @@ function report(
   };
 }
 
-describe.runIf(implemented(() => heartbeatState(SNAPSHOT)))('HeartbeatAccumulator', () => {
+describe('HeartbeatAccumulator', () => {
   it('sends deltas of the cumulative totals', () => {
     const acc = new HeartbeatAccumulator();
     acc.report(report('a', { focusedMs: 1_000, warnings: 0, ticks: 3 }), 1_000);

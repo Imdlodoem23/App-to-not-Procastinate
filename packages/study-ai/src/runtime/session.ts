@@ -134,7 +134,12 @@ export async function startStudySessionWith(
   const deps = resolveSessionDeps(options.deps);
   const resolvedParts: SessionParts = { ...DEFAULT_PARTS, ...parts };
   const session = new StudySession(options, deps, resolvedParts);
-  await session.init();
+  try {
+    await session.init();
+  } catch (error) {
+    session.release();
+    throw error;
+  }
   session.start();
   return session;
 }
@@ -312,6 +317,15 @@ class StudySession implements StudySessionHandle {
   start(): void {
     this.loop.start();
     this.scheduleReport();
+  }
+
+  /** Frees the camera and vision after a failed start. */
+  release(): void {
+    this.stopped = true;
+    this.openGeneration += 1;
+    this.dropSource();
+    this.vision?.close();
+    this.vision = null;
   }
 
   // -------------------------------------------------------------------------------------
@@ -652,10 +666,16 @@ class StudySession implements StudySessionHandle {
     const now = this.now();
     const episode = this.engine.feedbackEpisode(now);
     if (!episode.ok) return { ok: false, reason: episode.reason };
-    const learned = learnFromFeedback(profile, episode, {
-      nowIso: this.deps.nowIso(),
-      clock: this.deps.clock,
-    });
+    let learned: ReturnType<typeof learnFromFeedback>;
+    try {
+      learned = learnFromFeedback(profile, episode, {
+        nowIso: this.deps.nowIso(),
+        clock: this.deps.clock,
+      });
+    } catch {
+      // A retrain that cannot run changes nothing (and never touches strikes).
+      return { ok: false, reason: 'no_usable_frames' };
+    }
     if (!learned.ok) return { ok: false, reason: learned.reason };
 
     this.profile = learned.profile;
