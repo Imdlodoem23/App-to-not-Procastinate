@@ -21,3 +21,4 @@ web-ext-artifacts/
 apps/extension/release/
 .cache/
 .lighthouseci/
+.claude/worktrees/
