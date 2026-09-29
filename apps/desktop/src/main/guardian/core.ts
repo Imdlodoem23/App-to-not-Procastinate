@@ -527,7 +527,11 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
 
   const stubs = phase5InvokeStubs(
     () => (mode === 'harness' ? currentFixture : null),
-    () => options.clock.now(),
+    // The fixture's frozen instant in harness runs (file names, screenshots stay the same).
+    () =>
+      mode === 'harness'
+        ? (store.get().harness?.frozenNowMs ?? currentFixture?.nowMs ?? options.clock.now())
+        : options.clock.now(),
   );
   const invalid = <T>(): CommandResult<T> => fail(uiError('rejected', 'validation_failed', 422));
 

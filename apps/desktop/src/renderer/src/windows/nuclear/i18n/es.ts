@@ -36,6 +36,10 @@ export const NUCLEAR_ES = {
     counting: 'Emergencia en marcha:',
     ready: 'Emergencia lista: ábrela para confirmarla',
   },
+  /** Alt + letter of the exit (PROMPT §10: «Alt + letra en cada tile»); present in both labels. */
+  keys: {
+    exit: 'e',
+  },
 };
 
 export type NuclearMessages = Widen<typeof NUCLEAR_ES>;

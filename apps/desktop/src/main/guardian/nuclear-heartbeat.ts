@@ -4,6 +4,10 @@
  * the overlay windows publish), send `{ overlayShown: true, displays }` every 3 s. Without it
  * for 10 s the guardian relaunches the app with `--centrate-nuclear`. The heartbeat changes no
  * block or punishment; its answer only tells when Nuclear is over (then the state is re-read).
+ *
+ * `snapshot.nuclear` is republished by the overlay, not read from the windows at each beat, so
+ * every beat also asks the live windows (`overlayLive`: overlays visible, not minimised, app not
+ * hidden). None: the beat is skipped, and the guardian relaunches the app as designed.
  */
 import type {
   NuclearHeartbeatRequest,
@@ -22,6 +26,21 @@ export interface NuclearHeartbeatOptions {
   onInactive(): void;
   log(event: string, fields: LogFields): void;
   intervalMs?: number;
+  /**
+   * Overlay windows on screen right now; `null` when nothing can tell (no overlay services).
+   * Defaults to the probe the platform services register (`setNuclearOverlayProbe`).
+   */
+  overlayLive?(): number | null;
+}
+
+let overlayProbe: (() => number) | null = null;
+
+/**
+ * The platform services register the overlay's live count here (the core creates the heartbeat
+ * before them); `null` unregisters it.
+ */
+export function setNuclearOverlayProbe(probe: (() => number) | null): void {
+  overlayProbe = probe;
 }
 
 /** Whether the overlay should be beating for this snapshot. */
@@ -76,6 +95,13 @@ export class NuclearHeartbeat {
     if (displays === null || this.stopped) return;
     const interval = this.options.intervalMs ?? UI_TIMINGS.nuclearHeartbeatMs;
     if (this.inFlight) {
+      this.schedule(interval);
+      return;
+    }
+    const live = this.options.overlayLive ? this.options.overlayLive() : (overlayProbe?.() ?? null);
+    if (live === 0) {
+      // Not on screen whatever the snapshot says: no heartbeat, the guardian relaunches us.
+      this.options.log('nuclear_heartbeat_skipped', { reason: 'overlay_not_live' });
       this.schedule(interval);
       return;
     }

@@ -277,8 +277,11 @@ test('Ajustes: updates, CSV export and the first steps again', async () => {
 // Onboarding
 // ---------------------------------------------------------------------------------------
 
-async function onboarding(state: HarnessStateId): Promise<{ launched: LaunchedApp; main: Page }> {
-  const launched = await launchApp({ state, show: true });
+async function onboarding(
+  state: HarnessStateId,
+  args: string[] = [],
+): Promise<{ launched: LaunchedApp; main: Page }> {
+  const launched = await launchApp({ state, show: true, args });
   app = launched;
   const main = await launched.page('main');
   await expect(main.locator('.ob')).toBeVisible();
@@ -384,6 +387,27 @@ test('onboarding: step 5 leaves the first block typed; Enter, Enter creates it',
   const confirm = main.getByRole('button', { name: /^Bloquear hasta/ });
   await expect(confirm).toBeVisible();
   await expect(confirm).toBeFocused();
+  await main.keyboard.press('Enter');
+  await expect
+    .poll(async () => callsOf(await launched.harness.guardianCalls(), 'createBlock').length)
+    .toBe(1);
+  const created = callsOf(await launched.harness.guardianCalls(), 'createBlock')[0]?.body as {
+    targets?: { serviceIds?: string[] };
+    durationMinutes?: number;
+  };
+  expect(created.targets?.serviceIds).toEqual(['youtube']);
+  expect(created.durationMinutes).toBe(25);
+});
+
+test('onboarding in English: step 5 types the English first block and the field reads English', async () => {
+  const { launched, main } = await onboarding('onboarding-5', ['--harness-lang=en']);
+  const field = main.getByRole('textbox', { name: 'What do you want to do?' });
+  await expect(field).toHaveValue('no YouTube for 25 minutes');
+  await expect(main.getByText('Type it in Spanish', { exact: false })).toHaveCount(0);
+  await field.focus();
+  await main.keyboard.press('Enter');
+  const confirm = main.getByRole('button', { name: /^Block / });
+  await expect(confirm).toBeVisible();
   await main.keyboard.press('Enter');
   await expect
     .poll(async () => callsOf(await launched.harness.guardianCalls(), 'createBlock').length)

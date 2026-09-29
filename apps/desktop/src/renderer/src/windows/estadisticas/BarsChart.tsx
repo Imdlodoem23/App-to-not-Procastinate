@@ -8,7 +8,9 @@
  * `--control` hairline baseline and no grid or Y axis; the tallest bar carries its value, in
  * the margin above the plot, where no bar reaches. The hover and keyboard layer (Recharts'
  * accessibility layer: Tab to the chart, ← →) moves an active bar whose day and minutes the
- * window prints on the help line under the chart instead of a popup tooltip. Colors are set in
+ * window prints on the help line under the chart instead of a popup tooltip (and, for key
+ * moves, in a polite region). The focusable root is a `group` with a roledescription, not an
+ * `img`: it is interactive. Colors are set in
  * `estadisticas.css` (classes), never here.
  */
 import { useEffect } from 'react';
@@ -34,8 +36,10 @@ export interface BarsChartProps {
   maxLabel: string | null;
   /** Accessible name of the chart (its caption). */
   title: string;
-  /** The text summary beside the chart. */
+  /** Space-separated ids that describe the chart (its help line and the text summary). */
   describedBy: string;
+  /** What assistive technology calls the focusable chart («gráfico de barras»). */
+  roleDescription: string;
   height: number;
   onActiveChange(key: string | null): void;
 }
@@ -134,7 +138,8 @@ export default function BarsChart(props: BarsChartProps): React.JSX.Element {
       responsive
       margin={MARGIN}
       barCategoryGap={2}
-      role="img"
+      role="group"
+      aria-roledescription={props.roleDescription}
       title={props.title}
       aria-describedby={props.describedBy}
     >

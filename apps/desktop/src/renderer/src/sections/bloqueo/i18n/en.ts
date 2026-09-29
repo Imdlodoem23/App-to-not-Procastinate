@@ -1,7 +1,6 @@
 /**
  * English strings of section 2 «Bloqueo» (same shape as `es.ts`, `BloqueoMessages`). The
- * phrase parser only understands Spanish for now, so the field asks for Spanish and its
- * examples stay Spanish phrases.
+ * phrase parser reads English phrases in any UI locale, so the field's examples are English.
  */
 import type { BloqueoMessages } from './es';
 
@@ -34,16 +33,16 @@ export const BLOQUEO_EN: BloqueoMessages = {
 
   field: {
     label: 'What do you want to do?',
-    hint: 'Type it in Spanish for now, then press Enter',
+    hint: 'What do you want to do? Type it and press Enter',
     placeholder: (example: string): string => `e.g. ${example}`,
-    // The parser is Spanish-only: these stay Spanish phrases it fully understands.
+    // English phrases the parser fully understands (checked in the bloqueo tests).
     examples: [
-      'no veo YouTube en una hora',
-      'nada de TikTok ni Instagram durante 45 minutos',
-      'bloquea las redes sociales hasta las 20:30',
-      'sin juegos hora y media',
-      'no quiero ver Netflix 2h',
-      'nada de Twitch ni Discord 30 min',
+      'no YouTube for an hour',
+      'block TikTok and Instagram for 45 minutes',
+      'block social media until 8:30 pm',
+      'no games for an hour and a half',
+      'no Netflix for 2h',
+      'no Twitch or Discord for 30 min',
     ],
     notUnderstood: (fragments: readonly string[]): string =>
       `Not understood: ${fragments.map((f) => `“${f}”`).join(', ')}`,

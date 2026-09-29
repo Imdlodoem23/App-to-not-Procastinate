@@ -115,10 +115,12 @@ describe('language files', () => {
     }
   });
 
-  it('keeps the placeholder examples Spanish phrases in English (the parser is Spanish)', () => {
-    expect(BLOQUEO_EN.field.examples).toEqual(BLOQUEO_ES.field.examples);
-    expect(BLOQUEO_EN.field.placeholder('no veo YouTube')).toBe('e.g. no veo YouTube');
-    expect(BLOQUEO_EN.field.hint).toContain('in Spanish');
+  it('gives the English field English examples and hint (the parser reads English)', () => {
+    expect(BLOQUEO_EN.field.examples).toHaveLength(BLOQUEO_ES.field.examples.length);
+    expect(BLOQUEO_EN.field.examples[0]).toBe('no YouTube for an hour');
+    expect(BLOQUEO_EN.field.placeholder('no YouTube')).toBe('e.g. no YouTube');
+    expect(BLOQUEO_EN.field.hint).toBe('What do you want to do? Type it and press Enter');
+    expect(BLOQUEO_EN.field.hint).not.toContain('Spanish');
     expect(BLOQUEO_ES.field.placeholder('no veo YouTube')).toBe('no veo YouTube');
   });
 });

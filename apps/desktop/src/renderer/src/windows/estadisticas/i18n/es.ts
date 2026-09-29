@@ -128,6 +128,10 @@ export const ESTADISTICAS_ES = {
         : `${when}: ${duration}`,
     /** Resting help line under the chart. */
     hint: 'Pasa el ratón por una barra, o usa las flechas, para ver sus minutos',
+    /** Help line when the chart could not be drawn (its chunk or Recharts failed). */
+    unavailable: 'No se ha podido dibujar el gráfico; el resumen de al lado tiene las cifras',
+    /** What screen readers call the focusable chart (instead of «imagen» or «aplicación»). */
+    roleDescription: 'gráfico de barras',
     none: 'Sin tiempo concentrado en este periodo',
     /** Screen-reader table beside the chart. */
     table: {

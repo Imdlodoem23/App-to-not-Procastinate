@@ -212,8 +212,48 @@ describe('Linux X11 through xprop', () => {
   });
 });
 
+describe('macOS Screen Recording permission', () => {
+  /** koffi with only what `darwin.ts` binds; Screen Recording never granted in-process. */
+  function fakeKoffi(calls: string[]): Parameters<typeof createForegroundReader>[0]['loadKoffi'] {
+    const lib = {
+      func: (definition: string) => {
+        const name = /\b(\w+)\(/.exec(definition)?.[1] ?? definition;
+        return (..._args: unknown[]): unknown => {
+          calls.push(name);
+          return name.startsWith('CG') && name.endsWith('Access') ? false : null;
+        };
+      },
+    };
+    return async () => ({ load: () => lib }) as never;
+  }
+
+  it('the first ask only shows the system prompt; Settings open when asked again', async () => {
+    const calls: string[] = [];
+    const opened: Array<[string, readonly string[]]> = [];
+    const reader = createForegroundReader({
+      platform: 'darwin',
+      env: {},
+      exec: async (file, args): Promise<ExecResult> => {
+        opened.push([file, args]);
+        return { code: 0, stdout: '', stderr: '', error: null };
+      },
+      loadKoffi: fakeKoffi(calls),
+    });
+    expect(await reader.requestPermission()).toBe('opened-settings');
+    expect(calls).toContain('CGRequestScreenCaptureAccess');
+    expect(opened).toEqual([]);
+    expect(await reader.requestPermission()).toBe('opened-settings');
+    expect(opened).toHaveLength(1);
+    expect(opened[0]?.[0]).toBe('/usr/bin/open');
+    expect(calls.filter((c) => c === 'CGRequestScreenCaptureAccess')).toHaveLength(1);
+  });
+});
+
 describe('the layer', () => {
-  function setup(reads: ForegroundRead[]) {
+  function setup(
+    reads: ForegroundRead[],
+    permission: ForegroundReader['requestPermission'] = async () => 'granted',
+  ) {
     const clock = createManualClock(NOW);
     const reports: string[] = [];
     const statuses: ActiveWindowStatus[] = [];
@@ -224,7 +264,7 @@ describe('the layer', () => {
         readsDone += 1;
         return reads[Math.min(i++, reads.length - 1)] ?? { kind: 'none' };
       },
-      requestPermission: async () => 'granted',
+      requestPermission: permission,
     };
     const response = (blocked: boolean, counted: boolean): AttemptResponse => ({
       blocked,
@@ -319,5 +359,23 @@ describe('the layer', () => {
     expect(t.reads()).toBe(2);
     expect(await t.layer.requestPermission()).toBe('granted');
     expect(t.layer.current().status).toBe('ok');
+  });
+
+  it('stops polling once the user was sent to grant it (macOS applies it after a relaunch)', async () => {
+    const t = setup([{ kind: 'needs-permission' }], async () => 'opened-settings');
+    t.layer.sync(youtubeBlock, true);
+    await run(t.clock, 10_000);
+    expect(t.reads()).toBe(1);
+    expect(t.layer.needsRestart()).toBe(false);
+    expect(await t.layer.requestPermission()).toBe('opened-settings');
+    expect(t.layer.needsRestart()).toBe(true);
+    await run(t.clock, 120_000);
+    expect(t.reads()).toBe(1);
+    expect(t.layer.current().status).toBe('needs-permission');
+    // The next block start reads once more, then stays quiet.
+    t.layer.sync(null, true);
+    t.layer.sync(youtubeBlock, true);
+    await run(t.clock, 120_000);
+    expect(t.reads()).toBe(2);
   });
 });

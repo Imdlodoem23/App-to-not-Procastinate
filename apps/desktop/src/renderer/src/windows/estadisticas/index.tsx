@@ -28,13 +28,26 @@ import {
   RotateCcw,
   ScrollText,
 } from 'lucide-react';
-import { Suspense, lazy, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  Component,
+  use,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ErrorInfo,
+  type ReactNode,
+} from 'react';
 import { Bar, HelpLine, Icon, Section, Segmented, Tile, TileRow } from '../../components';
 import { RENDERER } from '../../i18n/messages';
 import { useAppStore } from '../../store/context';
 import { useLocaleSwitch } from '../../app/Localized';
+import { reportError } from '../../app/errors';
+import type { CentrateBridge } from '../../../../shared/ipc';
 import type { DetailRequest } from '../../../../shared/ui-state';
 import { Announcer } from './announcer';
+import type { BarsChartProps } from './BarsChart';
 import { Heatmap } from './Heatmap';
 import { ESTADISTICAS } from './i18n';
 import { useEstadisticas, type EstadisticasApi } from './useEstadisticas';
@@ -57,10 +70,58 @@ import './estadisticas.css';
 
 const E = ESTADISTICAS;
 
-/** Recharts and the chart: fetched when the first chart is drawn, not with the window. */
-const BarsChart = lazy(() => import('./BarsChart'));
+type BarsChartComponent = (props: BarsChartProps) => React.JSX.Element;
 
-/** Plot + value label + X axis, in CSS px (the Suspense stand-in keeps the same box). */
+/**
+ * Recharts and the chart live in their own chunk, fetched when the window first opens (not with
+ * the prefetched view, nor with the app). The view suspends until it is here, so the detail
+ * window's `window:ready` (its `ReadyProbe` shares the view's `Suspense`) never precedes the
+ * bars: no capture, and no cold open, shows an empty plot under a help line about bars. A chunk
+ * that fails to load resolves to `null`: the window stays up with the summary and the table.
+ * `undefined` = not loaded yet.
+ */
+let barsChart: BarsChartComponent | null | undefined;
+let barsLoad: Promise<BarsChartComponent | null> | null = null;
+
+function loadBarsChart(): Promise<BarsChartComponent | null> {
+  barsLoad ??= import('./BarsChart').then(
+    (module) => (barsChart = module.default),
+    () => (barsChart = null),
+  );
+  return barsLoad;
+}
+
+/** The chart component, suspending (once per renderer) while its chunk loads. */
+function useBarsChart(): BarsChartComponent | null {
+  return barsChart !== undefined ? barsChart : use(loadBarsChart());
+}
+
+/**
+ * A render error inside Recharts costs the chart only, never the window (the window-wide
+ * ErrorBoundary would replace everything with «Recargar»): it is reported to main's log like
+ * any renderer error and the block keeps its summary and table.
+ */
+class ChartBoundary extends Component<
+  { bridge: CentrateBridge | null; onError(): void; children: ReactNode },
+  { failed: boolean }
+> {
+  override state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  override componentDidCatch(error: unknown, info: ErrorInfo): void {
+    reportError(this.props.bridge, error, info.componentStack ?? null);
+    this.props.onError();
+  }
+
+  override render(): ReactNode {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
+/** Plot + value label + X axis, in CSS px. */
 const CHART_HEIGHT = 136;
 
 function NavTile(props: { tile: NavTileView; onPress(): void }): React.JSX.Element {
@@ -98,30 +159,84 @@ function Summary(props: { items: readonly SummaryItemView[] }): React.JSX.Elemen
   );
 }
 
-function ChartBlock(props: { chart: ChartView; stale: boolean }): React.JSX.Element {
-  const { chart } = props;
+/** Keys with which Recharts' accessibility layer moves the active bar. */
+const CHART_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'Home', 'End']);
+
+function ChartBlock(props: {
+  chart: ChartView;
+  stale: boolean;
+  Chart: BarsChartComponent | null;
+}): React.JSX.Element {
+  const { chart, Chart } = props;
+  const bridge = useAppStore((s) => s.bridge);
   const [activeKey, setActiveKey] = useState<string | null>(null);
-  const onActiveChange = useCallback((key: string | null) => setActiveKey(key), []);
-  const active = activeKey ? chart.bars.find((b) => b.key === activeKey) : undefined;
+  const [crashed, setCrashed] = useState(false);
+  const onChartError = useCallback(() => {
+    setCrashed(true);
+    setActiveKey(null);
+  }, []);
+  const drawn = Chart !== null && !crashed;
+  // The polite region speaks only bars reached with the keys, never pointer hover (the same rule
+  // as TileRow's RowAnnouncer); `seq` makes a repeated readout speak again.
+  const [spoken, setSpoken] = useState<{ key: string; seq: number } | null>(null);
+  const viaKeys = useRef(false);
+  const onActiveChange = useCallback((key: string | null) => {
+    setActiveKey(key);
+    if (key !== null && viaKeys.current) {
+      setSpoken((last) => ({ key, seq: (last?.seq ?? 0) + 1 }));
+    }
+  }, []);
+  const onKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (CHART_KEYS.has(e.key)) viaKeys.current = true;
+  }, []);
+  const onPointer = useCallback(() => {
+    viaKeys.current = false;
+  }, []);
+  // The pointer left the plot: the help line goes back to its hint whatever Recharts' own
+  // mouseleave does (or when it runs); a key press inside the chart sets the active bar again.
+  const onPointerLeave = useCallback(() => {
+    viaKeys.current = false;
+    setActiveKey(null);
+  }, []);
+  const onBlur = useCallback(() => {
+    viaKeys.current = false;
+    setSpoken(null);
+  }, []);
+  const active = drawn && activeKey ? chart.bars.find((b) => b.key === activeKey) : undefined;
+  const help = !drawn ? E.chart.unavailable : active ? active.readout : chart.hint;
+  const spokenBar = spoken ? chart.bars.find((b) => b.key === spoken.key) : undefined;
   return (
     <div className="est-chart-row" data-stale={props.stale ? '' : undefined}>
       <figure className="est-figure">
-        <div className="est-chart-frame" style={{ height: CHART_HEIGHT }}>
-          <Suspense fallback={null}>
-            <BarsChart
-              bars={chart.bars}
-              ticks={chart.ticks}
-              tickLabels={chart.tickLabels}
-              maxKey={chart.maxKey}
-              maxLabel={chart.maxLabel}
-              title={chart.caption}
-              describedBy={EST_IDS.summary}
-              height={CHART_HEIGHT}
-              onActiveChange={onActiveChange}
-            />
-          </Suspense>
-        </div>
-        <HelpLine id={EST_IDS.chartHelp}>{active ? active.readout : chart.hint}</HelpLine>
+        {drawn ? (
+          <div
+            className="est-chart-frame"
+            style={{ height: CHART_HEIGHT }}
+            onKeyDownCapture={onKeyDown}
+            onPointerMove={onPointer}
+            onPointerLeave={onPointerLeave}
+            onBlur={onBlur}
+          >
+            <ChartBoundary bridge={bridge} onError={onChartError}>
+              <Chart
+                bars={chart.bars}
+                ticks={chart.ticks}
+                tickLabels={chart.tickLabels}
+                maxKey={chart.maxKey}
+                maxLabel={chart.maxLabel}
+                title={chart.caption}
+                describedBy={`${EST_IDS.chartHelp} ${EST_IDS.summary}`}
+                roleDescription={E.chart.roleDescription}
+                height={CHART_HEIGHT}
+                onActiveChange={onActiveChange}
+              />
+            </ChartBoundary>
+          </div>
+        ) : null}
+        <span id={EST_IDS.chartLive} className="sr-only" aria-live="polite" aria-atomic="true">
+          {spoken && spokenBar ? <span key={spoken.seq}>{spokenBar.readout}</span> : null}
+        </span>
+        <HelpLine id={EST_IDS.chartHelp}>{help}</HelpLine>
         <table id={EST_IDS.table} className="sr-only">
           <caption>{chart.table.caption}</caption>
           <thead>
@@ -357,6 +472,7 @@ function focusDoorTarget(empty: boolean): void {
 }
 
 export default function EstadisticasWindow(): React.JSX.Element {
+  const Chart = useBarsChart();
   const api = useEstadisticas();
   const request = useAppStore((s) => (s.env.detail?.name === 'estadisticas' ? s.env.detail : null));
   const { overview, heatmap, points, today, studyEnabled } = api;
@@ -405,7 +521,7 @@ export default function EstadisticasWindow(): React.JSX.Element {
           {api.overviewFailed || !chart ? (
             <ErrorRow api={api} />
           ) : (
-            <ChartBlock chart={chart} stale={api.stale} />
+            <ChartBlock chart={chart} stale={api.stale} Chart={Chart} />
           )}
         </Section>
         {heat ? (

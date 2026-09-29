@@ -24,6 +24,7 @@ import type { HarnessStateId } from '../src/shared/fixtures';
 import type { SurfaceKind } from '../src/shared/ui-state';
 import { launchApp, type LaunchedApp } from './support/app';
 import { axeViolations, formatViolations, probeLayout } from './support/checks';
+import { auditKeyboard, auditProblems } from './support/keyboard';
 import { expect, test } from './support/test';
 
 let app: LaunchedApp | null = null;
@@ -136,6 +137,7 @@ for (const theme of ['light', 'dark'] as const) {
 
     await expectNoClipping(page);
     await expectAxeClean(page);
+    expect(auditProblems(await auditKeyboard(page))).toEqual([]);
   });
 }
 
@@ -180,6 +182,7 @@ test('OSD: black 60 % pill, radius 8, white 28 px at 600, centred', async () => 
 
   await expectNoClipping(page);
   await expectAxeClean(page);
+  expect(auditProblems(await auditKeyboard(page))).toEqual([]);
 });
 
 for (const theme of ['light', 'dark'] as const) {
@@ -229,11 +232,14 @@ for (const theme of ['light', 'dark'] as const) {
 
     await expectNoClipping(page);
     await expectAxeClean(page);
+    expect(auditProblems(await auditKeyboard(page))).toEqual([]);
+    await expect(exit).toHaveAttribute('aria-keyshortcuts', 'Alt+E');
 
     // First press: «¿Seguro?», the price in red on the help line; nothing opens yet.
     const help = page.locator('#nuclear-exit-help');
     await expect(help).toHaveText('Abre el desbloqueo de emergencia: espera de 30 min');
-    await exit.click();
+    // Alt + E presses it like a click (PROMPT §10: «Alt + letra en cada tile»).
+    await page.keyboard.press('Alt+E');
     await expect(exit).toHaveText('¿Seguro? Salida de emergencia');
     await expect(help).toHaveText('Perderás 547 puntos y tu racha de 5 días · espera de 30 min');
     await expect(help).toHaveAttribute('data-tone', 'red');

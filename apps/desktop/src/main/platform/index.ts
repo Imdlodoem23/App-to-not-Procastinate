@@ -24,6 +24,7 @@ import { basename, join } from 'node:path';
 import { app, dialog, type BrowserWindow } from 'electron';
 import type { Core, PlatformServices } from '../contracts';
 import { featureEnabled } from '../../shared/features';
+import { onLocaleChange } from '../../shared/i18n/locale';
 import {
   harnessLoad as fixtureHarnessLoad,
   fixtureSurface,
@@ -58,6 +59,7 @@ import { LocalStats, StatsReader, eventsDbFileName } from '../db/stats';
 import { localDayOf } from '../db/stats-compute';
 import { fileSeenStore, type SeenStore } from '../db/stats-seen';
 import { mockGuardianEnabled } from '../guardian/mock';
+import { setNuclearOverlayProbe } from '../guardian/nuclear-heartbeat';
 import { ShortcutController } from '../shortcuts';
 import type { ExecRunner } from '../system/exec';
 import {
@@ -70,6 +72,7 @@ import {
 import type { DisplaySource } from '../windows/display-source';
 import { MiniTimerWindow } from '../windows/mini-timer';
 import { NuclearOverlay } from '../windows/nuclear';
+import { type CloakProbe, loadCloakProbe } from '../windows/nuclear-cloak';
 import { nuclearRecheckDelay, nuclearTrusted } from '../windows/nuclear-lock';
 import { OsdWindow } from '../windows/osd';
 import type { WindowShell } from '../windows/shell';
@@ -125,9 +128,22 @@ export interface PlatformHost extends PlatformServices {
   refuseQuit(): void;
   /** Tray «Salida de emergencia…»: like the overlay's button (`nuclear:emergency-exit`). */
   emergencyExit(): void;
+  /**
+   * The guardian relaunched the app (`--centrate-nuclear`) while it still runs: heartbeats
+   * stopped, so the overlay was not live. Makes the overlay windows again (or looks at the
+   * snapshot again when they are off); never shows the main window.
+   */
+  nuclearRelaunch(): void;
 }
 
 const MAIN_CTX = { window: 'main' } as const;
+
+/** The surface's window title in the active locale (the OSD never takes the focus: none). */
+export function surfaceTitle(kind: SurfaceKind): string {
+  if (kind === 'mini-timer') return PLATFORM.surfaceTitles.miniTimer;
+  if (kind === 'nuclear') return PLATFORM.surfaceTitles.nuclear;
+  return '';
+}
 /** How often the progress is recomputed while the local copy lags the guardian's log. */
 const PROGRESS_RETRY_MS = 2_000;
 const PROGRESS_RETRIES = 5;
@@ -157,12 +173,21 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
   /** Readiness of the surface renderers by `webContents` id (harness `openSurface`). */
   const ready = new Map<number, string | null>();
   const create: typeof baseCreate = (kind, extra) => {
-    const win = baseCreate(kind, extra);
+    // A named window for screen readers (WCAG 2.4.2): the overlay takes the focus.
+    const win = baseCreate(kind, { ...extra, title: surfaceTitle(kind) });
     const id = win.webContents.id;
     // A destroyed surface (the Nuclear overlay after the punishment) is forgotten.
     win.on('closed', () => ready.delete(id));
     return win;
   };
+
+  // The titles follow the language, like the detail window's.
+  const offLocale = onLocaleChange(() => {
+    for (const kind of ['mini-timer', 'osd', 'nuclear'] as const) {
+      const title = surfaceTitle(kind);
+      for (const win of windowsOf(kind)) if (win.getTitle() !== title) win.setTitle(title);
+    }
+  });
 
   const push = <C extends PushChannel>(
     win: BrowserWindow,
@@ -188,6 +213,14 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
     isQuitting: () => options.isQuitting(),
   });
   const osd = new OsdWindow({ create, displays: options.displays, onVisibility });
+  /** Windows: DWM cloak state (another virtual desktop), loaded lazily in real runs. */
+  let cloakProbe: CloakProbe | null = null;
+  if (live && options.platform === 'win32') {
+    void loadCloakProbe(options.platform).then((probe) => {
+      cloakProbe = probe;
+      if (!probe) log.warn('nuclear_cloak_probe_unavailable', {});
+    });
+  }
   const nuclear = new NuclearOverlay({
     create,
     displays: options.displays,
@@ -201,7 +234,13 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
     log: (event, fields) => log.info(event, fields),
     isQuitting: () => options.isQuitting(),
     keepFocus: () => emergencyRaised() !== null,
+    cloaked: (win) => cloakProbe?.(win) ?? false,
+    ...(options.platform === 'darwin'
+      ? { appHidden: () => app.isHidden(), showApp: () => app.show() }
+      : {}),
   });
+  // Each heartbeat asks the live windows, not only the last published status.
+  if (live) setNuclearOverlayProbe(() => nuclear.liveCount());
   options.theme.onChange(() => nuclear.setBackground(options.theme.backgroundColor()));
 
   const surfaceWindows = (): BrowserWindow[] =>
@@ -271,6 +310,8 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
   };
   app.on('browser-window-focus', onWindowFocus);
   app.on('browser-window-created', onWindowCreated);
+  // Another view in a visible detail window (no show or focus event then).
+  const offDetailChange = shell.onDetailChange(() => syncEmergencyRaise());
 
   let nuclearTimer: ReturnType<typeof setTimeout> | null = null;
   function syncSurfaces(snapshot: UiSnapshot): void {
@@ -310,9 +351,18 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
     return nuclearTrusted(snapshot, snapshotNow(snapshot));
   }
 
+  function nuclearRelaunch(): void {
+    if (disposed) return;
+    const active = nuclear.isActive();
+    log.info('nuclear_relaunch_received', { active, live: nuclear.liveCount() });
+    if (active) nuclear.relaunch();
+    // Off (stale or untrusted data): the fresh state the bootstrap asked for decides.
+    else syncSurfaces(core.getSnapshot());
+  }
+
   function refuseQuit(): void {
     log.info('quit_refused_nuclear', {});
-    showOsd({ text: PLATFORM.osd.nuclearQuit, icon: 'warning', tone: 'red' });
+    showOsd({ text: PLATFORM.osd.nuclearQuit, icon: 'warning', tone: 'neutral' });
   }
 
   // -------------------------------------------------------------------------------------
@@ -513,8 +563,11 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
   let progressTimer: ReturnType<typeof setTimeout> | null = null;
   let progressRetries = 0;
 
+  let progressRanAt = Number.NEGATIVE_INFINITY;
+
   function computeProgress(): void {
     progressTimer = null;
+    progressRanAt = Date.now();
     const snapshot = core.getSnapshot();
     const state = snapshot.state;
     if (!stats || !state || disposed) return;
@@ -551,8 +604,14 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
     const key = `${state.epoch}:${state.lastEventSeq}:${t.focusMinutes}:${t.goalMinutes}`;
     if (key === progressKey) return;
     progressKey = key;
-    if (progressTimer) clearTimeout(progressTimer);
-    progressTimer = setTimeout(computeProgress, 300);
+    // Already planned: it reads the latest log when it runs. A stream of events (each one a
+    // new `lastEventSeq`) costs one computation every few seconds, not one per event.
+    if (progressTimer) return;
+    const wait = Math.max(
+      PROGRESS_DEBOUNCE_MS,
+      progressRanAt + PROGRESS_MIN_INTERVAL_MS - Date.now(),
+    );
+    progressTimer = setTimeout(computeProgress, wait);
   }
 
   /** Runs a local-data answer; any exception becomes a `CommandResult` failure. */
@@ -645,17 +704,21 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
         guarded('updater_failed', () => updater?.check() ?? core.getSnapshot().updater),
       'updater:download': () =>
         guarded('updater_failed', () => updater?.download() ?? core.getSnapshot().updater),
-      'updater:install': () => {
-        // Restarting would drop the overlay until the guardian relaunches the app.
-        if (nuclearLocked()) {
-          log.info('updater_install_refused', { reason: 'nuclear_active' });
-          return fail(uiError('rejected', 'nuclear_active', 409));
-        }
-        return guarded('updater_failed', () => updater?.install() ?? core.getSnapshot().updater);
-      },
+      'updater:install': () =>
+        guarded('updater_failed', () => updater?.install() ?? core.getSnapshot().updater),
     } satisfies Partial<Omit<InvokeHandlers, 'app:init'>>);
   }
   Object.assign(core.handlers, handlers);
+  // «Reiniciar para actualizar» would drop the overlay until the guardian relaunches the app:
+  // refused while Nuclear lasts, in every run (the harness's stub answers otherwise).
+  const install = core.handlers['updater:install'];
+  core.handlers['updater:install'] = (req, ctx) => {
+    if (nuclearLocked()) {
+      log.info('updater_install_refused', { reason: 'nuclear_active' });
+      return fail(uiError('rejected', 'nuclear_active', 409));
+    }
+    return install(req, ctx);
+  };
 
   // -------------------------------------------------------------------------------------
   // Send channels
@@ -735,6 +798,10 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
     extendPrimary,
     toggleMiniTimer,
     surfaceWindows,
+    nuclearLocked,
+    refuseQuit,
+    emergencyExit,
+    nuclearRelaunch,
     dispose(): void {
       if (disposed) return;
       disposed = true;
@@ -742,6 +809,12 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
       unsubscribe = null;
       if (osdTimer) clearTimeout(osdTimer);
       if (progressTimer) clearTimeout(progressTimer);
+      if (nuclearTimer) clearTimeout(nuclearTimer);
+      offDetailChange();
+      offLocale();
+      if (live) setNuclearOverlayProbe(null);
+      app.off('browser-window-focus', onWindowFocus);
+      app.off('browser-window-created', onWindowCreated);
       updater?.dispose();
       shortcuts.dispose();
       stats?.close();

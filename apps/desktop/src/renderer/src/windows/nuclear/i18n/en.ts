@@ -24,4 +24,7 @@ export const NUCLEAR_EN: NuclearMessages = {
     counting: 'Emergency under way:',
     ready: 'Emergency ready: open it to confirm',
   },
+  keys: {
+    exit: 'e',
+  },
 };

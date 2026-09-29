@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { parseIntent } from '@centrate/shared/parser';
 import { FEATURES } from '../../../src/shared/features';
-import { HARNESS_NOW, harnessFixture, type HarnessStateId } from '../../../src/shared/fixtures';
+import {
+  HARNESS_NOW,
+  fixtureInLocale,
+  harnessFixture,
+  type HarnessStateId,
+} from '../../../src/shared/fixtures';
 import { withLocale } from '../../../src/shared/i18n/locale';
 import { ONBOARDING_STEPS } from '../../../src/shared/prefs';
 import { RENDERER } from '../../../src/renderer/src/i18n/messages';
@@ -155,6 +160,12 @@ describe('Onboarding fixtures', () => {
   it('5: the first block, already typed', () => {
     const fixture = harnessFixture('onboarding-5');
     expect(fixture.main.composer.text).toBe(firstBlockPhrase());
+    // The English capture shows the English phrase the real step 5 types.
+    for (const locale of ['es', 'en'] as const) {
+      expect(fixtureInLocale(fixture, locale).main.composer.text).toBe(
+        withLocale(locale, firstBlockPhrase),
+      );
+    }
     const view = viewOf('onboarding-5');
     expect(view.title).toBe('Primer bloqueo · paso 5 de 5');
     expect(view.field).toBe(true);

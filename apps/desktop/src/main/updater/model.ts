@@ -70,7 +70,8 @@ export function afterCheck(
 ): UpdaterState {
   if (found !== null && isNewerVersion(found, currentVersion)) {
     // A download of the same version that already finished stays ready.
-    if (prev.status === 'ready' && prev.version === found) return { ...prev, checkedAt: nowMs };
+    if (prev.status === 'ready' && prev.version === found)
+      return { ...prev, checkedAt: nowMs, error: null };
     return { status: 'available', version: found, percent: null, checkedAt: nowMs, error: null };
   }
   return { status: 'current', version: null, percent: null, checkedAt: nowMs, error: null };
@@ -85,6 +86,15 @@ export function withError(prev: UpdaterState, code: string, nowMs: number): Upda
     checkedAt: prev.status === 'checking' ? nowMs : prev.checkedAt,
     error: code,
   };
+}
+
+/**
+ * A failed check while a version is already `available` or `ready` (files in electron-updater's
+ * cache): the status and version stay, the error code is only recorded. Turning it into
+ * `error` would drop «Reiniciar para actualizar» whenever a periodic check runs offline.
+ */
+export function checkFailedKeeping(prev: UpdaterState, code: string, nowMs: number): UpdaterState {
+  return { ...prev, checkedAt: nowMs, error: code };
 }
 
 export function unsupportedState(): UpdaterState {

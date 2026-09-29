@@ -6,6 +6,11 @@
  * computed by the pure `stats-compute.ts`). The schema stays the events module's: nothing here
  * writes or migrates.
  *
+ * The whole log (achievements, goal days, the log's lookups, the CSV) is cached and grows
+ * incrementally: a new event reads only the rows after the last one cached (primary key
+ * `(epoch, seq)`), and derived sets extend with them. A new epoch (data deletion) or a count
+ * that does not add up rebuilds it.
+ *
  * Harness runs never open it (fixtures answer from `fixture.local`); the dev mock guardian
  * syncs into its own file (`MOCK_EVENTS_DB_FILE`) so its statistics are real too.
  */
@@ -28,12 +33,13 @@ import {
   computeOverview,
   currentEpochRows,
   dayRows,
-  goalMetDays,
+  extendLogLookups,
+  goalDaysReplay,
   heatmapPeriod,
   logEntry,
   logIsEmpty,
-  logLookups,
   overviewDayRange,
+  type GoalDaysReplay,
   type LogLookups,
   type StoredEvent,
 } from './stats-compute';
@@ -96,6 +102,7 @@ export class StatsReader {
   private readonly selectCount: StatementSync;
   private readonly selectRange: StatementSync;
   private readonly selectAll: StatementSync;
+  private readonly selectAfter: StatementSync;
   private readonly selectLookups: StatementSync;
 
   private constructor(private readonly db: DatabaseSync) {
@@ -105,6 +112,9 @@ export class StatsReader {
       `SELECT ${COLUMNS} FROM events WHERE day >= ? AND day <= ? ORDER BY epoch, seq`,
     );
     this.selectAll = db.prepare(`SELECT ${COLUMNS} FROM events ORDER BY seq`);
+    this.selectAfter = db.prepare(
+      `SELECT ${COLUMNS} FROM events WHERE epoch = ? AND seq > ? ORDER BY seq`,
+    );
     this.selectLookups = db.prepare(
       `SELECT ${COLUMNS} FROM events WHERE type IN ('block_created', 'schedule_created', 'schedule_updated') ORDER BY seq`,
     );
@@ -142,6 +152,11 @@ export class StatsReader {
 
   all(): StoredEvent[] {
     return (this.selectAll.all() as Array<Record<string, unknown>>).map(toStored);
+  }
+
+  /** Rows of `epoch` after `seq`, oldest first. */
+  after(epoch: string, seq: number): StoredEvent[] {
+    return (this.selectAfter.all(epoch, seq) as Array<Record<string, unknown>>).map(toStored);
   }
 
   lookupRows(): StoredEvent[] {
@@ -187,16 +202,36 @@ export interface LocalStatsOptions {
   csvNames(): Readonly<Record<CsvExportKind, string>>;
 }
 
+/** The whole log and what is derived from all of it. */
+interface WholeLog {
+  /** The cursor epoch the rows were read for. */
+  epoch: string | null;
+  /** Highest `seq` held. */
+  lastSeq: number;
+  all: StoredEvent[];
+  replay: GoalDaysReplay;
+  metDays: Set<LocalDay>;
+  empty: boolean;
+  lookups: LogLookups;
+  /** Bumped whenever rows are added (memoised answers below key on it). */
+  version: number;
+}
+
 /** What `stats:*` and `achievements:list` answer in a real (or dev mock) run. */
 export class LocalStats {
   private reader: StatsReader | null = null;
   private cacheKey = '';
-  private cache: {
-    all: StoredEvent[];
-    metDays: Set<LocalDay>;
-    empty: boolean;
-    lookups: LogLookups;
+  private cache: WholeLog | null = null;
+  private versions = 0;
+  /** Answers derived from the current epoch's rows, for `cache.version`. */
+  private epochMemo: {
+    version: number;
+    rows: StoredEvent[];
+    achievements: AchievementStatus[] | null;
+    events: WireEvent[] | null;
   } | null = null;
+  /** Rows read since construction (tests: incremental reads stay small). */
+  rowsRead = 0;
 
   constructor(private readonly options: LocalStatsOptions) {}
 
@@ -205,21 +240,71 @@ export class LocalStats {
     return this.reader;
   }
 
-  /** The whole log and what is derived from all of it, recomputed only when the log changed. */
-  private whole(): NonNullable<LocalStats['cache']> {
+  /**
+   * The whole log and what is derived from all of it. Unchanged cursor and count: the cache.
+   * Same epoch and more rows: only the new rows are read and folded in. Anything else (a new
+   * epoch, fewer rows, rows that do not add up): rebuilt from scratch.
+   */
+  private whole(): WholeLog {
     const db = this.db();
     const cursor = db.cursor();
-    const key = `${cursor.epoch ?? ''}:${cursor.lastSeq}:${db.count()}`;
+    const count = db.count();
+    const key = `${cursor.epoch ?? ''}:${cursor.lastSeq}:${count}`;
     if (this.cache && key === this.cacheKey) return this.cache;
+    const cache = this.cache;
+    if (
+      cache &&
+      cursor.epoch !== null &&
+      cache.epoch === cursor.epoch &&
+      count > cache.all.length
+    ) {
+      const added = db.after(cursor.epoch, cache.lastSeq);
+      this.rowsRead += added.length;
+      if (cache.all.length + added.length === count) {
+        for (const row of added) cache.all.push(row);
+        cache.replay.add(added);
+        cache.empty = cache.empty && logIsEmpty(added);
+        extendLogLookups(cache.lookups, added);
+        cache.lastSeq = added.reduce((max, r) => Math.max(max, r.seq), cache.lastSeq);
+        this.versions += 1;
+        cache.version = this.versions;
+        this.cacheKey = key;
+        return cache;
+      }
+    }
     const all = db.all();
+    this.rowsRead += all.length;
+    const replay = goalDaysReplay();
+    replay.add(all);
+    const lookups: LogLookups = { blocks: new Map(), schedules: new Map() };
+    extendLogLookups(lookups, all);
+    this.versions += 1;
     this.cache = {
+      epoch: cursor.epoch,
+      lastSeq: all.reduce((max, r) => Math.max(max, r.seq), 0),
       all,
-      metDays: goalMetDays(all),
+      replay,
+      metDays: replay.met,
       empty: logIsEmpty(all),
-      lookups: logLookups(all),
+      lookups,
+      version: this.versions,
     };
     this.cacheKey = key;
     return this.cache;
+  }
+
+  /** The current epoch's rows, memoised with the answers derived from them. */
+  private epochRows(): NonNullable<LocalStats['epochMemo']> {
+    const whole = this.whole();
+    if (this.epochMemo?.version !== whole.version) {
+      this.epochMemo = {
+        version: whole.version,
+        rows: currentEpochRows(whole.all, whole.epoch),
+        achievements: null,
+        events: null,
+      };
+    }
+    return this.epochMemo;
   }
 
   /** How far the local copy is synced (`epoch: null` before the first page). */
@@ -268,16 +353,16 @@ export class LocalStats {
   }
 
   achievements(): AchievementStatus[] {
-    const whole = this.whole();
-    return computeAchievements(currentEpochRows(whole.all, this.db().cursor().epoch));
+    const memo = this.epochRows();
+    memo.achievements ??= computeAchievements(memo.rows);
+    return structuredClone(memo.achievements);
   }
 
   /** Events of the current epoch (the mascot's «since the last give-up»). */
   epochEvents(): WireEvent[] {
-    const whole = this.whole();
-    return currentEpochRows(whole.all, this.db().cursor().epoch)
-      .map((r) => r.event)
-      .filter((e): e is WireEvent => e !== null);
+    const memo = this.epochRows();
+    memo.events ??= memo.rows.map((r) => r.event).filter((e): e is WireEvent => e !== null);
+    return [...memo.events];
   }
 
   csv(kind: CsvExportKind): { text: string; rows: number; fileName: string } {
@@ -294,6 +379,7 @@ export class LocalStats {
     this.reader?.close();
     this.reader = null;
     this.cache = null;
+    this.epochMemo = null;
     this.cacheKey = '';
   }
 }

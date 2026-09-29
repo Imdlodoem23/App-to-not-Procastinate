@@ -192,17 +192,34 @@ export function minutesByDay(
  * focus minutes against the goal in force, voided by an emergency).
  */
 export function goalMetDays(rows: readonly StoredEvent[]): Set<LocalDay> {
+  const replay = goalDaysReplay();
+  replay.add(rows);
+  return replay.met;
+}
+
+/** `goalMetDays` fed row by row: new rows of the log extend it without replaying the rest. */
+export interface GoalDaysReplay {
+  readonly met: Set<LocalDay>;
+  /** Rows after those already added (in `seq` order). */
+  add(rows: readonly StoredEvent[]): void;
+}
+
+export function goalDaysReplay(): GoalDaysReplay {
   const met = new Set<LocalDay>();
   let state: LedgerState = initialLedgerState();
-  for (const row of rows) {
-    const e = knownEvent(row);
-    const input = e ? ledgerInputFromEvent(e) : null;
-    if (!input) continue;
-    const step = applyLedgerInput(state, input);
-    state = step.state;
-    if (input.type === 'day_closed' && step.outcome.met === true) met.add(input.closedDay);
-  }
-  return met;
+  return {
+    met,
+    add(rows) {
+      for (const row of rows) {
+        const e = knownEvent(row);
+        const input = e ? ledgerInputFromEvent(e) : null;
+        if (!input) continue;
+        const step = applyLedgerInput(state, input);
+        state = step.state;
+        if (input.type === 'day_closed' && step.outcome.met === true) met.add(input.closedDay);
+      }
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -410,8 +427,14 @@ export interface LogLookups {
 
 /** Builds the lookups from `block_created` and `schedule_*` rows (in `seq` order). */
 export function logLookups(rows: readonly StoredEvent[]): LogLookups {
-  const schedules = new Map<string, string>();
-  const blocks = new Map<string, BlockInfo>();
+  const lookups: LogLookups = { blocks: new Map(), schedules: new Map() };
+  extendLogLookups(lookups, rows);
+  return lookups;
+}
+
+/** Adds the lookups of rows that follow those already in `lookups` (in `seq` order). */
+export function extendLogLookups(lookups: LogLookups, rows: readonly StoredEvent[]): void {
+  const { schedules, blocks } = lookups;
   for (const row of rows) {
     const e = knownEvent(row);
     if (!e) continue;
@@ -436,7 +459,6 @@ export function logLookups(rows: readonly StoredEvent[]): LogLookups {
       });
     }
   }
-  return { blocks, schedules };
 }
 
 /** Whether a row belongs to a log filter (the same rules as the SQL in `db/stats.ts`). */

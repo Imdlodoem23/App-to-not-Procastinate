@@ -49,8 +49,11 @@ function matchesFilter(entry: EventLogEntry, filter: EventLogFilter): boolean {
   }
 }
 
+/** The local day of `nowMs` («2026-09-28»), like the real exporter (`localDayOf`). */
 function fileDay(nowMs: number): string {
-  return new Date(nowMs).toISOString().slice(0, 10);
+  const d = new Date(nowMs);
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 /**

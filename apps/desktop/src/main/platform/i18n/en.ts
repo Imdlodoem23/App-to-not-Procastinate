@@ -11,6 +11,10 @@ export const PLATFORM_EN: PlatformMessages = {
     miniTimerHidden: 'Mini timer hidden',
     nuclearQuit: 'Nuclear in progress · use the emergency exit',
   },
+  surfaceTitles: {
+    miniTimer: 'Mini timer',
+    nuclear: 'Céntrate · Punishment',
+  },
   csv: {
     dialogTitle: 'Export CSV',
     filterName: 'CSV',

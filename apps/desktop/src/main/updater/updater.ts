@@ -4,12 +4,18 @@
  * asks («Actualizar a vX»); «Reiniciar para actualizar» installs (blocks stay: the guardian is a
  * separate service). On a check-only system (unsigned macOS, `.deb`) the same button opens the
  * download page. Its state goes to `snapshot.updater` (and `app.updateVersion`).
+ *
+ * Installing never marks the app as quitting by itself: electron-updater calls `app.quit()`
+ * only after the installer started, and the bootstrap's `before-quit` sets the flag then. When
+ * the install fails (no installer, AppImage moved, elevate.exe missing) electron-updater only
+ * emits `error`: the state says so and the app keeps running as before (the X still hides).
  */
 import type { UpdaterState } from '../../shared/platform';
 import { INITIAL_UPDATER } from '../../shared/platform';
 import { UI_TIMINGS } from '../../shared/ui-state';
 import {
   afterCheck,
+  checkFailedKeeping,
   isNewerVersion,
   unsupportedState,
   updaterErrorCode,
@@ -27,6 +33,7 @@ export interface UpdaterBackend {
   downloadUpdate(): Promise<unknown>;
   quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void;
   on(event: 'download-progress', listener: (info: { percent: number }) => void): unknown;
+  on(event: 'error', listener: (error: Error) => void): unknown;
 }
 
 export interface UpdaterOptions {
@@ -36,8 +43,6 @@ export interface UpdaterOptions {
   publish(state: UpdaterState): void;
   /** Check-only systems: the web's download page (fixed URL). */
   openDownloadPage(): void;
-  /** Lets the windows close before `quitAndInstall` (the X only hides them otherwise). */
-  prepareQuit(): void;
   log(event: string, fields: LogFields): void;
   /** Tests inject a backend; production imports electron-updater lazily. */
   loadBackend?: () => Promise<UpdaterBackend>;
@@ -71,6 +76,8 @@ export function createUpdater(options: UpdaterOptions): Updater {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let checking: Promise<UpdaterState> | null = null;
   let downloading: Promise<UpdaterState> | null = null;
+  /** `quitAndInstall` was called; an `error` now means the install failed. */
+  let installing = false;
   let disposed = false;
 
   const set = (next: UpdaterState): UpdaterState => {
@@ -93,6 +100,14 @@ export function createUpdater(options: UpdaterOptions): Updater {
           if (state.status !== 'downloading') return;
           const percent = Math.max(0, Math.min(100, Math.round(info.percent)));
           set({ ...state, percent });
+        });
+        b.on('error', (error) => {
+          if (!installing) return;
+          installing = false;
+          const code = updaterErrorCode(error);
+          options.log('updater_install_failed', { code });
+          // The version stays: «Actualizar a vX» can be tried again.
+          set(withError(state, code, options.now()));
         });
         return b;
       } catch (error) {
@@ -117,7 +132,10 @@ export function createUpdater(options: UpdaterOptions): Updater {
     const b = await getBackend();
     if (!b) return set(unsupportedState());
     const before = state;
-    set({ ...state, status: 'checking', error: null });
+    // A version already offered (or downloaded, in electron-updater's cache) stays on screen
+    // while a background check runs: no flicker of «Reiniciar para actualizar».
+    const usable = before.status === 'available' || before.status === 'ready';
+    if (!usable) set({ ...state, status: 'checking', error: null });
     try {
       const result = await b.checkForUpdates();
       const found = result?.updateInfo.version ?? null;
@@ -127,6 +145,8 @@ export function createUpdater(options: UpdaterOptions): Updater {
     } catch (error) {
       const code = updaterErrorCode(error);
       options.log('updater_check_failed', { code });
+      // Offline or asleep: a usable version keeps its status (only the code is recorded).
+      if (usable) return set(checkFailedKeeping(before, code, options.now()));
       return set(withError({ ...before, status: 'checking' }, code, options.now()));
     }
   }
@@ -187,9 +207,18 @@ export function createUpdater(options: UpdaterOptions): Updater {
     const b = await getBackend();
     if (!b) return set(unsupportedState());
     options.log('updater_install', {});
-    options.prepareQuit();
+    installing = true;
     // Silent on Windows (the NSIS installer knows the previous choices), relaunch after.
-    setImmediate(() => b.quitAndInstall(true, true));
+    setImmediate(() => {
+      try {
+        b.quitAndInstall(true, true);
+      } catch (error) {
+        installing = false;
+        const code = updaterErrorCode(error);
+        options.log('updater_install_failed', { code });
+        set(withError(state, code, options.now()));
+      }
+    });
     return state;
   }
 

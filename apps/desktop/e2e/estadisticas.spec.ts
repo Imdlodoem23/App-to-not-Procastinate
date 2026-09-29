@@ -39,11 +39,15 @@ test('stats-week: chart, summary, heatmap, lists and log, accessible in both the
   await expect(chart.getByRole('heading', { name: 'Concentrado: 14 h' })).toBeVisible();
   await expect(chart.locator('.c-section-datum')).toHaveText('21–27 sept');
   await expect(detail.getByRole('radio', { name: 'Semana' })).toBeFocused();
+  // The window reports ready only once the chart's chunk is here: with the data on screen the
+  // plot is already there, no waiting (a capture never shoots an empty plot).
+  expect(await detail.locator('.est-chart-frame .recharts-wrapper').count()).toBe(1);
 
-  // One Recharts chart, named by its caption and described by the text summary beside it.
-  const svg = detail.getByRole('img', { name: 'Minutos concentrado por día' });
+  // One Recharts chart (an interactive group), named by its caption and described by its help
+  // line and the text summary beside it.
+  const svg = detail.getByRole('group', { name: 'Minutos concentrado por día' });
   await expect(svg).toBeVisible();
-  await expect(svg).toHaveAttribute('aria-describedby', 'est-summary');
+  await expect(svg).toHaveAttribute('aria-describedby', 'est-chart-help est-summary');
   await expect(detail.locator('#est-summary')).toContainText('Mejor díajue 24 · 3 h 20 min');
   await expect(detail.locator('.est-bars .recharts-bar-rectangle')).toHaveCount(5);
   await expect(detail.locator('.est-bar-label')).toHaveText('3 h 20 min');
@@ -76,7 +80,9 @@ test('stats-week: chart, summary, heatmap, lists and log, accessible in both the
 
   await app?.harness.load('stats-week', { lang: 'en' });
   await expect(detail.getByRole('heading', { name: 'Focused: 14 h' })).toBeVisible();
-  await expect(detail.getByRole('img', { name: 'Focused minutes per day' })).toBeVisible();
+  const chartEn = detail.getByRole('group', { name: 'Focused minutes per day' });
+  await expect(chartEn).toBeVisible();
+  await expect(chartEn).toHaveAttribute('aria-roledescription', 'bar chart');
   const violations = await axeViolations(detail);
   expect(violations, formatViolations(violations)).toEqual([]);
 });
@@ -92,6 +98,7 @@ test('the chart and the heatmap answer on their help lines; periods, filter and 
   if (!box) throw new Error('no chart');
   await detail.mouse.move(box.x + (box.width * 3.5) / 7, box.y + box.height - 30);
   await expect(help).toHaveText('Jueves 24: 3 h 20 min · 2 intentos');
+  await expect(detail.locator('#est-chart-live')).toHaveText('');
   await expect(detail.locator('.recharts-tooltip-wrapper')).not.toContainText('3 h 20 min');
   await detail.mouse.move(2, 2);
   await expect(help).toHaveText(/^Pasa el ratón por una barra/);
@@ -101,6 +108,17 @@ test('the chart and the heatmap answer on their help lines; periods, filter and 
   await detail.keyboard.press('ArrowRight');
   await detail.keyboard.press('ArrowRight');
   await expect(help).toHaveText('Miércoles 23: 2 h 55 min · 4 intentos');
+  // Assistive technology gets it too: an interactive group described by the help line, and the
+  // key-driven readout in a polite region (pointer hover never speaks there).
+  await expect(svg).toHaveAttribute('role', 'group');
+  await expect(svg).toHaveAttribute('aria-roledescription', 'gráfico de barras');
+  await expect(svg).toHaveAttribute('aria-describedby', 'est-chart-help est-summary');
+  const live = detail.locator('#est-chart-live');
+  await expect(live).toHaveAttribute('aria-live', 'polite');
+  await expect(live).toHaveText('Miércoles 23: 2 h 55 min · 4 intentos');
+  await detail.keyboard.press('ArrowLeft');
+  await expect(live).toHaveText(/^Martes 22: /);
+  await expect(help).toHaveText(/^Martes 22: /);
 
   // The heatmap cell under the pointer.
   const heat = await detail.locator('.est-heat-svg').boundingBox();
@@ -137,14 +155,11 @@ test('the chart and the heatmap answer on their help lines; periods, filter and 
   await expect(detail.locator('.est-log-row')).toHaveCount(3);
   await expect(detail.locator('#est-log-title')).toHaveText('Registro: 3 eventos');
 
-  // «Exportar eventos…»: main saves it; only the file name comes back.
+  // «Exportar eventos…»: main saves it; only the file name comes back (dated with the real day).
+  const saved = /^Guardado: centrate-eventos-\d{4}-\d{2}-\d{2}\.csv · 12 filas$/;
   await detail.getByRole('button', { name: /^Exportar eventos/ }).click();
-  await expect(detail.locator('[data-announcer]')).toHaveText(
-    'Guardado: centrate-eventos-2026-09-28.csv · 12 filas',
-  );
-  await expect(detail.locator('#est-export-help')).toHaveText(
-    'Guardado: centrate-eventos-2026-09-28.csv · 12 filas',
-  );
+  await expect(detail.locator('[data-announcer]')).toHaveText(saved);
+  await expect(detail.locator('#est-export-help')).toHaveText(saved);
 });
 
 test('stats-empty: the empty state starts a 25 min block through the main card', async () => {

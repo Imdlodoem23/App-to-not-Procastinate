@@ -16,6 +16,11 @@ export const PLATFORM_ES = {
     /** «Salir» refused while a Nuclear punishment lasts. */
     nuclearQuit: 'Nuclear en curso · usa la salida de emergencia',
   },
+  /** Window titles of the surfaces, read by screen readers (the OSD has none: it never focuses). */
+  surfaceTitles: {
+    miniTimer: 'Mini temporizador',
+    nuclear: 'Céntrate · Castigo',
+  },
   csv: {
     dialogTitle: 'Exportar CSV',
     filterName: 'CSV',

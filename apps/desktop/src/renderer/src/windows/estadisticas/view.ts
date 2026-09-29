@@ -73,6 +73,7 @@ export const EST_IDS = Object.freeze({
   ranges: 'est-range',
   nav: 'est-nav',
   chartHelp: 'est-chart-help',
+  chartLive: 'est-chart-live',
   summary: 'est-summary',
   table: 'est-table',
   heatmap: 'est-heat',

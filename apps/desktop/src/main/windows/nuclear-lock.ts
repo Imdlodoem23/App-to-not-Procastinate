@@ -18,7 +18,10 @@ import { nuclearEndsAt, type UiSnapshot } from '../../shared/ui-state';
 export const NUCLEAR_END_GRACE_MS = 300;
 
 /** `true` while a Nuclear punishment is certain enough to cover the screens. */
-export function nuclearTrusted(snapshot: Pick<UiSnapshot, 'state' | 'link'>, nowMs: number): boolean {
+export function nuclearTrusted(
+  snapshot: Pick<UiSnapshot, 'state' | 'link'>,
+  nowMs: number,
+): boolean {
   const state = snapshot.state;
   if (state?.nuclearActive !== true) return false;
   if (snapshot.link.status !== 'ok') return false;
@@ -55,4 +58,45 @@ export type QuitOrigin = 'user' | 'os';
  */
 export function quitRefused(locked: boolean, origin: QuitOrigin): boolean {
   return locked && origin === 'user';
+}
+
+/**
+ * Signals that mean the OS session is going away on Linux and macOS: the session manager or
+ * systemd sends SIGTERM (then SIGKILL after its timeout) on logout, a closing terminal sends
+ * SIGHUP. Refusing them protects nothing (SIGKILL is as easy and the guardian relaunches the
+ * app) and only makes the logout hang. Windows has no such signals (`session-end` instead).
+ */
+export function quitSignals(platform: NodeJS.Platform): NodeJS.Signals[] {
+  return platform === 'win32' ? [] : ['SIGTERM', 'SIGHUP'];
+}
+
+/** The origin of a quit started by `signal`: the OS for SIGTERM / SIGHUP, the user otherwise. */
+export function quitOriginOfSignal(signal: NodeJS.Signals): QuitOrigin {
+  return signal === 'SIGTERM' || signal === 'SIGHUP' ? 'os' : 'user';
+}
+
+/** The guardian relaunches the app with it during a Nuclear punishment (ARCHITECTURE §10.5). */
+export const NUCLEAR_ARG = '--centrate-nuclear';
+
+export interface SecondInstanceHandlers {
+  /** Ask the guardian now (a fresh, trusted state). */
+  refresh(): void;
+  /** Make the Nuclear overlay again (`PlatformHost.nuclearRelaunch`). */
+  nuclearRelaunch(): void;
+  showMain(): void;
+}
+
+/**
+ * Another launch found this instance running. The guardian's Nuclear relaunch
+ * (`--centrate-nuclear`) comes only when heartbeats stopped, so the overlay is not live here:
+ * it is never ignored. A fresh state is fetched and the overlay made again; the main window
+ * stays as it is. Any other launch shows the main window.
+ */
+export function onSecondInstance(argv: readonly string[], handlers: SecondInstanceHandlers): void {
+  if (argv.includes(NUCLEAR_ARG)) {
+    handlers.refresh();
+    handlers.nuclearRelaunch();
+    return;
+  }
+  handlers.showMain();
 }

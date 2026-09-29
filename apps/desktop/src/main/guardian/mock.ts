@@ -112,6 +112,12 @@ import {
 import type { Clock, TimerHandle } from '../contracts';
 import { checkRedeem, rewardsShop } from './mock-rewards';
 import { applyDuePending, applySettingsPut } from './mock-settings';
+import {
+  currentOccurrence,
+  nextOccurrence,
+  scheduleEditWeakens,
+  type Occurrence,
+} from './mock-schedules';
 
 const MIN = 60_000;
 
@@ -252,6 +258,14 @@ export class MockGuardian implements GuardianClient {
     index: 0,
   };
   private readonly startedAt: number;
+  /**
+   * Occurrences that start at or after this instant materialize as schedule blocks (the real
+   * guardian also enforces the rest of one already running; the mock leaves a seeded one alone
+   * so a fixture is served exactly as seeded).
+   */
+  private readonly liveSince: number;
+  /** Occurrence keys already turned into blocks (never re-created). */
+  private readonly materialized = new Set<string>();
 
   constructor(options: MockGuardianOptions) {
     this.clock = options.clock;
@@ -261,6 +275,7 @@ export class MockGuardian implements GuardianClient {
     const seed = options.seed ?? null;
     const state = seed?.state ?? null;
     this.startedAt = now - 60 * MIN;
+    this.liveSince = now;
     this.settings = clone(seed?.settings?.settings ?? defaultSettings());
     this.epoch = state?.epoch ?? (this.newId('ep') as EpochId);
     this.seq = state?.lastEventSeq ?? 0;
@@ -273,6 +288,7 @@ export class MockGuardian implements GuardianClient {
     this.points = clone(state?.points ?? defaultPoints(localDay(now, this.settings.timezone)));
     this.ended = clone(state?.recent.endedBlocks ?? []);
     this.schedules = clone(seed?.schedules ?? []);
+    this.refreshSchedules(now);
     this.extensions = clone(seed?.extensions ?? []);
     this.seedPairing = seed?.pairingCode ? clone(seed.pairingCode) : null;
     this.seedPreview = seed?.emergencyPreview ? clone(seed.emergencyPreview) : null;
@@ -489,7 +505,9 @@ export class MockGuardian implements GuardianClient {
         }
       }
       if (due.length > 0) this.rewardsLock = this.currentLock();
+      if (this.materializeSchedules(now)) dirty = true;
     }
+    this.refreshSchedules(now);
     // Emergency: counting → ready → expired; moot when its blocks are gone.
     const e = this.emergency;
     if (e) {
@@ -553,6 +571,98 @@ export class MockGuardian implements GuardianClient {
       dirty = true;
     }
     if (dirty) this.changed();
+  }
+
+  // -------------------------------------------------------------------------------------
+  // Schedules (ARCHITECTURE §5.3, §10.3)
+  // -------------------------------------------------------------------------------------
+
+  /** `nextOccurrence` and `activeBlockId` of every schedule, on the mock clock. */
+  private refreshSchedules(now: number): void {
+    this.schedules = this.schedules.map((s) => {
+      const next = nextOccurrence(s.id, s, now);
+      const active = this.scheduleBlock(s.id);
+      const nextOcc = next ? { startsAt: iso(next.start), endsAt: iso(next.end) } : null;
+      const activeBlockId = active?.id ?? null;
+      if (
+        s.activeBlockId === activeBlockId &&
+        s.nextOccurrence?.startsAt === nextOcc?.startsAt &&
+        s.nextOccurrence?.endsAt === nextOcc?.endsAt
+      ) {
+        return s;
+      }
+      return { ...s, nextOccurrence: nextOcc, activeBlockId };
+    });
+  }
+
+  /** The running block of a schedule's occurrence, if any. */
+  private scheduleBlock(id: ScheduleId): Block | null {
+    return this.blocks.find((b) => b.kind === 'schedule' && b.scheduleId === id) ?? null;
+  }
+
+  /** Occurrences that started: independent `schedule` blocks until their end. */
+  private materializeSchedules(now: number): boolean {
+    let created = false;
+    for (const s of this.schedules) {
+      const occ = currentOccurrence(s.id, s, now);
+      if (!occ || occ.start < this.liveSince || this.materialized.has(occ.key)) continue;
+      this.materialized.add(occ.key);
+      // Nothing meaningful left.
+      if (occ.end - now < MIN || this.scheduleBlock(s.id)) continue;
+      this.createScheduleBlock(s, occ, now);
+      created = true;
+    }
+    return created;
+  }
+
+  private createScheduleBlock(s: Schedule, occ: Occurrence, now: number): void {
+    const block: Block = {
+      id: this.newId('blk') as BlockId,
+      kind: 'schedule',
+      mode: s.mode,
+      status: 'active',
+      targets: clone(s.targets),
+      whitelistOnly: s.whitelistOnly,
+      allow: clone(s.allow),
+      reason: s.reason,
+      createdAt: iso(now),
+      startsAt: iso(now),
+      endsAt: iso(occ.end),
+      originalEndsAt: iso(occ.end),
+      endedAt: null,
+      extendedMinutes: 0,
+      scheduleId: s.id,
+      punishmentId: null,
+      attemptsCounted: 0,
+      emergencyEligible: isEligibleMode(s.mode),
+      pointsDelta: null,
+    };
+    this.blocks = sortBlocks([...this.blocks, block]);
+    this.rewardsLock = this.currentLock();
+    this.emit('block_created', { block, source: 'schedule' });
+  }
+
+  /**
+   * PUT and DELETE guards: an occurrence in progress refuses both (`{ blockId, endsAt }`); the
+   * 10 min before the next start refuse a delete and a weakening edit (`{ startsAt }`).
+   */
+  private guardScheduleWrite(current: Schedule, edit: ScheduleInput | null): void {
+    const now = this.clock.now();
+    const running = this.scheduleBlock(current.id);
+    if (running) {
+      throw apiError('schedule_in_progress', 'schedule in progress', {
+        blockId: running.id,
+        endsAt: running.endsAt,
+      });
+    }
+    const next = nextOccurrence(current.id, current, now);
+    const soon =
+      next !== null && next.start - now <= GUARDIAN_LIMITS.scheduleFreezeMinutes * MIN;
+    if (soon && (edit === null || scheduleEditWeakens(current, edit))) {
+      throw apiError('schedule_starting_soon', 'schedule starting soon', {
+        startsAt: iso(next.start),
+      });
+    }
   }
 
   /** Nuclear punishments running (the overlay covers the screens). */
@@ -908,7 +1018,7 @@ export class MockGuardian implements GuardianClient {
         throw apiError('validation_failed', 'too many schedules');
       }
       const now = iso(this.clock.now());
-      const schedule: Schedule = {
+      const created: Schedule = {
         id: this.newId('sch') as ScheduleId,
         ...scheduleFields(body),
         createdAt: now,
@@ -916,7 +1026,9 @@ export class MockGuardian implements GuardianClient {
         nextOccurrence: null,
         activeBlockId: null,
       };
-      this.schedules.push(schedule);
+      this.schedules.push(created);
+      this.refreshSchedules(this.clock.now());
+      const schedule = this.schedules.find((s) => s.id === created.id) ?? created;
       this.emit('schedule_created', { schedule });
       this.changed();
       return { schedule: clone(schedule) };
@@ -930,16 +1042,14 @@ export class MockGuardian implements GuardianClient {
     const index = this.schedules.findIndex((s) => s.id === id);
     const current = this.schedules[index];
     if (!current) throw apiError('not_found', 'no such schedule');
-    if (current.activeBlockId !== null) {
-      throw apiError('schedule_in_progress', 'schedule in progress', { activeBlockId: current.activeBlockId });
-    }
-    const schedule: Schedule = {
+    this.guardScheduleWrite(current, body);
+    this.schedules[index] = {
       ...current,
       ...scheduleFields(body),
       updatedAt: iso(this.clock.now()),
-      nextOccurrence: body.enabled ? current.nextOccurrence : null,
     };
-    this.schedules[index] = schedule;
+    this.refreshSchedules(this.clock.now());
+    const schedule = this.schedules[index] ?? current;
     this.emit('schedule_updated', { schedule });
     this.changed();
     return { schedule: clone(schedule) };
@@ -950,7 +1060,7 @@ export class MockGuardian implements GuardianClient {
     this.writable();
     const current = this.schedules.find((s) => s.id === id);
     if (!current) throw apiError('not_found', 'no such schedule');
-    if (current.activeBlockId !== null) throw apiError('schedule_in_progress', 'schedule in progress');
+    this.guardScheduleWrite(current, null);
     this.schedules = this.schedules.filter((s) => s.id !== id);
     this.emit('schedule_deleted', { scheduleId: id });
     this.changed();

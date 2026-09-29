@@ -11,6 +11,22 @@
  * status (`shown`, displays covered) goes to `snapshot.nuclear`, which drives the guardian
  * heartbeat.
  *
+ * Some ways off the screen emit no `hide`: a Linux window manager minimises it (Electron does
+ * not implement `minimizable: false` there), macOS «Hide» (Cmd+H) hides the whole app. So a
+ * `minimize` is undone at once and, while Nuclear lasts, a 1 s watchdog re-shows any window
+ * that is minimised or not visible (and the app when macOS hid it) and republishes the status
+ * from the live windows: an overlay that could not be put back reads `hidden`, the heartbeat
+ * stops and the guardian relaunches the app as designed.
+ *
+ * Windows has one more way off the screen: switching virtual desktop (Ctrl+Win+D, Ctrl+Win+
+ * Left/Right). `setVisibleOnAllWorkspaces` does nothing there, so the overlay stays on the old
+ * desktop, DWM-cloaked, while `isVisible()` still says `true`. The `cloaked` probe
+ * (`nuclear-cloak.ts`) catches it: a cloaked window is not live, and the watchdog destroys it
+ * and makes a new one, which Windows puts on the current desktop.
+ *
+ * When the guardian relaunches the app while it still runs (heartbeats stopped), `relaunch()`
+ * makes every overlay window again, shows the app (macOS) and gives the focus back.
+ *
  * Wayland compositors may still draw some surfaces above it (documented limit).
  */
 import type { BrowserWindow } from 'electron';
@@ -32,7 +48,21 @@ export interface NuclearOverlayOptions {
   isQuitting(): boolean;
   /** Another window must keep the focus (Emergencia above the overlay). */
   keepFocus?(): boolean;
+  /** macOS: the whole app is hidden (`app.isHidden()`); `false` elsewhere. */
+  appHidden?(): boolean;
+  /** macOS: show the hidden app again (`app.show()`). */
+  showApp?(): void;
+  /**
+   * Windows: the window is DWM-cloaked (left on another virtual desktop); `false` elsewhere.
+   * A cloaked overlay is not live and is made again on the current desktop.
+   */
+  cloaked?(win: BrowserWindow): boolean;
+  /** Watchdog period (tests). */
+  watchdogMs?: number;
 }
+
+/** How often the overlay checks, while Nuclear lasts, that every window is still up. */
+export const NUCLEAR_WATCHDOG_MS = 1_000;
 
 export class NuclearOverlay {
   /** One window per display id. */
@@ -40,6 +70,7 @@ export class NuclearOverlay {
   private active = false;
   private quitting = false;
   private lastStatus = '';
+  private watchdog: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly options: NuclearOverlayOptions) {
     options.displays.onChanged(() => {
@@ -65,8 +96,10 @@ export class NuclearOverlay {
     if (active) {
       this.options.log('nuclear_overlay', { shown: true });
       this.reconcile();
+      this.startWatchdog();
     } else {
       this.options.log('nuclear_overlay', { shown: false });
+      this.stopWatchdog();
       const windows = this.all();
       this.windows.clear();
       for (const win of windows) this.destroyWindow(win);
@@ -129,8 +162,82 @@ export class NuclearOverlay {
     win.focus();
   }
 
+  /**
+   * Overlay windows really on screen: visible, not minimised, not cloaked (Windows, another
+   * virtual desktop), the app not hidden (macOS).
+   */
+  liveCount(): number {
+    if (!this.active || this.options.appHidden?.() === true) return 0;
+    return this.all().filter((w) => w.isVisible() && !w.isMinimized() && !this.isCloaked(w)).length;
+  }
+
+  /**
+   * The guardian relaunched the app while it still runs: the overlay was not live for it.
+   * Every window is made again (a new one lands on the current virtual desktop and on top),
+   * the app shows (macOS) and the overlay under the pointer takes the focus.
+   */
+  relaunch(): void {
+    if (!this.active || this.closing()) return;
+    this.options.showApp?.();
+    const windows = this.all();
+    this.windows.clear();
+    for (const win of windows) this.destroyWindow(win);
+    this.reconcile();
+  }
+
+  private isCloaked(win: BrowserWindow): boolean {
+    return this.options.cloaked?.(win) === true;
+  }
+
+  private startWatchdog(): void {
+    if (this.watchdog) return;
+    const timer = setInterval(() => this.check(), this.options.watchdogMs ?? NUCLEAR_WATCHDOG_MS);
+    timer.unref?.();
+    this.watchdog = timer;
+  }
+
+  private stopWatchdog(): void {
+    if (this.watchdog) clearInterval(this.watchdog);
+    this.watchdog = null;
+  }
+
+  /** Puts back whatever took the overlay off the screen without a `hide` event. */
+  private check(): void {
+    if (!this.active || this.closing()) return;
+    if (this.options.appHidden?.() === true) {
+      this.options.log('nuclear_overlay_restored', { reason: 'app_hidden' });
+      this.options.showApp?.();
+    }
+    let cloaked = false;
+    for (const [id, win] of this.windows) {
+      if (win.isDestroyed() || !this.isCloaked(win)) continue;
+      // Left on another virtual desktop (Windows): a new window appears on the current one.
+      this.options.log('nuclear_overlay_restored', { reason: 'cloaked' });
+      this.windows.delete(id);
+      this.destroyWindow(win);
+      cloaked = true;
+    }
+    if (cloaked) this.reconcile();
+    for (const win of this.all()) {
+      if (win.isMinimized() || !win.isVisible()) {
+        this.options.log('nuclear_overlay_restored', {
+          reason: win.isMinimized() ? 'minimized' : 'hidden',
+        });
+        this.restore(win);
+      }
+    }
+    this.publish();
+  }
+
+  private restore(win: BrowserWindow): void {
+    if (win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    if (!win.isVisible()) win.showInactive();
+    win.setAlwaysOnTop(true, 'screen-saver');
+  }
+
   private publish(): void {
-    const shown = this.all().filter((w) => w.isVisible()).length;
+    const shown = this.liveCount();
     const status: Pick<NuclearStatus, 'overlay' | 'displays'> = {
       overlay: this.active && shown > 0 ? 'shown' : 'hidden',
       displays: this.active ? shown : 0,
@@ -166,6 +273,15 @@ export class NuclearOverlay {
         });
       }
     });
+    win.on('minimize', () => {
+      // A window manager minimised it (Linux ignores `minimizable: false`): undo it.
+      if (this.active && !this.closing() && !win.isDestroyed()) {
+        setImmediate(() => {
+          if (this.active && !this.closing() && !win.isDestroyed()) this.restore(win);
+          this.publish();
+        });
+      }
+    });
     win.on('closed', () => {
       if (this.windows.get(displayId) === win) this.windows.delete(displayId);
       if (this.active && !this.closing()) setImmediate(() => this.reconcile());
@@ -194,6 +310,7 @@ export class NuclearOverlay {
 
   destroy(): void {
     this.quitting = true;
+    this.stopWatchdog();
     for (const win of this.all()) win.destroy();
     this.windows.clear();
   }

@@ -11,6 +11,7 @@ import { parseIntent } from '@centrate/shared/parser';
 import type { UiState } from '../../../src/shared/ui-state';
 import { uiError } from '../../../src/shared/ui-state';
 import { BLOQUEO_ES } from '../../../src/renderer/src/sections/bloqueo/i18n/es';
+import { BLOQUEO_EN } from '../../../src/renderer/src/sections/bloqueo/i18n/en';
 import { estimateTextWidth } from '../../../src/renderer/src/sections/bloqueo/chips';
 import {
   CONTENT_WIDTH,
@@ -252,7 +253,7 @@ describe('idle', () => {
       seen.add(examplePhrase(NOW + i * 4_000));
     expect(seen.size).toBe(BLOQUEO_ES.field.examples.length);
     expect(examplePhrase(NOW + 3_999)).toBe(examplePhrase(NOW));
-    for (const phrase of BLOQUEO_ES.field.examples) {
+    for (const phrase of [...BLOQUEO_ES.field.examples, ...BLOQUEO_EN.field.examples]) {
       const parse = parseIntent(phrase, { now: new Date(NOW) });
       expect(parse.complete, phrase).toBe(true);
       expect(parse.kind, phrase).toBe('block');

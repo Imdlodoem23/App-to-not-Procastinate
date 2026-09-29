@@ -6,7 +6,9 @@
  *
  * - `off`: no active block (or the guardian is down, so nothing would be enforced);
  * - `ok`: watching;
- * - `needs-permission`: macOS without Screen Recording (re-checked every 30 s);
+ * - `needs-permission`: macOS without Screen Recording (re-checked every 30 s until the user
+ *   was sent to grant it: macOS applies a new grant only to a relaunched process, so from then
+ *   on nothing is polled and a restart is what applies it);
  * - `unsupported`: Wayland, no display, no xprop, or no FFI (the layer stays off this run);
  * - `error`: the last read failed (retried after 10 s).
  *
@@ -49,6 +51,8 @@ export class ActiveWindowLayer {
   private busy = false;
   private unsupported = false;
   private stopped = false;
+  /** macOS: the prompt or Settings was shown; the grant needs a relaunch to apply. */
+  private awaitingRestart = false;
   private status: ActiveWindowStatus = { status: 'off', lastMatch: null };
   private readonly throttle = new ReportThrottle();
 
@@ -59,6 +63,11 @@ export class ActiveWindowLayer {
       ...this.status,
       lastMatch: this.status.lastMatch ? { ...this.status.lastMatch } : null,
     };
+  }
+
+  /** The user was sent to grant Screen Recording: only a relaunch applies it (macOS). */
+  needsRestart(): boolean {
+    return this.awaitingRestart && this.status.status === 'needs-permission';
   }
 
   /** Every new guardian state (and link change): start or stop watching. */
@@ -78,7 +87,15 @@ export class ActiveWindowLayer {
 
   async requestPermission(): Promise<PermissionOutcome> {
     const outcome = await this.options.reader.requestPermission();
+    if (outcome === 'opened-settings') {
+      this.awaitingRestart = true;
+      if (this.status.status === 'needs-permission' && this.timer !== null) {
+        this.options.clock.clearTimeout(this.timer);
+        this.timer = null;
+      }
+    }
     if (outcome === 'granted' && this.status.status === 'needs-permission') {
+      this.awaitingRestart = false;
       this.set({ ...this.status, status: this.running ? 'ok' : 'off' });
       if (this.running) this.schedule(0);
     }
@@ -114,7 +131,7 @@ export class ActiveWindowLayer {
   private async tick(): Promise<void> {
     if (!this.running || this.busy || this.stopped) return;
     this.busy = true;
-    let next = ACTIVE_WINDOW_POLL_MS;
+    let next: number | null = ACTIVE_WINDOW_POLL_MS;
     try {
       const read = await this.options.reader.read();
       if (!this.running) return;
@@ -127,7 +144,9 @@ export class ActiveWindowLayer {
         case 'needs-permission':
           this.throttle.reset();
           this.set({ ...this.status, status: 'needs-permission' });
-          next = ACTIVE_WINDOW_PERMISSION_RECHECK_MS;
+          // After the prompt or Settings the running process cannot see the grant: polling
+          // would never succeed (the next block start reads once more).
+          next = this.awaitingRestart ? null : ACTIVE_WINDOW_PERMISSION_RECHECK_MS;
           break;
         case 'error':
           this.throttle.reset();
@@ -158,7 +177,7 @@ export class ActiveWindowLayer {
       next = ACTIVE_WINDOW_ERROR_BACKOFF_MS;
     } finally {
       this.busy = false;
-      if (this.running && !this.stopped) this.schedule(next);
+      if (this.running && !this.stopped && next !== null) this.schedule(next);
     }
   }
 

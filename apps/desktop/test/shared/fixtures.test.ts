@@ -337,6 +337,9 @@ describe('Phase 5 fixtures', () => {
       'unavailable',
     );
     expect(harnessFixture('onboarding-5').main.composer.text).toBe('no veo YouTube en 25 minutos');
+    expect(fixtureInLocale(harnessFixture('onboarding-5'), 'en').main.composer.text).toBe(
+      'no YouTube for 25 minutes',
+    );
   });
 
   it('surfaces: mini timer, OSD and Nuclear («vuelves a las 18:40»)', () => {

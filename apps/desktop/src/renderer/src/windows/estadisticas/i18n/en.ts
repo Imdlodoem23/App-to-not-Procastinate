@@ -74,6 +74,8 @@ export const ESTADISTICAS_EN: EstadisticasMessages = {
         ? `${when}: ${duration} · ${attempts === 1 ? '1 attempt' : `${attempts} attempts`}`
         : `${when}: ${duration}`,
     hint: 'Hover over a bar, or use the arrow keys, to see its minutes',
+    unavailable: 'The chart could not be drawn; the summary beside it has the figures',
+    roleDescription: 'bar chart',
     none: 'No focused time in this period',
     table: {
       when: { day: 'Hour', week: 'Day', month: 'Day' },

@@ -497,6 +497,64 @@ describe('the read-only connection', () => {
     writer.close();
   });
 
+  it('grows its cache with the new rows only, and rebuilds for a new epoch', () => {
+    const dir = temp();
+    const path = join(dir, EVENTS_DB_FILE);
+    const writer = openEventsDb(path);
+    const events = sampleLog();
+    const options = {
+      open: () => StatsReader.open(path),
+      today: () => '2026-09-28',
+      goalMinutes: () => 60,
+      csvHeaders: () => ({
+        events: ['a', 'b', 'c', 'd', 'e', 'f'],
+        days: ['a', 'b', 'c', 'd', 'e', 'f'],
+      }),
+      csvNames: () => ({ events: 'eventos', days: 'dias' }),
+    };
+    writer.applyPage(page(events.slice(0, 2), true));
+    const stats = new LocalStats(options);
+    expect(stats.achievements().find((a) => a.id === 'first-block')?.achieved).toBe(false);
+    expect(stats.rowsRead).toBe(2);
+    // Asked again without a change: nothing is read.
+    expect(stats.epochEvents()).toHaveLength(2);
+    expect(stats.rowsRead).toBe(2);
+
+    // Each new page reads only its own rows; the answers match a fresh full read.
+    writer.applyPage(page(events.slice(2, 4)));
+    stats.achievements();
+    expect(stats.rowsRead).toBe(4);
+    writer.applyPage(page(events.slice(4)));
+    const incremental = {
+      achievements: stats.achievements(),
+      events: stats.epochEvents().map((e) => e.seq),
+      log: stats.events('all', null, 10),
+      csv: stats.csv('days').text,
+      overview: stats.overview({ range: 'day', anchor: null }),
+    };
+    expect(stats.rowsRead).toBe(events.length);
+    const fresh = new LocalStats(options);
+    expect(incremental).toEqual({
+      achievements: fresh.achievements(),
+      events: fresh.epochEvents().map((e) => e.seq),
+      log: fresh.events('all', null, 10),
+      csv: fresh.csv('days').text,
+      overview: fresh.overview({ range: 'day', anchor: null }),
+    });
+    expect(incremental.achievements.find((a) => a.id === 'first-block')?.achieved).toBe(true);
+    // The memoised list is a copy: a caller cannot change the cache.
+    incremental.achievements.length = 0;
+    expect(stats.achievements().length).toBeGreaterThan(0);
+
+    // A new epoch (data deletion) starts over from what the table holds now.
+    writer.wipe();
+    expect(stats.epochEvents()).toEqual([]);
+    expect(stats.achievements().every((a) => !a.achieved)).toBe(true);
+    stats.close();
+    fresh.close();
+    writer.close();
+  });
+
   it('refuses a missing file (the core creates it)', () => {
     expect(() => StatsReader.open(join(temp(), 'missing.sqlite'))).toThrow();
     expect(eventsDbFileName(true)).toBe(MOCK_EVENTS_DB_FILE);

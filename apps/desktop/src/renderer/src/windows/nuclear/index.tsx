@@ -8,15 +8,19 @@
  * «Salida de emergencia» is an in-place «¿Seguro?» (the price on the help line, red outline);
  * the second press within 3 s sends `nuclear:emergency-exit` and main opens Emergencia above
  * the overlay, where the phrase and the wait apply. With an emergency already requested it
- * opens it directly. The overlay never takes focus (PLATFORM), so it is driven by the pointer;
- * the countdown keeps its `role="timer"` label and says «Castigo terminado» at the end.
+ * opens it directly. The overlay is focusable and takes the focus when it appears (PLATFORM);
+ * the renderer then puts the DOM focus on the column (a named, non-tabbable group: the heading
+ * names it, the countdown and the cause describe it), so a screen reader lands on the countdown,
+ * and Tab goes on to «Salida de emergencia» (also offered in the tray). It never takes the focus
+ * away from a focused element. The countdown keeps its `role="timer"` label and says «Castigo
+ * terminado» at the end.
  */
 import { DoorOpen, ShieldAlert } from 'lucide-react';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { SHARED } from '../../../../shared/i18n';
 import { Countdown, InPlaceConfirm, Section, Tile, TileRow, type HelpTone } from '../../components';
 import type { CountdownAnnounce } from '../../components/Countdown';
-import { useBridge, useSnapshot } from '../../store/context';
+import { useBridge, useSnapshot, useVisible } from '../../store/context';
 import { NUCLEAR } from './i18n';
 import { NUCLEAR_EXIT_ARM_ID, deriveNuclearView, type NuclearExit } from './view';
 import './nuclear.css';
@@ -53,6 +57,17 @@ export default function NuclearWindow(): React.JSX.Element {
   const view = useMemo(() => deriveNuclearView(snapshot), [snapshot]);
   const openEmergency = (): void => bridge.send('nuclear:emergency-exit', null);
   const { help, tone } = exitHelp(view.exit);
+  const visible = useVisible();
+  const column = useRef<HTMLDivElement>(null);
+
+  // On mount, when the punishment starts and when the overlay is shown again: land on the
+  // column, unless something (the exit) already holds the focus.
+  useEffect(() => {
+    if (!view.active || !visible) return;
+    const focused = document.activeElement;
+    if (focused && focused !== document.body && focused !== document.documentElement) return;
+    column.current?.focus({ preventScroll: true });
+  }, [view.active, visible]);
 
   return (
     <main className="nuc" aria-labelledby="nuc-app-title">
@@ -60,18 +75,27 @@ export default function NuclearWindow(): React.JSX.Element {
         {NUCLEAR.appTitle}
       </h1>
       {view.active ? (
-        <div className="nuc-column">
+        <div
+          ref={column}
+          className="nuc-column"
+          role="group"
+          tabIndex={-1}
+          aria-labelledby="nuclear-title"
+          aria-describedby={view.cause || view.points ? 'nuc-timer nuc-cause' : 'nuc-timer'}
+        >
           <Section id="nuclear" icon={ShieldAlert} title={view.title}>
             {view.endsAt ? (
-              <Countdown
-                endsAt={view.endsAt}
-                size="big"
-                announce={ANNOUNCE}
-                className="nuc-countdown"
-              />
+              <div id="nuc-timer">
+                <Countdown
+                  endsAt={view.endsAt}
+                  size="big"
+                  announce={ANNOUNCE}
+                  className="nuc-countdown"
+                />
+              </div>
             ) : null}
             {view.cause || view.points ? (
-              <p className="nuc-cause">
+              <p id="nuc-cause" className="nuc-cause">
                 {view.cause ? <span>{view.cause}</span> : null}
                 {view.cause && view.points ? (
                   <span className="nuc-separator" aria-hidden="true">
@@ -96,6 +120,7 @@ export default function NuclearWindow(): React.JSX.Element {
                 armId={NUCLEAR_EXIT_ARM_ID}
                 id="exit"
                 label={NUCLEAR.exit.label}
+                mnemonic={NUCLEAR.keys.exit}
                 icon={DoorOpen}
                 size="text"
                 secondary
@@ -107,6 +132,7 @@ export default function NuclearWindow(): React.JSX.Element {
               <Tile
                 id="exit"
                 label={NUCLEAR.exit.label}
+                mnemonic={NUCLEAR.keys.exit}
                 icon={DoorOpen}
                 size="text"
                 secondary

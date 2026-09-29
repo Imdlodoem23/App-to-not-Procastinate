@@ -44,7 +44,13 @@ import {
 import { createPlatformServices } from '../platform';
 import { runFile } from '../system/exec';
 import { TrayController } from '../tray/controller';
-import { quitRefused } from '../windows/nuclear-lock';
+import {
+  NUCLEAR_ARG,
+  onSecondInstance,
+  quitOriginOfSignal,
+  quitRefused,
+  quitSignals,
+} from '../windows/nuclear-lock';
 import type { TrayAction } from '../tray/model';
 import { electronDisplaySource, primaryHostScreen } from '../windows/display-source';
 import { registerWindowIpc } from '../windows/ipc-window';
@@ -70,8 +76,6 @@ export interface BootstrapDeps {
 }
 
 const PRODUCT_NAME = 'Céntrate';
-/** The guardian relaunches the app with it during a Nuclear punishment (ARCHITECTURE §10.5). */
-const NUCLEAR_ARG = '--centrate-nuclear';
 
 export function startApp(deps: BootstrapDeps): void {
   const packaged = app.isPackaged;
@@ -115,6 +119,23 @@ function readSystemLocale(): Locale {
   const env = process.env;
   languages.push(env['LC_ALL'] ?? '', env['LC_MESSAGES'] ?? '', env['LANG'] ?? '');
   return systemLocaleFrom(languages.filter((l) => l !== '' && l !== 'C' && l !== 'POSIX'));
+}
+
+/**
+ * The macOS application menu. Without the Edit roles, copy and paste do not work in text
+ * fields. While Nuclear lasts (`locked`) the app menu leaves out «Hide» and «Hide Others»:
+ * the overlay has the focus, so Cmd+H would hide it with the whole app.
+ */
+function macMenu(locked: boolean): Menu {
+  return Menu.buildFromTemplate([
+    locked
+      ? {
+          label: PRODUCT_NAME,
+          submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'quit' }],
+        }
+      : { role: 'appMenu' },
+    { role: 'editMenu' },
+  ]);
 }
 
 function describe(error: unknown): string {
@@ -188,9 +209,15 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
   setActiveLocale(snapshotLocale(core.getSnapshot()));
 
   app.on('second-instance', (_event, argv) => {
-    // The guardian's Nuclear relaunch finds us running: the overlay is already up.
-    if (argv.includes(NUCLEAR_ARG)) return;
-    windows.showMain('second-instance');
+    onSecondInstance(argv, {
+      refresh: () => core.refreshNow('retry'),
+      // Logs `nuclear_relaunch_received` (repeated relaunches show in diagnostics).
+      nuclearRelaunch: () => {
+        if (platformServices) platformServices.nuclearRelaunch();
+        else log.info('nuclear_relaunch_received', { ready: false });
+      },
+      showMain: () => windows.showMain('second-instance'),
+    });
   });
   // macOS: clicking the Dock icon. The `activate` sent while launching is ignored, or a
   // login-item start (`--hidden`) would open the window.
@@ -207,12 +234,7 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
     platform,
     rendererDir: renderer.kind === 'file' ? dirname(renderer.path) : null,
   });
-  Menu.setApplicationMenu(
-    platform === 'darwin'
-      ? // Without the Edit roles, copy and paste do not work in text fields on macOS.
-        Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }])
-      : null,
-  );
+  Menu.setApplicationMenu(platform === 'darwin' ? macMenu(false) : null);
 
   const theme = createThemeController({
     preference: core.getSnapshot().prefs.theme,
@@ -405,11 +427,32 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
   platformHost.start();
   powerMonitor.on('resume', () => core.refreshNow('resume'));
   powerMonitor.on('unlock-screen', () => core.refreshNow('resume'));
-  // The OS is going away: let the windows close instead of hiding.
+  // The OS is going away: let the windows close instead of hiding. On Linux logind only
+  // reports shutdown / reboot here (best effort); a logout arrives as SIGTERM (below).
   powerMonitor.on('shutdown', () => {
     osQuit = true;
     quitting = true;
   });
+  // Logout (session manager, systemd) or a closed terminal: the OS going away, never refused
+  // under Nuclear, or the logout hangs until SIGKILL.
+  for (const signal of quitSignals(process.platform)) {
+    process.on(signal, () => {
+      if (quitOriginOfSignal(signal) === 'os') osQuit = true;
+      quitting = true;
+      log.info('quit_signal', { signal });
+      app.quit();
+    });
+  }
+  // macOS: while Nuclear lasts the app menu has no «Hide» (Cmd+H would hide the overlay).
+  if (platform === 'darwin') {
+    let menuLocked = false;
+    core.subscribe(() => {
+      const locked = platformHost.nuclearLocked();
+      if (locked === menuLocked) return;
+      menuLocked = locked;
+      Menu.setApplicationMenu(macMenu(locked));
+    });
+  }
 
   let shutdownDone = false;
   app.on('before-quit', (event) => {

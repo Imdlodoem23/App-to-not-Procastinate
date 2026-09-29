@@ -391,6 +391,39 @@ describe('Nuclear heartbeat', () => {
     hb.stop();
   });
 
+  it('skips a beat when no overlay is live, whatever the snapshot says', async () => {
+    const clock = createManualClock(HARNESS_NOW);
+    const sent: unknown[] = [];
+    let live = 2;
+    const hb = new NuclearHeartbeat({
+      clock,
+      send: async (body) => {
+        sent.push(body);
+        return {
+          nuclearActive: true,
+          endsAt: null,
+          serverNow: new Date(clock.now()).toISOString(),
+        };
+      },
+      onBeat: () => undefined,
+      onInactive: () => undefined,
+      log: () => undefined,
+      overlayLive: () => live,
+    });
+    hb.sync(snapshotWith(true, 'shown'));
+    await run(clock, 0);
+    expect(sent).toHaveLength(1);
+    // Minimised or hidden (Cmd+H) before the overlay republished its status.
+    live = 0;
+    await run(clock, 12_000);
+    expect(sent).toHaveLength(1);
+    // Back on screen: the beats resume.
+    live = 2;
+    await run(clock, 3_000);
+    expect(sent).toHaveLength(2);
+    hb.stop();
+  });
+
   it('the in-memory guardian answers it', async () => {
     const fixture = harnessFixture('nuclear');
     const mock = new MockGuardian({

@@ -2001,8 +2001,12 @@ const BUILDERS: Readonly<Record<HarnessStateId, Builder>> = {
 /** The Monday of the week before `HARNESS_NOW` (a full week of data in `stats-week`). */
 const LAST_WEEK = '2026-09-21';
 
-/** What onboarding step 5 leaves typed in the field (PROMPT §10). */
+/**
+ * What onboarding step 5 leaves typed in the field (PROMPT §10): `firstBlockPhrase` of the
+ * onboarding strings, Spanish here and English through `SAMPLE_TEXT_EN`.
+ */
 const ONBOARDING_PHRASE = 'no veo YouTube en 25 minutos';
+const ONBOARDING_PHRASE_EN = 'no YouTube for 25 minutes';
 
 /** The OSD after «Ampliar ▸ +15 min» from the tray (one-block ends at 17:42). */
 const OSD_EXTEND_ES = '+15 min · hasta las 17:57';
@@ -2080,7 +2084,8 @@ export function harnessFixture(id: HarnessStateId, nowMs: number = HARNESS_NOW):
 /**
  * What a Spanish-speaking user typed in the fixtures (reasons, a Study Mode task, schedule
  * names, the emergency phrase half typed), as an English-speaking user would have typed it.
- * The phrases for the main field stay Spanish: the parser reads Spanish only.
+ * The parser reads English phrases in any UI locale, so onboarding step 5 leaves the English
+ * first block typed (the same phrase as the onboarding `firstBlockPhrase` in English).
  */
 const SAMPLE_TEXT_EN: Readonly<Record<string, string>> = {
   [REASON]: 'I want to pass math',
@@ -2090,6 +2095,7 @@ const SAMPLE_TEXT_EN: Readonly<Record<string, string>> = {
   [EMERGENCY_TYPED_ES]: 'I accept breaking my commitment',
   'Tardes sin redes': 'Social-free afternoons',
   [OSD_EXTEND_ES]: '+15 min · until 5:57 PM',
+  [ONBOARDING_PHRASE]: ONBOARDING_PHRASE_EN,
 };
 
 /** `value` with every string that is exactly a key of `table` swapped (plain data only). */

@@ -155,6 +155,8 @@ export class WindowShell implements WindowHost, CoreHost {
   private lastReport: LayoutReport | null = null;
   private lastBlurAt: number | null = null;
   private detailRequest: DetailRequest | null = null;
+  /** PLATFORM: told when the detail window's route changes (Emergencia above the overlay). */
+  private readonly detailListeners = new Set<(request: DetailRequest) => void>();
   /** The state title («Céntrate · quedan 42 min»), kept for a (re)created main window. */
   private title: string = WINDOWS.appName;
 
@@ -747,6 +749,7 @@ export class WindowShell implements WindowHost, CoreHost {
     this.detailOpenSeq += 1;
     const token = this.detailOpenSeq;
     this.push('detail', 'ui:detail', request);
+    for (const listener of this.detailListeners) listener(request);
     detail.setTitle(WINDOWS.detailTitles[request.name]);
     const show = options.show ?? this.window('main')?.isVisible() ?? false;
     if (!show) return;
@@ -808,6 +811,12 @@ export class WindowShell implements WindowHost, CoreHost {
 
   currentDetail(): DetailRequest | null {
     return this.detailRequest;
+  }
+
+  /** Listens to every detail route change (`openDetail`); returns the unsubscribe function. */
+  onDetailChange(listener: (request: DetailRequest) => void): () => void {
+    this.detailListeners.add(listener);
+    return () => this.detailListeners.delete(listener);
   }
 
   // -------------------------------------------------------------------------------------

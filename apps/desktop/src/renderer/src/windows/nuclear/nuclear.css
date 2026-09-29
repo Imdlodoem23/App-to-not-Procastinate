@@ -38,6 +38,12 @@
     box-sizing: border-box;
   }
 
+  /* The column is where the focus lands when the overlay appears (a reading target, not a
+     control), like the section roots: no ring. */
+  .nuc-column:focus {
+    outline: none;
+  }
+
   .nuc .c-countdown.nuc-countdown[data-size='big'] .c-countdown-digits {
     font-size: var(--font-size-72);
     line-height: var(--line-height-72);

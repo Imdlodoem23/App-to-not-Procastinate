@@ -51,6 +51,8 @@ export function createForegroundReader(options: ReaderOptions): ForegroundReader
   const load = options.loadKoffi ?? importKoffi;
   let win32: Promise<Win32Foreground | null> | null = null;
   let darwin: Promise<DarwinForeground | null> | null = null;
+  /** macOS: this process already showed the Screen Recording prompt. */
+  let askedMac = false;
 
   const winReader = (): Promise<Win32Foreground | null> => {
     win32 ??= (async () => {
@@ -111,8 +113,13 @@ export function createForegroundReader(options: ReaderOptions): ForegroundReader
       const reader = await macReader();
       if (!reader) return 'unsupported';
       if (reader.permitted()) return 'granted';
-      // The system prompt appears only the first time; Settings is where it is granted after.
-      if (reader.requestPermission()) return 'granted';
+      // First ask in this process: only the system prompt (it has its own «Open System
+      // Settings» button). `CGRequestScreenCaptureAccess` returns `false` at once while the
+      // prompt is still open, so Settings is opened only when the user asks again.
+      if (!askedMac) {
+        askedMac = true;
+        return reader.requestPermission() ? 'granted' : 'opened-settings';
+      }
       await options.exec('/usr/bin/open', [MAC_SCREEN_RECORDING_SETTINGS], { timeoutMs: 5_000 });
       return 'opened-settings';
     },

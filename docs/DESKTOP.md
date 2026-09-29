@@ -1419,8 +1419,16 @@ processes and updater from `fixture.local` (guardian-backed channels should go t
   emergency (`lockReason`); custom domains never. The guardian re-checks everything.
 - Stats never expose raw event data (reasons, tasks stay in main); the CSV path never crosses
   IPC.
-- The OSD and the Nuclear overlay never take focus; the mini timer uses
-  `-webkit-app-region: drag` and main persists `moved`.
+- The OSD never takes focus. The Nuclear overlay is focusable and, when it appears, the window
+  on the display under the pointer takes the focus, so Tab reaches «Salida de emergencia» and a
+  screen reader lands on the countdown (WCAG 2.1.1); Emergencia goes above it (screen-saver + 1)
+  only while the detail window shows Emergencia. The overlay shows only on trusted data
+  (`windows/nuclear-lock.ts`: `nuclearActive`, link `ok`, end still ahead), is re-checked just
+  after the end, and its windows are destroyed when Nuclear ends. While it lasts, tray «Salir»
+  gives way to «Salida de emergencia…», and `app:quit`, Cmd+Q / Dock «Quit» and
+  `updater:install` (`rejected` / `nuclear_active`) are refused with an OSD; only the OS going
+  away (session end, shutdown) quits. The mini timer uses `-webkit-app-region: drag` and main
+  persists `moved`.
 - Brand assets: mascot (`assets/mascot/index.ts`: `mascotStyle(stage, size)`), achievement
   badges (`assets/achievements/index.ts`: `achievementBadgeStyle(id, achieved)`), sounds
   (`resources/sounds/*.wav`, `SOUND_FILES`), app icons (`build/`) are in place; paint the SVGs
