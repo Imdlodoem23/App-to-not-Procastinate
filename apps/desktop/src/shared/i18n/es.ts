@@ -60,6 +60,25 @@ export const SHARED_ES = {
     examen: 'Examen 3 h',
     leer: 'Leer 30 min',
   },
+  /**
+   * «Mantener despierto» (ARCHITECTURE §5.11): the words the tray, the footer chip, the
+   * notifications and Ajustes share. Durations come from `formatMinutes` («30 min», «1 h»).
+   */
+  keepAwake: {
+    title: 'Mantener despierto',
+    /** The duration without an end. */
+    forever: 'Hasta que lo desactive',
+    /** Tray and chip menu: turn it off. */
+    turnOff: 'Desactivar',
+    /** The footer chip and the tooltip while it is on. */
+    awake: 'Despierto',
+    /** «hasta las 18:30» (after «Despierto ·»). */
+    until: (clock: string): string => `hasta las ${clock}`,
+    /** The guardian could not hold it (`error: failed`). */
+    failed: 'No se ha podido mantener despierto este equipo',
+    /** This machine has no way to hold it (`error: unsupported`). */
+    unsupported: 'Este equipo no permite mantenerlo despierto',
+  },
 } as const;
 
 /** Shape every language file must match. */

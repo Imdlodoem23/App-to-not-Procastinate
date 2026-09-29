@@ -24,10 +24,12 @@ import {
   app,
   nativeTheme,
   powerMonitor,
+  powerSaveBlocker,
   shell as electronShell,
 } from 'electron';
 import type { Core, CreateCore, WindowHost } from '../contracts';
 import { FEATURES } from '../../shared/features';
+import { keepAwakeChangeFor, keepAwakeUntilLabel } from '../../shared/keep-awake';
 import {
   activeLocale,
   setActiveLocale,
@@ -41,7 +43,9 @@ import {
   toPlatform,
   type UiSnapshot,
 } from '../../shared/ui-state';
+import { DisplayKeeper, type DisplayBlocker } from '../keep-awake/display';
 import { createPlatformServices } from '../platform';
+import { PLATFORM } from '../platform/i18n';
 import { runFile } from '../system/exec';
 import { TrayController } from '../tray/controller';
 import {
@@ -277,6 +281,38 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
       case 'mini-timer':
         platformServices?.toggleMiniTimer(null);
         return;
+      case 'keep-awake': {
+        // Applied at once by the guardian; with «Avisos grandes» the OSD says what changed. A
+        // refusal is always visible: without the OSD the window shows it on the footer's help
+        // line (the chip's menu is opened from that window anyway).
+        const change = keepAwakeChangeFor(action.choice);
+        void Promise.resolve(core.handlers['keep-awake:set']({ change }, { window: 'main' })).then(
+          (result) => {
+            const osd = platformServices && osdOn() ? platformServices : null;
+            if (!result.ok) {
+              log.warn('keep_awake_refused', { code: result.error.code });
+              if (osd) {
+                osd.showOsd({ text: PLATFORM.osd.awakeFailed, icon: 'warning', tone: 'orange' });
+              } else {
+                windows.sendCommand({ type: 'keep-awake-failed' });
+                windows.showMain('tray-menu', false);
+              }
+              return;
+            }
+            const state = result.value;
+            osd?.showOsd(
+              state.on
+                ? {
+                    text: PLATFORM.osd.awakeOn(keepAwakeUntilLabel(state)),
+                    icon: 'awake',
+                    tone: 'blue',
+                  }
+                : { text: PLATFORM.osd.awakeOff, icon: 'awake', tone: 'neutral' },
+            );
+          },
+        );
+        return;
+      }
       case 'template':
         // The card is in the renderer before it measures itself for the show.
         windows.sendCommand({ type: 'confirm-template', templateId: action.templateId });
@@ -319,6 +355,24 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
     onToggle: () => windows.toggleFromTray(),
     onAction: runTrayAction,
     onView: (view) => windows.setMainTitle(view.title),
+    recordPopups: resolved !== null,
+  });
+
+  // «Mantener también la pantalla encendida» (ARCHITECTURE §5.11): the display blocker while
+  // keep-awake asks for it and the app runs. Harness runs record it instead.
+  let fakeBlockerId = 0;
+  const displayBlocker: DisplayBlocker = resolved
+    ? { start: () => (fakeBlockerId += 1), stop: () => undefined }
+    : {
+        start: () => powerSaveBlocker.start('prevent-display-sleep'),
+        stop: (id) => {
+          if (powerSaveBlocker.isStarted(id)) powerSaveBlocker.stop(id);
+        },
+      };
+  const displayKeeper = new DisplayKeeper({
+    blocker: displayBlocker,
+    clock: systemClock,
+    log: (event, fields) => log.info(event, fields),
   });
   windows.attach({ core, displays, theme, trayBounds: () => tray.bounds() });
   theme.onChange(() => tray.refreshIcon());
@@ -357,6 +411,11 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
     openGuide: (guide) => {
       void electronShell.openExternal(GUIDE_URLS[guide]);
     },
+    keepAwakeMenu: (anchor) => {
+      if (!tray.popupKeepAwake(windows.window('main'), anchor)) {
+        log.info('keep_awake_menu_unavailable', {});
+      }
+    },
     platform: platformHost,
   });
 
@@ -383,11 +442,13 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
   applyLocale(core.getSnapshot());
   tray.create(core.getSnapshot());
   applyPrefs(core.getSnapshot());
+  displayKeeper.sync(core.getSnapshot());
   core.subscribe((snapshot) => {
     applyLocale(snapshot);
     windows.pushSnapshot(snapshot);
     tray.update(snapshot);
     applyPrefs(snapshot);
+    displayKeeper.sync(snapshot);
   });
 
   if (harnessModule && resolved) {
@@ -403,6 +464,7 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
         customWorkArea: resolved.customWorkArea,
         lang: resolved.lang,
         platform: platformHost,
+        displayKeeper,
       }),
     );
   }
@@ -480,6 +542,7 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
       .catch((error: unknown) => log.error('shutdown_failed', { message: describe(error) }))
       .finally(() => {
         shutdownDone = true;
+        displayKeeper.dispose();
         platformHost.dispose();
         tray.destroy();
         // Next macrotask, never inside this `before-quit`: a quit started natively (SIGTERM /

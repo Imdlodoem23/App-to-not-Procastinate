@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/imdlodoem23/centrate/guardian/internal/api"
+	"github.com/imdlodoem23/centrate/guardian/internal/awake"
 	"github.com/imdlodoem23/centrate/guardian/internal/catalog"
 	"github.com/imdlodoem23/centrate/guardian/internal/daemon"
 	"github.com/imdlodoem23/centrate/guardian/internal/embedded"
@@ -62,8 +63,10 @@ type system struct {
 	hostsPath string
 	// clk is the injected fake clock; nil lets the daemon pick its default (the
 	// persisted fake clock of testhooks builds).
-	clk    *engine.FakeClock
-	procs  *engine.FakeProcesses
+	clk   *engine.FakeClock
+	procs *engine.FakeProcesses
+	// inh is the keep-awake inhibitor of every start (the machine's, reused).
+	inh    *awake.Fake
 	anchor store.AnchorStore
 	logs   *syncBuffer
 	// version is the guardian version the next start runs ("" is the default build);
@@ -89,6 +92,7 @@ func newSystem(t *testing.T, clk *engine.FakeClock) *system {
 		hostsPath: filepath.Join(base, "hosts"),
 		clk:       clk,
 		procs:     &engine.FakeProcesses{},
+		inh:       awake.NewFake(nil),
 		logs:      &syncBuffer{},
 		client:    &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{Proxy: nil}},
 	}
@@ -118,6 +122,11 @@ func (s *system) options() daemon.Options {
 		DetectTimezone: func() string { return "Europe/Madrid" },
 		ShuttingDown:   func() bool { return false },
 		OnFatal:        func(err error) { s.t.Errorf("guardian startup failed: %v", err) },
+		NewInhibitor: func(onChange func()) awake.Inhibitor {
+			s.inh.SetOnChange(onChange)
+			s.inh.Reopen()
+			return s.inh
+		},
 		Listen: func(ctx context.Context, _ string) (net.Listener, error) {
 			var lc net.ListenConfig
 			return lc.Listen(ctx, "tcp4", "127.0.0.1:0")

@@ -43,7 +43,8 @@ Section 17 lists the follow-up work this contract requires outside `packages/sha
             │                                   │                    │                         │
             │            trusted clock ◀────────┘                    ├─ hosts section          │
             │            (boot clock, awake clock, network check)    ├─ process watcher        │
-            │                                                        └─ Nuclear supervisor     │
+            │                                                        ├─ Nuclear supervisor     │
+            │                                                        └─ keep-awake inhibitor   │
             └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -52,15 +53,18 @@ Section 17 lists the follow-up work this contract requires outside `packages/sha
   `kardianos/service`: Windows service `CentrateGuardian` (LocalSystem), macOS LaunchDaemon,
   Linux systemd unit. It is the **single source of truth and authority** for blocks,
   schedules, daily limits, study sessions, punishments, emergency unlocks, reward allowances, settings
-  that affect enforcement or points, and the **points ledger**. It stores state and an
-  append-only event log in the system directory (§11), applies the hosts section, kills
-  blocked processes and relaunches the app during a Nuclear punishment.
+  that affect enforcement or points, the keep-awake configuration (§5.11) and the **points
+  ledger**. It stores state and an append-only event log in the system directory (§11),
+  applies the hosts section, kills blocked processes, relaunches the app during a Nuclear
+  punishment and holds the OS idle-sleep inhibition while «Mantener despierto» is on
+  (§10.14).
 - **Desktop app** (`apps/desktop`). The **main process** is the only guardian client in the
   app: it holds the app token, polls `/v1/state` every 2 s while the window is visible,
   long-polls `/v1/events` for tray notifications while hidden, sends Study Mode heartbeats
   (and Nuclear heartbeats while the overlay runs, §10.5), reports window-title attempts and
   foreground-app usage for daily limits (§10.13),
-  evaluates achievements and the mascot (§6.5) and syncs the event log into its local `node:sqlite`
+  evaluates achievements and the mascot (§6.5), keeps the display on while keep-awake asks
+  for it and the app runs (§5.11) and syncs the event log into its local `node:sqlite`
   statistics database through a cursor. Renderers talk to the main process over typed IPC
   and never see the token.
 - **Extension** (`apps/extension`, MV3, Chromium and Firefox). Paired with a 6-digit code
@@ -459,6 +463,84 @@ Rules:
   `limit_deleted`. It never touches a limit block already materialized (independent, like
   schedule occurrences), and today's usage keeps counting against the new definition.
 
+### 5.11 Keep awake
+
+«Mantener despierto», like NoSleep, Caffeine or PowerToys Awake: while it is on, the computer
+does not go to sleep **on idle**, whether or not the app runs (window closed, app quit, after
+a reboot), until the user turns it off or the chosen time ends. The guardian holds it because
+it runs as a system service whatever the app does (§10.14).
+
+| Field (`KeepAwakeConfig`) | Notes                                                                                                             |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `on`                      | The user's intent                                                                                                 |
+| `durationMinutes`         | `keepAwakeMinMinutes`…`keepAwakeMaxMinutes` (5–1440) or `null` («Hasta que lo desactive»); kept while off         |
+| `display`                 | «Mantener también la pantalla encendida» (default `true`); stored by the guardian, acted on only by the app       |
+| `since`                   | When it was last turned on; `null` while off                                                                      |
+| `until`                   | When it turns itself off; `null` while off or with `durationMinutes: null`. A trusted deadline (§4) like `endsAt` |
+
+The UI offers `KEEP_AWAKE_PRESET_MINUTES` (30, 60, 120, 240) plus `null`. Defaults:
+`DEFAULT_KEEP_AWAKE` (off, `null`, `display: true`), embedded as `api.json`
+`defaultKeepAwake`. The API serves `KeepAwakeState` = the configuration (display time) plus
+`active` (the OS inhibition is held right now) and `error` (`KEEP_AWAKE_ERRORS`:
+`unsupported` = this machine has no mechanism, may also be reported while off from a probe;
+`failed` = the mechanism failed while on and the guardian keeps retrying, or frozen mode).
+Invariants (`keepAwakeStateSchema`): off → `since`/`until` `null`, `active: false`, `error`
+`null` or `unsupported`; on → `since` set, `until` set exactly when `durationMinutes` is and
+after `since`; `active` → `error: null`.
+
+Rules:
+
+- **Not an anti-cheat setting.** Every change applies at once: no 24 h delay, no pending
+  change, no 409. `PUT` is accepted in normal **and safe** mode (it weakens nothing, and the
+  user must always be able to turn it off); frozen mode refuses it (503 `read_only`,
+  `schema_too_new`) and holds nothing. It never changes points (its events have Δ 0 and are
+  no ledger input), block crediting (a block still credits awake time only, §10.9), Study
+  Mode, schedules, limits or any block rule. A block on an idle machine that stays awake
+  credits that awake time, exactly as when the user disables sleep in the OS settings: no
+  new source of points. It is not in `GuardianSettings`, so settings delays and
+  `settings_changed` never involve it.
+- **Transitions** of `PUT /v1/keep-awake` (a full `KeepAwakeRequest {on, durationMinutes,
+display}`, `T` = trusted now; `d` = `durationMinutes`):
+
+  | Before → request                              | Result                                                     | Event                          |
+  | --------------------------------------------- | ---------------------------------------------------------- | ------------------------------ |
+  | identical `on`, `durationMinutes`, `display`  | nothing (200 with the current state, `until` unchanged)    | —                              |
+  | off → on                                      | `since = T`, `until = T + d` (or `null`)                   | `keep_awake_on`                |
+  | on → on, another `durationMinutes`            | `until = T + d` (or `null`): the countdown restarts at `T` | `keep_awake_updated`           |
+  | on → on, only `display` changed               | `until` kept                                               | `keep_awake_updated`           |
+  | on → off                                      | `since`/`until` `null`; `durationMinutes`/`display` kept   | `keep_awake_off{reason: user}` |
+  | off → off, `durationMinutes`/`display` change | stored                                                     | `keep_awake_updated`           |
+
+  So a retried `PUT` never restarts the countdown, and choosing the running duration again
+  changes nothing (the UI shows it checked). `keepAwakeRequest(current, change)` builds the
+  body; `keepAwakeRequestIsNoop` tells the no-op case.
+
+- **Expiry.** `until` has passed when `!T.Before(until)`; the time step turns it off with
+  `keep_awake_off{reason: "expired"}` (§10.1). At startup, after the clock restore and
+  before the inhibitor starts, a deadline that passed while the guardian was stopped or the
+  machine was off expires the same way, so «hasta las 18:30» never resumes at 20:00 after a
+  reboot. The boot hold (§10.2) does not apply. A wall-clock jump moves the display `until`
+  like any deadline. A calibration (§4) does not shift `until` (honest limit: after a
+  restore that trusted a wall clock ahead by Δ, a running countdown can end up to Δ late,
+  which only keeps the machine awake longer).
+- **The display** is the app's: while `on && display` and the app runs (in the tray after
+  its window closes), the Electron main process holds
+  `powerSaveBlocker.start('prevent-display-sleep')`, and releases it when either turns false,
+  the guardian is in frozen mode (it would refuse the change that turns it off) or the app
+  quits. A Windows service runs in session 0 and cannot keep the console display
+  on, so the same rule applies on every OS; the UI says it in its help line.
+- **Lid close is not overridden.** The guardian only prevents idle sleep: closing the lid
+  does what the OS is configured to do (logind's default `LidSwitchIgnoreInhibited=yes`,
+  Windows and macOS lid actions), and on Windows and macOS choosing «Suspender» still works.
+  On Linux the `sleep` block inhibitor makes a manual suspend ask for confirmation or an
+  administrator password (logind policy) while it is on.
+- **Persistence.** `state.json` holds `keepAwake` (trusted times); a rebuild from the log
+  keeps the last `keep_awake_*` snapshot (each event carries the whole configuration), else
+  `DEFAULT_KEEP_AWAKE`. Data deletion keeps it (`epoch_started.kept.keepAwake`): it is a
+  device preference, not history.
+- **Versions.** A change of the configuration, of `active` or of `error` bumps
+  `stateVersion` (never `extRulesVersion`: it is not enforcement).
+
 ---
 
 ## 6. Points and the ledger
@@ -664,6 +746,9 @@ diagnostics: one bad event never blocks the sync of the epoch. Only a broken env
 | `extension_paired` / `extension_revoked` | Pairing                                                                                                               | `extensionId`, `browser`, `boundOrigin` / `extensionId`                                                                                                                                                                 | 0                  |
 | `tamper_detected`                        | Hosts edited/locked/path moved, bad state MAC, rollback, guardian stopped, hosts edited while stopped, untrusted key  | `kind` (`TAMPER_KINDS`), `balanceCorrection` (≤ 0: `ledger_rollback` min(0, anchor − balance); `service_stopped` and `hosts_changed_while_stopped` −`emergencyPenalty(balance + allowanceValue)`; else 0), `voidStreak` | correction         |
 | `ledger_repaired`                        | A complete line failed MAC verification                                                                               | `droppedFromSeq`, `droppedCount`, `archivedAs`, `balanceCorrection`                                                                                                                                                     | correction         |
+| `keep_awake_on`                          | `PUT /v1/keep-awake` turned it on (§5.11)                                                                             | `keepAwake` (`KeepAwakeConfig` after the change, trusted times, `on: true`)                                                                                                                                             | 0                  |
+| `keep_awake_updated`                     | `PUT /v1/keep-awake` changed `durationMinutes` or `display` without turning it on or off                              | `keepAwake`                                                                                                                                                                                                             | 0                  |
+| `keep_awake_off`                         | The user turned it off, or `until` passed (also found at startup)                                                     | `keepAwake` (`on: false`), `reason` (`user`/`expired`)                                                                                                                                                                  | 0                  |
 
 Multi-event batches (`txEnd` only on the last line; «…» = zero or more, «[…]» = only when
 pending):
@@ -684,6 +769,7 @@ pending):
 - calibration correction: `block_reactivated`…, `clock_jump{calibrate}` (the shifts of
   §4 are part of it)
 - guardian stopped during a block: `tamper_detected{service_stopped, voidStreak: true}`
+- keep-awake events are always single-event batches
 
 `reward_redeemed` rule: `offerMinutes`/`offerCost` are always this redemption (the charged
 delta); the allowance totals after it are `allowanceMinutes`/`allowanceCost`, and
@@ -766,7 +852,8 @@ Missing or unknown token: 401 `unauthorized` (`WWW-Authenticate: Bearer`). Wrong
    daily limits, settings, rewards, emergencies, pairing, data delete) return 503
    `read_only` `safe_mode`, but reports that can only cost points, record progress or
    tighten a limit (attempts, usage, study heartbeat/strike/pause/resume/end) are still
-   accepted and study silence keeps
+   accepted, and so is `PUT /v1/keep-awake` (it weakens nothing and must always be
+   able to turn off, §5.11), and study silence keeps
    counting: safe mode is reachable by killing the guardian three times, so it must
    never suspend a penalty (§16.2 #41). Reads keep working.
 7. Body: media type, size, JSON, strict shape, semantics.
@@ -797,6 +884,11 @@ Daily limits (capability `daily_limits`) follow these rules:
 - New clients call `/v1/limits` and `/v1/usage` only when `health.capabilities` lists
   `daily_limits` (the app) or `rules.limits` is present (the extension; it reports no usage
   otherwise).
+
+Keep-awake (capability `keep_awake`, §5.11) follows the same rules:
+`GuardianStateResponse.keepAwake` and `EpochKeptState.keepAwake` are optional (absent = off,
+`DEFAULT_KEEP_AWAKE`), and the app calls `/v1/keep-awake` and shows its controls only when
+`health.capabilities` lists `keep_awake`. The extension never sees it.
 
 ### 8.5 Conditional and long-poll requests
 
@@ -835,7 +927,7 @@ key, a repeated request is a new intention (another extension, another charge).
 
 ### 8.7 Endpoint summary
 
-`GUARDIAN_ENDPOINTS` (45 entries; `testClock` only in `testhooks` builds):
+`GUARDIAN_ENDPOINTS` (47 entries; `testClock` only in `testhooks` builds):
 
 | #   | Method | Path                                | Auth       | I   | Purpose                                    |
 | --- | ------ | ----------------------------------- | ---------- | --- | ------------------------------------------ |
@@ -883,7 +975,9 @@ key, a repeated request is a new intention (another extension, another charge).
 | 42  | POST   | `/v1/ext/heartbeat`                 | ext        |     | Extension heartbeat                        |
 | 43  | POST   | `/v1/nuclear/heartbeat`             | app        |     | Nuclear overlay liveness (§10.5)           |
 | 44  | POST   | `/v1/data/delete`                   | app        | I   | «Borrar todos mis datos»                   |
-| 45  | POST   | `/v1/_test/clock`                   | app        |     | Test builds only: drive the fake clock     |
+| 45  | GET    | `/v1/keep-awake`                    | app        |     | «Mantener despierto» state (§5.11)         |
+| 46  | PUT    | `/v1/keep-awake`                    | app        |     | Set it (applies at once, idempotent)       |
+| 47  | POST   | `/v1/_test/clock`                   | app        |     | Test builds only: drive the fake clock     |
 
 ### 8.8 Endpoint reference
 
@@ -911,7 +1005,8 @@ Request and response shapes are the TypeScript interfaces named here; examples a
     "data_delete",
     "study_history",
     "nuclear_heartbeat",
-    "daily_limits"
+    "daily_limits",
+    "keep_awake"
   ],
   "schemaVersion": 1,
   "catalogVersion": 2,
@@ -943,7 +1038,8 @@ watcher, paired extensions with `connected`, `incognitoAllowed`, `hostPermission
 `endsAt` descending: `blocks[0]` drives the big countdown), `punishments` (active),
 `nuclearActive`, `study`, `emergency` (`counting`/`ready` only), `allowances` (active),
 `rewardsLock`, `nextSchedule` («Próximo horario: 16:00»), `limits` (every daily limit, usage
-floored to whole minutes, §8.5; optional for older guardians, §8.4), `points` (with
+floored to whole minutes, §8.5; optional for older guardians, §8.4), `keepAwake`
+(`KeepAwakeState`, §5.11; optional for older guardians), `points` (with
 `pendingFocusMinutes`), `pendingSettings`, `recent.endedBlocks` (ended in the last 2 min, for
 «Hecho. +80 puntos») and `recent.endedStudy` (the last session and its summary for 2 min
 after it ended, whoever ended it, so «Resumen» opens even when the guardian ended it).
@@ -1295,6 +1391,41 @@ Errors: 422 `validation_failed`, 422 `invalid_timezone`, 422 `protected_target` 
 extras), 422 `allow_distraction` (`findAllowDistraction` on `studyWhitelist`, `details:
 {path, reason, serviceId, appId}`). Writes `settings_changed`.
 
+#### Keep awake
+
+`GET /v1/keep-awake` → `KeepAwakeResponse` (`{ keepAwake }`, `KeepAwakeState`, display time).
+`PUT /v1/keep-awake` with `KeepAwakeRequest` (full replace) → 200 `{ keepAwake }` after
+applying the transition of §5.11. `active` reflects the inhibitor at answer time and may
+still be `false` for a moment after turning it on (the next `/v1/state` shows it).
+
+```json
+{ "on": true, "durationMinutes": 60, "display": true }
+```
+
+```json
+{
+  "keepAwake": {
+    "on": true,
+    "durationMinutes": 60,
+    "display": true,
+    "since": "2026-09-29T16:30:00.000Z",
+    "until": "2026-09-29T17:30:00.000Z",
+    "active": true,
+    "error": null
+  }
+}
+```
+
+Validation (codes per §8.1): shape (`keepAwakeRequestSchema`: every field required; unknown
+fields such as `since` or `until` → 400 `unknown_field`; `durationMinutes` not an integer or
+`null` → 422 `validation_failed`; outside 5–1440 → 422 `duration_out_of_range` with
+`details: {minMinutes: keepAwakeMinMinutes, maxMinutes: keepAwakeMaxMinutes}`). Frozen mode
+→ 503 `read_only` (`schema_too_new`); safe mode accepts it. No `Idempotency-Key`: the `PUT`
+is idempotent by state (an identical body is a no-op, 200, no event). Effects: at most one
+event (`keep_awake_on`/`_updated`/`_off`), `stateVersion` bump, the inhibitor told to hold or
+release in the same engine turn (it never blocks the answer). There is no other keep-awake
+route; nothing here can touch a block.
+
 #### Pairing
 
 - `POST /v1/pairing/code` `{}` → 201 `{ code, expiresAt, port }`. A new code invalidates the
@@ -1573,6 +1704,7 @@ func (e *Engine) timeStep() {
     e.completeBlocks(T)                       // §10.9 (honours the boot hold)
     e.activateSchedules(T)                    // §10.3
     e.limitsStep(T, dBoot)                    // §10.13 (day rollover, pending changes, reach)
+    e.keepAwakeStep(T)                        // §5.11 expiry, §10.14 inhibitor status
     e.studyStep(dAwake, T)                    // §10.4 (completion, abandonment, grace)
     e.emergencyStep()                         // §10.6 (boot clock)
     e.prevT = T
@@ -2008,7 +2140,8 @@ resurrection needs):
    `creditedUntil` restarts at the epoch start), the anti-cheat settings
    and their pending changes unchanged (`attemptPenalties`, `punishment`, `serverTimeCheck`,
    `closeBrowsersWithoutExtension`, `dailyGoalMinutes`, `timezone`: no instant weakening),
-   paired extensions. `studyWhitelist` is reset to empty and its pending changes are
+   paired extensions, the keep-awake configuration (`kept.keepAwake`, §5.11; a running
+   keep-awake keeps running with its `since` and `until`). `studyWhitelist` is reset to empty and its pending changes are
    dropped (both strengthening, and they hold the user's own domains).
 3. Deleted: every event segment of the old epoch, ended blocks and sessions, other
    schedules, the idempotency cache (stored responses included), `quarantine/*` (torn
@@ -2223,6 +2356,57 @@ goes uncounted (under-reporting). The guardian never infers usage on its own; on
 block exists, enforcement is as strong as any block's. Reports carry domains of limited sites
 and process names only, stay on the machine and are never logged (§7.2 «Privacy»).
 
+### 10.14 Keep-awake inhibitor
+
+A new package `guardian/internal/awake` owns the OS mechanism behind an interface, with a fake
+for engine tests:
+
+```go
+type Status struct {
+    Active bool
+    Err    string // "", "unsupported" or "failed" (KEEP_AWAKE_ERRORS)
+}
+
+type Inhibitor interface {
+    Hold(on bool)     // hold or release the idle-sleep inhibition; idempotent, never blocks
+    Status() Status   // what is true right now (a probe result while off: "" or "unsupported")
+    Close()           // release and wait (about 2 s, at most 4 s when a child ignores SIGTERM); called at clean shutdown
+}
+```
+
+`New(onChange func())` picks the implementation by build tags; `onChange` asks the engine
+for a step, which reads `Status()` and bumps `stateVersion` when it changed. The engine calls
+`Hold(cfg.on && mode != frozen)` after every keep-awake change, after startup recovery
+(expired deadlines first, §5.11) and on each step (cheap and idempotent). The inhibitor never
+receives request data: only that boolean.
+
+| OS      | Mechanism (fixed arguments, no shell)                                                                                                                                                      |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Windows | `SetThreadExecutionState(ES_CONTINUOUS \| ES_SYSTEM_REQUIRED)` from one goroutine locked to its OS thread (`runtime.LockOSThread`) for as long as it holds; `ES_CONTINUOUS` alone releases |
+| macOS   | child `/usr/bin/caffeinate -i -w <guardian pid>` (`-w`: it exits if the guardian dies). `CGO_ENABLED=0`, so no IOPMAssertion                                                               |
+| Linux   | child `systemd-inhibit --what=idle:sleep --who=Céntrate "--why=Mantener despierto" --mode=block <sleep> infinity` (logind; the guardian has no D-Bus library)                              |
+
+- **Windows.** The execution state belongs to the calling thread, so a dedicated goroutine
+  calls it through `golang.org/x/sys/windows` (`kernel32` lazy proc, no cgo) and parks until
+  told to release. A zero return is `failed`. It works from a LocalSystem service (it shows
+  in `powercfg /requests` under SYSTEM); it does not keep the display on (§5.11).
+- **macOS.** `-i` (prevent idle system sleep) only, not `-s`: `-s` creates a
+  PreventSystemSleep assertion that can also keep a Mac on AC power awake in situations
+  other than idle, and the contract never overrides the lid or a manual sleep.
+- **Linux.** `systemd-inhibit` and `sleep` are resolved once from fixed absolute candidates
+  (`/usr/bin`, `/bin`), never through `PATH`; neither found → `unsupported`. The child runs in
+  its own process group with `Pdeathsig: SIGTERM`, and the unit's `KillMode=mixed` (SIGKILL
+  to the rest of the cgroup at stop or after a crash) also ends it with the service.
+- **Supervision (child processes).** While holding, a child that exits is restarted after
+  1 s, 2 s, 4 s … up to 60 s; `Active` is false meanwhile. Three exits in a row, each within
+  60 s of its start, set `failed` (retries continue every 60 s); a child that stays up for
+  60 s resets the count and clears `failed`. Releasing sends `SIGTERM`, waits 2 s, then
+  `SIGKILL`, and reaps it. A new guardian never adopts children of a previous one (they end
+  by `-w`, `Pdeathsig` or the cgroup).
+- **Modes.** Frozen mode never holds (`error: "failed"` while on). Safe mode holds as
+  normal. Uninstall releases it with the service.
+- **Logs** record transitions and failures (mechanism, exit status), never request data.
+
 ---
 
 ## 11. Storage
@@ -2237,7 +2421,7 @@ and process names only, stay on the machine and are never logged (§7.2 «Privac
 <sys>/                            admin rw, users r+x
   config.json                     installer-written, admin-only: {schemaVersion, port, appPath, extraExtensionIds[], logLevel}
   client.json                     {v, port, token, guardianVersion, pid, issuedAt} (rotated each start), users r
-  state.json, state.prev.json     snapshot + previous generation (incl. versions, idempotency records, hosts hash, daily-limit usage), users r
+  state.json, state.prev.json     snapshot + previous generation (incl. versions, idempotency records, hosts hash, daily-limit usage, keep-awake), users r
   events/current                  current epoch id
   events/<epoch>/00000001.jsonl   append-only segments named by first seq; roll at 8 MiB; MAC chain spans segments
   quarantine/                     torn tails, partial batches, corrupt snapshots, bad events
@@ -2376,7 +2560,8 @@ packages/shared/src/guardian-api.ts ─ apiContractSnapshot() ┘   (esbuild bun
   `packages/shared/test/fixtures/limits-vectors.json` (`splitLimitChange`,
   `limitDefinitionWeakens`, `pendingLimitDelayKept`, `clampUsageInterval`,
   `limitUsageCredit`). The limit constants (`maxLimits`, `limitMinMinutes`,
-  `usageSlackMs`, …) reach the guardian through `api.json` `limits`.
+  `usageSlackMs`, …) reach the guardian through `api.json` `limits`, and so do
+  `keepAwakeMinMinutes`/`keepAwakeMaxMinutes`; `DEFAULT_KEEP_AWAKE` is `defaultKeepAwake`.
 - API drift (follow-up, §17): golden request/response pairs in
   `packages/shared/test/fixtures/api/<endpoint>.<case>.json`, type-checked by vitest and
   decoded by Go with `DisallowUnknownFields`, re-encoded and compared. The directory does not
@@ -2473,6 +2658,15 @@ timeout 3 s («si no responde en 3 s»), long polls add their `waitMs`.
   a same-boot stop
   > 60 s during a block writes `tamper_detected{service_stopped}` and a planned stop does
   > not.
+- Keep-awake (§5.11, §10.14), with a fake `Inhibitor`: every transition of the table (a
+  retried `PUT` keeps `until`, a new duration restarts it, display-only and off-to-off
+  changes write `keep_awake_updated`), expiry by `FakeClock.Advance`, a deadline that passed
+  across `FakeClock.Reboot` expires at startup before `Hold(true)`, `JumpWall` moves the
+  display `until`, safe mode accepts and frozen mode refuses and never holds, data deletion
+  keeps it running, Δ 0 on every keep-awake event, `stateVersion` bumps when `Status()`
+  changes; in `internal/awake`, supervision with a fake process runner (restart backoff,
+  `failed` after three quick exits, reset after 60 s, `unsupported` without binaries, release
+  kills and reaps) and a check that argument vectors are constants.
 - `testhooks` build tag: `POST /v1/_test/clock` for Playwright end-to-end runs against the
   real guardian binary.
 - Route-table test: the router's routes equal `api.json` endpoints, and no `/v1/blocks`
@@ -2493,7 +2687,9 @@ timeout 3 s («si no responde en 3 s»), long polls add their `waitMs`.
   mascot), `catalog-vectors.test.ts` (catalog and validation vectors), `guardian-api.test.ts`
   (validators, output caps vs guardian limits, route table, client with a fake `fetch`,
   malformed-event tolerance, ECDSA signatures and nonces), `limits.test.ts` (daily-limit
-  validators, optional fields for older guardians, limit events and `limits-vectors.json`).
+  validators, optional fields for older guardians, limit events and `limits-vectors.json`),
+  `keep-awake.test.ts` (request and state validators with their invariants, events, the
+  optional state and kept fields, helpers and the client).
 
 ---
 
@@ -2668,3 +2864,13 @@ identifiers) and must be disclosed in PRIVACY.md.
       the limit block card, `limit_warning`/`limit_reached` notifications, statistics from
       `limit_day_closed`, replacing the `MockGuardian` stubs.
     - _Parser_: the `limit` intent (`ParseResult.dailyMinutes`, `days`).
+16. **Keep awake** (§5.11, §10.14; the shared contract, validators, tests and web are done):
+    - _Guardian_ (done): `internal/awake` (interface, Windows/macOS/Linux implementations,
+      fake), the persisted configuration and its reducer, `GET`/`PUT /v1/keep-awake`, the
+      three events, `keepAwakeStep`, startup expiry, `kept.keepAwake`, `/v1/state.keepAwake`,
+      the duration error details.
+    - _Desktop_ (done): tray submenu, footer chip, Ajustes group, tray tooltip, the
+      `prevent-display-sleep` blocker, harness fixtures (on, off, error), the `MockGuardian`
+      implementation (`mock-keep-awake.ts`).
+    - _Spikes_ (pending): `ES_SYSTEM_REQUIRED` from a service on Modern Standby (S0ix) laptops;
+      `caffeinate -i` from a LaunchDaemon; `systemd-inhibit` under GNOME and KDE auto-suspend.

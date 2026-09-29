@@ -164,13 +164,18 @@ export function Checkbox(props: {
   );
 }
 
-/** A text action: grey (secondary links) or blue (information, «Actualizar a v1.3.0»). */
+/**
+ * A text action: grey (secondary links), blue (information, «Actualizar a v1.3.0»), orange (a
+ * warning you can act on) or red.
+ */
 export function TextButton(props: {
   children: ReactNode;
   onPress(): void;
-  tone?: 'muted' | 'blue' | 'red';
+  tone?: 'muted' | 'blue' | 'orange' | 'red';
   size?: 12 | 13;
   describedBy?: string;
+  /** It opens a menu (the footer's «Despierto» chip). */
+  hasPopup?: 'menu';
   className?: string;
   ref?: Ref<HTMLButtonElement>;
 }): React.JSX.Element {
@@ -182,6 +187,7 @@ export function TextButton(props: {
       data-tone={props.tone ?? 'muted'}
       data-size={props.size ?? 12}
       aria-describedby={props.describedBy}
+      aria-haspopup={props.hasPopup}
       onClick={props.onPress}
     >
       {props.children}

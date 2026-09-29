@@ -10,6 +10,8 @@ export const TRAY_EN: TrayMessages = {
     blocks: (count: number): string => `${count} blocks`,
     checkingClock: 'checking the time',
     studying: 'studying',
+    awake: (until: string | null): string => (until ? `awake ${until}` : 'awake'),
+    awakeFailed: 'cannot keep awake',
   },
   linkDown: {
     not_installed: 'guardian not installed',
@@ -35,6 +37,7 @@ export const TRAY_EN: TrayMessages = {
     extendItem: (label: string): string => `+${label}`,
     quick: 'Quick block',
     miniTimer: 'Mini timer',
+    keepAwake: 'Keep awake',
     open: 'Open Céntrate',
     emergency: 'Emergency exit…',
     quit: 'Quit (blocks stay active)',

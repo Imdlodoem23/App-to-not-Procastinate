@@ -487,8 +487,8 @@ export const es = {
         text: 'Para Chrome, Edge, Brave y Firefox: bloquea al instante y te enseña tu motivo.',
       },
       {
-        name: 'Tu motivo',
-        text: 'Una frase tuya, como «Quiero aprobar mates», que aparece justo cuando intentas entrar.',
+        name: 'Mantener despierto',
+        text: 'El ordenador no se suspende solo, ni con la app cerrada, hasta que lo desactives o acabe el tiempo.',
       },
       {
         name: 'Recordatorios',
@@ -499,8 +499,13 @@ export const es = {
         text: 'Tu primera sesión, 7\u00a0días de racha, 10\u00a0horas de Study Mode, una semana sin intentos…',
       },
     ],
-    /** Replacements if a tile has to change. */
+    /** Replacements if a tile has to change. «Tu motivo» left the grid for «Mantener despierto»:
+     * the reason already shows in the sticky scene, the app mock-ups and the FAQ. */
     spare: [
+      {
+        name: 'Tu motivo',
+        text: 'Una frase tuya, como «Quiero aprobar mates», que aparece justo cuando intentas entrar.',
+      },
       {
         name: 'Mini temporizador',
         text: 'Una cuenta atrás pequeña y siempre visible que colocas donde quieras.',
@@ -1108,7 +1113,7 @@ export const es = {
             {
               list: [
                 '**Acceso y portabilidad:** Ajustes → Datos → **Exportar**, en CSV.',
-                '**Supresión:** Ajustes → Datos → **Borrar todos mis datos**, que te pide escribir BORRAR. Los bloqueos en curso no se borran: terminan a su hora. Tampoco tus límites diarios ni lo que llevas usado hoy, para que borrar no sirva para saltarse un límite.',
+                '**Supresión:** Ajustes → Datos → **Borrar todos mis datos**, que te pide escribir BORRAR. Los bloqueos en curso no se borran: terminan a su hora. Tampoco tus límites diarios ni lo que llevas usado hoy, para que borrar no sirva para saltarse un límite, ni la configuración de «Mantener despierto», que es una preferencia del equipo.',
                 '**Rectificación:** cambia tus ajustes, horarios y plantillas cuando quieras. Los puntos no se pueden editar, para que nadie haga trampas, pero sí se pueden borrar.',
               ],
             },

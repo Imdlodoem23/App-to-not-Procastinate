@@ -124,6 +124,16 @@ func handlerTable() map[string]handlerSpec {
 			return c.s.eng.RedeemReward(c.ctx, c.request(), req)
 		})},
 
+		// Keep-awake (§5.11). Not a user write refused in safe mode: it weakens nothing
+		// and the user must always be able to turn it off; the engine refuses it in frozen
+		// mode. No Idempotency-Key: the PUT is idempotent by state.
+		"getKeepAwake": {serve: readCmd(func(c *call) (engine.KeepAwakeResponse, error) {
+			return c.s.eng.GetKeepAwake(c.ctx)
+		})},
+		"setKeepAwake": {serve: bodyCmd(http.StatusOK, func(c *call, req engine.KeepAwakeRequest) (engine.KeepAwakeResponse, error) {
+			return c.s.eng.SetKeepAwake(c.ctx, c.request(), req)
+		})},
+
 		"getSettings": {serve: readCmd(func(c *call) (engine.SettingsResponse, error) {
 			return c.s.eng.GetSettings(c.ctx)
 		})},

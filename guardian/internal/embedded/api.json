@@ -15,13 +15,21 @@
       "data_delete",
       "study_history",
       "nuclear_heartbeat",
-      "daily_limits"
+      "daily_limits",
+      "keep_awake"
     ],
     "chromiumExtensionId": "dlabilkpafinafimngfclcfmeghilcah",
     "dataDeleteConfirmWords": [
       "BORRAR",
       "DELETE"
     ],
+    "defaultKeepAwake": {
+      "display": true,
+      "durationMinutes": null,
+      "on": false,
+      "since": null,
+      "until": null
+    },
     "defaultPort": 47600,
     "defaultSettings": {
       "attemptPenalties": true,
@@ -437,6 +445,24 @@
       },
       {
         "auth": "app",
+        "id": "getKeepAwake",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "GET",
+        "path": "/v1/keep-awake",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "setKeepAwake",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "PUT",
+        "path": "/v1/keep-awake",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
         "id": "testClock",
         "idempotencyKey": false,
         "longPoll": false,
@@ -518,6 +544,8 @@
       "idempotencyKeyMaxLength": 128,
       "idempotencyMaxEntries": 256,
       "idempotencyTtlMs": 600000,
+      "keepAwakeMaxMinutes": 1440,
+      "keepAwakeMinMinutes": 5,
       "limitMaxBlocksPerDay": 4,
       "limitMaxMinutes": 720,
       "limitMinBlockMs": 60000,
@@ -591,5 +619,5 @@
     }
   },
   "generatedBy": "scripts/gen-guardian-data.mjs",
-  "sourceSha256": "a647e4349f11f35f353072aa02879c692ac311d53275c9556186e4b90d04abd0"
+  "sourceSha256": "fe1affec2b085b1988817bfc1b2388639a28867acc2521782a6928c49d0ce014"
 }

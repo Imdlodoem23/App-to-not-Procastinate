@@ -25,12 +25,15 @@ import {
   DATA_DELETE_CONFIRM_WORDS,
   GUARDIAN_LIMITS,
   isDailyLimitInput,
+  keepAwakeRequest,
+  keepAwakeRequestIsNoop,
   type GuardianClient,
   type GuardianStateResponse,
   type ScheduleInput,
 } from '@centrate/shared/guardian-api';
 import type { HarnessFixture } from '../../shared/fixtures';
 import { PHASE5_INVOKE_GUARDS } from '../../shared/ipc-payloads';
+import { isKeepAwakeChange, keepAwakeSupported } from '../../shared/keep-awake';
 import type { InstallOutcome } from '../../shared/platform';
 import { phase5InvokeStubs } from '../../shared/phase5-stubs';
 import {
@@ -742,6 +745,34 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
         log.info('limit_delete_requested', {});
         afterWrite();
         return ok(r.limit);
+      }),
+
+    // «Mantener despierto» (ARCHITECTURE §5.11): the guardian's current configuration with
+    // the change applied, as one full PUT; a choice that changes nothing sends nothing. It
+    // applies at once, so the state is patched with the answer before the next poll.
+    'keep-awake:set': (req) =>
+      guarded(async () => {
+        if (!isKeepAwakeChange(req?.change)) return invalid();
+        if (!keepAwakeSupported(store.get())) return fail(uiError('rejected', 'unsupported', 404));
+        const current = (await call((c) => c.getKeepAwake())).keepAwake;
+        const body = keepAwakeRequest(current, req.change);
+        let keepAwake = current;
+        if (!keepAwakeRequestIsNoop(current, body)) {
+          keepAwake = (await call((c) => c.setKeepAwake(body))).keepAwake;
+          raiseFloorPastCurrent();
+          log.info('keep_awake_set', {
+            on: keepAwake.on,
+            minutes: keepAwake.durationMinutes,
+            display: keepAwake.display,
+          });
+          afterWrite();
+        }
+        store.update((s) =>
+          s.state && JSON.stringify(s.state.keepAwake) !== JSON.stringify(keepAwake)
+            ? { ...s, state: { ...s.state, keepAwake } }
+            : s,
+        );
+        return ok(keepAwake);
       }),
 
     'templates:save': (req) =>

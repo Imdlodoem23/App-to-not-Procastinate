@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { PHASE1_FEATURES } from '../../../src/shared/features';
-import { harnessFixture, type HarnessStateId } from '../../../src/shared/fixtures';
+import {
+  HARNESS_NOW,
+  harnessFixture,
+  makeHealth,
+  type HarnessStateId,
+} from '../../../src/shared/fixtures';
+import { GUARDIAN_CAPABILITIES } from '@centrate/shared/guardian-api';
 import { withLocale } from '../../../src/shared/i18n/locale';
 import { INITIAL_UPDATER, type UpdaterState } from '../../../src/shared/platform';
 import type { UiSnapshot } from '../../../src/shared/ui-state';
 import {
   deriveFooterView,
+  footerAwake,
   footerVersion,
   updateOutcome,
 } from '../../../src/renderer/src/sections/footer/view';
@@ -104,5 +111,66 @@ describe('footer: «Mini temporizador»', () => {
     };
     expect(deriveFooterView(off).buttons).toEqual(['settings', 'quit']);
     expect(deriveFooterView(off).miniTimerVisible).toBe(false);
+  });
+});
+
+describe('footer: «Despierto» chip (Mantener despierto)', () => {
+  it('reads «Despierto · hasta las 18:30» or «Despierto» while on', () => {
+    expect(deriveFooterView(snapshotOf('keep-awake-until')).awake).toEqual({
+      label: 'Despierto · hasta las 18:30',
+      tone: 'blue',
+      trouble: null,
+    });
+    expect(deriveFooterView(snapshotOf('keep-awake')).awake).toEqual({
+      label: 'Despierto',
+      tone: 'blue',
+      trouble: null,
+    });
+    withLocale('en', () => {
+      expect(deriveFooterView(snapshotOf('keep-awake-until')).awake?.label).toMatch(
+        /^Awake · until 6:30\sPM$/,
+      );
+    });
+  });
+
+  it('says «Despierto: error» in orange, and why, when the guardian cannot hold it', () => {
+    expect(deriveFooterView(snapshotOf('keep-awake-error')).awake).toEqual({
+      label: 'Despierto: error',
+      tone: 'orange',
+      trouble: 'No se ha podido mantener despierto este equipo',
+    });
+  });
+
+  it('gives the right side to a pending update', () => {
+    const base = snapshotOf('keep-awake');
+    const update = snapshotOf('update-available');
+    const both: UiSnapshot = { ...update, state: base.state };
+    expect(deriveFooterView(both).awake).toBeNull();
+    expect(deriveFooterView(both).version.action).toBe('install');
+    const downloading: UiSnapshot = {
+      ...base,
+      updater: { ...base.updater, status: 'downloading', version: '0.2.0', percent: 40 },
+    };
+    expect(deriveFooterView(downloading).awake).toBeNull();
+  });
+
+  it('is not there while off, past its end, down or without the capability', () => {
+    expect(deriveFooterView(snapshotOf('idle')).awake).toBeNull();
+    expect(deriveFooterView(snapshotOf('keep-awake-unsupported')).awake).toBeNull();
+    const until = snapshotOf('keep-awake-until');
+    expect(footerAwake(until, HARNESS_NOW + 91 * 60_000)).toBeNull();
+    expect(footerAwake(until, HARNESS_NOW + 89 * 60_000)).not.toBeNull();
+    const down: UiSnapshot = {
+      ...until,
+      link: { ...until.link, status: 'down', reason: 'unreachable' },
+    };
+    expect(footerAwake(down, HARNESS_NOW)).toBeNull();
+    const older: UiSnapshot = {
+      ...until,
+      health: makeHealth(HARNESS_NOW, {
+        capabilities: GUARDIAN_CAPABILITIES.filter((c) => c !== 'keep_awake'),
+      }),
+    };
+    expect(footerAwake(older, HARNESS_NOW)).toBeNull();
   });
 });

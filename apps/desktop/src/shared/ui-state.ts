@@ -125,8 +125,11 @@ export function isDetailName(value: unknown): value is DetailName {
   return typeof value === 'string' && (DETAIL_NAMES as readonly string[]).includes(value);
 }
 
-/** Groups of the Ajustes window (Study Mode joins with its flag). */
-export const AJUSTES_GROUPS = ['general', 'bloqueo', 'sistema', 'datos'] as const;
+/**
+ * Groups of the Ajustes window (Study Mode joins with its flag; «Mantener despierto» with the
+ * guardian's `keep_awake`).
+ */
+export const AJUSTES_GROUPS = ['general', 'bloqueo', 'despierto', 'sistema', 'datos'] as const;
 export type AjustesGroup = (typeof AJUSTES_GROUPS)[number];
 
 /** Which fixed edge a window keeps when its height changes (bottom on Windows, top on macOS). */

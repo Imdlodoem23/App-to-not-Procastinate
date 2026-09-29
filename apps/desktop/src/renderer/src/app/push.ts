@@ -115,6 +115,8 @@ export function createPushHandlers(
         services.focusField();
         return;
       }
+      // The footer shows it on its help line (`sections/footer/Footer.tsx`).
+      if (command.type === 'keep-awake-failed') return;
       const s = state();
       const result = confirmCommand(command, s.snapshot, s.main, newIntentId);
       if (result.opened) flushSync(() => s.updateMain(() => result.main));

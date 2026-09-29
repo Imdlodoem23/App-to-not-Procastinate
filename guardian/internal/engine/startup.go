@@ -216,6 +216,9 @@ func (e *Engine) startup() error {
 	e.closeDays(e.now)
 	// The daily-limit rollover for records of a past day (limit_day_closed, §10.13).
 	e.limitsRollover(e.now)
+	// Keep-awake: a deadline that passed while stopped expires before the inhibitor
+	// starts (§5.11).
+	e.keepAwakeStart()
 
 	// Step 11: enforcement before the API opens.
 	e.reconcile()
@@ -402,7 +405,7 @@ func (e *Engine) emptyKept() EpochKeptState {
 	return EpochKeptState{
 		Blocks: []Block{}, Punishments: []Punishment{}, Allowances: []RewardAllowance{}, Schedules: []Schedule{},
 		Settings: embeddedDefaultSettings(), PendingSettings: []PendingSettingChange{}, MaterializedOccurrences: []string{},
-		Limits: []DailyLimit{},
+		Limits: []DailyLimit{}, KeepAwake: ptr(kaWire(defaultKeepAwake())),
 	}
 }
 
@@ -426,6 +429,7 @@ func (e *Engine) keptNow(dataDeletion bool) EpochKeptState {
 	k.Settings = e.state.Settings.Clone()
 	k.PendingSettings = nonNil(e.keptPending(dataDeletion))
 	k.Limits = e.keptLimits() // every limit, also for a data deletion (§10.11)
+	k.KeepAwake = e.keptKeepAwake()
 	return k
 }
 

@@ -14,6 +14,7 @@ import {
 } from '@centrate/shared/guardian-api';
 import type { InvokeChannel, InvokeReq } from '../shared/ipc';
 import { PHASE5_INVOKE_GUARDS } from '../shared/ipc-payloads';
+import { isKeepAwakeChange } from '../shared/keep-awake';
 import { isIntentId } from '../shared/ui-state';
 import { isTemplateInput, isUiPrefsPatch } from './db/prefs-store';
 import { isExtendEntryId } from './guardian/extend-queue';
@@ -106,6 +107,9 @@ export const INVOKE_GUARDS: { [C in InvokeChannel]: Guard<C> } = {
 
   'limits:delete': (req): req is InvokeReq<'limits:delete'> =>
     exact(req, ['id']) && isIdOf('limit', req['id']),
+
+  'keep-awake:set': (req): req is InvokeReq<'keep-awake:set'> =>
+    exact(req, ['change']) && isKeepAwakeChange(req['change']),
 
   'templates:save': (req): req is InvokeReq<'templates:save'> => isTemplateInput(req),
 

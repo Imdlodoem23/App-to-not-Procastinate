@@ -16,6 +16,7 @@
 import {
   BookOpen,
   ClipboardCopy,
+  Coffee,
   Database,
   Download,
   FileDown,
@@ -50,7 +51,8 @@ import type { DefaultBlockMode } from '../../../../shared/ui-state';
 import { AJUSTES } from './i18n';
 import { ChoiceRow, Notice, PunishmentRow, RangeRow, ShortcutRow, VolumeRow } from './parts';
 import { useAjustes, type AjustesApi } from './useAjustes';
-import { AJUSTES_IDS, type AjustesView } from './view';
+import { KEEP_AWAKE_CHOICES } from '../../../../shared/keep-awake';
+import { AJUSTES_IDS, keepAwakeDurationLabel, type AjustesView } from './view';
 import './ajustes.css';
 
 const A = AJUSTES;
@@ -263,6 +265,53 @@ function BloqueoGroup(props: { view: AjustesView['bloqueo']; api: AjustesApi }):
         ) : null}
       </div>
       <Notice notice={api.notices.bloqueo} />
+    </Section>
+  );
+}
+
+/**
+ * «Mantener despierto» (ARCHITECTURE §5.11): the switch (its description says what it does, or
+ * in orange why this computer is not kept awake), the duration on a slider (30 min … «Sin
+ * límite»; each stop applies at once), «Mantener también la pantalla encendida» and the one
+ * thing it never does (the lid).
+ */
+function KeepAwakeGroup(props: {
+  view: NonNullable<AjustesView['keepAwake']>;
+  api: AjustesApi;
+}): React.JSX.Element {
+  const { view, api } = props;
+  const K = A.keepAwake;
+  return (
+    <Section id={AJUSTES_IDS.keepAwake} icon={Coffee} title={view.title}>
+      <div className="aj-rows">
+        <SwitchRow
+          id="aj-keep-awake"
+          title={K.toggle}
+          description={<span data-tone={view.tone}>{view.description}</span>}
+          checked={view.on}
+          onChange={api.setKeepAwake}
+        />
+        <RangeRow
+          id="aj-keep-awake-duration"
+          title={K.duration}
+          description={K.durationDesc}
+          value={view.durationIndex}
+          min={0}
+          max={KEEP_AWAKE_CHOICES.length - 1}
+          step={1}
+          format={(index) => keepAwakeDurationLabel(KEEP_AWAKE_CHOICES[index] ?? null)}
+          onCommit={api.setKeepAwakeDuration}
+        />
+        <SwitchRow
+          id="aj-keep-awake-display"
+          title={K.display}
+          description={K.displayDesc}
+          checked={view.display}
+          onChange={api.setKeepAwakeDisplay}
+        />
+      </div>
+      <p className="aj-note">{K.note}</p>
+      <Notice notice={api.notices.keepAwake} />
     </Section>
   );
 }
@@ -665,6 +714,7 @@ export default function AjustesWindow(): React.JSX.Element {
     <div className="aj" data-loading={api.loading ? '' : undefined}>
       <GeneralGroup view={api.view.general} api={api} />
       <BloqueoGroup view={api.view.bloqueo} api={api} />
+      {api.view.keepAwake ? <KeepAwakeGroup view={api.view.keepAwake} api={api} /> : null}
       {api.view.study ? <StudyGroup view={api.view.study} api={api} /> : null}
       <SistemaGroup view={api.view.sistema} api={api} />
       <DatosGroup view={api.view.datos} api={api} />

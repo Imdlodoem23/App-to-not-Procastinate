@@ -241,6 +241,9 @@ type EpochKeptState struct {
 	// Limits is every daily limit with its pending change and today's usage (absent in
 	// epochs started before daily limits: read it as empty).
 	Limits []DailyLimit `json:"limits"`
+	// KeepAwake is the keep-awake configuration (absent in epochs started before
+	// keep-awake: read it as DEFAULT_KEEP_AWAKE).
+	KeepAwake *KeepAwakeConfig `json:"keepAwake,omitempty"`
 }
 
 // ---------------------------------------------------------------------------------------
@@ -364,6 +367,7 @@ type GuardianStateResponse struct {
 	RewardsLock     *string                `json:"rewardsLock"`
 	NextSchedule    *NextScheduleInfo      `json:"nextSchedule"`
 	Limits          []DailyLimit           `json:"limits"`
+	KeepAwake       *KeepAwakeState        `json:"keepAwake,omitempty"`
 	Points          PointsSummary          `json:"points"`
 	PendingSettings []PendingSettingChange `json:"pendingSettings"`
 	Recent          RecentInfo             `json:"recent"`

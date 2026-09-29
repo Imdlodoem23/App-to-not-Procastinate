@@ -17,6 +17,7 @@ Además tiene un **Study Mode**: la cámara y una IA que funciona solo en tu ord
 - **Puntos, racha, recompensas y logros:** cada intento de entrar en algo bloqueado te cuesta puntos.
 - **Extensión del navegador** para Chrome, Edge, Brave y Firefox, con tu motivo en la página de bloqueo.
 - **Estadísticas** por día, semana y mes, con exportación a CSV.
+- **Mantener despierto:** como NoSleep o Caffeine. Durante 30 min, 1 h, 2 h, 4 h o hasta que lo desactives, el ordenador no se suspende por inactividad, aunque cierres la app o reinicies, porque lo mantiene el guardián. Cerrar la tapa sigue suspendiendo. Si quieres, la pantalla también se queda encendida mientras la app está abierta (también en la bandeja).
 
 ## Plataformas
 

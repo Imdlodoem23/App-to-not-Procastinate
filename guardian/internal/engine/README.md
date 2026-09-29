@@ -13,8 +13,8 @@ API handler ──▶ e.CreateBlock(ctx, Request, body)
                        exec: on the loop goroutine (after Start) or inline, serialized
                        ├─ timeStep()                  §10.1: clock, days, pending settings,
                        │                              allowances, credit, completion,
-                       │                              schedules, daily limits, study,
-                       │                              emergency
+                       │                              schedules, daily limits,
+                       │                              keep-awake, study, emergency
                        ├─ writable()                  frozen/safe → 503 read_only
                        ├─ idemLookup()                replay (*ReplayedResponse) / 409
                        ├─ fn(): validate → batch → commit
@@ -62,6 +62,7 @@ events and never touch enforcement.
 | `attempts.go` (+ test) | attempts | §10.8 |
 | `pairing.go` (+ test) | pairing | §9.3, extension heartbeats and status |
 | `extrules.go` (+ test) | extension rules | §8.8 signed rules, long poll |
+| `keepawake.go` (+ test) | keep-awake | §5.11, §10.14: the persisted configuration and its reducer, `GET`/`PUT /v1/keep-awake`, expiry in the time step and at startup, `kept.keepAwake`, the `internal/awake` inhibitor (`Options.NewInhibitor`, `awake.Fake` in tests) |
 
 Feature owners edit **only their files**. Each feature file already contains:
 

@@ -12,12 +12,28 @@
  *   the link turns into «Descargando v0.2.0 · 45 %» (muted, not a button).
  * - «Mini temporizador» toggles its window (`mini-timer:toggle`) and shows pressed while it is
  *   visible (`prefs.miniTimer.visible`, neutral outline: showing it is no «better» choice).
+ *
+ * «Mantener despierto» (ARCHITECTURE §5.11): while it is on, the «Despierto · hasta las 18:30» chip
+ * (blue) takes the version's place on the status line, so the footer never grows (the main
+ * window has no height to spare at 1366×768 at 125 %). When the guardian cannot hold it, the
+ * chip reads «Despierto: error» (orange) and the help line under the buttons says «No se ha
+ * podido mantener despierto este equipo». Pressing it pops up the tray's choices
+ * (`keep-awake:menu`). A pending update keeps the right side («Actualizar a vX» is an action
+ * to take; the tray and Ajustes still show keep-awake). Off, the chip is not there at all (the
+ * tray and Ajustes turn it on).
  */
 import type { Accent } from '@centrate/shared/design/tokens';
 import { featureEnabled } from '../../../../shared/features';
 import { formatInt } from '../../../../shared/format';
+import {
+  keepAwakeAvailable,
+  keepAwakeIsOn,
+  keepAwakeOf,
+  keepAwakeSummary,
+  keepAwakeTroubleText,
+} from '../../../../shared/keep-awake';
 import type { UpdaterState } from '../../../../shared/platform';
-import type { UiSnapshot } from '../../../../shared/ui-state';
+import { snapshotNow, type UiSnapshot } from '../../../../shared/ui-state';
 import { RENDERER } from '../../i18n/messages';
 import { FOOTER } from './i18n';
 
@@ -27,6 +43,14 @@ export interface FooterStatus {
 }
 
 export type FooterButton = 'miniTimer' | 'settings' | 'quit';
+
+/** The «Despierto» chip: what it says and in which tone. */
+export interface FooterAwake {
+  label: string;
+  tone: 'blue' | 'orange';
+  /** Why it is not held («No se ha podido mantener despierto este equipo»), else `null`. */
+  trouble: string | null;
+}
 
 /** What pressing the version does: download, install (restart) or nothing (plain text). */
 export type FooterUpdateAction = 'download' | 'install';
@@ -47,6 +71,24 @@ export interface FooterView {
   buttons: FooterButton[];
   /** The mini timer is on screen: its button shows pressed. */
   miniTimerVisible: boolean;
+  /**
+   * «Mantener despierto» is on: its chip, in place of the plain version. `null` while off, and
+   * while the right side shows an update.
+   */
+  awake: FooterAwake | null;
+}
+
+/**
+ * «Despierto · hasta las 18:30», «Despierto» or «Despierto: error»; `null` while off or
+ * unavailable.
+ */
+export function footerAwake(snapshot: UiSnapshot, nowMs: number): FooterAwake | null {
+  if (!keepAwakeAvailable(snapshot)) return null;
+  const state = keepAwakeOf(snapshot);
+  if (!keepAwakeIsOn(state, nowMs)) return null;
+  const trouble = keepAwakeTroubleText(state);
+  if (trouble) return { label: FOOTER.awake.error, tone: 'orange', trouble };
+  return { label: keepAwakeSummary(state), tone: 'blue', trouble: null };
 }
 
 /** The version on the right: «v1.2.0», «Actualizar a v1.3.0», «Descargando v1.3.0 · 45 %». */
@@ -107,12 +149,17 @@ export function deriveFooterView(snapshot: UiSnapshot): FooterView {
   if (miniTimer) buttons.push('miniTimer');
   buttons.push('settings', 'quit');
 
+  const version = footerVersion(snapshot);
+  // The chip takes the plain version's place; an update (or its download) keeps it.
+  const plainVersion =
+    snapshot.app.updateVersion === null && snapshot.updater.status !== 'downloading';
   return {
     guardian,
     extension,
-    version: footerVersion(snapshot),
+    version,
     buttons,
     miniTimerVisible: miniTimer && snapshot.prefs.miniTimer.visible,
+    awake: plainVersion ? footerAwake(snapshot, snapshotNow(snapshot)) : null,
   };
 }
 

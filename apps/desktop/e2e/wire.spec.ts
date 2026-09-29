@@ -8,7 +8,8 @@
  * - a 304 publishes nothing to the renderers;
  * - a rotated token (guardian restart) is picked up without the link going down;
  * - a stopped guardian shows section 1 within 5 s, and the warning goes once it is back;
- * - a daily limit is created over the wire with the intent as `Idempotency-Key`.
+ * - a daily limit is created over the wire with the intent as `Idempotency-Key`;
+ * - «Mantener despierto» reads the guardian's configuration and sends one whole `PUT`.
  */
 import type { Page } from '@playwright/test';
 import { GUARDIAN_PATHS } from '@centrate/shared/guardian-api';
@@ -230,4 +231,40 @@ test('a daily limit goes over the wire with its Idempotency-Key, the token and n
   expect(post?.headers['idempotency-key']).toBe('intent-wire-limit-1');
   expect(post?.headers['origin']).toBeUndefined();
   expect(post?.headers['authorization']).toBe(`Bearer ${s.token()}`);
+});
+
+test('«Mantener despierto» reads the configuration, then sends one whole PUT', async () => {
+  const s = requireServer();
+  const main = await mainPage();
+  await waitForState(200);
+  const invoke = (change: Record<string, unknown>) =>
+    main.evaluate(
+      (c) =>
+        (
+          window as unknown as {
+            centrate: {
+              invoke(
+                channel: string,
+                payload: unknown,
+              ): Promise<{ ok: boolean; value?: { on: boolean; until: string | null } }>;
+            };
+          }
+        ).centrate.invoke('keep-awake:set', { change: c }),
+      change,
+    );
+  const on = await invoke({ on: true, durationMinutes: 30 });
+  expect(on).toMatchObject({ ok: true, value: { on: true } });
+  // The same choice again changes nothing: no second PUT.
+  expect(await invoke({ on: true, durationMinutes: 30 })).toMatchObject({ ok: true });
+  expect(s.keepAwakeWrites()).toEqual([{ on: true, durationMinutes: 30, display: true }]);
+  const paths = s
+    .requests()
+    .filter((r) => r.path === GUARDIAN_PATHS.keepAwake)
+    .map((r) => `${r.method} ${r.status}`);
+  expect(paths).toEqual(['GET 200', 'PUT 200', 'GET 200']);
+  const put = s.requests().find((r) => r.method === 'PUT' && r.path === GUARDIAN_PATHS.keepAwake);
+  expect(put?.headers['origin']).toBeUndefined();
+  expect(put?.headers['authorization']).toBe(`Bearer ${s.token()}`);
+  // The footer shows it before the next poll.
+  await expect(main.getByRole('button', { name: /^Despierto · hasta las / })).toBeVisible();
 });

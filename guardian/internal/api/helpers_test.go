@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imdlodoem23/centrate/guardian/internal/awake"
 	"github.com/imdlodoem23/centrate/guardian/internal/catalog"
 	"github.com/imdlodoem23/centrate/guardian/internal/embedded"
 	"github.com/imdlodoem23/centrate/guardian/internal/engine"
@@ -150,6 +151,8 @@ type testEnv struct {
 	now    *fakeNow
 	client *http.Client
 	cfg    Config
+	// inh is the engine's keep-awake inhibitor.
+	inh *awake.Fake
 }
 
 type envOption func(*testEnv)
@@ -167,6 +170,7 @@ func newTestEnv(t *testing.T, opts ...envOption) *testEnv {
 		peer: &fakePeer{info: browserPeer()},
 		now:  &fakeNow{t: testStart},
 		cfg:  Config{AppPath: testAppPath},
+		inh:  awake.NewFake(nil),
 	}
 	for _, o := range opts {
 		o(env)
@@ -227,6 +231,11 @@ func (env *testEnv) openEngine(logger *slog.Logger) *engine.Engine {
 		HostsPathRedirected: func() bool { return false },
 		DetectTimezone:      func() string { return "Europe/Madrid" },
 		DisableWatchers:     true,
+		NewInhibitor: func(onChange func()) awake.Inhibitor {
+			env.inh.SetOnChange(onChange)
+			env.inh.Reopen()
+			return env.inh
+		},
 	})
 	if err != nil {
 		env.t.Fatalf("engine.New: %v", err)

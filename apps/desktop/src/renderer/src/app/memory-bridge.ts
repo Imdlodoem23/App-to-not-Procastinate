@@ -9,7 +9,12 @@
  * Imported only behind `import.meta.env.DEV`, so production bundles contain none of it (nor the
  * fixtures).
  */
-import { DATA_DELETE_CONFIRM_WORDS, emptyAllow } from '@centrate/shared/guardian-api';
+import {
+  DATA_DELETE_CONFIRM_WORDS,
+  emptyAllow,
+  keepAwakeRequest,
+  type KeepAwakeState,
+} from '@centrate/shared/guardian-api';
 import type { Block, DailyLimit, LimitId } from '@centrate/shared/domain';
 import {
   DISPLAY_PRESETS,
@@ -30,6 +35,7 @@ import type {
   SendChannel,
   SendPayload,
 } from '../../../shared/ipc';
+import { keepAwakeOf } from '../../../shared/keep-awake';
 import { phase5InvokeStubs } from '../../../shared/phase5-stubs';
 import {
   UI_TIMINGS,
@@ -250,6 +256,26 @@ export function createMemoryBridge(route: RendererRoute): CentrateBridge {
     'limits:delete': ({ id }) => {
       const limit = fixture.fake.limits.find((l) => l.id === id);
       return limit ? ok(limit) : fail(uiError('rejected', 'not_found', 404));
+    },
+    // Roughly the guardian's rule (ARCHITECTURE §5.11): on from now, or off.
+    'keep-awake:set': ({ change }) => {
+      const current = keepAwakeOf(snapshot);
+      const body = keepAwakeRequest(current, change);
+      const at = now();
+      const since = body.on ? (current.on ? current.since : new Date(at).toISOString()) : null;
+      const until =
+        body.on && body.durationMinutes !== null
+          ? new Date(at + body.durationMinutes * 60_000).toISOString()
+          : null;
+      const keepAwake: KeepAwakeState = {
+        ...body,
+        since,
+        until,
+        active: body.on,
+        error: null,
+      };
+      if (snapshot.state) publish({ ...snapshot, state: { ...snapshot.state, keepAwake } });
+      return ok(keepAwake);
     },
     'templates:save': (input) => {
       const templates = [

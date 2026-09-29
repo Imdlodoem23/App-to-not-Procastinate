@@ -455,13 +455,13 @@ Sin titular visible (`aria-label` = `numbers.ariaLabel`). Tres bloques apilados,
 |                             diarios
 | 25/5, 50/10   Bloqueos que  Como YouTube  Solo tus webs Tu tiempo      17, secundario
 | o a tu medida se repiten…   30 minutos…   de estudio…   concentrado…
-| [ 80 ]  Sonidos · Extensión del navegador · Tu motivo · Recordatorios · Logros
+| [ 80 ]  Sonidos · Extensión del navegador · Mantener despierto · Recordatorios · Logros
 
 1068–735: 2 columnas, icono de 72.
 375: 1 columna, filas con el icono (56) a la izquierda y nombre + frase a la derecha, 32 entre filas.
 ```
 
-Iconos: formas de Lucide (licencia ISC, apuntar en `ASSET-LICENSES.json`) dibujadas a 80 px, `stroke-width: 1.25` en su viewBox de 24, `currentColor` = `--text`. Sin contenedor, sin fondo de color. Propuesta: `timer`, `calendar-clock`, `hourglass`, `graduation-cap`, `chart-column`, `audio-lines`, `puzzle`, `quote`, `bell`, `trophy` (el mini temporizador, con `picture-in-picture-2`, pasó a la reserva al llegar los límites diarios).
+Iconos: formas de Lucide (licencia ISC, apuntar en `ASSET-LICENSES.json`) dibujadas a 80 px, `stroke-width: 1.25` en su viewBox de 24, `currentColor` = `--text`. Sin contenedor, sin fondo de color. Propuesta: `timer`, `calendar-clock`, `hourglass`, `graduation-cap`, `chart-column`, `audio-lines`, `puzzle`, `coffee`, `bell`, `trophy` (el mini temporizador, con `picture-in-picture-2`, pasó a la reserva al llegar los límites diarios, y «Tu motivo», con `quote`, al llegar «Mantener despierto», que usa el mismo `coffee` que la app).
 
 ### 4.10 Preguntas frecuentes (SECTIONS) · `alt`
 

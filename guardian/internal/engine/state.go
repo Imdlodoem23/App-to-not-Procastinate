@@ -49,6 +49,9 @@ type engineState struct {
 	Pairing     pairingState   `json:"pairing"`
 	ExtRules    extRulesState  `json:"extRules"`
 	Limits      limitsState    `json:"limits"`
+	// KeepAwake is the «Mantener despierto» configuration (keepawake.go); nil in a
+	// state.json written before keep-awake: DEFAULT_KEEP_AWAKE.
+	KeepAwake *keepAwakeState `json:"keepAwake,omitempty"`
 }
 
 // versions are the ETag counters (§8.5): persisted and strictly increasing across

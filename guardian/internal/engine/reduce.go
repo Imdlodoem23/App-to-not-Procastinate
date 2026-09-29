@@ -93,6 +93,8 @@ func (e *Engine) applyEvent(ev *store.Event) error {
 		err = e.applyExtensionPaired(ev)
 	case EvExtensionRevoked:
 		err = e.applyExtensionRevoked(ev)
+	case EvKeepAwakeOn, EvKeepAwakeUpdated, EvKeepAwakeOff:
+		err = e.applyKeepAwake(ev)
 	default:
 		// Unknown types (written by a newer guardian): recorded deltas only (§7.1).
 	}
@@ -186,7 +188,7 @@ func (e *Engine) applyEpochStarted(ev *store.Event) error {
 	e.restoreKeptPending(k.PendingSettings)
 	e.restoreKeptLimits(k.Limits, ev)
 	e.lastCountKey = map[string]attemptMemo{}
-	return nil
+	return e.restoreKeptKeepAwake(k.KeepAwake)
 }
 
 func (e *Engine) applyClockJump(ev *store.Event) error {

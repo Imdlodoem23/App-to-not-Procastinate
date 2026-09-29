@@ -377,8 +377,8 @@ describe('route table', () => {
     expect(GUARDIAN_PATHS.blockExtend('blk_a/b' as BlockId)).toBe('/v1/blocks/blk_a%2Fb/extend');
   });
 
-  it('has 45 routes; only the test clock is test-only', () => {
-    expect(GUARDIAN_ENDPOINTS).toHaveLength(45);
+  it('has 47 routes; only the test clock is test-only', () => {
+    expect(GUARDIAN_ENDPOINTS).toHaveLength(47);
     expect(GUARDIAN_ENDPOINTS.filter((e) => e.testOnly).map((e) => e.id)).toEqual(['testClock']);
     expect(GUARDIAN_ENDPOINTS.map((e) => e.id)).toEqual(
       expect.arrayContaining(['getStudySession', 'nuclearHeartbeat']),
@@ -700,6 +700,24 @@ describe('response validators', () => {
     const r = validateResponse(stateResponseSchema, state());
     expect(r).toEqual({ ok: true, value: state() });
     expect(isStateResponse(state())).toBe(true);
+  });
+
+  it('reads keepAwake in /v1/state when present (optional for older guardians)', () => {
+    const on = {
+      on: true,
+      durationMinutes: null,
+      display: true,
+      since: NOW,
+      until: null,
+      active: false,
+      error: 'unsupported',
+    };
+    expect(isStateResponse({ ...state(), keepAwake: on })).toBe(true);
+    const r = validateResponse(stateResponseSchema, {
+      ...state(),
+      keepAwake: { ...on, since: null },
+    });
+    expect(r.ok ? null : r.issue).toMatchObject({ path: 'keepAwake.since', issue: 'rule' });
   });
 
   it('ignores unknown response fields but checks known ones', () => {

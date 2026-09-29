@@ -59,6 +59,8 @@ type Engine interface {
 
 	GetSettings(ctx context.Context) (engine.SettingsResponse, error)
 	UpdateSettings(ctx context.Context, r engine.Request, s engine.GuardianSettings) (engine.SettingsResponse, error)
+	GetKeepAwake(ctx context.Context) (engine.KeepAwakeResponse, error)
+	SetKeepAwake(ctx context.Context, r engine.Request, req engine.KeepAwakeRequest) (engine.KeepAwakeResponse, error)
 
 	CreatePairingCode(ctx context.Context, r engine.Request) (engine.PairingCodeResponse, error)
 	ClaimPairing(ctx context.Context, peer engine.PairingPeer, req engine.PairingClaimRequest) (engine.PairingClaimResponse, error)

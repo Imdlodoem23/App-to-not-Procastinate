@@ -51,6 +51,12 @@ export const NOTIFY_ES = {
     warningAlso: (count: number): string =>
       count === 1 ? 'un límite diario a punto de agotarse' : `${count} límites a punto de agotarse`,
   },
+  /** «Mantener despierto» reached the end it was given (not when turned off by hand). */
+  keepAwake: {
+    title: 'Ya no se mantiene despierto',
+    body: 'El equipo vuelve a suspenderse cuando no lo uses.',
+    also: 'ya no se mantiene despierto',
+  },
   /** «También: 2 intentos (−30 puntos)». */
   also: (parts: readonly string[]): string => `También: ${parts.join(', ')}`,
   closeHint: {

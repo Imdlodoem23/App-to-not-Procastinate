@@ -22,6 +22,7 @@ const VALID: { [C in SendChannel]: unknown } = {
   'app:open-guide': { guide: 'extension-chromium' },
   'app:quit': null,
   'app:renderer-error': { message: 'boom', stack: null },
+  'keep-awake:menu': { x: 12, y: 480 },
   ...PHASE5_VALID_SEND,
 };
 
@@ -44,6 +45,10 @@ describe('send guards', () => {
     expect(SEND_GUARDS['app:open-guide']({ guide: 'https://evil.example' })).toBe(false);
     expect(SEND_GUARDS['block:create-dismiss']({ intentId: 'has spaces' })).toBe(false);
     expect(SEND_GUARDS['window:show-ack']({ seq: -1, layout: VALID['window:layout'] })).toBe(false);
+    expect(SEND_GUARDS['keep-awake:menu']({ x: 1.5, y: 2 })).toBe(false);
+    expect(SEND_GUARDS['keep-awake:menu']({ x: -1, y: 2 })).toBe(false);
+    expect(SEND_GUARDS['keep-awake:menu']({ x: 1, y: 2, choice: 60 })).toBe(false);
+    expect(SEND_GUARDS['keep-awake:menu']({ x: 1 })).toBe(false);
   });
 
   it('accept every detail request and draft the fixtures use', () => {

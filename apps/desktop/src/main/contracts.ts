@@ -278,6 +278,13 @@ export interface HarnessApi {
   trayMenu(): TrayMenuItemModel[];
   clickTrayItem(id: string): void;
   trayTooltip(): string;
+  /**
+   * The last «Mantener despierto» popup the footer chip asked for (recorded, never shown in
+   * harness mode); its items are clicked with `clickTrayItem` (same ids). `null`: none yet.
+   */
+  keepAwakeMenu(): TrayMenuItemModel[] | null;
+  /** The app holds the display blocker («Mantener también la pantalla encendida»). */
+  keepAwakeDisplay(): boolean;
   windowTitle(): string;
   bounds(): WindowBoundsReport;
   snapshot(): UiSnapshot;

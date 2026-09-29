@@ -16,6 +16,10 @@ export const TRAY_ES = {
     blocks: (count: number): string => `${count} bloqueos`,
     checkingClock: 'comprobando la hora',
     studying: 'estudiando',
+    /** «Mantener despierto» on: «despierto», «despierto hasta las 18:30». */
+    awake: (until: string | null): string => (until ? `despierto ${until}` : 'despierto'),
+    /** On, but the guardian could not hold it. */
+    awakeFailed: 'no se puede mantener despierto',
   },
   /** Guardian link down, by reason (tooltip and title, lower case after «Céntrate ·»). */
   linkDown: {
@@ -45,6 +49,8 @@ export const TRAY_ES = {
     extendItem: (label: string): string => `+${label}`,
     quick: 'Bloqueo rápido',
     miniTimer: 'Mini temporizador',
+    /** «Mantener despierto ▸» (its choices come from the shared words). */
+    keepAwake: 'Mantener despierto',
     open: 'Abrir Céntrate',
     /** In place of «Salir» while a Nuclear punishment lasts. */
     emergency: 'Salida de emergencia…',

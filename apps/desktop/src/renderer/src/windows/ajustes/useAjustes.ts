@@ -23,6 +23,11 @@ import type { GuardianSettings, PunishmentLevel } from '@centrate/shared/domain'
 import { GUARDIAN_LIMITS, type SettingsResponse } from '@centrate/shared/guardian-api';
 import type { LanguagePreference } from '../../../../shared/i18n/locale';
 import { formatInt } from '../../../../shared/format';
+import {
+  KEEP_AWAKE_CHOICES,
+  keepAwakeOf,
+  type KeepAwakeChange,
+} from '../../../../shared/keep-awake';
 import type { UpdaterState } from '../../../../shared/platform';
 import type { AmbientSound, ShortcutAction } from '../../../../shared/prefs';
 import { newIntentId } from '../../app/push';
@@ -40,7 +45,14 @@ import type {
 } from '../../../../shared/ui-state';
 import { AJUSTES } from './i18n';
 import { acceleratorLabel, shortcutTakenBy } from './shortcuts';
-import { deleteWordOk, deriveAjustesView, inLabel, isWeakening, type AjustesView } from './view';
+import {
+  deleteWordOk,
+  deriveAjustesView,
+  inLabel,
+  isWeakening,
+  keepAwakeDurationLabel,
+  type AjustesView,
+} from './view';
 
 export interface AjustesNotice {
   text: string;
@@ -54,7 +66,15 @@ export interface AjustesNotice {
 type NewNotice = Omit<AjustesNotice, 'seq'>;
 
 export type AjustesArea =
-  'general' | 'shortcuts' | 'bloqueo' | 'study' | 'pairing' | 'sistema' | 'diagnostics' | 'datos';
+  | 'general'
+  | 'shortcuts'
+  | 'bloqueo'
+  | 'keepAwake'
+  | 'study'
+  | 'pairing'
+  | 'sistema'
+  | 'diagnostics'
+  | 'datos';
 
 /** Busy markers: a notice area, or one control that waits for its answer. */
 export type AjustesBusy = AjustesArea | 'updater' | 'activewin' | 'export';
@@ -85,6 +105,12 @@ export interface AjustesApi {
   setCloseBrowsers(on: boolean): void;
   setReminders(on: boolean): void;
   setEyeBreaks(on: boolean): void;
+  /** «Mantener despierto» on or off (applies at once). */
+  setKeepAwake(on: boolean): void;
+  /** Its duration: a stop of the slider (`KEEP_AWAKE_CHOICES` index). */
+  setKeepAwakeDuration(index: number): void;
+  /** «Mantener también la pantalla encendida». */
+  setKeepAwakeDisplay(on: boolean): void;
   setPunishmentLevel(level: PunishmentLevel): void;
   setPunishmentMinutes(minutes: number): void;
   newPairingCode(): void;
@@ -283,6 +309,26 @@ export function useAjustes(): AjustesApi {
     [bridge, busy, notify, setBusyArea, settings],
   );
 
+  /** `keep-awake:set` with one change; the snapshot shows the result, the notice speaks it. */
+  const setKeepAwake = useCallback(
+    (change: KeepAwakeChange, spoken: string) => {
+      notify('keepAwake', null);
+      const failed = (error: UiError | null): void =>
+        notify('keepAwake', {
+          text: error ? errorCopy(error).text : AJUSTES.saveFailed,
+          tone: 'red',
+        });
+      void bridge.invoke('keep-awake:set', { change }).then(
+        (result) => {
+          if (!result.ok) failed(result.error);
+          else notify('keepAwake', { text: spoken, tone: 'muted', spokenOnly: true });
+        },
+        () => failed(null),
+      );
+    },
+    [bridge, notify],
+  );
+
   const shortcuts = snapshot.prefs.shortcuts;
   const platform = snapshot.app.platform;
 
@@ -349,6 +395,21 @@ export function useAjustes(): AjustesApi {
     setCloseBrowsers: (on) => putSettings('bloqueo', { closeBrowsersWithoutExtension: on }),
     setReminders: (on) => setPrefs('bloqueo', { reminders: { schedules: on } }),
     setEyeBreaks: (on) => setPrefs('bloqueo', { reminders: { eyeBreaks: on } }),
+    setKeepAwake: (on) =>
+      setKeepAwake({ on }, on ? AJUSTES.keepAwake.saved.on : AJUSTES.keepAwake.saved.off),
+    setKeepAwakeDuration: (index) => {
+      const choice = KEEP_AWAKE_CHOICES[index];
+      if (choice === undefined || keepAwakeOf(snapshot).durationMinutes === choice) return;
+      setKeepAwake(
+        { durationMinutes: choice },
+        AJUSTES.keepAwake.saved.duration(keepAwakeDurationLabel(choice)),
+      );
+    },
+    setKeepAwakeDisplay: (display) =>
+      setKeepAwake(
+        { display },
+        display ? AJUSTES.keepAwake.saved.displayOn : AJUSTES.keepAwake.saved.displayOff,
+      ),
     setPunishmentLevel: (level) => {
       if (!settings || settings.settings.punishment.level === level) return;
       putSettings(

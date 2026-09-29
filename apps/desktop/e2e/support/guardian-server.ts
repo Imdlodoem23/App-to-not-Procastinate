@@ -5,7 +5,8 @@
  *
  * It serves `/v1/health`, `/v1/state` (ETag `"s-<stateVersion>"`, 304 on `If-None-Match`),
  * `/v1/events` (an empty log: the first page at once, then empty long polls),
- * `POST /v1/pairing/code` and daily limits (`GET`/`POST /v1/limits`, `POST /v1/usage`), with payloads from the harness fixture builders (they pass the
+ * `POST /v1/pairing/code`, daily limits (`GET`/`POST /v1/limits`, `POST /v1/usage`) and
+ * «Mantener despierto» (`GET`/`PUT /v1/keep-awake`), with payloads from the harness fixture builders (they pass the
  * shared response validators), and records every request's method, path and headers. Like
  * the real guardian, it rejects app-token requests that carry an `Origin` (403
  * `origin_not_allowed`) and wrong tokens (401).
@@ -21,9 +22,17 @@ import {
   APP_TOKEN_PREFIX,
   GUARDIAN_PATHS,
   isDailyLimitInput,
+  isKeepAwakeRequest,
   isUsageReportRequest,
+  type KeepAwakeRequest,
+  type KeepAwakeState,
 } from '@centrate/shared/guardian-api';
-import { harnessFixture, makeGuardianState, makeHealth } from '../../src/shared/fixtures';
+import {
+  harnessFixture,
+  makeGuardianState,
+  makeHealth,
+  makeKeepAwake,
+} from '../../src/shared/fixtures';
 
 export interface RecordedRequest {
   at: number;
@@ -39,6 +48,8 @@ export interface GuardianServer {
   dataDir: string;
   token(): string;
   requests(): RecordedRequest[];
+  /** Every `PUT /v1/keep-awake` body that passed validation, in order. */
+  keepAwakeWrites(): KeepAwakeRequest[];
   /** New token, written to `client.json` like a guardian restart does. */
   rotateToken(): string;
   /** Stop answering: close the listener and every open connection. */
@@ -68,6 +79,9 @@ export async function startGuardianServer(): Promise<GuardianServer> {
   const bootHealth = makeHealth(started);
   const pairing = harnessFixture('idle').fake.pairingCode;
   const limits: DailyLimit[] = [];
+  // Its own keep-awake (the state stays as it is: the app patches its copy from the answer).
+  let keepAwake: KeepAwakeState = makeKeepAwake(null, null);
+  const keepAwakeWrites: KeepAwakeRequest[] = [];
 
   const readJson = (req: IncomingMessage): Promise<unknown> =>
     new Promise((resolve) => {
@@ -172,6 +186,19 @@ export async function startGuardianServer(): Promise<GuardianServer> {
       limits.push(limit);
       return send(res, 201, { limit });
     }
+    if (req.method === 'GET' && url.pathname === GUARDIAN_PATHS.keepAwake) {
+      return send(res, 200, { keepAwake });
+    }
+    if (req.method === 'PUT' && url.pathname === GUARDIAN_PATHS.keepAwake) {
+      const body = await readJson(req);
+      if (!isKeepAwakeRequest(body)) return error(res, 400, 'validation_failed');
+      keepAwakeWrites.push(body);
+      const now = Date.now();
+      keepAwake = body.on
+        ? { ...makeKeepAwake(now, body.durationMinutes), display: body.display }
+        : { ...makeKeepAwake(null, body.durationMinutes), display: body.display };
+      return send(res, 200, { keepAwake });
+    }
     if (req.method === 'POST' && url.pathname === GUARDIAN_PATHS.usage) {
       const body = await readJson(req);
       if (!isUsageReportRequest(body)) return error(res, 400, 'validation_failed');
@@ -232,6 +259,7 @@ export async function startGuardianServer(): Promise<GuardianServer> {
     dataDir,
     token: () => token,
     requests: () => [...recorded],
+    keepAwakeWrites: () => keepAwakeWrites.map((w) => ({ ...w })),
     rotateToken() {
       token = newToken();
       writeClientJson();

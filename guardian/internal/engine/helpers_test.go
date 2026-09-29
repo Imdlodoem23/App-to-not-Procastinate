@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imdlodoem23/centrate/guardian/internal/awake"
 	"github.com/imdlodoem23/centrate/guardian/internal/catalog"
 	"github.com/imdlodoem23/centrate/guardian/internal/store"
 )
@@ -40,7 +41,10 @@ type testEnv struct {
 	// Options.ServiceManager.
 	binary         string
 	serviceManager string
-	e              *Engine
+	// inh is the keep-awake inhibitor of every engine opened on this env (reused
+	// across restarts, so Holds() is the whole history).
+	inh *awake.Fake
+	e   *Engine
 }
 
 var testStart = time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC)
@@ -60,6 +64,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		anchor: store.NewMemAnchor(),
 		fs:     newTestFS(),
 		procs:  &FakeProcesses{},
+		inh:    awake.NewFake(nil),
 	}
 	return env
 }
@@ -138,6 +143,11 @@ func (env *testEnv) options() Options {
 		DetectTimezone:      func() string { return "Europe/Madrid" },
 		LogonBoot:           env.logon,
 		DisableWatchers:     true,
+		NewInhibitor: func(onChange func()) awake.Inhibitor {
+			env.inh.SetOnChange(onChange)
+			env.inh.Reopen()
+			return env.inh
+		},
 	}
 }
 
