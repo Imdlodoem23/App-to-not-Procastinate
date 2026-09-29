@@ -1,0 +1,347 @@
+/**
+ * [browser] Entry point of the hidden analysis window (owner: RUNTIME): validates
+ * `AnalysisInbound` messages from main, runs one study or calibration session at a time and
+ * posts `AnalysisOutbound` messages back. DESIGN.md §8.6.
+ *
+ * - Invalid messages → `error{invalid_message}`; nothing else happens.
+ * - One job at a time: a second `session_start` / `calibration_start` → `error{busy}`.
+ * - Messages for a job that is still starting are queued and replayed once it runs (or
+ *   answered with `error{not_running}` if it fails to start).
+ * - Messages for no job → `error{not_running}`.
+ * - A study session starts even when the camera or MediaPipe cannot: it runs without camera
+ *   and says why (`camera{error}` / `mode{no-camera}` events), so reports and main's
+ *   heartbeats never stop because of a camera problem.
+ * - Calibration opens the camera per recording: its failure answers `calibration_record`
+ *   with `error{camera_failed, camera}`.
+ * - `list_cameras` works any time (also during a job) and never opens a camera: it answers
+ *   `cameras` with this window's video inputs by label. Main stores a label, never a
+ *   `deviceId` (salted per partition and run), and sends it back as `cameraLabel`.
+ * - Only numbers, enums, camera labels and the profile JSON cross IPC; never a frame.
+ */
+import type {
+  AnalysisHost,
+  AnalysisHostOptions,
+  AnalysisInbound,
+  AnalysisOutbound,
+  CalibrationBuildOutcome,
+  CalibrationSessionHandle,
+  CameraChoice,
+  CameraDeviceInfo,
+  StudySessionHandle,
+} from '../types';
+import { startCalibration } from './calibration-session';
+import { cameraErrorCodeOf, isAbortError, isCameraOpenError, isVisionLoadError } from './errors';
+import { isAnalysisInbound } from './ipc';
+import { resolveSessionDeps, startStudySession } from './session';
+
+type Job =
+  | { kind: 'idle' }
+  | { kind: 'session_starting'; queue: AnalysisInbound[] }
+  | { kind: 'session'; handle: StudySessionHandle }
+  | { kind: 'calibration_starting'; queue: AnalysisInbound[] }
+  | { kind: 'calibration'; handle: CalibrationSessionHandle };
+
+const SESSION_MESSAGES: ReadonlySet<AnalysisInbound['type']> = new Set([
+  'context',
+  'settings',
+  'strike_result',
+  'studying_feedback',
+  'continue_without_camera',
+  'resume',
+  'session_stop',
+]);
+
+const CALIBRATION_MESSAGES: ReadonlySet<AnalysisInbound['type']> = new Set([
+  'calibration_record',
+  'calibration_cancel',
+  'calibration_build',
+  'calibration_close',
+]);
+
+/** Starting jobs queue at most this many messages (main sends context at 1 Hz). */
+const MAX_QUEUE = 64;
+/** Caps of the `cameras` answer (the outbound guard rejects anything longer). */
+export const MAX_CAMERAS = 32;
+export const MAX_CAMERA_LABEL = 256;
+
+/** This window's cameras by label, capped for the IPC guard. */
+export function cameraChoices(devices: readonly CameraDeviceInfo[]): CameraChoice[] {
+  return devices
+    .filter((d) => typeof d.label === 'string')
+    .slice(0, MAX_CAMERAS)
+    .map((d) => ({ label: d.label.slice(0, MAX_CAMERA_LABEL) }));
+}
+
+/**
+ * Runs a handler; an unexpected exception must not escape into the IPC listener. The job
+ * keeps running, and main notices real trouble through the reports (ticks stop advancing).
+ */
+function guarded(fn: () => void): void {
+  try {
+    fn();
+  } catch {
+    // Nothing to report through the contract; the session or calibration stays as it was.
+  }
+}
+
+export function createAnalysisHost(options: AnalysisHostOptions): AnalysisHost {
+  return new Host(options);
+}
+
+class Host implements AnalysisHost {
+  private readonly options: AnalysisHostOptions;
+  private job: Job = { kind: 'idle' };
+  private disposed = false;
+  /** Settles when the job in progress has fully stopped (dispose waits for it). */
+  private stopping: Promise<void> = Promise.resolve();
+
+  constructor(options: AnalysisHostOptions) {
+    this.options = options;
+  }
+
+  handle(message: unknown): void {
+    if (this.disposed) return;
+    if (!isAnalysisInbound(message)) {
+      this.error('invalid_message');
+      return;
+    }
+    this.dispatch(message);
+  }
+
+  async dispose(): Promise<void> {
+    if (this.disposed) return this.stopping;
+    this.disposed = true;
+    const job = this.job;
+    this.job = { kind: 'idle' };
+    if (job.kind === 'session') {
+      this.stopping = job.handle.stop().then(
+        () => undefined,
+        () => undefined,
+      );
+    } else if (job.kind === 'calibration') {
+      job.handle.close();
+    }
+    return this.stopping;
+  }
+
+  private post(message: AnalysisOutbound): void {
+    if (this.disposed && message.type !== 'session_stopped') return;
+    try {
+      this.options.post(message);
+    } catch {
+      // The channel to main is gone; main will notice the missing heartbeats.
+    }
+  }
+
+  private error(
+    code: Extract<AnalysisOutbound, { type: 'error' }>['code'],
+    camera: Extract<AnalysisOutbound, { type: 'error' }>['camera'] = null,
+  ): void {
+    this.post({ type: 'error', code, camera });
+  }
+
+  private dispatch(message: AnalysisInbound): void {
+    const job = this.job;
+    if (message.type === 'list_cameras') {
+      this.listCameras();
+      return;
+    }
+    if (message.type === 'session_start') {
+      if (job.kind !== 'idle') return this.error('busy');
+      this.startSession(message);
+      return;
+    }
+    if (message.type === 'calibration_start') {
+      if (job.kind !== 'idle') return this.error('busy');
+      this.startCalibration(message);
+      return;
+    }
+    if (SESSION_MESSAGES.has(message.type)) {
+      if (job.kind === 'session_starting') return this.enqueue(job.queue, message);
+      if (job.kind !== 'session') return this.error('not_running');
+      guarded(() => this.sessionMessage(job.handle, message));
+      return;
+    }
+    if (CALIBRATION_MESSAGES.has(message.type)) {
+      if (job.kind === 'calibration_starting') return this.enqueue(job.queue, message);
+      if (job.kind !== 'calibration') return this.error('not_running');
+      guarded(() => this.calibrationMessage(job.handle, message));
+    }
+  }
+
+  private enqueue(queue: AnalysisInbound[], message: AnalysisInbound): void {
+    if (queue.length >= MAX_QUEUE) queue.shift();
+    queue.push(message);
+  }
+
+  /** Replays what arrived while starting, or answers it when the start failed. */
+  private replay(queue: readonly AnalysisInbound[], started: boolean): void {
+    for (const message of queue) {
+      if (started) this.dispatch(message);
+      else if (message.type !== 'context' && message.type !== 'settings') {
+        this.error('not_running');
+      }
+    }
+  }
+
+  /** Answers `list_cameras` (never opens a camera; labels need the `media` permission check). */
+  private listCameras(): void {
+    const list = resolveSessionDeps(this.options.deps).listCameras;
+    let listing: Promise<readonly CameraDeviceInfo[]>;
+    try {
+      listing = list();
+    } catch {
+      listing = Promise.resolve([]);
+    }
+    listing.then(
+      (devices) => this.post({ type: 'cameras', cameras: cameraChoices(devices) }),
+      () => this.post({ type: 'cameras', cameras: [] }),
+    );
+  }
+
+  // -------------------------------------------------------------------------------------
+  // Study session
+  // -------------------------------------------------------------------------------------
+
+  private startSession(message: Extract<AnalysisInbound, { type: 'session_start' }>): void {
+    const queue: AnalysisInbound[] = [];
+    this.job = { kind: 'session_starting', queue };
+    startStudySession({
+      mode: message.mode,
+      settings: message.settings,
+      profileJson: message.profileJson,
+      assets: message.mode === 'camera' ? this.options.assets : null,
+      cameraLabel: message.cameraLabel,
+      initialContext: message.context,
+      onEvent: (event) => this.post({ type: 'event', event }),
+      onReport: (report) => this.post({ type: 'report', report }),
+      ...(this.options.deps ? { deps: this.options.deps } : {}),
+    }).then(
+      (handle) => {
+        if (this.disposed) {
+          void handle.stop();
+          return;
+        }
+        this.job = { kind: 'session', handle };
+        this.replay(queue, true);
+      },
+      (error: unknown) => {
+        // Camera and vision problems do not land here (the session starts without camera
+        // and says why); only an unexpected failure does. Main must then restart the job in
+        // no-camera mode or end the guardian session (HANDOFF §3).
+        if (this.disposed) return;
+        this.job = { kind: 'idle' };
+        if (isVisionLoadError(error) && !isCameraOpenError(error)) {
+          this.error('vision_failed');
+        } else {
+          this.error('camera_failed', cameraErrorCodeOf(error));
+        }
+        this.replay(queue, false);
+      },
+    );
+  }
+
+  private sessionMessage(handle: StudySessionHandle, message: AnalysisInbound): void {
+    switch (message.type) {
+      case 'context':
+        handle.setContext(message.context);
+        return;
+      case 'settings':
+        handle.setSettings(message.settings);
+        return;
+      case 'strike_result':
+        handle.strikeResult(message.ack);
+        return;
+      case 'studying_feedback':
+        this.post({ type: 'feedback_result', outcome: handle.studyingFeedback() });
+        return;
+      case 'continue_without_camera':
+        // Success is announced by the session's `mode{user}` event; a refusal changes nothing.
+        handle.continueWithoutCamera();
+        return;
+      case 'resume':
+        handle.resume();
+        return;
+      case 'session_stop': {
+        this.job = { kind: 'idle' };
+        const done = handle.stop().then(
+          (summary) => this.post({ type: 'session_stopped', summary }),
+          () => this.error('not_running'),
+        );
+        this.stopping = done;
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  // -------------------------------------------------------------------------------------
+  // Calibration
+  // -------------------------------------------------------------------------------------
+
+  private startCalibration(message: Extract<AnalysisInbound, { type: 'calibration_start' }>): void {
+    const queue: AnalysisInbound[] = [];
+    this.job = { kind: 'calibration_starting', queue };
+    startCalibration({
+      assets: this.options.assets,
+      profileJson: message.profileJson,
+      cameraLabel: message.cameraLabel,
+      onProgress: (progress) => this.post({ type: 'calibration_progress', progress }),
+      ...(this.options.deps ? { deps: this.options.deps } : {}),
+    }).then(
+      (handle) => {
+        if (this.disposed) {
+          handle.close();
+          return;
+        }
+        this.job = { kind: 'calibration', handle };
+        this.replay(queue, true);
+      },
+      (error: unknown) => {
+        if (this.disposed) return;
+        this.job = { kind: 'idle' };
+        if (isCameraOpenError(error)) this.error('camera_failed', cameraErrorCodeOf(error));
+        else this.error('vision_failed');
+        this.replay(queue, false);
+      },
+    );
+  }
+
+  private calibrationMessage(handle: CalibrationSessionHandle, message: AnalysisInbound): void {
+    switch (message.type) {
+      case 'calibration_record':
+        handle.record(message.cls).then(
+          (summary) => this.post({ type: 'calibration_recorded', summary }),
+          (error: unknown) => {
+            // A cancelled recording is the caller's own doing. The camera is opened per
+            // recording, so its failure (in use, blocked, no answer in 15 s) shows up here;
+            // anything else is a clash with a recording already running.
+            if (isAbortError(error)) return;
+            if (isCameraOpenError(error)) this.error('camera_failed', cameraErrorCodeOf(error));
+            else this.error('busy');
+          },
+        );
+        return;
+      case 'calibration_cancel':
+        handle.cancel();
+        return;
+      case 'calibration_build': {
+        let outcome: CalibrationBuildOutcome;
+        try {
+          outcome = handle.build();
+        } catch {
+          outcome = { ok: false, issues: [] };
+        }
+        this.post({ type: 'calibration_built', outcome });
+        return;
+      }
+      case 'calibration_close':
+        handle.close();
+        this.job = { kind: 'idle' };
+        return;
+      default:
+        return;
+    }
+  }
+}

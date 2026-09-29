@@ -1,0 +1,1071 @@
+---
+/**
+ * The visual inside a chapter card (design plan § 4.6). Every visual is a whole piece of the
+ * app, as wide as the 440 px window at --aw-zoom-card and centred in the white card, with equal
+ * white margins above and below: no dark surface is ever taller than what it shows. The card
+ * height is a floor for those margins (--cv-inset); a visual taller than the card minus both
+ * insets hangs from the top inset instead and is cut by the card's bottom edge (`safe`
+ * centring), so it can only ever be cut by real content.
+ *
+ * - `window`: the AppWindow mock in one of its states, whole (title bar to footer), at
+ *   --aw-zoom-card. It keeps its role="img" name.
+ * - A composition: a close-up of app pieces drawn with the app's own parts and sizes
+ *   (section 10 of the brief: dark tiles, 20 px headers, bars, strike dots, neutral
+ *   monograms, Lucide line icons at 1.75), shown 1.35 times larger than the windows (a detail
+ *   shot) in one or two panels as wide as the window. Decorative (aria-hidden): the caption
+ *   under the card says what it shows.
+ *
+ * Words come only from copy.ts; service names from the catalog of @centrate/shared; numbers
+ * from its points rules. Nothing here is interactive or focusable.
+ */
+import AppWindow from '../AppWindow.astro';
+import { fill } from '../../content/copy';
+import { copyFor } from '../../content/locale';
+import { intlLocale, langFromPath } from '../../lib/i18n';
+import { getService } from '@centrate/shared/catalog';
+import {
+  EMERGENCY_RULES,
+  POINT_RULES,
+  REWARD_OFFERS,
+  STUDY_RULES,
+  type RewardOffer,
+} from '@centrate/shared/points';
+import type { CardVisualSpec } from './chapters';
+
+const copy = copyFor(Astro.url);
+
+interface Props {
+  visual: CardVisualSpec;
+}
+
+const { visual } = Astro.props;
+const aw = copy.appWindow;
+const lang = langFromPath(Astro.url.pathname);
+
+// Lucide shapes (ISC), 24 px viewBox, drawn with a 1.75 stroke like the app.
+const icons = {
+  lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  book: '<path d="M12 5v16"/><path d="M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/>',
+  sprout:
+    '<path d="M14 9.536V7a4 4 0 0 1 4-4h1.5a.5.5 0 0 1 .5.5V5a4 4 0 0 1-4 4 4 4 0 0 0-4 4c0 2 1 3 1 5a5 5 0 0 1-1 3"/><path d="M4 9a5 5 0 0 1 8 4 5 5 0 0 1-8-4"/><path d="M5 21h14"/>',
+  flame:
+    '<path d="M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  coins:
+    '<path d="M13.744 17.736a6 6 0 1 1-7.48-7.48"/><path d="M15 6h1v4"/><path d="m6.134 14.768.866-.5 2 3.464"/><circle cx="16" cy="8" r="6"/>',
+  cameraOff:
+    '<path d="M14.564 14.558a3 3 0 1 1-4.122-4.121"/><path d="m2 2 20 20"/><path d="M20 20H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 .819-.175"/><path d="M9.695 4.024A2 2 0 0 1 10.004 4h3.993a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v7.344"/>',
+  pause:
+    '<rect x="14" y="3" width="5" height="18" rx="1"/><rect x="5" y="3" width="5" height="18" rx="1"/>',
+  rain: '<path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M16 14v6"/><path d="M8 14v6"/><path d="M12 16v6"/>',
+  stop: '<rect width="18" height="18" x="3" y="3" rx="2"/>',
+  monitor:
+    '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
+  bookOpen:
+    '<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  smartphone: '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>',
+  eyeOff:
+    '<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>',
+  userX:
+    '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" x2="22" y1="8" y2="13"/><line x1="22" x2="17" y1="8" y2="13"/>',
+} as const;
+
+// ---------------------------------------------------------------------------------------------
+// Data for the compositions
+// ---------------------------------------------------------------------------------------------
+
+/** Number in the page's locale, with the typographic minus and «+» on gains (brief § 10). */
+const signed = (n: number): string =>
+  new Intl.NumberFormat(intlLocale[lang], { signDisplay: 'exceptZero', useGrouping: 'always' })
+    .format(n)
+    .replace('-', '−');
+const plainNumber = (n: number): string =>
+  new Intl.NumberFormat(intlLocale[lang], { useGrouping: 'always' }).format(n);
+
+/** The app's countdown: M:SS under an hour, H:MM:SS above, the seconds apart (at 60 %). */
+function clock(totalMinutes: number): { main: string; seconds: string } {
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return { main: h > 0 ? `${h}:${String(m).padStart(2, '0')}` : String(m), seconds: ':00' };
+}
+
+const service = (id: string): { name: string; monogram: string } => {
+  const found = getService(id);
+  if (!found) throw new Error(`CardVisual: «${id}» is not in the catalog`);
+  return { name: found.name, monogram: found.monogram };
+};
+
+// «Webs y apps a la vez»: two rows of websites and one of desktop apps, then the confirm button.
+const blockedServices = [
+  'youtube',
+  'instagram',
+  'tiktok',
+  'netflix',
+  'twitch',
+  'reddit',
+  'steam',
+  'discord',
+  'roblox',
+].map(service);
+
+// «Salir antes tiene un precio»: the commitment phrase, half typed, and the Normal wait.
+const phraseTyped = EMERGENCY_RULES.phrases[lang].split(' ').slice(0, 4).join(' ');
+const emergencyWait = clock(EMERGENCY_RULES.countdownMinutes.normal);
+
+// «Tres strikes…»: the default punishment and what it costs.
+const punishmentClock = clock(STUDY_RULES.punishmentMinutes.default);
+const punishmentPoints = signed(-POINT_RULES.punishmentPenalty);
+const strikes = Array.from({ length: STUDY_RULES.maxStrikes }, (_, i) => i);
+
+// «Descansos ganados»: the reward shop, every offer in its order.
+const offers = REWARD_OFFERS.map((offer: RewardOffer) => ({
+  ...service(offer.serviceId),
+  duration: fill(copy.ui.duration.minutes, { m: offer.minutes }),
+  cost: plainNumber(offer.cost),
+}));
+
+// «Aprende de sus errores»: sessions in the Summary's timeline, oldest first, false alarms
+// (orange) fading out after «¡Estaba estudiando!» (the blue check). Widths in % of each
+// session.
+const sessions: { width: number; alarm?: boolean; marked?: boolean }[][] = [
+  [
+    { width: 14 },
+    { width: 4, alarm: true },
+    { width: 20 },
+    { width: 6, alarm: true, marked: true },
+    { width: 26 },
+    { width: 4, alarm: true },
+    { width: 26 },
+  ],
+  [
+    { width: 30 },
+    { width: 4, alarm: true },
+    { width: 34 },
+    { width: 3, alarm: true },
+    { width: 29 },
+  ],
+  [
+    { width: 22 },
+    { width: 3, alarm: true },
+    { width: 45 },
+    { width: 3, alarm: true },
+    { width: 27 },
+  ],
+  [{ width: 58 }, { width: 3, alarm: true }, { width: 39 }],
+  [{ width: 71 }, { width: 2, alarm: true }, { width: 27 }],
+  ...Array.from({ length: 5 }, () => [{ width: 100 }]),
+];
+
+// «Una racha que cuidar»: four weeks. The last missed day, then the five days of the streak,
+// today at 42 of 60 min and tomorrow to come.
+const GOAL_RATIO = 42 / 60;
+const DAY = { x: 'done', o: 'missed', t: 'today', n: 'next' } as const;
+const month = ['xxoxxxo', 'xxxxoxx', 'xxxoxxo', 'xxxxxtn'].map((week) =>
+  [...week].map((c) => DAY[c as keyof typeof DAY]),
+);
+
+// «Puntos que nadie puede tocar»: a waterfall of the event log that ends in the red. A 1 h
+// block kept, two attempts (the second one doubled), a strike and a punishment.
+const ledgerDeltas = [
+  POINT_RULES.blockPointsPerMinute * 60,
+  -POINT_RULES.attemptBasePenalty,
+  -POINT_RULES.attemptBasePenalty * POINT_RULES.attemptPenaltyMultiplier,
+  -POINT_RULES.strikePenalty,
+  -POINT_RULES.punishmentPenalty,
+];
+const LEDGER = { width: 316, height: 196, padTop: 22, padBottom: 26, bar: 28 } as const;
+const ledger = (() => {
+  let running = 0;
+  const steps = ledgerDeltas.map((delta) => {
+    const from = running;
+    running += delta;
+    return { from, to: running, delta, total: false };
+  });
+  steps.push({ from: 0, to: running, delta: running, total: true });
+  const high = Math.max(0, ...steps.flatMap((s) => [s.from, s.to]));
+  const low = Math.min(0, ...steps.flatMap((s) => [s.from, s.to]));
+  const scale = (LEDGER.height - LEDGER.padTop - LEDGER.padBottom) / (high - low);
+  const y = (value: number): number => LEDGER.padTop + (high - value) * scale;
+  const slot = LEDGER.width / steps.length;
+  const bars = steps.map((s, i) => {
+    const top = y(Math.max(s.from, s.to));
+    const bottom = y(Math.min(s.from, s.to));
+    const gain = s.delta > 0;
+    return {
+      x: slot * i + (slot - LEDGER.bar) / 2,
+      top,
+      height: Math.max(bottom - top, 1),
+      end: y(s.to),
+      gain,
+      total: s.total,
+      label: signed(s.delta),
+      labelY: gain ? top - 7 : bottom + 15,
+    };
+  });
+  return { zero: y(0), bars, total: signed(running) };
+})();
+
+// «Hecho a tu medida»: the five calibration situations of the brief (§ 8), all recorded.
+const situations = ['monitor', 'bookOpen', 'smartphone', 'eyeOff', 'userX'] as const;
+
+// «También sin cámara»: the in-session tiles without «Vista previa».
+const [pauseTile, soundTile, , endTile] = aw.study.tiles;
+const noCameraTiles = [
+  { label: pauseTile, icon: icons.pause },
+  { label: soundTile, icon: icons.rain },
+  { label: endTile, icon: icons.stop },
+];
+---
+
+<div class="cv" data-kind={visual.kind}>
+  {
+    visual.kind === 'window' ? (
+      <div class="cv-window">
+        <AppWindow state={visual.state} parts={visual.parts} chrome={visual.chrome ?? false} />
+      </div>
+    ) : (
+      <div class="f-stack" aria-hidden="true">
+        {visual.kind === 'services' && (
+          <div class="f">
+            <div class="f-grid f-grid-3">
+              {blockedServices.map((s) => (
+                <span class="f-tile f-tile-56">
+                  <span class="f-mono f-mono-20">{s.monogram}</span>
+                  <span class="f-label">{s.name}</span>
+                </span>
+              ))}
+            </div>
+            <span class="f-tile f-tile-40 f-primary f-gap-8">{aw.block.confirm.submit}</span>
+          </div>
+        )}
+
+        {visual.kind === 'emergency' && (
+          <>
+            <div class="f">
+              <div class="f-header">
+                <svg class="f-icon" viewBox="0 0 24 24" set:html={icons.lock} />
+                <span class="f-title">{aw.block.activeHeader}</span>
+                <span class="f-meta">{aw.block.activeMeta}</span>
+              </div>
+              <div class="f-grid f-grid-4">
+                {aw.block.extend.map((label) => (
+                  <span class:list={['f-tile', 'f-tile-32', { 'f-door': label.endsWith('…') }]}>
+                    {label}
+                  </span>
+                ))}
+              </div>
+              <p class="f-link">{aw.block.emergency}</p>
+            </div>
+            <div class="f">
+              <div class="f-field">
+                <span class="f-typed">{phraseTyped}</span>
+                <span class="f-caret" />
+              </div>
+              <p class="f-countdown f-orange f-gap-8">
+                {emergencyWait.main}<span class="f-seconds">{emergencyWait.seconds}</span>
+              </p>
+              <span class="f-bar f-bar-3">
+                <span class="f-fill f-fill-orange" style="--f: 1" />
+              </span>
+            </div>
+          </>
+        )}
+
+        {visual.kind === 'calibration' && (
+          <div class="f">
+            <div class="f-header">
+              <svg class="f-icon" viewBox="0 0 24 24" set:html={icons.book} />
+              <span class="f-title">{aw.study.readyHeader}</span>
+              <span class="f-meta">{aw.study.readyMeta}</span>
+            </div>
+            <div class="f-list">
+              {situations.map((name) => (
+                <span class="f-row">
+                  <svg class="f-icon f-icon-20" viewBox="0 0 24 24" set:html={icons[name]} />
+                  <span class="f-bar f-bar-4">
+                    <span class="f-fill" style="--f: 1" />
+                  </span>
+                  <svg class="f-icon f-green" viewBox="0 0 24 24" set:html={icons.check} />
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {visual.kind === 'learn' && (
+          <div class="f">
+            <div class="f-sessions">
+              {sessions.map((segments) => (
+                <div class="f-session">
+                  <svg class="f-icon" viewBox="0 0 24 24" set:html={icons.book} />
+                  <span class="f-timeline">
+                    {segments.map((segment) => (
+                      <span
+                        class:list={['f-segment', { 'f-segment-alarm': segment.alarm }]}
+                        style={`--w: ${segment.width}`}
+                      >
+                        {segment.marked && (
+                          <span class="f-marker">
+                            <svg class="f-icon" viewBox="0 0 24 24" set:html={icons.check} />
+                          </span>
+                        )}
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {visual.kind === 'punishment' && (
+          <div class="f">
+            <div class="f-header">
+              <svg class="f-icon" viewBox="0 0 24 24" set:html={icons.book} />
+              <span class="f-title">{aw.study.activeHeader}</span>
+            </div>
+            <div class="f-meter-row">
+              <span class="f-bar f-bar-6">
+                <span class="f-fill f-fill-red" style="--f: 0.18" />
+              </span>
+              <span class="f-strikes">
+                {strikes.map(() => (
+                  <span class="f-strike f-strike-on" />
+                ))}
+              </span>
+            </div>
+            <div class="f-divider" />
+            <div class="f-punish">
+              <svg class="f-icon f-icon-20 f-red" viewBox="0 0 24 24" set:html={icons.lock} />
+              <p class="f-countdown">
+                {punishmentClock.main}<span class="f-seconds">{punishmentClock.seconds}</span>
+              </p>
+            </div>
+            <span class="f-bar f-bar-3">
+              <span class="f-fill f-fill-red" style="--f: 1" />
+            </span>
+            <p class="f-points">{punishmentPoints}</p>
+          </div>
+        )}
+
+        {visual.kind === 'no-camera' && (
+          <div class="f">
+            <div class="f-header">
+              <svg class="f-icon" viewBox="0 0 24 24" set:html={icons.book} />
+              <span class="f-title">{aw.study.activeHeader}</span>
+              <span class="f-meta">
+                <svg class="f-icon" viewBox="0 0 24 24" set:html={icons.cameraOff} />
+              </span>
+            </div>
+            <div class="f-meter-row">
+              <span class="f-bar f-bar-6">
+                <span class="f-fill" style="--f: 0.8" />
+              </span>
+              <span class="f-strikes">
+                {strikes.map(() => (
+                  <span class="f-strike" />
+                ))}
+              </span>
+            </div>
+            <p class="f-meter-label">{aw.study.meter}</p>
+            <div class="f-grid f-grid-3">
+              {noCameraTiles.map((tile) => (
+                <span class="f-tile f-tile-56">
+                  <svg class="f-icon f-icon-20" viewBox="0 0 24 24" set:html={tile.icon} />
+                  <span class="f-label">{tile.label}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {visual.kind === 'rewards' && (
+          <div class="f">
+            <div class="f-header">
+              <svg class="f-icon" viewBox="0 0 24 24" set:html={icons.sprout} />
+              <span class="f-title">{aw.progress.header}</span>
+              <span class="f-meta">{aw.progress.meta}</span>
+            </div>
+            <div class="f-list">
+              {offers.map((offer) => (
+                <span class="f-row f-door">
+                  <span class="f-mono">{offer.monogram}</span>
+                  <span>{offer.name}</span>
+                  <span class="f-muted">{offer.duration}</span>
+                  <span class="f-price">
+                    <svg class="f-icon" viewBox="0 0 24 24" set:html={icons.coins} />
+                    {offer.cost}
+                  </span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {visual.kind === 'streak' && (
+          <div class="f">
+            <div class="f-header">
+              <svg class="f-icon" viewBox="0 0 24 24" set:html={icons.flame} />
+              <span class="f-title">{aw.progress.meta}</span>
+            </div>
+            <span class="f-bar f-bar-4">
+              <span class="f-fill" style={`--f: ${GOAL_RATIO}`} />
+            </span>
+            <p class="f-goal">{aw.progress.goal}</p>
+            <div class="f-month">
+              {month.map((week) => (
+                <div class="f-week">
+                  {week.map((day) => (
+                    <span class:list={['f-day', `f-day-${day}`]} style={`--f: ${GOAL_RATIO}`}>
+                      {day === 'done' && (
+                        <svg class="f-icon" viewBox="0 0 24 24" set:html={icons.check} />
+                      )}
+                    </span>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {visual.kind === 'pet' && (
+          <div class="f">
+            <svg class="f-art" viewBox="0 0 316 150">
+              <path class="f-ground" d="M4 132H312" />
+              <g class="f-grow">
+                <path d="M40 132v-14" />
+                <path d="M40 123c-8 0-13-5-13-12 8 0 13 5 13 12Z" />
+                <path d="M40 120c0-8 5-13 13-13 0 8-5 13-13 13Z" />
+              </g>
+              <g class="f-grow">
+                <path d="M119 132c0-16-2-30 1-46" />
+                <path d="M119 121c-10 0-17-7-17-16 10 0 17 7 17 16Z" />
+                <path d="M119 109c0-10 7-17 17-17 0 10-7 17-17 17Z" />
+                <path d="M120 97c-8 0-14-6-14-14 8 0 14 6 14 14Z" />
+                <path d="M120 87c0-7 5-12 12-12 0 7-5 12-12 12Z" />
+              </g>
+              <g class="f-grow">
+                <path d="M198 132v-30" />
+                <path d="M198 116l-10-8M198 110l10-8" />
+                <path d="M181 102a19 19 0 0 1-10-34 15 15 0 0 1 14-24 13 13 0 0 1 26 0 15 15 0 0 1 14 24 19 19 0 0 1-10 34Z" />
+              </g>
+              <g class="f-wilt">
+                <path d="M277 132c0-13 2-22 9-28" />
+                <path d="M286 104c8 1 13 8 12 16-8-2-12-8-12-16Z" />
+                <path d="M277 118c-8-3-14 0-18 7 8 2 14 0 18-7Z" />
+              </g>
+            </svg>
+          </div>
+        )}
+
+        {visual.kind === 'ledger' && (
+          <div class="f">
+            <div class="f-header">
+              <svg class="f-icon" viewBox="0 0 24 24" set:html={icons.lock} />
+              <span class="f-meta f-red f-strong">{ledger.total}</span>
+            </div>
+            <svg class="f-art" viewBox={`0 0 ${LEDGER.width} ${LEDGER.height}`}>
+              <path class="f-zero" d={`M0 ${ledger.zero}H${LEDGER.width}`} />
+              {ledger.bars.map((bar, i) => {
+                const next = ledger.bars[i + 1];
+                return (
+                  <>
+                    <rect
+                      class:list={[
+                        'f-col',
+                        bar.total ? 'f-col-total' : bar.gain ? 'f-col-gain' : 'f-col-loss',
+                      ]}
+                      x={bar.x}
+                      y={bar.top}
+                      width={LEDGER.bar}
+                      height={bar.height}
+                      rx="3"
+                    />
+                    {next && !next.total && (
+                      <path class="f-step" d={`M${bar.x + LEDGER.bar} ${bar.end}H${next.x}`} />
+                    )}
+                    <text
+                      class:list={['f-value', { 'f-value-total': bar.total }]}
+                      x={bar.x + LEDGER.bar / 2}
+                      y={bar.labelY}
+                    >
+                      {bar.label}
+                    </text>
+                  </>
+                );
+              })}
+            </svg>
+          </div>
+        )}
+      </div>
+    )
+  }
+</div>
+
+<style>
+  /* The card's visual area: the visual centred both ways, with at least --cv-inset of white
+     above and below it (side margins = what the 440 px window at --aw-zoom-card leaves).
+     `safe`: a visual taller than the area aligns to the top inset and runs past the bottom
+     edge, where the card's clip cuts it, instead of overflowing both edges (plain `center`
+     first for browsers without the keyword). */
+  .cv {
+    --cv-inset: 40px;
+    /* Close-ups: this many times the windows' scale. */
+    --cv-detail: 1.35;
+    position: absolute;
+    inset: 0;
+    display: grid;
+    align-content: center;
+    align-content: safe center;
+    justify-items: center;
+    padding-block: var(--cv-inset);
+  }
+
+  @media (max-width: 1068px) {
+    .cv {
+      --cv-inset: 32px;
+    }
+  }
+
+  @media (max-width: 734px) {
+    .cv {
+      --cv-inset: 24px;
+    }
+  }
+
+  /* Windows: the zoom is here, so the window itself stays at 1. */
+  .cv-window {
+    --aw-zoom: 1;
+    zoom: var(--aw-zoom-card);
+    width: var(--aw-width);
+  }
+
+  /* Compositions: close-ups at --cv-detail times the windows' scale, as wide as the window.
+     One or two app panels stacked 6 px apart like the app's detail windows, each as tall as
+     its content. ---------------------------------------------------------------------- */
+  .f-stack {
+    --f-zoom: calc(var(--aw-zoom-card) * var(--cv-detail));
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: calc(var(--aw-width) / var(--cv-detail));
+    zoom: var(--f-zoom);
+  }
+
+  .f {
+    box-sizing: border-box;
+    padding: var(--aw-pad);
+    border-radius: var(--aw-radius-window);
+    background: var(--aw-bg);
+    color: var(--aw-fg);
+    font-family: var(--family-sans);
+    font-size: var(--aw-font-13);
+    font-weight: var(--weight-regular);
+    line-height: 16px;
+    letter-spacing: 0;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    user-select: none;
+    forced-color-adjust: none;
+  }
+
+  .f-gap-8 {
+    margin-block-start: var(--aw-header-gap);
+  }
+
+  .f-gap-12 {
+    margin-block-start: var(--aw-section-gap);
+  }
+
+  .f-header {
+    display: flex;
+    align-items: center;
+    gap: var(--aw-header-gap);
+    height: var(--aw-header-h);
+  }
+
+  .f-header + * {
+    margin-block-start: var(--aw-header-gap);
+  }
+
+  .f-title,
+  .f-strong {
+    font-weight: var(--weight-semibold);
+  }
+
+  .f-meta {
+    display: inline-flex;
+    align-items: center;
+    margin-inline-start: auto;
+    color: var(--aw-fg-muted);
+  }
+
+  .f-muted {
+    color: var(--aw-fg-muted);
+  }
+
+  .f-red {
+    color: var(--aw-red-text);
+  }
+
+  .f-orange {
+    color: var(--aw-orange);
+  }
+
+  .f-green {
+    color: var(--aw-green);
+  }
+
+  .f-icon {
+    flex: none;
+    width: var(--aw-icon-header);
+    height: var(--aw-icon-header);
+    fill: none;
+    stroke: currentColor;
+    stroke-width: var(--aw-icon-stroke);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .f-icon-20 {
+    width: var(--aw-icon-tile);
+    height: var(--aw-icon-tile);
+  }
+
+  /* Tiles and rows (section 10: 4 px gaps, 6 px radius, 1 px border). */
+  .f-grid {
+    display: grid;
+    gap: var(--aw-grid-gap);
+  }
+
+  .f-grid-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .f-grid-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .f-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 0;
+    padding-inline: 4px;
+    border: 1px solid var(--aw-border);
+    border-radius: var(--aw-radius-md);
+    background: var(--aw-tile);
+  }
+
+  .f-tile-56 {
+    height: var(--aw-tile-h);
+  }
+
+  .f-tile-40 {
+    height: var(--aw-door-h);
+  }
+
+  .f-tile-32 {
+    height: var(--aw-text-tile-h);
+  }
+
+  .f-door {
+    background: var(--aw-tile-2);
+  }
+
+  .f-label {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* The one filled button: the one that confirms. */
+  .f-primary {
+    border-color: var(--aw-blue);
+    background: var(--aw-blue);
+    color: var(--aw-on-accent);
+    font-weight: var(--weight-semibold);
+  }
+
+  .f-list {
+    display: grid;
+    gap: var(--aw-grid-gap);
+  }
+
+  .f-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 36px;
+    padding-inline: 10px;
+    border: 1px solid var(--aw-border);
+    border-radius: var(--aw-radius-md);
+    background: var(--aw-tile);
+  }
+
+  .f-row.f-door {
+    height: var(--aw-door-h);
+    gap: var(--aw-header-gap);
+    background: var(--aw-tile-2);
+  }
+
+  /* Neutral monogram instead of a favicon. */
+  .f-mono {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: var(--aw-monogram);
+    height: var(--aw-monogram);
+    border-radius: 50%;
+    background: var(--aw-border);
+    color: var(--aw-fg);
+    font-size: 7px;
+    font-weight: var(--weight-semibold);
+    line-height: 1;
+  }
+
+  .f-mono-20 {
+    width: var(--aw-icon-tile);
+    height: var(--aw-icon-tile);
+    font-size: 8px;
+  }
+
+  /* Emergency: the grey link under the countdown, and the phrase being typed. */
+  .f-link {
+    margin-block-start: var(--aw-header-gap);
+    color: var(--aw-fg-muted);
+    font-size: var(--aw-font-12);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .f-field {
+    display: flex;
+    align-items: center;
+    height: var(--aw-field-h);
+    padding-inline: var(--aw-pad);
+    border: 1px solid var(--aw-control);
+    border-radius: var(--aw-radius-md);
+    background: var(--aw-tile);
+    font-size: var(--aw-font-15);
+    line-height: 20px;
+    overflow: hidden;
+  }
+
+  .f-typed {
+    white-space: pre;
+  }
+
+  .f-caret {
+    flex: none;
+    width: 1px;
+    height: 18px;
+    margin-inline-start: 1px;
+    background: var(--aw-blue);
+  }
+
+  /* Countdown: 48 px, 600, seconds at 60 %. */
+  .f-countdown {
+    height: 56px;
+    font-size: var(--aw-font-48);
+    font-weight: var(--weight-semibold);
+    line-height: 56px;
+    letter-spacing: var(--aw-countdown-ls);
+  }
+
+  .f-seconds {
+    opacity: var(--aw-seconds-opacity);
+  }
+
+  .f-punish {
+    display: flex;
+    align-items: center;
+    gap: var(--aw-header-gap);
+  }
+
+  .f-points {
+    margin-block-start: var(--aw-header-gap);
+    color: var(--aw-red-text);
+    font-size: var(--aw-font-15);
+    font-weight: var(--weight-semibold);
+    line-height: 20px;
+  }
+
+  /* The next section of the window (12 px of air, no separator line). */
+  .f-divider {
+    height: var(--aw-section-gap);
+  }
+
+  /* Bars. */
+  .f-bar {
+    display: block;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--aw-border);
+  }
+
+  .f-bar-3 {
+    height: var(--aw-bar-countdown);
+    margin-block-start: 4px;
+  }
+
+  .f-bar-4 {
+    height: var(--aw-bar-goal);
+  }
+
+  .f-row .f-bar-4 {
+    flex: 1;
+  }
+
+  .f-bar-6 {
+    flex: 1;
+    height: var(--aw-bar-meter);
+  }
+
+  .f-fill {
+    display: block;
+    height: 100%;
+    transform: scaleX(var(--f, 0));
+    transform-origin: left center;
+    background: var(--aw-green);
+  }
+
+  .f-fill-orange {
+    background: var(--aw-orange);
+  }
+
+  .f-fill-red {
+    background: var(--aw-red);
+  }
+
+  /* Study meter and strike dots. */
+  .f-meter-row {
+    display: flex;
+    align-items: center;
+    gap: var(--aw-header-gap);
+    height: 16px;
+  }
+
+  .f-strikes {
+    display: flex;
+    gap: 4px;
+  }
+
+  .f-strike {
+    width: var(--aw-dot);
+    height: var(--aw-dot);
+    border: 1px solid var(--aw-control);
+    border-radius: 50%;
+  }
+
+  .f-strike-on {
+    border-color: var(--aw-red);
+    background: var(--aw-red);
+  }
+
+  .f-meter-label,
+  .f-goal {
+    height: 16px;
+    margin-block: 4px 8px;
+    font-size: var(--aw-font-12);
+  }
+
+  .f-goal {
+    margin-block-end: 0;
+    color: var(--aw-fg-muted);
+  }
+
+  /* Session timelines: green focus, orange false alarms. */
+  .f-sessions {
+    display: grid;
+    gap: 18px;
+    padding-block-start: 26px;
+  }
+
+  .f-session {
+    display: flex;
+    align-items: center;
+    gap: var(--aw-header-gap);
+    color: var(--aw-fg-muted);
+  }
+
+  .f-timeline {
+    display: flex;
+    flex: 1;
+    height: 10px;
+  }
+
+  .f-segment {
+    position: relative;
+    flex: var(--w) 0 0;
+    background: var(--aw-green);
+  }
+
+  .f-segment:first-child {
+    border-start-start-radius: 999px;
+    border-end-start-radius: 999px;
+  }
+
+  .f-segment:last-child {
+    border-start-end-radius: 999px;
+    border-end-end-radius: 999px;
+  }
+
+  .f-segment-alarm {
+    background: var(--aw-orange);
+  }
+
+  /* «¡Estaba estudiando!» pressed on that alarm: a blue check above it. */
+  .f-marker {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 5px);
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    translate: -50% 0;
+    border: 1px solid var(--aw-blue);
+    border-radius: 50%;
+    color: var(--aw-blue);
+  }
+
+  .f-marker .f-icon {
+    width: 11px;
+    height: 11px;
+    stroke-width: 2.5;
+  }
+
+  /* Reward shop rows. */
+  .f-price {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-inline-start: auto;
+    font-weight: var(--weight-semibold);
+  }
+
+  .f-price .f-icon {
+    color: var(--aw-fg-muted);
+  }
+
+  /* Streak: the goal of today, then four weeks of days. */
+  .f-month {
+    display: grid;
+    gap: 8px;
+    margin-block-start: var(--aw-section-gap);
+  }
+
+  .f-week {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    justify-items: center;
+  }
+
+  .f-day {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+  }
+
+  .f-day-done {
+    background: var(--aw-green);
+    color: var(--aw-on-accent);
+  }
+
+  .f-day-done .f-icon {
+    width: 16px;
+    height: 16px;
+    stroke-width: 2.5;
+  }
+
+  /* Today: a ring that fills like the goal bar. */
+  .f-day-today {
+    background: conic-gradient(var(--aw-green) calc(var(--f) * 360deg), var(--aw-border) 0);
+    mask: radial-gradient(circle, transparent 13px, var(--aw-bg) 13.5px);
+  }
+
+  .f-day-next {
+    border: 1px solid var(--aw-control);
+  }
+
+  /* A day without the goal: an empty tile-coloured disc, quieter than the day to come. */
+  .f-day-missed {
+    border: 1px solid var(--aw-border);
+    background: var(--aw-tile);
+  }
+
+  /* Line art in the panel (pet stages, ledger). */
+  .f-art {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .f-art path {
+    stroke-width: 2;
+  }
+
+  .f-ground {
+    stroke: var(--aw-border);
+  }
+
+  .f-grow {
+    stroke: var(--aw-green);
+  }
+
+  .f-wilt {
+    stroke: var(--aw-fg-muted);
+  }
+
+  .f-zero {
+    stroke: var(--aw-control);
+    stroke-dasharray: 3 3;
+  }
+
+  .f-art .f-zero,
+  .f-art .f-step {
+    stroke-width: 1;
+  }
+
+  .f-step {
+    stroke: var(--aw-control);
+  }
+
+  .f-col-gain {
+    fill: var(--aw-green);
+  }
+
+  .f-col-loss {
+    fill: var(--aw-red);
+  }
+
+  .f-col-total {
+    fill: none;
+    stroke: var(--aw-red);
+    stroke-width: 2;
+  }
+
+  /* A halo in the panel colour keeps the zero line from crossing the labels. */
+  .f-value {
+    fill: var(--aw-fg-muted);
+    stroke: var(--aw-bg);
+    stroke-width: 4px;
+    paint-order: stroke;
+    font-size: var(--aw-font-12);
+    text-anchor: middle;
+  }
+
+  .f-value-total {
+    fill: var(--aw-red-text);
+    font-weight: var(--weight-semibold);
+  }
+</style>

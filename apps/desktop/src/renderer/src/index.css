@@ -1,1 +1,10 @@
+/*
+ * Renderer stylesheet: Tailwind 4 with the Céntrate theme (tokens.css through
+ * tailwind-theme.css; the default palette, type scale, radii and shadows are removed), then the
+ * base layer and the UI kit. Colors come only from the tokens (scripts/lint-colors.mjs).
+ */
 @import 'tailwindcss';
+@import '@centrate/shared/design/tailwind-theme.css';
+@import './styles/base.css';
+@import './styles/kit.css';
+@import './styles/shell.css';

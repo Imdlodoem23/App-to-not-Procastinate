@@ -1,0 +1,106 @@
+# Installers for Céntrate. Artifact names carry no version so download links never change.
+appId: io.github.imdlodoem23.centrate
+productName: Céntrate
+executableName: centrate
+copyright: Copyright © 2026 Céntrate contributors
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**
+  - package.json
+extraResources:
+  - from: resources/guardian
+    to: guardian
+    filter: ['**/*']
+  - from: resources/assets
+    to: assets
+    filter: ['**/*']
+  # Offline focus sounds (PROMPT §9): process.resourcesPath/sounds, read by `sounds:load`
+  # through src/main/app/paths.ts. The README next to them stays out.
+  - from: resources/sounds
+    to: sounds
+    filter: ['*.wav']
+  # Study Mode models, their manifest and the MediaPipe runtime copied by
+  # packages/study-ai/scripts/fetch-models.mjs (the .gitignore stays out).
+  - from: resources/models
+    to: models
+    filter: ['*.task', '*.tflite', 'manifest.json', 'mediapipe/**']
+  # Licences of everything bundled (scripts/gen-third-party-notices.mjs, from ASSET-LICENSES.json
+  # and the shipped npm and Go packages). Electron adds LICENSE.electron.txt and
+  # LICENSES.chromium.html itself.
+  - from: resources/third-party-notices.txt
+    to: third-party-notices.txt
+afterPack: build/after-pack.cjs
+publish:
+  provider: github
+  owner: Imdlodoem23
+  repo: App-to-not-Procastinate
+  releaseType: release
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: Centrate-Setup.${ext}
+  requestedExecutionLevel: asInvoker
+  # Code signing is prepared but disabled until a certificate is available (see README).
+  signAndEditExecutable: true
+nsis:
+  oneClick: false
+  perMachine: true
+  allowElevation: true
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Céntrate
+  uninstallDisplayName: Céntrate
+  deleteAppDataOnUninstall: false
+  include: build/installer.nsh
+  artifactName: Centrate-Setup.${ext}
+
+mac:
+  target:
+    - target: dmg
+      arch: [universal]
+    - target: zip
+      arch: [universal]
+  category: public.app-category.productivity
+  artifactName: Centrate-mac-${arch}.${ext}
+  # No Developer ID yet: build/after-pack.cjs signs ad hoc so Apple Silicon does not report the app as damaged.
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  darkModeSupport: true
+  extendInfo:
+    NSCameraUsageDescription: Céntrate usa la cámara solo durante el Study Mode para comprobar si estás estudiando. Las imágenes se analizan en tu ordenador y nunca se guardan ni se envían.
+    LSUIElement: false
+dmg:
+  artifactName: Centrate.${ext}
+  writeUpdateInfo: false
+
+linux:
+  syncDesktopName: true
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  category: Utility
+  maintainer: Céntrate <noreply@github.com>
+  synopsis: Bloquea tus distracciones aunque cierres la app
+  description: Céntrate bloquea webs y apps que te distraen durante el tiempo que elijas, aunque cierres la app o reinicies.
+  artifactName: Centrate.${ext}
+deb:
+  packageName: centrate
+  afterInstall: build/linux/after-install.tpl
+  afterRemove: build/linux/after-remove.tpl
+  fpm:
+    - --before-remove=build/linux/before-remove.sh
+  depends:
+    - libnss3
+    - libgtk-3-0 | libgtk-3-0t64
+    - libxss1
+    - libasound2 | libasound2t64
+appImage:
+  artifactName: Centrate.${ext}

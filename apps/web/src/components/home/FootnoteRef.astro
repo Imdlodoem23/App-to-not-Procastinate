@@ -1,0 +1,66 @@
+---
+/**
+ * Footnote reference (design plan § 4.12): a superscript number in the colour of the text that
+ * jumps to the note in the footer (`#nota-{n}`), with an id the note links back to.
+ *
+ * `k` numbers the references to the same note in page order, so ids stay unique:
+ * `ref-{id}-{k}`. Home page map (keep it in sync if a reference moves):
+ * - admin: 1 Highlights, 2 Scene lead · attempts: 1 Highlights, 2 Numbers
+ * - webcam: 1 Highlights, 2 Study Mode chapter lead · blockedPage: 1 Scene
+ * - emergency: 1 Bloqueo chapter · punishment: 1 Study Mode chapter, 2 Numbers
+ * - rewards: 1 Progreso chapter, 2 Numbers · unsigned: 1 final download
+ *
+ * Put it right after the text, on the same line (`{text}<FootnoteRef … />`), so no space is
+ * rendered before the number.
+ */
+import { fill, footnoteNumber, type FootnoteId } from '../../content/copy';
+import { copyFor } from '../../content/locale';
+
+const copy = copyFor(Astro.url);
+
+interface Props {
+  id: FootnoteId;
+  /** Occurrence of this note's reference on the page (1 = first). */
+  k?: number;
+}
+
+const { id, k = 1 } = Astro.props;
+const n = footnoteNumber(id);
+---
+
+<sup class="fn-ref"
+  ><a href={`#nota-${n}`} id={`ref-${id}-${k}`} aria-label={fill(copy.ui.footnoteRef, { n })}
+    >{n}</a
+  ></sup
+>
+
+<style>
+  /* Raised without growing the line box. */
+  .fn-ref {
+    position: relative;
+    top: -0.5em;
+    margin-inline-start: 0.08em;
+    font-size: 0.6em;
+    line-height: 0;
+    vertical-align: baseline;
+    font-feature-settings: 'tnum';
+  }
+
+  /* The pseudo-element widens the target (about 30 × 44) without moving the line. */
+  .fn-ref a {
+    position: relative;
+    color: inherit;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.18em;
+  }
+
+  .fn-ref a::after {
+    content: '';
+    position: absolute;
+    inset: -16px -12px;
+  }
+
+  .fn-ref a:hover {
+    text-decoration-line: underline;
+  }
+</style>

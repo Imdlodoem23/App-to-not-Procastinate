@@ -11,12 +11,17 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "typecheck": "tsc -p tsconfig.node.json && tsc -p tsconfig.web.json",
+    "typecheck": "tsc -p tsconfig.node.json && tsc -p tsconfig.web.json && tsc -p tsconfig.e2e.json",
     "test": "vitest run --passWithNoTests",
+    "e2e": "playwright test",
+    "capture": "node scripts/ui-capture.mjs",
+    "ui:capture": "node scripts/ui-capture.mjs",
+    "gen:tray-icons": "node scripts/gen-tray-icons.mjs",
     "dist": "electron-vite build && electron-builder --publish never"
   },
   "dependencies": {
-    "electron-updater": "^6.8.9"
+    "electron-updater": "^6.8.9",
+    "koffi": "^3.3.2"
   },
   "devDependencies": {
     "@centrate/shared": "*",
@@ -34,5 +39,6 @@
     "tailwindcss": "^4.3.3",
     "vite": "^7.3.6",
     "zustand": "^5.0.15"
-  }
+  },
+  "desktopName": "centrate.desktop"
 }

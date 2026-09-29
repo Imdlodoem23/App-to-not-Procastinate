@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./design/tokens.css": "./src/design/tokens.css",
+    "./design/tailwind-theme.css": "./src/design/tailwind-theme.css",
     "./*": "./src/*.ts"
   },
   "scripts": {

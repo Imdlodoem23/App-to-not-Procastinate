@@ -1,0 +1,52 @@
+---
+/**
+ * Renders inline tokens: **bold**, `code`, [links](…) and {es:phrases} (a <span lang>), either
+ * from a copy.ts string (`text`, parsed with inline()) or already parsed (`tokens`, from
+ * markdown-lite). Everything is text for Astro, so it is escaped; hrefs that are not safe
+ * render as plain text.
+ *
+ * Put it on the same line as the surrounding text: the markup adds no whitespace.
+ */
+import { inline, type InlineToken } from '../../content/copy';
+import { safeHref } from './markdown-lite';
+
+interface Props {
+  text?: string;
+  tokens?: readonly InlineToken[];
+}
+
+const { text, tokens } = Astro.props;
+const parts = (tokens ?? inline(text ?? '')).map((token) =>
+  token.kind === 'link' ? { ...token, href: safeHref(token.href) } : token,
+);
+---
+
+{
+  parts.map((part) =>
+    part.kind === 'link' ? (
+      part.href ? (
+        <a class="link-inline" href={part.href}>{part.text}</a>
+      ) : (
+        part.text
+      )
+    ) : part.kind === 'strong' ? (
+      <strong class="text-primary">{part.text}</strong>
+    ) : part.kind === 'code' ? (
+      <code class="doc-code">{part.text}</code>
+    ) : part.kind === 'phrase' ? (
+      <span lang={part.lang}>{part.text}</span>
+    ) : (
+      part.text
+    ),
+  )
+}
+
+<style>
+  .doc-code {
+    font-family: var(--family-mono);
+    /* Monospace runs wide: a step smaller keeps it in the rhythm of the text around it. */
+    font-size: 0.88em;
+    letter-spacing: 0;
+    overflow-wrap: anywhere;
+  }
+</style>

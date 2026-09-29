@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    Céntrate app icon master (docs/brand.md). Original work, MIT.
+    The mark: a «C» (ring with a 110° gap at 3 o'clock, round ends) with a dot in its mouth.
+    Plate: colors.light.blue. Mark: colors.light.tile (packages/shared/src/design/tokens.ts);
+    generators read the tokens and swap the fills by id.
+    macOS .icns: this 1024 canvas as is (824 plate, 100 margin).
+    .ico, Linux PNG, favicon, extension, active tray glyph: crop with viewBox="100 100 824 824".
+    Pixel grid: at 16 px 1 px = 51.5 units, so ring 2 px thick with radius 5 px (outer edges on
+    px 2 and 14); dot radius 2 px, centred on the ring's inner edge (px 10 to 14).
+  -->
+  <rect id="plate" x="100" y="100" width="824" height="824" rx="185" fill="#0A6AA8"/>
+  <path id="ring" d="M659.70 301.07A257.5 257.5 0 1 0 659.70 722.93" fill="none" stroke="#FFFFFF" stroke-width="103" stroke-linecap="round"/>
+  <circle id="dot" cx="718" cy="512" r="103" fill="#FFFFFF"/>
+</svg>

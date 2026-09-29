@@ -1,0 +1,58 @@
+# Reference captures for the website design (PROMPT.md § 11, «Antes de diseñar»): Playwright
+# screenshots of apple.com/es/macos/ and apple.com/es/apple-intelligence/ at 375, 768, 1280 and
+# 1920 px, plus the measured values (bar height, type per breakpoint, section padding, card radii
+# and heights, content width). The session network blocks www.apple.com, so this runs here.
+#
+# The screenshots are for comparison only: they stay in a short-lived workflow artifact and are
+# never committed or published. The measurements also go to the job summary; copy the ones that
+# matter into docs/web/referencia-apple.md.
+name: Apple reference
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Measure this page instead (optional), e.g. https://centrate.onrender.com/'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    name: Capture and measure
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+        working-directory: .
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Capture and measure
+        run: |
+          if [ -n "$TARGET_URL" ]; then
+            node scripts/apple-reference.mjs --out "$RUNNER_TEMP/apple-reference" --url "$TARGET_URL"
+          else
+            node scripts/apple-reference.mjs --out "$RUNNER_TEMP/apple-reference"
+          fi
+        env:
+          TARGET_URL: ${{ inputs.url }}
+      - name: Upload screenshots and measurements
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: apple-reference
+          path: ${{ runner.temp }}/apple-reference
+          retention-days: 7

@@ -1,0 +1,162 @@
+/*
+ * Ajustes window (PROMPT §10 «Ventanas de detalle › Ajustes»): groups of 48 px rows, the
+ * pairing code at 32 px. Colors come only from tokens.css; no cards, shadows or separators.
+ */
+
+@layer components {
+  .aj {
+    display: flex;
+    flex-direction: column;
+    gap: var(--section-gap);
+    min-width: 0;
+  }
+
+  .aj-rows {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .aj-rows .c-settings-text {
+    flex: 1 1 auto;
+  }
+
+  .aj-rows .c-settings-title,
+  .aj-rows .c-settings-desc {
+    overflow-wrap: anywhere;
+  }
+
+  .aj-value {
+    color: var(--fg-muted);
+    white-space: nowrap;
+  }
+
+  .aj-status {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .aj-inline {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-1);
+  }
+
+  .aj-inline .c-countdown-digits {
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+
+  .aj-code {
+    margin: 0;
+    font-size: var(--font-size-32);
+    line-height: var(--line-height-32);
+    font-weight: var(--font-weight-semibold);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.12em;
+  }
+
+  /* «Tema», «Modo por defecto»: three compact tiles on the right of a 48 px row. The row's
+     description shows the hovered option's help, so the kit's own help line under the tiles is
+     kept for screen readers only (it is what the tiles' aria-describedby reads). */
+  .aj-choice .c-settings-control .c-tilerow {
+    width: calc(3 * 80px + 2 * var(--layout-tile-gap));
+  }
+
+  /* «Objetivo diario»: four compact tiles («30 min | 45 min | 60 min | 90 min»). */
+  .aj-choice-4 .c-settings-control .c-tilerow {
+    width: calc(4 * 64px + 3 * var(--layout-tile-gap));
+  }
+
+  .aj-choice .c-tilerow > .c-help {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    min-height: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* A group's result line: always mounted (a live region), no room taken while empty (the
+     negative margin cancels the section's gap; the text puts it back). */
+  .aj-notice {
+    margin-top: calc(-1 * var(--space-2));
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+
+  .aj-notice-text {
+    display: block;
+    margin-top: var(--space-2);
+  }
+
+  .aj-rows .c-settings-control > .c-tile {
+    min-width: 88px;
+  }
+
+  .aj-delete-word.c-field {
+    width: 128px;
+  }
+
+  /* «Atajo global»: the combination in a read-only field; while it records, the placeholder
+     «Pulsa las teclas» shows in the accent so the state is visible without the caret. */
+  .aj-shortcut.c-field {
+    width: 176px;
+    cursor: default;
+    caret-color: transparent;
+  }
+
+  .aj-shortcut.c-field[data-capturing] {
+    border-color: var(--blue);
+  }
+
+  .aj-shortcut.c-field[data-capturing]::placeholder {
+    color: var(--blue);
+  }
+
+  /* «Volumen»: a native slider in the accent, 32 px tall so it is an easy target. */
+  .aj-range {
+    width: 160px;
+    height: var(--size-min-target);
+    margin: 0;
+    accent-color: var(--blue);
+  }
+
+  .aj-range-value {
+    min-width: 5ch;
+    text-align: right;
+  }
+
+  /* «Lo que resta puntos»: read-only label | value lines, 12 px. */
+  .aj-values {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    column-gap: var(--space-3);
+    row-gap: 2px;
+    margin: 0;
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+
+  .aj-values-row {
+    display: contents;
+  }
+
+  .aj-values dt {
+    color: var(--fg);
+  }
+
+  .aj-values dd {
+    margin: 0;
+    color: var(--fg-muted);
+  }
+
+  /* One muted sentence under a row (Nuclear's honest note). */
+  .aj-note {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+}

@@ -1,0 +1,225 @@
+---
+/**
+ * «En esta página»: the table of contents of a document page (design plan § 5).
+ *
+ * - >= 1069 px: a list in the left columns that sticks under the bar while the page scrolls,
+ *   with the section on screen marked (aria-current="location").
+ * - <= 1068 px: a disclosure above the content, closed by default, so a long index does not
+ *   push the page down. It works without JavaScript; the script closes it after a jump.
+ */
+interface Props {
+  label: string;
+  items: readonly { id: string; label: string }[];
+}
+
+const { label, items } = Astro.props;
+---
+
+<nav class="toc" aria-label={label} data-toc>
+  <details class="toc-compact">
+    <summary class="toc-summary text-body">
+      <span>{label}</span>
+      <svg class="toc-chevron" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+        <path d="M2.5 4.25 6 7.75l3.5-3.5"></path>
+      </svg>
+    </summary>
+    <ul class="toc-compact-list" role="list">
+      {
+        items.map((item) => (
+          <li>
+            <a class="toc-compact-link" href={`#${item.id}`} data-toc-link={item.id}>{item.label}</a>
+          </li>
+        ))
+      }
+    </ul>
+  </details>
+
+  <div class="toc-rail">
+    <p class="toc-title text-small font-semibold">{label}</p>
+    <ul class="toc-list" role="list">
+      {
+        items.map((item) => (
+          <li>
+            <a class="toc-link text-small" href={`#${item.id}`} data-toc-link={item.id}>{item.label}</a>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</nav>
+
+<style>
+  .toc {
+    grid-column: 1 / span 3;
+  }
+
+  .toc ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  /* Large screens: sticky rail. */
+  .toc-compact {
+    display: none;
+  }
+
+  .toc-rail {
+    position: sticky;
+    top: calc(var(--nav-height) + 24px);
+    max-height: calc(100vh - var(--nav-height) - 48px);
+    max-height: calc(100svh - var(--nav-height) - 48px);
+    overflow-y: auto;
+    /* Room for the focus ring of the links inside the scrollable rail. */
+    padding: 4px 8px 4px 5px;
+    margin: -4px -8px -4px -5px;
+  }
+
+  .toc-title {
+    margin-bottom: 12px;
+  }
+
+  .toc-link {
+    display: block;
+    padding-block: 6px;
+    padding-inline-start: 12px;
+    border-inline-start: 1px solid var(--hairline);
+    color: var(--text-secondary);
+    transition: color 100ms linear;
+  }
+
+  .toc-link:hover {
+    color: var(--text);
+  }
+
+  /* The section on screen: the line and the text turn to the text color. */
+  .toc-link[aria-current='location'] {
+    border-inline-start-color: var(--text);
+    color: var(--text);
+  }
+
+  @media (max-width: 1068px) {
+    .toc {
+      grid-column: 1 / -1;
+    }
+
+    .toc-rail {
+      display: none;
+    }
+
+    .toc-compact {
+      display: block;
+      border-block: 1px solid var(--hairline);
+    }
+
+    .toc-summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 52px;
+      list-style: none;
+      font-weight: var(--weight-semibold);
+    }
+
+    .toc-summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .toc-chevron {
+      flex: none;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      transition: rotate var(--duration-ui) var(--curve-ui);
+    }
+
+    .toc-compact[open] .toc-chevron {
+      rotate: 180deg;
+    }
+
+    .toc .toc-compact-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      column-gap: var(--grid-gap);
+      padding-bottom: 12px;
+    }
+
+    .toc-compact-link {
+      display: flex;
+      align-items: center;
+      min-height: 44px;
+      color: var(--link);
+    }
+
+    .toc-compact-link:hover {
+      text-decoration-line: underline;
+      text-underline-offset: 0.18em;
+      text-decoration-thickness: 1px;
+    }
+  }
+
+  @media (max-width: 734px) {
+    .toc .toc-compact-list {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  @media print {
+    .toc {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  // Marks the section on screen in the rail and closes the compact index after a jump. Reads
+  // positions only: scrolling stays the browser's own.
+  for (const toc of document.querySelectorAll<HTMLElement>('[data-toc]')) {
+    const links = [...toc.querySelectorAll<HTMLAnchorElement>('a[data-toc-link]')];
+    const ids = [...new Set(links.map((link) => link.dataset.tocLink ?? ''))];
+    const sections = ids
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => el !== null);
+    const compact = toc.querySelector('details');
+
+    compact?.addEventListener('click', (event) => {
+      if (event.target instanceof Element && event.target.closest('a')) compact.open = false;
+    });
+
+    if (sections.length === 0) continue;
+
+    let current = '';
+    let frame = 0;
+
+    const update = (): void => {
+      frame = 0;
+      // The last section whose top has passed a line a little below the bar.
+      const line = 120;
+      let active = sections[0]?.id ?? '';
+      for (const section of sections) {
+        if (section.getBoundingClientRect().top <= line) active = section.id;
+      }
+      const atEnd =
+        window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+      if (atEnd) active = sections.at(-1)?.id ?? active;
+      if (active === current) return;
+      current = active;
+      for (const link of links) {
+        if (link.dataset.tocLink === active) link.setAttribute('aria-current', 'location');
+        else link.removeAttribute('aria-current');
+      }
+    };
+
+    const schedule = (): void => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule, { passive: true });
+    window.addEventListener('hashchange', schedule);
+    update();
+  }
+</script>

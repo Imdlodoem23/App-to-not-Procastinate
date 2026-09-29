@@ -1,0 +1,246 @@
+{
+  "$comment": "Third-party assets shipped by Céntrate (PROMPT.md § 11, Legal: CC0 or OFL only, listed here). One entry per asset. Add yours when a module bundles a new font, icon set, image, sound or model, with \"shippedIn\" (desktop, extension, web): scripts/gen-third-party-notices.mjs builds each product's third-party notices from it (CI checks they are fresh). Exceptions to CC0/OFL are recorded in DECISIONS.md.",
+  "assets": [
+    {
+      "name": "Inter",
+      "kind": "font",
+      "source": "https://github.com/rsms/inter",
+      "package": "@fontsource-variable/inter",
+      "version": "5.3.0",
+      "license": "OFL-1.1",
+      "copyright": "Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter)",
+      "licenseText": "node_modules/@fontsource-variable/inter/LICENSE",
+      "shippedIn": ["web"],
+      "notice": "apps/web/public/third-party-notices.txt",
+      "usedBy": [
+        "apps/web/src/styles/global.css (self-hosted @font-face, opsz + wght axes)",
+        "apps/web/src/layouts/Base.astro (preload of the latin woff2)",
+        "apps/web/scripts/render-og.mjs (draws the text of apps/web/public/og.png)",
+        "apps/web/public/og.png"
+      ]
+    },
+    {
+      "name": "Lucide",
+      "kind": "icons",
+      "source": "https://lucide.dev",
+      "package": "lucide-react",
+      "version": "1.48.0",
+      "license": "ISC",
+      "copyright": "Copyright (c) 2026 Lucide Icons and Contributors",
+      "additionalLicenses": [
+        {
+          "license": "MIT",
+          "copyright": "Copyright (c) 2013-present Cole Bemis",
+          "appliesTo": "Icons derived from Feather, listed in node_modules/lucide-react/LICENSE (among those used here: lock, clock, check, monitor, smartphone)."
+        }
+      ],
+      "licenseText": "node_modules/lucide-react/LICENSE",
+      "shippedIn": ["web", "desktop", "extension"],
+      "notice": [
+        "apps/web/public/third-party-notices.txt",
+        "apps/desktop/resources/third-party-notices.txt",
+        "apps/extension/public/third-party-notices.txt"
+      ],
+      "usedBy": [
+        "apps/web/src/components/AppWindow.astro (inline SVG paths, same shapes as lucide-react 1.48.0)",
+        "apps/web/src/components/home/CardVisual.astro (inline SVG paths)",
+        "apps/web/src/components/home/StickyScene.astro (inline SVG paths)",
+        "apps/web/src/components/home/MoreFeatures.astro (inline SVG paths)",
+        "apps/desktop/package.json (lucide-react dependency for the app's icons)",
+        "apps/extension/src/pages/shared/icons.ts (inline SVG paths, same shapes as lucide-react 1.48.0; @license comment kept in the bundle)"
+      ]
+    },
+    {
+      "name": "Céntrate brand mark and mascot",
+      "kind": "icons",
+      "source": "original work of the Céntrate project, drawn by hand as SVG (no third-party, Apple, G-Helper or brand shapes)",
+      "originalityCheck": "2026-09-28: the first mark (ring with a centred dot) was too close to CircleCI, Clerk and Target; the dot moved into the mouth of the «C» (110° gap). Compared against the 3,463 brand logos of simple-icons 16.33.0; a TMview / WIPO figurative search is still to do before release (DECISIONS.md, PENDIENTE_PARA_MI.md).",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2026 Imdlodoem23 and Céntrate contributors",
+      "licenseText": "LICENSE",
+      "shippedIn": ["desktop", "extension", "web"],
+      "colors": "packages/shared/src/design/tokens.ts (colors.light.blue plate, colors.light.tile mark; the mascot uses currentColor)",
+      "files": [
+        "assets/brand/icon.svg (app icon master: .icns, .ico, Linux PNG, favicons, extension icons, the mark cut out of the active tray glyph)",
+        "assets/brand/icon-mono.svg (monochrome template: macOS menu bar, idle tray glyph)",
+        "assets/brand/mascot-brote.svg",
+        "assets/brand/mascot-planta.svg",
+        "assets/brand/mascot-arbol.svg",
+        "assets/brand/mascot-marchita.svg"
+      ],
+      "generatedFiles": [
+        {
+          "generator": "scripts/gen-app-icons.mjs (npm run gen:icons; --check for CI freshness), through scripts/brand-masters.mjs. Rendered with @resvg/resvg-js; .ico and .icns containers written in plain JS.",
+          "from": "assets/brand/icon.svg, colors from packages/shared/src/design/tokens.ts",
+          "files": [
+            "apps/desktop/build/icon.icns (macOS, 1024 canvas with margin; PNG entries ic07-ic14)",
+            "apps/desktop/build/icon.ico (Windows, cropped to the plate; PNG entries 16, 20, 24, 32, 40, 48, 64, 128, 256)",
+            "apps/desktop/build/icon.png (1024, cropped to the plate)",
+            "apps/desktop/build/icons/16x16.png … 512x512.png (Linux hicolor: 16, 24, 32, 48, 64, 128, 256, 512)",
+            "apps/web/public/favicon.svg (the master cropped to the plate, comments stripped)",
+            "apps/web/public/favicon-32.png",
+            "apps/web/public/apple-touch-icon.png (180, square plate)"
+          ]
+        },
+        {
+          "generator": "apps/desktop/scripts/gen-tray-icons.mjs (npm run gen:tray-icons -w apps/desktop; --check for CI freshness), through scripts/brand-masters.mjs. Rendered with @resvg/resvg-js at 16, 20, 24 and 32 px.",
+          "from": "assets/brand/icon-mono.svg (idle glyph: fg of each theme, black for the macOS template) and assets/brand/icon.svg cropped to the plate (the mark cut out of the active disc); colors from packages/shared/src/design/tokens.ts",
+          "files": [
+            "apps/desktop/resources/assets/tray/tray-idleTemplate*.png (macOS menu bar, template image)",
+            "apps/desktop/resources/assets/tray/tray-idle-{light,dark}*.png",
+            "apps/desktop/resources/assets/tray/tray-{normal,strict,red,study}-{light,dark}*.png (disc in the mode accent with the mark cut out)",
+            "apps/desktop/resources/assets/tray/tray-study-cam-{light,dark}*.png (plus the red camera dot)"
+          ]
+        },
+        {
+          "generator": "apps/extension/scripts/gen-icons.mjs (npm run gen:icons -w apps/extension; --check for CI freshness), through scripts/brand-masters.mjs. Rendered with @resvg/resvg-js.",
+          "from": "assets/brand/icon.svg cropped to the plate, colors from packages/shared/src/design/tokens.ts",
+          "files": [
+            "apps/extension/public/icons/icon-16.png",
+            "apps/extension/public/icons/icon-32.png",
+            "apps/extension/public/icons/icon-48.png",
+            "apps/extension/public/icons/icon-128.png (96 px plate with a 16 px transparent margin)"
+          ]
+        },
+        {
+          "generator": "by hand, no script: the masters' paths unchanged, comments stripped. Header files add vector-effect=\"non-scaling-stroke\" (1.75 px at any size, like lucide's absoluteStrokeWidth); -large files use stroke-width 1.25 (docs/brand.md «Mascota»). No colors: currentColor, painted with tokens through a CSS mask.",
+          "from": "assets/brand/mascot-brote.svg, mascot-planta.svg, mascot-arbol.svg, mascot-marchita.svg",
+          "files": [
+            "apps/desktop/src/renderer/src/assets/mascot/sprout.svg",
+            "apps/desktop/src/renderer/src/assets/mascot/plant.svg",
+            "apps/desktop/src/renderer/src/assets/mascot/tree.svg",
+            "apps/desktop/src/renderer/src/assets/mascot/wilted.svg",
+            "apps/desktop/src/renderer/src/assets/mascot/sprout-large.svg",
+            "apps/desktop/src/renderer/src/assets/mascot/plant-large.svg",
+            "apps/desktop/src/renderer/src/assets/mascot/tree-large.svg",
+            "apps/desktop/src/renderer/src/assets/mascot/wilted-large.svg"
+          ],
+          "usedBy": [
+            "apps/desktop/src/renderer/src/assets/mascot/index.ts (MASCOT_SVGS, mascotStageFor, mascotStyle)"
+          ]
+        }
+      ],
+      "usedBy": [
+        "docs/brand.md (usage rules)",
+        "apps/desktop/electron-builder.yml (buildResources: icon.icns, icon.ico and icons/ are picked up by name)"
+      ]
+    },
+    {
+      "name": "Céntrate achievement badges",
+      "kind": "icons",
+      "source": "original work of the Céntrate project, drawn by hand as SVG on the 24 grid with lucide's conventions (stroke 1.75, round caps and joins) but no lucide path data; the frame is the brand ring of assets/brand/icon-mono.svg (closed when earned, its 110° gap when pending). No third-party, Apple, G-Helper or brand shapes.",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2026 Imdlodoem23 and Céntrate contributors",
+      "licenseText": "LICENSE",
+      "shippedIn": ["desktop"],
+      "colors": "none in the files (currentColor); painted through a CSS mask with packages/shared/src/design/tokens.ts (green when earned, fgMuted while pending)",
+      "files": [
+        "apps/desktop/src/renderer/src/assets/achievements/first-session.svg («1»)",
+        "apps/desktop/src/renderer/src/assets/achievements/first-block.svg (padlock)",
+        "apps/desktop/src/renderer/src/assets/achievements/streak-7.svg (flame)",
+        "apps/desktop/src/renderer/src/assets/achievements/study-10h.svg (open book)",
+        "apps/desktop/src/renderer/src/assets/achievements/clean-week.svg (sparkle)",
+        "apps/desktop/src/renderer/src/assets/achievements/sessions-25.svg (tally)",
+        "apps/desktop/src/renderer/src/assets/achievements/streak-30.svg (bonfire)",
+        "apps/desktop/src/renderer/src/assets/achievements/study-50h.svg (books)"
+      ],
+      "usedBy": [
+        "apps/desktop/src/renderer/src/assets/achievements/index.ts (ACHIEVEMENT_BADGES, achievementBadgeFor, achievementBadgeStyle)",
+        "docs/brand.md («Logros»: usage rules)"
+      ]
+    },
+    {
+      "name": "MediaPipe Face Landmarker model",
+      "kind": "model",
+      "source": "https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker",
+      "download": "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+      "version": "float16/1",
+      "license": "Apache-2.0",
+      "copyright": "Copyright The MediaPipe Authors (Google LLC)",
+      "licenseText": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+      "shippedIn": ["desktop"],
+      "notice": "apps/desktop/resources/third-party-notices.txt",
+      "sha256": "64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff",
+      "bytes": 3758596,
+      "contents": "Bundle of face_detector, face_landmarks_detector, face_blendshapes and geometry_pipeline_metadata.",
+      "exception": "Apache-2.0: exception to the CC0/OFL rule (PROMPT.md §11), recorded in DECISIONS.md «Study Mode (IA de la cámara)» (like Lucide under «Web»). The Apache-2.0 text and this notice ship in the app third-party notices.",
+      "files": ["apps/desktop/resources/models/face_landmarker.task"],
+      "usedBy": [
+        "packages/study-ai/src/assets.ts (MODEL_MANIFEST: url, size, sha256)",
+        "packages/study-ai/src/perception/vision.ts (loaded offline from the app's asset scheme; size and sha256 checked before MediaPipe sees it)",
+        "packages/study-ai/scripts/fetch-models.mjs (download or --from copy, sha256 check, atomic write; --check in tests)",
+        "apps/desktop/resources/models/manifest.json (written by fetch-models)"
+      ],
+      "committed": "Yes: both models together weigh 8.4 MB (under the 15 MB budget for committed binaries), so the app builds and runs offline with no download. apps/desktop/resources/models/manifest.json lists them with the same size and sha256."
+    },
+    {
+      "name": "EfficientDet-Lite0 object detector (int8)",
+      "kind": "model",
+      "source": "https://ai.google.dev/edge/mediapipe/solutions/vision/object_detector",
+      "download": "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/int8/1/efficientdet_lite0.tflite",
+      "version": "int8/1",
+      "license": "Apache-2.0",
+      "copyright": "Copyright The TensorFlow Authors and The MediaPipe Authors (Google LLC)",
+      "licenseText": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+      "shippedIn": ["desktop"],
+      "notice": "apps/desktop/resources/third-party-notices.txt",
+      "sha256": "0720bf247bd76e6594ea28fa9c6f7c5242be774818997dbbeffc4da460c723bb",
+      "bytes": 4602795,
+      "trainingData": "COCO 2017 (annotations CC BY 4.0, COCO Consortium). Only the labels person, cell phone and book are used.",
+      "exception": "Apache-2.0: exception to the CC0/OFL rule (PROMPT.md §11), recorded in DECISIONS.md «Study Mode (IA de la cámara)» (like Lucide under «Web»). The Apache-2.0 text and this notice ship in the app third-party notices.",
+      "files": ["apps/desktop/resources/models/efficientdet_lite0_int8.tflite"],
+      "usedBy": [
+        "packages/study-ai/src/assets.ts (MODEL_MANIFEST: url, size, sha256)",
+        "packages/study-ai/src/perception/vision.ts (loaded offline from the app's asset scheme; size and sha256 checked before MediaPipe sees it)",
+        "packages/study-ai/scripts/fetch-models.mjs (download or --from copy, sha256 check, atomic write; --check in tests)",
+        "apps/desktop/resources/models/manifest.json (written by fetch-models)"
+      ],
+      "committed": "Yes: both models together weigh 8.4 MB (under the 15 MB budget for committed binaries), so the app builds and runs offline with no download. apps/desktop/resources/models/manifest.json lists them with the same size and sha256."
+    },
+    {
+      "name": "MediaPipe Tasks Vision (JS + WASM runtime)",
+      "kind": "wasm",
+      "source": "https://github.com/google-ai-edge/mediapipe",
+      "package": "@mediapipe/tasks-vision",
+      "version": "1.0.1",
+      "license": "Apache-2.0",
+      "copyright": "Copyright The MediaPipe Authors (Google LLC)",
+      "licenseText": "https://www.apache.org/licenses/LICENSE-2.0.txt (the npm package ships no LICENSE file)",
+      "shippedIn": ["desktop"],
+      "notice": "apps/desktop/resources/third-party-notices.txt",
+      "exception": "Apache-2.0: exception to the CC0/OFL rule (PROMPT.md §11), recorded in DECISIONS.md «Study Mode (IA de la cámara)» (like Lucide under «Web»). The Apache-2.0 text and this notice ship in the app third-party notices.",
+      "privacy": "The bundle contains a usage logger that POSTs to odml.pa.googleapis.com; the analysis window blocks all network (packages/study-ai HANDOFF.md).",
+      "files": [
+        "node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_internal.js (sha256 e170ee67dd4e16c1a6fcd8840a206687e5a59b22c20e4a902bc445b095454d73, 323377 bytes)",
+        "node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_internal.wasm (sha256 8da277a733926eacd0474b8704b36742d6ec3231c57a860c5b889dff8f1df886, 11756954 bytes)",
+        "apps/desktop/resources/models/mediapipe/ (both files copied and sha256-checked by packages/study-ai/scripts/fetch-models.mjs; git-ignored, not committed: 12 MB that npm already pins)"
+      ],
+      "usedBy": [
+        "packages/study-ai/src/perception/vision.ts (dynamic import, SIMD fileset built from the local base URL)",
+        "packages/study-ai/src/assets.ts (MEDIAPIPE_WASM_FILES, MEDIAPIPE_WASM_DIGESTS, MEDIAPIPE_NETWORK_HOSTS)",
+        "packages/study-ai/scripts/fetch-models.mjs (copies the SIMD pair after checking the pinned digests)"
+      ]
+    },
+    {
+      "name": "Céntrate focus sounds (lluvia, ruido blanco, lo-fi)",
+      "kind": "sounds",
+      "source": "original work of the Céntrate project, procedurally synthesized from fixed seeds by scripts/gen-sounds.mjs (filtered noise, FM and additive synthesis written in plain JS). No samples, recordings, loops or other third-party audio.",
+      "license": "CC0-1.0",
+      "copyright": "No rights reserved: dedicated to the public domain by the Céntrate contributors under CC0 1.0 Universal",
+      "licenseText": "https://creativecommons.org/publicdomain/zero/1.0/legalcode",
+      "shippedIn": ["desktop"],
+      "generator": "scripts/gen-sounds.mjs (node scripts/gen-sounds.mjs; --check for freshness). Deterministic output; 16-bit PCM WAV, mono, -20 LUFS integrated (ITU-R BS.1770-4), true peak <= -1 dBTP. The WAV LIST/INFO metadata repeats the CC0 dedication.",
+      "files": [
+        "apps/desktop/resources/sounds/lluvia.wav (rain, 22.05 kHz, 27 s seamless loop)",
+        "apps/desktop/resources/sounds/ruido-blanco.wav (gentle white/pink noise, 22.05 kHz, 24 s seamless loop)",
+        "apps/desktop/resources/sounds/lo-fi.wav (lo-fi beat, 80 bpm, 16 kHz, 36 s seamless loop)"
+      ],
+      "usedBy": [
+        "apps/desktop/resources/sounds/README.md (contents, loudness table, playback and packaging notes)",
+        "apps/desktop/electron-builder.yml (extraResources: resources/sounds/*.wav to <resources>/sounds)",
+        "apps/desktop/src/main/app/paths.ts (soundsDir, soundFilePath: the files sounds:load reads)",
+        "apps/desktop/src/renderer/src/sounds/ (WAV parsing, circular band-limited resampling to the context rate, looped playback with 400 ms fades)"
+      ]
+    }
+  ]
+}

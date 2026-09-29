@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      Same lockdown as the analysis window: only this loopback server. MediaPipe's usage
+      logger (odml.pa.googleapis.com) and any other host are blocked here.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' ws://127.0.0.1:*; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' mediastream: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>Céntrate · Study AI (demo local)</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/tokens.css" />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--font-sans);
+        font-size: var(--font-size-13);
+        line-height: var(--line-height-13);
+      }
+      main {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: var(--space-4);
+        display: grid;
+        gap: var(--section-gap);
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      }
+      header {
+        grid-column: 1 / -1;
+      }
+      h1 {
+        font-size: var(--font-size-20);
+        line-height: var(--line-height-20);
+        font-weight: var(--font-weight-semibold);
+        margin: 0 0 var(--space-1);
+      }
+      h2 {
+        font-size: var(--font-size-13);
+        font-weight: var(--font-weight-semibold);
+        margin: 0 0 var(--space-2);
+      }
+      .muted {
+        color: var(--fg-muted);
+      }
+      section {
+        background: var(--tile);
+        border: var(--size-border) solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: var(--space-3);
+      }
+      .wide {
+        grid-column: 1 / -1;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        align-items: center;
+        margin-bottom: var(--space-2);
+      }
+      button,
+      select {
+        font: inherit;
+        color: var(--fg);
+        background: var(--tile-2);
+        border: var(--size-border) solid var(--control);
+        border-radius: var(--radius-md);
+        min-height: var(--size-min-target);
+        padding: 0 var(--space-3);
+        white-space: nowrap;
+      }
+      button:disabled {
+        opacity: var(--disabled-opacity);
+      }
+      button:focus-visible,
+      select:focus-visible,
+      input:focus-visible {
+        outline: var(--focus-ring-width) solid var(--blue);
+        outline-offset: var(--focus-ring-offset);
+      }
+      button.primary {
+        background: var(--blue);
+        color: var(--on-accent);
+        border-color: var(--blue);
+      }
+      dl {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: var(--space-1) var(--space-3);
+        margin: 0;
+      }
+      dt {
+        color: var(--fg-muted);
+      }
+      dd {
+        margin: 0;
+        font-variant-numeric: tabular-nums;
+      }
+      .meter {
+        height: var(--size-meter);
+        background: var(--tile-2);
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+        margin: var(--space-2) 0;
+      }
+      .meter > div {
+        height: 100%;
+        width: 0;
+        background: var(--green);
+      }
+      .meter.low > div {
+        background: var(--orange);
+      }
+      .state {
+        font-size: var(--font-size-20);
+        line-height: var(--line-height-20);
+        font-weight: var(--font-weight-semibold);
+      }
+      .state.doubt {
+        color: var(--orange);
+      }
+      .state.away {
+        color: var(--red-text);
+      }
+      .state.focused {
+        color: var(--green);
+      }
+      ol#events {
+        margin: 0;
+        padding-left: var(--space-4);
+        max-height: 260px;
+        overflow: auto;
+        font-variant-numeric: tabular-nums;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+      td {
+        padding: var(--space-1) var(--space-2) var(--space-1) 0;
+        border-bottom: var(--size-border) solid var(--border);
+        vertical-align: middle;
+      }
+      td:last-child {
+        text-align: right;
+      }
+      video {
+        width: 320px;
+        height: 240px;
+        background: var(--tile-2);
+        border-radius: var(--radius-md);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Study AI: demo local</h1>
+        <p class="muted">
+          Todo se procesa en este ordenador y solo se muestran números: ninguna imagen se guarda ni
+          sale de la página. La vista previa es opcional y no se analiza.
+        </p>
+      </header>
+
+      <section>
+        <h2>Sesión</h2>
+        <div class="row">
+          <button id="start-camera" class="primary">Empezar con cámara</button>
+          <button id="start-no-camera">Empezar sin cámara</button>
+          <button id="stop" disabled>Parar</button>
+        </div>
+        <div class="row">
+          <label
+            >Fase
+            <select id="phase">
+              <option value="work">Trabajo</option>
+              <option value="break">Descanso</option>
+              <option value="paused">Pausa</option>
+            </select></label
+          >
+          <label
+            >Primer plano
+            <select id="foreground">
+              <option value="study">Estudio</option>
+              <option value="neutral">Neutral</option>
+              <option value="distraction">Distracción</option>
+              <option value="unknown">Desconocido</option>
+            </select></label
+          >
+        </div>
+        <div class="row">
+          <label for="sensitivity">Sensibilidad</label>
+          <input id="sensitivity" type="range" min="30" max="80" step="1" value="50" />
+          <span id="sensitivity-value">50</span>
+        </div>
+        <div class="row">
+          <button id="feedback" disabled>¡Estaba estudiando!</button>
+          <button id="no-camera" disabled>Continuar sin cámara</button>
+          <button id="preview">Vista previa</button>
+        </div>
+        <p id="status" class="muted">Parado.</p>
+        <video id="preview-video" muted playsinline hidden></video>
+      </section>
+
+      <section>
+        <h2>Atención</h2>
+        <div id="state" class="state">—</div>
+        <div id="meter" class="meter"><div></div></div>
+        <dl>
+          <dt>Puntuación</dt>
+          <dd id="score">—</dd>
+          <dt>Valor instantáneo</dt>
+          <dd id="instant">—</dd>
+          <dt>Presencia</dt>
+          <dd id="presence">—</dd>
+          <dt>Causa</dt>
+          <dd id="cause">—</dd>
+          <dt>DUDA en</dt>
+          <dd id="doubt-in">—</dd>
+          <dt>Strike en</dt>
+          <dd id="strike-in">—</dd>
+          <dt>Margen tras strike</dt>
+          <dd id="grace">—</dd>
+          <dt>Evidencia</dt>
+          <dd id="evidence">—</dd>
+          <dt>Avisos</dt>
+          <dd id="hints">—</dd>
+          <dt>Clasificador</dt>
+          <dd id="classifier">—</dd>
+          <dt>Totales</dt>
+          <dd id="totals">—</dd>
+        </dl>
+      </section>
+
+      <section>
+        <h2>Cara, objetos y luz</h2>
+        <dl>
+          <dt>Yaw · pitch · roll</dt>
+          <dd id="pose">—</dd>
+          <dt>Parpadeo · mirada abajo</dt>
+          <dd id="eyes">—</dd>
+          <dt>Caras · calidad</dt>
+          <dd id="face-meta">—</dd>
+          <dt>Móvil</dt>
+          <dd id="phone">—</dd>
+          <dt>Libro · persona</dt>
+          <dd id="book-person">—</dd>
+          <dt>Luz</dt>
+          <dd id="luma">—</dd>
+        </dl>
+        <h2 style="margin-top: var(--space-3)">Bucle</h2>
+        <dl>
+          <dt>fps · nivel</dt>
+          <dd id="fps">—</dd>
+          <dt>Carga estimada</dt>
+          <dd id="duty">—</dd>
+          <dt>Coste por fotograma</dt>
+          <dd id="cost">—</dd>
+          <dt>Errores · hueco máx.</dt>
+          <dd id="errors">—</dd>
+        </dl>
+      </section>
+
+      <section>
+        <h2>Calibración</h2>
+        <p class="muted">Graba unos 20 s de cada situación con la sesión parada.</p>
+        <table>
+          <tbody id="calibration-rows"></tbody>
+        </table>
+        <div class="row" style="margin-top: var(--space-2)">
+          <button id="build">Construir perfil</button>
+          <button id="download" disabled>Descargar perfil</button>
+          <label>Cargar perfil… <input id="load" type="file" accept="application/json" /></label>
+        </div>
+        <p id="profile" class="muted">Sin perfil: se usa el clasificador genérico.</p>
+      </section>
+
+      <section>
+        <h2>Eventos</h2>
+        <ol id="events" reversed></ol>
+      </section>
+
+      <section class="wide">
+        <h2>Comprobaciones manuales</h2>
+        <ul>
+          <li>
+            Mira hacia abajo (a un cuaderno): el pitch debe ser negativo y la presencia seguir
+            visible.
+          </li>
+          <li>Gira la cara hacia la derecha de la imagen: el yaw debe ser positivo.</li>
+          <li>
+            Coge el móvil cerca de la cara: «Móvil» debe superar el umbral y la causa pasar a
+            «phone».
+          </li>
+          <li>
+            Tapa la cámara: presencia «covered» y aviso «camera_covered»; a los 60 s, strike
+            «no_face».
+          </li>
+          <li>
+            Oculta la pestaña: el análisis sigue (usa temporizadores, no requestAnimationFrame). Un
+            navegador normal puede frenar una pestaña oculta a ~1 tick/s; la ventana oculta de la
+            app lleva backgroundThrottling: false y mantiene 2–4 fps.
+          </li>
+        </ul>
+      </section>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

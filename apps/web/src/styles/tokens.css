@@ -1,0 +1,513 @@
+/*
+ * Céntrate website tokens (apps/web). The plan behind every value, with contrast ratios and
+ * wireframes, is docs/web/design-plan.md.
+ *
+ * A web layer over the brand of packages/shared/src/design/tokens.css (PROMPT.md section 10)
+ * with the Apple-like neutrals of section 11. Every color of the site lives in this file.
+ *
+ * How to use it:
+ * - Import it once, from src/styles/global.css, right after `@import 'tailwindcss';`. The
+ *   @theme block at the end turns the tokens into utilities (bg-surface, text-secondary,
+ *   text-hero, rounded-card, max-sm:…) and removes Tailwind's default palette, type scale,
+ *   radii, shadows and breakpoints so nothing off-system can slip in.
+ * - Every section sets data-surface="light" | "alt" | "dark"; the semantic tokens (--surface,
+ *   --text, --link, --focus…) follow it, so components never branch on the background.
+ * - Breakpoints, desktop first like Apple: large >= 1069 px (the values below), medium
+ *   <= 1068 px, small <= 734 px. 1441 px only matters for widths (content caps at 1260 px).
+ *   Tailwind: max-md: = <= 1068, max-sm: = <= 734, md: = >= 1069, xl: = >= 1441.
+ * - Raw token names never reuse a Tailwind theme namespace (--color-*, --font-*, --radius-*,
+ *   --shadow-*, --ease-*…): the @theme block maps those names onto these tokens.
+ */
+
+/* Inter while it loads: Arial scaled to Inter's metrics, so swapping fonts does not move the
+   layout (CLS). Same overrides next/font computes for Inter over Arial. */
+@font-face {
+  font-family: 'Inter Fallback';
+  src: local('Arial'), local('ArialMT'), local('Liberation Sans'), local('Arimo');
+  size-adjust: 107.12%;
+  ascent-override: 90.44%;
+  descent-override: 22.52%;
+  line-gap-override: 0%;
+}
+
+:root {
+  /* Palette -------------------------------------------------------------------------------
+     Raw values. Components use the semantic tokens further down, not these.
+     Contrast (WCAG 2.x): ink 16.83:1 on white, 15.46:1 on snow · ink-2 5.07:1 on white,
+     4.66:1 on snow · snow 19.29:1 on black · mist 5.80:1 on black · blue 5.77:1 on white,
+     5.30:1 on snow, white on blue 5.77:1 · white on blue-hover 5.14:1 · white on
+     blue-active 7.32:1 · blue-dark 8.48:1 on black, 6.80:1 on graphite · green-dark 7.90:1
+     on black. */
+  --palette-ink: #1d1d1f;
+  --palette-ink-2: #6e6e73;
+  --palette-white: #ffffff;
+  --palette-snow: #f5f5f7;
+  --palette-black: #000000;
+  --palette-mist: #86868b;
+  --palette-graphite: #1d1d1f;
+  --palette-graphite-hover: #2c2c2e;
+  --palette-hairline: #d2d2d7;
+  --palette-hairline-dark: #424245;
+  --palette-fill: #e8e8ed;
+  --palette-fill-hover: #dcdce1;
+  /* Brand blue, light theme of the app (section 10). It meets 4.5:1 unchanged, so it is used
+     as is: the one action color of the site (buttons, links, focus). */
+  --palette-blue: #0a6aa8;
+  --palette-blue-hover: #0b72b5;
+  --palette-blue-active: #085a8f;
+  /* Brand blue and green, dark theme of the app: links and focus on black, and the only
+     gradient of the site («Sigue funcionando.»: blue = information, green = guardian OK). */
+  --palette-blue-dark: #3aaeef;
+  --palette-green-dark: #06b48a;
+  /* Translucent layers: the navigation bar and the sticky pill of «Lo más destacado».
+     The pill is opaque enough that its dots keep >= 3:1 over the black card too. */
+  --palette-glass: rgb(255 255 255 / 0.8);
+  --palette-nav-border: rgb(0 0 0 / 0.16);
+  --palette-glass-control: rgb(232 232 237 / 0.8);
+  --palette-glass-control-hover: rgb(240 240 243 / 0.9);
+  --palette-dot: rgb(29 29 31 / 0.56);
+  /* The generic browser of the sticky scene (dark, no OS-specific controls). */
+  --palette-browser-frame: #1d1d1f;
+  --palette-browser-field: #2c2c2e;
+
+  /* Type ----------------------------------------------------------------------------------
+     Inter variable, self-hosted, with the opsz axis: font-optical-sizing: auto picks the
+     Display cut (opsz 32) for headlines and the Text cut (opsz ~17) for body copy.
+     Only two weights. Tracking is per step; body keeps the brief's -0.022em (checked in
+     screenshots: Inter's Text cut is loose enough to take it). */
+  --family-sans: 'Inter Variable', 'Inter Fallback', sans-serif;
+  /* Only for commands and file names on /descargar. System fonts, nothing is downloaded. */
+  --family-mono: 'Cascadia Mono', Consolas, 'Liberation Mono', 'DejaVu Sans Mono', monospace;
+  --weight-regular: 400;
+  --weight-semibold: 600;
+
+  /* Hero headline, chapter headlines and the numbers: 64 / 56 / 40. */
+  --type-hero-size: 64px;
+  --type-hero-lh: 1.0625;
+  --type-hero-ls: -0.009em;
+  /* Section headlines: 56 / 48 / 32. */
+  --type-section-size: 56px;
+  --type-section-lh: 1.0714;
+  --type-section-ls: -0.005em;
+  /* Eyebrows, grey leads, highlight card titles and the numbers' text: 28 / 24 / 21. */
+  --type-lead-size: 28px;
+  --type-lead-lh: 1.1428;
+  --type-lead-ls: 0.004em;
+  /* Titles that are not headlines (FAQ questions, demo values, doc h3): 21 / 21 / 17. */
+  --type-title-size: 21px;
+  --type-title-lh: 1.1905;
+  --type-title-ls: 0.004em;
+  /* Body 17, small 14, notes 12 (same at every breakpoint). */
+  --type-body-size: 17px;
+  --type-body-lh: 1.4706;
+  --type-body-ls: -0.022em;
+  --type-small-size: 14px;
+  --type-small-lh: 1.4286;
+  --type-small-ls: -0.016em;
+  --type-note-size: 12px;
+  --type-note-lh: 1.3333;
+  --type-note-ls: -0.01em;
+  /* Navigation: brand 21, links and the pill 12 (Apple's local-nav proportions). */
+  --type-nav-brand-size: 21px;
+  --type-nav-link-size: 12px;
+
+  /* Layout --------------------------------------------------------------------------------
+     Content = 87.5 % of the viewport, max 1260 px. --page-gutter is the inline padding of a
+     FULL-WIDTH element (section, gallery scroller) that leaves exactly that column; its
+     percentages resolve against that element, so it is scrollbar-safe (unlike vw) and also
+     works as scroll-padding-inline. --content-width is the same column as a width. */
+  --content-max: 1260px;
+  --content-width: min(87.5%, var(--content-max));
+  --page-gutter: max(6.25%, (100% - var(--content-max)) / 2);
+  --grid-columns: 12;
+  --grid-gap: 24px;
+  --measure-lead: 840px;
+  --measure-text: 680px;
+  --section-pad-block: 160px;
+  --hero-pad-top: 96px;
+  /* Hero: headline → download button, and «Otros sistemas» → the floating window. */
+  --hero-actions-gap: 32px;
+  --hero-visual-gap: 64px;
+
+  /* Vertical rhythm. */
+  --space-eyebrow: 12px;
+  --space-headline-lead: 24px;
+  --space-header-content: 80px;
+  --space-card-caption: 20px;
+  --space-gallery-controls: 32px;
+  --space-block: 96px;
+  --space-doc-section: 64px;
+
+  /* Shape. */
+  --shape-card: 28px;
+  --shape-tile: 18px;
+  --shape-pill: 980px;
+
+  /* Navigation bar. */
+  --nav-height: 52px;
+  --nav-backdrop: saturate(180%) blur(20px);
+  --nav-pill-h: 28px;
+  --nav-pill-pad-inline: 12px;
+
+  /* Controls. */
+  --button-h: 44px;
+  --button-pad-inline: 22px;
+  --chip-h: 36px;
+  --chip-pad-inline: 16px;
+  --download-tile-h: 88px;
+
+  /* Galleries. «Lo más destacado» cards span the content column; chapter cards are fixed. */
+  --highlight-card-h: 680px;
+  /* Inside a highlight card: the text inset, and the window's inset from the right edge. */
+  --highlight-pad-block: 56px;
+  --highlight-pad-inline: 56px;
+  --highlight-visual-inset: 96px;
+  /* Live demo: the «¿Qué quieres hacer?» field and the result card's padding. */
+  --demo-field-h: 64px;
+  --demo-result-pad: 40px;
+  --gallery-card-w: 480px;
+  --gallery-card-h: 580px;
+  --gallery-gap: 20px;
+  --gallery-paddle: 36px;
+  --pill-control-h: 56px;
+  --dot: 8px;
+  --dot-active-w: 48px;
+  --feature-icon: 80px;
+
+  /* The sticky scene: a 300vh track with a 100vh stage (100svh where supported). The
+     stage visual is a generic browser; --stage-scale shrinks it on short viewports. */
+  --scene-track: 300vh;
+  --stage-scale: 1;
+  --browser-w: 960px;
+  --browser-h: 600px;
+  --browser-radius: 12px;
+  --browser-tabstrip-h: 40px;
+  --browser-toolbar-h: 44px;
+
+  /* AppWindow zoom per placement (CSS zoom on the mock, so layout shrinks with it). */
+  --aw-zoom-hero: 1.2;
+  --aw-zoom-highlight: 1.1;
+  --aw-zoom-card: 0.92;
+  --aw-zoom-stage: 1;
+
+  /* Depth. The floating app window is the only thing with a shadow on the whole site. */
+  --elevation-window:
+    0 40px 80px -24px rgb(0 0 0 / 0.32), 0 16px 32px -16px rgb(0 0 0 / 0.16),
+    0 0 0 1px rgb(0 0 0 / 0.06);
+  --rim-window-dark: 0 0 0 1px rgb(255 255 255 / 0.1);
+
+  /* Focus ring (the color comes from the surface: --focus). */
+  --focus-width: 2px;
+  --focus-offset: 3px;
+
+  /* Motion --------------------------------------------------------------------------------
+     Reveal: once, when a headline or gallery reaches 85 % of the viewport height. */
+  --curve-reveal: cubic-bezier(0.4, 0, 0.6, 1);
+  --reveal-distance: 30px;
+  --reveal-duration-transform: 0.7s;
+  --reveal-duration-opacity: 0.9s;
+  --reveal-stagger: 0.15s;
+  /* Replies to the user's own actions (FAQ disclosure, paddles, gallery slides). */
+  --curve-ui: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --duration-ui: 0.3s;
+  --duration-slide: 0.8s;
+  /* The app's own state change (hero sequence): a 120 ms fade, as in the desktop app. */
+  --duration-app-fade: 120ms;
+  /* «Lo más destacado»: seconds per card. */
+  --highlight-interval: 5s;
+
+  /* Layers. */
+  --z-sticky-control: 10;
+  --z-nav: 100;
+  --z-skip-link: 200;
+
+  /* AppWindow: the Céntrate desktop window, dark theme (PROMPT.md section 10, G-Helper
+     values). Mirror of packages/shared/src/design/tokens.css [data-theme='dark']: if they
+     ever differ, the shared file wins. Used only by AppWindow.astro and the sticky scene. */
+  --aw-bg: #1c1c1c;
+  --aw-tile: #2e2e2e;
+  --aw-tile-2: #242424;
+  --aw-fg: #f0f0f0;
+  --aw-fg-muted: #a8a8a8;
+  --aw-border: #373737;
+  --aw-control: #7a7a7a;
+  --aw-green: #06b48a;
+  --aw-blue: #3aaeef;
+  --aw-orange: #ff8000;
+  --aw-red: #ff2020;
+  --aw-red-text: #ff6464;
+  --aw-neutral: #a8a8a8;
+  --aw-on-accent: #111111;
+  /* Selected tile: 2 px accent outline, 15 % lighter on top, and a 12 % tint that fades out
+     over the first 20 % of the height. */
+  --aw-selected-top: color-mix(in srgb, #ffffff 15%, var(--aw-blue));
+  --aw-selected-tint: color-mix(in srgb, var(--aw-blue) 12%, transparent);
+  --aw-width: 440px;
+  --aw-titlebar-h: 32px;
+  --aw-caption-button-w: 46px;
+  --aw-pad: 12px;
+  --aw-section-gap: 12px;
+  --aw-header-h: 20px;
+  --aw-header-gap: 8px;
+  --aw-grid-gap: 4px;
+  --aw-field-h: 44px;
+  --aw-help-h: 24px;
+  --aw-tile-h: 56px;
+  --aw-door-h: 40px;
+  --aw-text-tile-h: 32px;
+  --aw-radius-window: 8px;
+  --aw-radius-sm: 4px;
+  --aw-radius-md: 6px;
+  --aw-radius-lg: 8px;
+  --aw-font-11: 11px;
+  --aw-font-12: 12px;
+  --aw-font-13: 13px;
+  --aw-font-15: 15px;
+  --aw-font-20: 20px;
+  --aw-font-48: 48px;
+  --aw-icon-header: 16px;
+  --aw-icon-tile: 20px;
+  --aw-icon-stroke: 1.75;
+  --aw-countdown-ls: -0.02em;
+  --aw-seconds-opacity: 0.6;
+  --aw-bar-countdown: 3px;
+  --aw-bar-goal: 4px;
+  --aw-bar-meter: 6px;
+  --aw-dot: 8px;
+  --aw-monogram: 16px;
+  --aw-blocked-column: 440px;
+}
+
+/* Medium: <= 1068 px. */
+@media (max-width: 1068px) {
+  :root {
+    --type-hero-size: 56px;
+    --type-hero-lh: 1.0714;
+    --type-section-size: 48px;
+    --type-section-lh: 1.0834;
+    --type-section-ls: -0.003em;
+    --type-lead-size: 24px;
+    --type-lead-lh: 1.1667;
+    --type-lead-ls: 0.006em;
+    --grid-gap: 20px;
+    --section-pad-block: 128px;
+    --hero-pad-top: 80px;
+    --space-header-content: 64px;
+    --space-block: 80px;
+    --space-doc-section: 56px;
+    --highlight-card-h: 600px;
+    --highlight-pad-block: 48px;
+    --highlight-pad-inline: 48px;
+    --gallery-card-w: 400px;
+    --gallery-card-h: 540px;
+    --feature-icon: 72px;
+    --browser-w: 760px;
+    --browser-h: 520px;
+    --aw-zoom-hero: 1;
+    --aw-zoom-highlight: 1;
+    --aw-zoom-card: 0.8;
+    --aw-zoom-stage: 0.9;
+  }
+}
+
+/* Small: <= 734 px. */
+@media (max-width: 734px) {
+  :root {
+    --type-hero-size: 40px;
+    --type-hero-lh: 1.1;
+    --type-section-size: 32px;
+    --type-section-lh: 1.125;
+    --type-section-ls: 0.004em;
+    --type-lead-size: 21px;
+    --type-lead-lh: 1.1905;
+    --type-lead-ls: 0.008em;
+    --type-title-size: 17px;
+    --type-title-lh: 1.2353;
+    --type-title-ls: -0.01em;
+    --grid-gap: 16px;
+    --section-pad-block: 96px;
+    --hero-pad-top: 56px;
+    --space-headline-lead: 16px;
+    --space-header-content: 48px;
+    --space-gallery-controls: 24px;
+    --space-block: 64px;
+    --space-doc-section: 48px;
+    --highlight-card-h: 500px;
+    --highlight-pad-block: 32px;
+    --highlight-pad-inline: 24px;
+    --hero-visual-gap: 40px;
+    --demo-field-h: 56px;
+    --demo-result-pad: 24px;
+    --gallery-card-w: min(82vw, 320px);
+    --gallery-card-h: 460px;
+    --gallery-gap: 16px;
+    --pill-control-h: 48px;
+    --dot-active-w: 36px;
+    --feature-icon: 56px;
+    --browser-w: 100%;
+    --browser-h: 480px;
+    --browser-tabstrip-h: 36px;
+    --browser-toolbar-h: 40px;
+    --aw-zoom-hero: 0.7;
+    --aw-zoom-highlight: 0.7;
+    --aw-zoom-card: 0.62;
+    --aw-zoom-stage: 0.7;
+  }
+}
+
+/* Narrow phones (< 360 px): the 440 px mock must still fit the 87.5 % column, and so must the
+   hero pill («Descargar gratis para Windows» is 284 px wide with 22 px padding; the column at
+   320 px is 280). */
+@media (max-width: 359px) {
+  :root {
+    --button-pad-inline: 16px;
+    --aw-zoom-hero: 0.62;
+    --aw-zoom-highlight: 0.62;
+    --aw-zoom-card: 0.56;
+    --aw-zoom-stage: 0.62;
+  }
+}
+
+/* Short viewports: the sticky stage must fit under the 52 px bar. */
+@media (max-height: 859px) {
+  :root {
+    --stage-scale: 0.86;
+  }
+}
+
+@media (max-height: 719px) {
+  :root {
+    --stage-scale: 0.74;
+  }
+}
+
+/* Surfaces: set data-surface on every section. Light is the default. */
+:root,
+[data-surface='light'] {
+  --surface: var(--palette-white);
+  --surface-raised: var(--palette-snow);
+  --text: var(--palette-ink);
+  --text-secondary: var(--palette-ink-2);
+  --link: var(--palette-blue);
+  --focus: var(--palette-blue);
+  --hairline: var(--palette-hairline);
+  --fill: var(--palette-fill);
+  --fill-hover: var(--palette-fill-hover);
+}
+
+[data-surface='alt'] {
+  --surface: var(--palette-snow);
+  --surface-raised: var(--palette-white);
+  --text: var(--palette-ink);
+  --text-secondary: var(--palette-ink-2);
+  --link: var(--palette-blue);
+  --focus: var(--palette-blue);
+  --hairline: var(--palette-hairline);
+  --fill: var(--palette-fill);
+  --fill-hover: var(--palette-fill-hover);
+}
+
+[data-surface='dark'] {
+  --surface: var(--palette-black);
+  --surface-raised: var(--palette-graphite);
+  --text: var(--palette-snow);
+  --text-secondary: var(--palette-mist);
+  --link: var(--palette-blue-dark);
+  --focus: var(--palette-blue-dark);
+  --hairline: var(--palette-hairline-dark);
+  --fill: var(--palette-graphite);
+  --fill-hover: var(--palette-graphite-hover);
+}
+
+/* Reduced motion: nothing travels and nothing fades; the reveal shows the final state. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --reveal-distance: 0px;
+    --reveal-duration-transform: 0s;
+    --reveal-duration-opacity: 0s;
+    --reveal-stagger: 0s;
+    --duration-ui: 0s;
+    --duration-slide: 0s;
+    --duration-app-fade: 0s;
+  }
+}
+
+/* Tailwind theme: utilities that point at the tokens above (inline keeps the var(), so the
+   responsive steps and the surfaces keep working). Defaults are cleared on purpose. */
+@theme inline {
+  --breakpoint-*: initial;
+  --breakpoint-sm: 735px;
+  --breakpoint-md: 1069px;
+  --breakpoint-xl: 1441px;
+
+  --color-*: initial;
+  --color-surface: var(--surface);
+  --color-raised: var(--surface-raised);
+  --color-primary: var(--text);
+  --color-secondary: var(--text-secondary);
+  --color-link: var(--link);
+  --color-focus: var(--focus);
+  --color-hairline: var(--hairline);
+  --color-fill: var(--fill);
+  --color-fill-hover: var(--fill-hover);
+  --color-action: var(--palette-blue);
+  --color-action-hover: var(--palette-blue-hover);
+  --color-action-active: var(--palette-blue-active);
+  --color-on-action: var(--palette-white);
+  --color-glass: var(--palette-glass);
+  --color-glass-control: var(--palette-glass-control);
+  --color-glass-control-hover: var(--palette-glass-control-hover);
+
+  --font-*: initial;
+  --font-sans: var(--family-sans);
+  --font-mono: var(--family-mono);
+
+  --font-weight-*: initial;
+  --font-weight-regular: 400;
+  --font-weight-semibold: 600;
+
+  --text-*: initial;
+  --text-hero: var(--type-hero-size);
+  --text-hero--line-height: var(--type-hero-lh);
+  --text-hero--letter-spacing: var(--type-hero-ls);
+  --text-hero--font-weight: 600;
+  --text-section: var(--type-section-size);
+  --text-section--line-height: var(--type-section-lh);
+  --text-section--letter-spacing: var(--type-section-ls);
+  --text-section--font-weight: 600;
+  --text-lead: var(--type-lead-size);
+  --text-lead--line-height: var(--type-lead-lh);
+  --text-lead--letter-spacing: var(--type-lead-ls);
+  --text-title: var(--type-title-size);
+  --text-title--line-height: var(--type-title-lh);
+  --text-title--letter-spacing: var(--type-title-ls);
+  --text-body: var(--type-body-size);
+  --text-body--line-height: var(--type-body-lh);
+  --text-body--letter-spacing: var(--type-body-ls);
+  --text-small: var(--type-small-size);
+  --text-small--line-height: var(--type-small-lh);
+  --text-small--letter-spacing: var(--type-small-ls);
+  --text-note: var(--type-note-size);
+  --text-note--line-height: var(--type-note-lh);
+  --text-note--letter-spacing: var(--type-note-ls);
+
+  --radius-*: initial;
+  --radius-card: var(--shape-card);
+  --radius-tile: var(--shape-tile);
+  --radius-pill: var(--shape-pill);
+
+  --shadow-*: initial;
+  --shadow-window: var(--elevation-window);
+  --text-shadow-*: initial;
+  --drop-shadow-*: initial;
+  --inset-shadow-*: initial;
+
+  --ease-*: initial;
+  --ease-reveal: var(--curve-reveal);
+  --ease-ui: var(--curve-ui);
+
+  --container-*: initial;
+  --container-content: var(--content-max);
+  --container-lead: var(--measure-lead);
+  --container-text: var(--measure-text);
+}

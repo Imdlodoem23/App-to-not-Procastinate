@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "Céntrate",
+    "description": "Extension name: the product name, the same in every language."
+  },
+  "extDescription": {
+    "message": "Bloquea tus distracciones con Céntrate: aplica en el navegador los bloqueos de la app y del guardián.",
+    "description": "Store listing and extensions page description (at most 132 characters)."
+  }
+}

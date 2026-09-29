@@ -8,3 +8,5 @@ Todos los cambios importantes de Céntrate. El formato sigue [Keep a Changelog](
 
 - Esqueleto del monorepo: app de escritorio, guardián, extensión, web y paquete compartido.
 - CI en Windows, macOS y Linux.
+- Marca de Céntrate, una «C» con un punto, igual en la app, la bandeja, la extensión y la web.
+- Avisos de terceros (`third-party-notices.txt`) dentro de la app de escritorio y de la extensión.

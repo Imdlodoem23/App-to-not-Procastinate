@@ -1,0 +1,107 @@
+/*
+ * Mini timer (PROMPT §10 «Mini temporizador»; radius 8 like the OSD, tokens.css `--radius-lg`).
+ * The window is transparent and exactly 180×44 DIP: the box below fills it with the theme
+ * background, a 1 px border and 8 px corners, and the whole box drags the window (there are no
+ * controls to exclude). 12 px side margins, 8 px between the 20 px icon and the time; the camera
+ * dot keeps its 8 px slot on the right. Colors only from tokens.css.
+ */
+
+@layer components {
+  html[data-window='mini-timer'],
+  html[data-window='mini-timer'] body {
+    background: transparent;
+  }
+
+  /* Browser harness: the window at its real size. */
+  html[data-browser-harness][data-window='mini-timer'] #root {
+    width: 180px;
+    height: 44px;
+    background: transparent;
+    outline: none;
+  }
+
+  .mt {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    height: 100%;
+    padding: 0 var(--space-3);
+    border: var(--size-border) solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg);
+    color: var(--fg);
+    overflow: hidden;
+    -webkit-app-region: drag;
+  }
+
+  .mt-icon {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: var(--icon-size-tile);
+    height: var(--icon-size-tile);
+  }
+
+  .mt-icon[data-tone='red'] {
+    color: var(--red-text);
+  }
+
+  .mt-icon[data-tone='muted'] {
+    color: var(--fg-muted);
+  }
+
+  /* A service's catalog monogram (or favicon), 20 px like a tile icon. */
+  .mt-monogram {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--icon-size-tile);
+    height: var(--icon-size-tile);
+    border-radius: var(--radius-sm);
+    background: var(--tile-2);
+    color: var(--fg);
+    font-size: var(--font-size-11);
+    line-height: var(--line-height-11);
+    font-weight: var(--font-weight-semibold);
+    object-fit: contain;
+  }
+
+  /* The time at 20 px, 600, tabular: full-opacity seconds (20 px at 600 is not large text). */
+  .mt .c-countdown.mt-countdown {
+    flex: 1 1 auto;
+  }
+
+  .mt .c-countdown.mt-countdown .c-countdown-digits {
+    font-size: var(--font-size-20);
+    line-height: var(--line-height-20);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--tracking-countdown);
+  }
+
+  .mt-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    color: var(--fg);
+  }
+
+  .mt-text[data-tone='muted'] {
+    color: var(--fg-muted);
+  }
+
+  .mt-text[data-tone='red'] {
+    color: var(--red-text);
+  }
+
+  .mt-camera {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    width: var(--size-status-dot);
+    height: var(--size-status-dot);
+  }
+}

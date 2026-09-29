@@ -1,0 +1,311 @@
+/**
+ * English strings of the Bloqueos window (same shape as `es.ts`, `BloqueosMessages`). Mode
+ * names, target lists and points come from `src/shared/format.ts`; numbers and clock times are
+ * formatted before they get here.
+ */
+import type { BloqueosMessages } from './es';
+
+export const BLOQUEOS_EN: BloqueosMessages = {
+  seed: (phrase: string): string => `From your phrase “${phrase}”: fill in what is missing`,
+
+  targets: {
+    title: (label: string): string => `What to block: ${label}`,
+    titleNone: 'What to block: nothing yet',
+    titleWhitelist: 'What to block: everything except the allowlist',
+    results: (n: number): string =>
+      n === 0 ? 'No results' : n === 1 ? '1 result' : `${n} results`,
+    searchLabel: 'Search the catalog',
+    searchPlaceholder: 'Search: YouTube, social, games…',
+    noResults: 'Not in the catalog: if it is a site, add it under “Custom domains”',
+    groupsLabel: 'Catalog categories',
+    show: (n: number): string => (n === 1 ? 'Show 1 service' : `Show ${n} services`),
+    hide: 'Hide',
+    otros: 'Other',
+    otrosNote: 'only if picked',
+    includedIn: (category: string): string => `Already blocked by “${category}”`,
+    domains: {
+      label: 'Custom domains',
+      placeholder: 'example.com',
+      add: 'Add',
+      invalid: 'That does not look like a site: try example.com',
+      protected: 'That cannot be blocked: the system needs it',
+      duplicate: 'Already on the list',
+      max: (n: number): string => `Up to ${n} domains`,
+      catalog: (domain: string, service: string): string =>
+        `${domain} is ${service}: selected in the catalog`,
+      help: 'Sites that are not in the catalog',
+    },
+    apps: {
+      label: 'Computer apps',
+      placeholder: 'Discord, steam.exe…',
+      add: 'Add',
+      invalid: 'Type the program name, for example steam.exe',
+      protected: 'That cannot be blocked: the system needs it',
+      duplicate: 'Already on the list',
+      max: (n: number): string => `Up to ${n} apps`,
+      suggestions: 'Suggestions',
+      suggestionsLabel: 'Matching apps',
+      help: 'They close if you open them during the block',
+    },
+    remove: (what: string): string => `Remove ${what}`,
+    removeHelp: 'Press a tile to remove it',
+    whitelistIntro: 'Exam blocks every site and app except study ones:',
+    whitelistList: (names: string, more: number): string =>
+      more > 0 ? `${names} and ${more} more` : names,
+  },
+
+  duration: {
+    title: (label: string): string => `Duration: ${label}`,
+    titleOpen: 'Duration: not chosen',
+    datum: (when: string): string => `until ${when}`,
+    presetsLabel: 'Duration',
+    presetHelp: (label: string, until: string): string => `${label}: ${until}`,
+    minutesLabel: 'Duration',
+    minutesPlaceholder: '45 min, 2 h, 1h30…',
+    untilLabel: 'Until',
+    untilPlaceholder: '6:30 PM',
+    help: 'From 5 min to 24 h, or until a set time',
+    invalidMinutes: 'Type how long: 45 min, 2 h, 1h30…',
+    invalidUntil: 'Type a time like 6:30 PM or 18:30',
+    tooShort: 'At least 5 min',
+    tooLong: 'Up to 24 h',
+  },
+
+  mode: {
+    title: (mode: string): string => `Mode: ${mode}`,
+    rowLabel: 'Mode',
+    datum: {
+      normal: 'unlock: 10 min',
+      strict: 'unlock: 30 min',
+      hardcore: 'no emergency unlock',
+      exam: 'no emergency unlock',
+    },
+    help: {
+      normal: 'Normal: an emergency unlock takes 10 min and costs at least 200 points',
+      strict: 'Strict: an emergency unlock takes 30 min and costs at least 200 points',
+      hardcore: 'Hardcore: cannot be cancelled in any way',
+      exam: 'Exam: only study sites and apps, and cannot be cancelled',
+    },
+  },
+
+  reason: {
+    title: 'Your reason',
+    datum: 'shown when you try to get in',
+    label: 'Your reason (optional)',
+    placeholder: 'I want to pass math',
+  },
+
+  actions: {
+    rowLabel: 'Save or block',
+    save: 'Save as template',
+    saveHelp: 'Stays with your templates, ready in one click',
+    block: 'Block',
+    blockHelp: 'You confirm it in the main window: it can only be extended, never shortened',
+    problem: {
+      no_targets: 'Choose what to block',
+      no_duration: 'Choose how long',
+      too_short: 'At least 5 min',
+      too_long: 'Up to 24 h',
+    },
+    sent: 'Confirm it in the main window',
+    nameLabel: 'Template name',
+    nameRowLabel: 'Save the template',
+    saveName: 'Save',
+    saveNameHelp: 'Saves the template with this name',
+    cancel: 'Cancel',
+    cancelHelp: 'Back to the form without saving',
+    nameEmpty: 'Give it a name',
+    nameLong: (max: number): string => `Up to ${max} characters`,
+    saved: (label: string): string => `Saved: “${label}”`,
+    full: 'You already have 30 templates: delete one first',
+  },
+
+  active: {
+    title: (n: number): string =>
+      n === 0 ? 'Active: none' : n === 1 ? 'Active: 1 block' : `Active: ${n} blocks`,
+    row: (targets: string, mode: string): string => `${targets} · ${mode}`,
+    punishment: 'Punishment',
+    until: (when: string): string => `until ${when}`,
+    empty: 'Nothing is blocked right now',
+    emergency: 'Emergency unlock…',
+    listLabel: 'Active blocks',
+  },
+
+  templates: {
+    title: (n: number): string => `Templates: ${n}`,
+    desc: (targets: string, duration: string, mode: string): string =>
+      `${targets} · ${duration} · ${mode}`,
+    defaultMode: 'default mode',
+    builtin: 'built-in',
+    use: 'Use',
+    useHelp: 'Loads it into the form above',
+    remove: 'Delete',
+    removeConsequence: (label: string): string => `“${label}” is deleted for good`,
+    rowLabel: (label: string): string => `Template ${label}`,
+  },
+
+  schedules: {
+    title: (on: number, total: number): string =>
+      total === 0 ? 'Schedules: none' : `Schedules: ${on} of ${total} active`,
+    loading: 'Schedules: loading…',
+    unavailable: 'Schedules: not connected',
+    next: (when: string): string => `Next: ${when}`,
+    row: (days: string, start: string, end: string, targets: string): string =>
+      `${days} ${start}–${end} · ${targets}`,
+    desc: (name: string, mode: string): string => (name ? `${name} · ${mode}` : mode),
+    running: 'Running: you can change it when it ends',
+    frozen: 'Starts in under 10 min: it can no longer be removed',
+    saving: 'Saving…',
+    empty: 'You have no schedules yet',
+    retry: 'Retry',
+    days: ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'],
+    everyDay: 'Every day',
+    range: (a: string, b: string): string => `${a}–${b}`,
+    daySeparator: ', ',
+    noDays: 'no days',
+    editing: 'Editing…',
+    listLabel: 'Your schedules',
+    rowLabel: (title: string): string => `Schedule ${title}`,
+    newSchedule: 'New schedule',
+    newScheduleHelp: 'A block that repeats on its own: days, hours and what to block',
+    edit: 'Edit',
+    editHelp: 'Change the days, the hours or what it blocks',
+    switchHelp: 'Off, it does not apply',
+
+    editor: {
+      titleNew: (summary: string): string => `New schedule: ${summary}`,
+      titleEdit: (summary: string): string => `Edit: ${summary}`,
+      name: 'Name',
+      nameLabel: 'Schedule name (optional)',
+      reason: 'Your reason',
+      reasonLabel: 'Your reason (optional)',
+      reasonPlaceholder: 'Afternoons to study',
+      days: 'Days',
+      dayNames: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+      start: 'From',
+      end: 'To',
+      startPlaceholder: '4:00 PM',
+      endPlaceholder: '7:00 PM',
+      window: (duration: string): string => `Lasts ${duration}`,
+      windowOvernight: (duration: string): string => `Lasts ${duration}: ends the next day`,
+      timesHelp: 'Type a time like 4:00 PM or 16:00',
+      targets: 'What to block',
+      categoriesLabel: 'Categories it blocks',
+      extrasLabel: 'Also blocks',
+      removeTarget: (what: string): string => `Remove ${what}`,
+      fromForm: 'Add what the form above has',
+      whitelist: 'Exam: every site and app except your allowlist',
+      mode: 'Mode',
+      rowLabel: 'Save the schedule',
+      save: 'Save',
+      saveHelp: 'The guardian applies it every week, even with the app closed',
+      saving: 'Saving…',
+      remove: 'Delete',
+      removeHelp: 'Deletes it; if it already started, that block runs to the end',
+      removeConsequence: (name: string): string =>
+        `“${name}” is deleted; what already started runs to the end`,
+      cancel: 'Cancel',
+      cancelHelp: 'Closes without saving',
+      consequence: {
+        hardcore: 'Once it starts, you cannot cancel it in any way until it ends',
+        exam: 'Once it starts, only study sites and apps, and no way to cancel it until it ends',
+      },
+      problem: {
+        noDays: 'Choose at least one day',
+        badStart: 'Type the start time like 4:00 PM or 16:00',
+        badEnd: 'Type the end time like 7:00 PM or 19:00',
+        sameTime: 'The start and the end cannot be the same time',
+        tooShort: 'At least 5 min',
+        noTargets: 'Choose what to block',
+        nameLong: (max: number): string => `The name, up to ${max} characters`,
+        running: 'Running: you can change it when it ends',
+        startingSoon: (time: string): string =>
+          `Starts at ${time}: under 10 min before, it can only be made stricter`,
+        startingSoonDelete: (time: string): string =>
+          `Starts at ${time}: under 10 min before, it can no longer be deleted`,
+        full: (max: number): string => `You already have ${max} schedules: delete one first`,
+      },
+      errors: {
+        inProgress: (until: string): string => `Running ${until}: you can change it when it ends`,
+        tooMany: 'Your schedules already have too many custom sites',
+        timezone: 'The system time zone is not valid',
+        notFound: 'That schedule no longer exists',
+        invalid: 'The guardian does not accept this schedule: check the days and hours',
+      },
+      saved: (summary: string): string => `Saved: ${summary}`,
+      removed: (name: string): string => `Deleted: “${name}”`,
+    },
+  },
+
+  exam: {
+    title: 'Exam mode: allowlist + Hardcore',
+    datum: 'cannot be cancelled',
+    rowLabel: 'Start an exam',
+    tile: (duration: string): string => `Exam ${duration}`,
+    tileHelp: (duration: string): string =>
+      `Everything except the allowlist for ${duration}: you confirm it in the main window`,
+    rowHelp: 'One click opens the confirmation in the main window',
+    customize: 'Customize',
+    customizeHelp: 'Prepares the exam in the form above',
+
+    whitelist: {
+      title: (n: number, waiting: number): string =>
+        (n === 0
+          ? 'Your allowlist: the study one only'
+          : n === 1
+            ? 'Your allowlist: 1 extra'
+            : `Your allowlist: ${n} extras`) + (waiting > 0 ? ` · ${waiting} waiting` : ''),
+      loading: 'Your allowlist: loading…',
+      unavailable: 'Your allowlist: not connected',
+      retry: 'Retry',
+      listLabel: 'Sites and apps you add to the allowlist',
+      domainsLabel: 'Allowed sites',
+      domainPlaceholder: 'wikipedia.org',
+      appsLabel: 'Allowed apps',
+      appPlaceholder: 'WINWORD.EXE',
+      suggestionsLabel: 'Open programs that match',
+      add: 'Allow',
+      addDomainHelp: 'Adds it to your allowlist',
+      addAppHelp: 'Adds it to your allowlist',
+      help: 'Adding waits 24 h, so you cannot loosen it on a whim; removing is immediate',
+      pendingChip: (label: string, when: string): string => `${label} · from ${when}`,
+      remove: (label: string): string => `Remove ${label}`,
+      removePending: (label: string, when: string): string =>
+        `Remove ${label} (it would be allowed ${when})`,
+      invalidDomain: 'That does not look like a site: try wikipedia.org',
+      invalidApp: 'Type the program name, for example WINWORD.EXE',
+      studyDefault: 'Already on the study allowlist',
+      duplicate: 'Already on your list',
+      coveredBy: (parent: string): string => `Already allowed by ${parent}`,
+      protectedDomain: 'That is always allowed: the system needs it',
+      protectedApp: 'That program is always allowed: the system needs it',
+      maxDomains: (n: number): string => `Up to ${n} sites`,
+      maxApps: (n: number): string => `Up to ${n} apps`,
+      invalidList: 'The guardian does not accept the list: check what you added',
+      distraction: {
+        serviceDomain: (domain: string, service: string): string =>
+          `${domain} belongs to ${service}: a distraction cannot be on the allowlist`,
+        parentOfService: (domain: string, service: string): string =>
+          `${domain} includes ${service}: type a more specific site`,
+        publicSuffix: (domain: string): string => `${domain} is too broad: type a specific site`,
+        app: (app: string): string => `${app} is a distraction: it cannot be on the allowlist`,
+        generic: (value: string): string =>
+          `${value} is a distraction: it cannot be on the allowlist`,
+      },
+      added: (value: string): string => `Allowed: ${value}`,
+      addedPending: (value: string, when: string): string =>
+        `${value} will be allowed ${when}: loosening waits 24 h`,
+      removed: (value: string): string => `Removed: ${value}`,
+    },
+  },
+
+  until: {
+    today: (time: string): string => `until ${time}`,
+    tomorrow: (time: string): string => `until tomorrow at ${time}`,
+    weekday: (day: string, time: string): string => `until ${day} at ${time}`,
+  },
+  when: {
+    tomorrow: (time: string): string => `tomorrow ${time}`,
+    weekday: (day: string, time: string): string => `${day} ${time}`,
+  },
+};

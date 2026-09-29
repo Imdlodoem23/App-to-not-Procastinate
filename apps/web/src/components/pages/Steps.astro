@@ -1,0 +1,48 @@
+---
+/**
+ * Installation steps: a real sequence, so a numbered <ol> with the number in 600 (design plan
+ * § 5). Steps come from copy.ts and may carry **bold** (names of buttons and menus) and `code`.
+ */
+import Inline from './Inline.astro';
+
+interface Props {
+  steps: readonly string[];
+}
+
+const { steps } = Astro.props;
+---
+
+<ol class="steps">
+  {
+    steps.map((step) => (
+      <li class="steps-item">
+        <Inline text={step} />
+      </li>
+    ))
+  }
+</ol>
+
+<style>
+  .steps {
+    max-width: var(--measure-text);
+    padding-inline-start: 28px;
+    list-style: decimal;
+  }
+
+  .steps-item {
+    padding-inline-start: 4px;
+    font-size: var(--type-body-size);
+    line-height: var(--type-body-lh);
+    letter-spacing: var(--type-body-ls);
+  }
+
+  .steps-item + .steps-item {
+    margin-top: 12px;
+  }
+
+  .steps-item::marker {
+    font-weight: var(--weight-semibold);
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+  }
+</style>

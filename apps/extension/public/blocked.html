@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Céntrate</title>
+    <link rel="stylesheet" href="blocked.css" />
+    <script type="module" src="blocked.js"></script>
+  </head>
+  <body>
+    <main id="main" class="column blocked">
+      <section class="section" aria-labelledby="blocked-title">
+        <div class="section-header">
+          <h1 id="blocked-title" class="section-title"></h1>
+          <span id="blocked-remaining" class="section-value"></span>
+        </div>
+        <p id="blocked-live" class="visually-hidden" aria-live="polite"></p>
+        <figure id="blocked-reason" class="blocked-reason blocked-full" hidden>
+          <figcaption id="blocked-reason-label" class="label"></figcaption>
+          <blockquote id="blocked-reason-text" class="blocked-reason-text"></blockquote>
+        </figure>
+        <div id="blocked-points" class="blocked-points blocked-full" hidden>
+          <p id="blocked-points-value" class="blocked-points-value"></p>
+          <p id="blocked-points-note" class="help" hidden></p>
+        </div>
+        <p id="blocked-humor" class="blocked-humor"></p>
+      </section>
+      <div class="section blocked-full">
+        <div class="tiles tiles--single">
+          <button id="blocked-back" class="tile" type="button">
+            <span id="blocked-back-label" class="tile-label"></span>
+          </button>
+        </div>
+        <p id="blocked-back-help" class="help"></p>
+      </div>
+    </main>
+  </body>
+</html>

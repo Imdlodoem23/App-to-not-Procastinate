@@ -1,0 +1,84 @@
+/*
+ * Emergencia window (PROMPT §10 «Ventanas de detalle › Emergencia»): one section, the price in
+ * red, the wait in orange, all of it in 400 («títulos en 600 y el resto en 400»; penalties are a
+ * fact, not a bold reproach). Colors come only from tokens.css.
+ */
+
+@layer components {
+  .emg {
+    display: flex;
+    flex-direction: column;
+    gap: var(--section-gap);
+    min-width: 0;
+  }
+
+  .emg-text,
+  .emg-loss,
+  .emg-status {
+    margin: 0;
+    font-size: var(--font-size-13);
+    line-height: var(--line-height-13);
+  }
+
+  .emg-muted {
+    color: var(--fg-muted);
+  }
+
+  /* The phrase to copy stands out by its «» and full-contrast colour, not by weight. */
+  .emg-phrase {
+    color: var(--fg);
+  }
+
+  .emg-done {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  /* «Esperando · 8:12», «Tienes 4:30 para decidir; después, el bloqueo sigue». */
+  .emg-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1);
+  }
+
+  .emg-list {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .emg-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--size-block-row);
+  }
+
+  .emg-row-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .emg-row-until {
+    flex: none;
+    color: var(--fg-muted);
+    white-space: nowrap;
+  }
+
+  .emg-row-fate {
+    flex: none;
+    min-width: 88px;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  /* A row of two equal tiles. */
+  .emg-row-2 .c-tilegrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

@@ -1,0 +1,38 @@
+/*
+ * Logros window (PROMPT §10 «Ventanas de detalle › Logros»): one section, a 4-column grid of
+ * tiles, each the badge over the name. The names («Una semana sin intentos») need two lines in
+ * a quarter of the 576 px column, and the badges read best from 24 px (docs/brand.md), so
+ * these tiles are taller than the kit's 56 px: 28 px badge, 4 px, two 18 px lines. Colors only
+ * from tokens.css (the badge is painted by its mask style).
+ */
+
+@layer components {
+  .lgr {
+    display: flex;
+    flex-direction: column;
+    gap: var(--section-gap);
+    min-width: 0;
+  }
+
+  /* Always the badge over the name, whatever the density. */
+  .lgr .lgr-tile.c-tile {
+    flex-direction: column;
+    gap: var(--space-1);
+    height: 80px;
+    padding: 0 var(--space-2);
+  }
+
+  .lgr .lgr-tile .c-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .lgr .lgr-tile .c-tile-label {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}

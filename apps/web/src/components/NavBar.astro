@@ -1,0 +1,354 @@
+---
+/**
+ * Sticky translucent navigation bar (design plan § 4.1): 52 px, «Céntrate» on the left, the
+ * section links, the language switch (the same page in the other language) and one blue
+ * «Descargar» pill on the right.
+ *
+ * At 734 px and below the links fold into a disclosure (<details>) labelled with text
+ * («Abrir menú» / «Cerrar menú»), so it works without JavaScript; the script only adds Escape,
+ * close on link or outside click, and close when the viewport grows past the breakpoint.
+ */
+import { getCopy } from '../content/locale';
+import { langFromPath, langNames, pathFor, routes, type Lang, type PageKey } from '../lib/i18n';
+
+interface Props {
+  page?: PageKey;
+  /** The bar's language; by default the page's (from its URL). The 404 renders both. */
+  lang?: Lang;
+}
+
+const { page } = Astro.props;
+const lang = Astro.props.lang ?? langFromPath(Astro.url.pathname);
+const copy = getCopy(lang);
+const { nav, ids } = copy;
+const other = lang === 'es' ? 'en' : 'es';
+// The language switch opens the same page in the other language.
+const switchTo = { lang: other, label: langNames[other], href: pathFor(page, other) };
+// On the home page the pill jumps to the final download block; elsewhere it opens the guide.
+const ctaHref = page === 'home' ? `#${ids.download}` : routes[lang].download;
+---
+
+<header class="site-nav" data-surface="light" data-shell-part="nav">
+  <nav class="site-nav__bar" aria-label={nav.ariaLabel}>
+    <a class="site-nav__brand" href={routes[lang].home} aria-label={nav.brandAria}>{nav.brand}</a>
+
+    <ul class="site-nav__links" role="list">
+      {
+        nav.links.map((link) => (
+          <li>
+            <a class="site-nav__link" href={link.href}>
+              {link.label}
+            </a>
+          </li>
+        ))
+      }
+      <li>
+        <a
+          class="site-nav__link"
+          href={switchTo.href}
+          hreflang={switchTo.lang}
+          lang={switchTo.lang}
+          data-lang-switch={switchTo.lang}>{switchTo.label}</a
+        >
+      </li>
+    </ul>
+
+    <details class="site-nav__menu" data-nav-menu>
+      <summary class="site-nav__toggle">
+        <span class="site-nav__toggle-open">{nav.menuOpen}</span>
+        <span class="site-nav__toggle-close">{nav.menuClose}</span>
+        <svg
+          class="site-nav__chevron"
+          viewBox="0 0 12 12"
+          width="12"
+          height="12"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path d="M2.5 4.25 6 7.75l3.5-3.5"></path>
+        </svg>
+      </summary>
+      <div class="site-nav__panel">
+        <ul role="list">
+          {
+            nav.links.map((link) => (
+              <li>
+                <a class="site-nav__panel-link" href={link.href}>
+                  {link.label}
+                </a>
+              </li>
+            ))
+          }
+          <li>
+            <a
+              class="site-nav__panel-link"
+              href={switchTo.href}
+              hreflang={switchTo.lang}
+              lang={switchTo.lang}
+              data-lang-switch={switchTo.lang}>{switchTo.label}</a
+            >
+          </li>
+        </ul>
+      </div>
+    </details>
+
+    <a
+      class="site-nav__cta button-pill button-pill-compact"
+      href={ctaHref}
+      aria-label={nav.ctaAria}
+      aria-current={page === 'download' ? 'page' : undefined}>{nav.cta}</a
+    >
+  </nav>
+</header>
+
+<style>
+  .site-nav {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-nav);
+    /* The bar is not a backdrop root: the glass lives on ::before, so the mobile panel can
+       blur the page with its own backdrop-filter. */
+    background: transparent;
+  }
+
+  .site-nav::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background-color: var(--palette-glass);
+    -webkit-backdrop-filter: var(--nav-backdrop);
+    backdrop-filter: var(--nav-backdrop);
+    border-bottom: 1px solid var(--palette-nav-border);
+  }
+
+  /* 52 px at any normal setting. With user text spacing at 320 px (WCAG 1.4.10 and 1.4.12)
+     brand, menu and pill no longer fit in one row: the pill drops to a second row and the bar
+     grows taller instead of spilling sideways. */
+  .site-nav__bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 24px;
+    row-gap: 0;
+    min-height: var(--nav-height);
+    padding-inline: var(--page-gutter);
+  }
+
+  .site-nav__brand {
+    /* 44 px tall hit area inside the 52 px bar, like the links. */
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    margin-inline-end: auto;
+    font-size: var(--type-nav-brand-size);
+    line-height: 1.14286;
+    letter-spacing: 0.011em;
+    font-weight: var(--weight-semibold);
+    white-space: nowrap;
+    color: var(--text);
+  }
+
+  .site-nav__links {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .site-nav__link,
+  .site-nav__toggle {
+    font-size: var(--type-nav-link-size);
+    line-height: 1.33337;
+    letter-spacing: -0.01em;
+    color: var(--text);
+    white-space: nowrap;
+  }
+
+  .site-nav__link {
+    /* 44 px tall hit area inside the 52 px bar. */
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    text-underline-offset: 0.18em;
+    text-decoration-thickness: 1px;
+  }
+
+  .site-nav__link:hover {
+    text-decoration-line: underline;
+  }
+
+  .site-nav__cta {
+    position: relative;
+    flex: none;
+  }
+
+  /* The pill stays 28 px tall (the Apple-like proportion), but its hit area grows to 44 px
+     inside the 52 px bar: 8 px more on each side, plus the 1 px border, which `inset` does not
+     count (it is measured from the padding box). */
+  .site-nav__cta::after {
+    content: '';
+    position: absolute;
+    inset: -9px -5px;
+  }
+
+  /* Mobile disclosure: only at 734 px and below. */
+  .site-nav__menu {
+    display: none;
+  }
+
+  .site-nav__toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 44px;
+    padding-inline: 4px;
+    margin-inline: -4px;
+    border-radius: var(--shape-pill);
+    list-style: none;
+    user-select: none;
+  }
+
+  .site-nav__toggle::-webkit-details-marker {
+    display: none;
+  }
+
+  .site-nav__toggle-close,
+  .site-nav__menu[open] .site-nav__toggle-open {
+    display: none;
+  }
+
+  .site-nav__menu[open] .site-nav__toggle-close {
+    display: inline;
+  }
+
+  .site-nav__chevron {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: rotate var(--duration-ui) var(--curve-ui);
+  }
+
+  .site-nav__menu[open] .site-nav__chevron {
+    rotate: 180deg;
+  }
+
+  .site-nav__panel {
+    position: absolute;
+    top: 100%;
+    inset-inline: 0;
+    padding-inline: var(--page-gutter);
+    padding-block: 8px 16px;
+    background-color: var(--palette-glass);
+    -webkit-backdrop-filter: var(--nav-backdrop);
+    backdrop-filter: var(--nav-backdrop);
+    border-bottom: 1px solid var(--palette-nav-border);
+    animation: site-nav-fade var(--duration-ui) var(--curve-ui);
+  }
+
+  .site-nav__panel ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .site-nav__panel li + li {
+    border-top: 1px solid var(--hairline);
+  }
+
+  .site-nav__panel-link {
+    display: flex;
+    align-items: center;
+    min-height: 48px;
+    font-size: var(--type-body-size);
+    line-height: var(--type-body-lh);
+    letter-spacing: var(--type-body-ls);
+    color: var(--text);
+  }
+
+  @keyframes site-nav-fade {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @media (max-width: 734px) {
+    .site-nav__bar {
+      column-gap: 16px;
+    }
+
+    .site-nav__links {
+      display: none;
+    }
+
+    .site-nav__menu {
+      display: block;
+    }
+  }
+
+  /* At 320 px, 16 px gaps leave brand, «Cerrar menú» and the pill 2 px short of one row. */
+  @media (max-width: 359px) {
+    .site-nav__bar {
+      column-gap: 8px;
+    }
+  }
+
+  /* No backdrop-filter: an opaque bar instead of an unreadable translucent one. */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .site-nav::before,
+    .site-nav__panel {
+      background-color: var(--palette-white);
+    }
+  }
+
+  @media print {
+    .site-nav {
+      position: static;
+    }
+
+    .site-nav__menu,
+    .site-nav__cta {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  const menu = document.querySelector<HTMLDetailsElement>('[data-nav-menu]');
+
+  if (menu) {
+    const summary = menu.querySelector('summary');
+    const close = (restoreFocus: boolean): void => {
+      if (!menu.open) return;
+      menu.open = false;
+      if (restoreFocus) summary?.focus();
+    };
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && menu.open) {
+        event.preventDefault();
+        close(menu.contains(document.activeElement));
+      }
+    });
+
+    // Choosing a link or clicking anywhere else closes the panel.
+    document.addEventListener('click', (event) => {
+      if (!menu.open || !(event.target instanceof Element)) return;
+      if (!menu.contains(event.target) || event.target.closest('a')) close(false);
+    });
+
+    // Tabbing out of the panel closes it, so it never covers what has the focus.
+    menu.addEventListener('focusout', (event) => {
+      const next = event.relatedTarget;
+      if (next instanceof Node && !menu.contains(next)) close(false);
+    });
+
+    window.matchMedia('(min-width: 735px)').addEventListener('change', (event) => {
+      if (event.matches) close(false);
+    });
+  }
+</script>

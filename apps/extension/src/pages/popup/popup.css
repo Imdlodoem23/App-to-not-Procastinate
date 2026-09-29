@@ -1,0 +1,135 @@
+/*
+ * The popup: the app's main window in miniature (PROMPT §10), a 440 px column with the
+ * warnings, «Bloqueo», the pairing form and the footer.
+ */
+@import '../shared/base.css';
+
+body {
+  width: var(--layout-main-width);
+}
+
+.popup {
+  padding-bottom: 0;
+}
+
+/* Warnings: an accent icon, the message, and at most one action tile. */
+.notices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.notice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.notice-line {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.notice-line > .icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--accent-text);
+}
+
+.notice-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.notice-tiles {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/*
+ * A «Reintentar» that did not fix it: «Sigue sin responder · comprobado a las 17:42» in the
+ * row's free columns, beside the tile (up to two 12 px lines fit its 32 px, nothing moves).
+ */
+.notice-status {
+  grid-column: span 2;
+  align-self: center;
+  min-width: 0;
+  padding-left: var(--space-1);
+  font-size: var(--font-size-12);
+  line-height: var(--line-height-12);
+  color: var(--fg-muted);
+  /* Two even lines («Sigue sin responder · / comprobado a las 17:42»), never a lone time. */
+  text-wrap: balance;
+}
+
+/* «Bloqueo». */
+
+/*
+ * The 3 px bar in the mode's color under the countdown (PROMPT §10: blue Normal, orange
+ * Estricto, red Hardcore, Examen and Castigo), from `data-accent` on #block. The rules carry
+ * no start time, so it spans the full width. Square like the app's bar.
+ */
+.mode-bar {
+  height: var(--size-mode-bar);
+  background: var(--accent, var(--neutral));
+}
+
+.help--reason {
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: var(--size-block-row);
+}
+
+.row-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.row-value {
+  flex: none;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.row--more {
+  color: var(--fg-muted);
+}
+
+/* Footer: «● Guardián conectado» · version, then secondary 32 px buttons. */
+.footer {
+  gap: var(--space-2);
+}
+
+.footer-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--size-header);
+  font-size: var(--font-size-12);
+  line-height: var(--line-height-12);
+}
+
+.footer-version {
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.footer-tiles {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}

@@ -1,0 +1,79 @@
+---
+/**
+ * Shell of the document pages (/descargar, /novedades, /privacidad; design plan § 5): light
+ * surface, a left-aligned header with the hero-size headline and the grey lead, then the body.
+ *
+ * With `toc`, the body is the 12-column grid: index in columns 1–3 (sticky), content in 5–12
+ * with text lines of 680 px at most. Without it, the content spans the column.
+ *
+ * Slots: `header` (extra header content under the lead: buttons, version, date), `meta`
+ * (a small line between the headline and the lead) and the default one (the content).
+ */
+import Toc from './Toc.astro';
+
+interface Props {
+  headline: string;
+  lead: string;
+  toc?: { label: string; items: readonly { id: string; label: string }[] };
+}
+
+const { headline, lead, toc } = Astro.props;
+---
+
+<div class="doc gutter" data-surface="light">
+  <header class="doc-header">
+    <h1 class="doc-headline text-hero">{headline}</h1>
+    <slot name="meta" />
+    <p class="doc-lead text-lead text-secondary">{lead}</p>
+    <slot name="header" />
+  </header>
+
+  <div class:list={['doc-body', { 'doc-body--toc': toc }]}>
+    {toc && <Toc label={toc.label} items={toc.items} />}
+    <div class="doc-content">
+      <slot />
+    </div>
+  </div>
+</div>
+
+<style>
+  .doc {
+    padding-block: var(--hero-pad-top) var(--section-pad-block);
+  }
+
+  .doc-header {
+    max-width: var(--measure-lead);
+    padding-bottom: var(--space-header-content);
+  }
+
+  .doc-lead {
+    margin-top: var(--space-headline-lead);
+  }
+
+  .doc-body--toc {
+    display: grid;
+    grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
+    column-gap: var(--grid-gap);
+    align-items: start;
+  }
+
+  .doc-body--toc > .doc-content {
+    grid-column: 5 / -1;
+    min-width: 0;
+  }
+
+  /* The index is a grid item that must stretch the whole row, so its rail can stick. */
+  .doc-body--toc > :global(.toc) {
+    align-self: stretch;
+  }
+
+  @media (max-width: 1068px) {
+    .doc-body--toc {
+      display: block;
+    }
+
+    .doc-body--toc > .doc-content {
+      margin-top: var(--space-block);
+    }
+  }
+</style>

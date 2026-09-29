@@ -1,0 +1,203 @@
+---
+/**
+ * Page shell for every page: <head> (meta, canonical, hreflang alternates, Open Graph, favicon,
+ * font preload), the skip link, the navigation bar, <main id="contenido">, the footer and the
+ * language hint.
+ *
+ * Language: the page's own (from its URL: /en… is English) sets <html lang>, the copy and the
+ * Open Graph locale. The hint (LangHint.astro) offers the same page in the other language when
+ * the browser prefers it and the visitor has not chosen a language yet. It never redirects.
+ *
+ * The 404 is one file for every missing path (Render serves dist/404.html), so it carries both
+ * languages (`alternate`): the other language's whole shell (skip link, bar, content, footer and
+ * hint) waits in an inert <template>, and a tiny inline script swaps it in, part by part
+ * ([data-shell-part]), before any other script runs, when the missing path is in that language.
+ *
+ * Slots:
+ * - default: the page content, inside <main>. Each section sets data-surface.
+ * - `head`: extra tags for <head> (structured data, a preload for a page's hero image…).
+ * - `footnotes`: the page's numbered notes, rendered at the top of the footer.
+ * - `alternate`: with `alternate`, the content in the other language.
+ */
+import '../styles/global.css';
+import interLatinUrl from '@fontsource-variable/inter/files/inter-latin-opsz-normal.woff2?url';
+import NavBar from '../components/NavBar.astro';
+import Footer from '../components/Footer.astro';
+import LangHint from '../components/LangHint.astro';
+import { copyFor, getCopy } from '../content/locale';
+import { site } from '../lib/site';
+import {
+  ENGLISH_PATH,
+  langFromPath,
+  langs,
+  ogLocale,
+  pathFor,
+  defaultLang,
+  type Lang,
+  type PageKey,
+} from '../lib/i18n';
+
+const copy = copyFor(Astro.url);
+const lang = langFromPath(Astro.url.pathname);
+const other: Lang = lang === 'es' ? 'en' : 'es';
+
+interface Props {
+  /** <title>, from copy.meta.<page>.title. */
+  title: string;
+  /** Meta and Open Graph description, from copy.meta.<page>.description. */
+  description: string;
+  /** Open Graph title when it differs from <title> (copy.meta.home.ogTitle). */
+  ogTitle?: string;
+  /**
+   * Which page this is: the home page makes the bar's download pill jump to its final block,
+   * and the language switch and the hreflang links point to the same page in each language.
+   */
+  page?: PageKey;
+  /** Keep the page out of search results, without a canonical URL (the 404). */
+  noindex?: boolean;
+  /**
+   * The 404 only: the <title> and description of the page in the other language, whose content
+   * goes in the `alternate` slot.
+   */
+  alternate?: { title: string; description: string };
+}
+
+const { title, description, ogTitle, page, noindex = false, alternate } = Astro.props;
+
+const siteUrl = Astro.site ?? new URL(Astro.url.origin);
+// Canonical URLs never end in a slash (except the home page), like every internal link.
+const path = Astro.url.pathname.replace(/\/(index)?(\.html)?$/, '') || '/';
+const canonical = new URL(path, siteUrl).href;
+const ogImage = new URL(site.ogImage.paths[lang], siteUrl).href;
+const alternates = langs.map((l) => ({
+  hreflang: l,
+  href: new URL(pathFor(page, l), siteUrl).href,
+}));
+const xDefault = new URL(pathFor(page, defaultLang), siteUrl).href;
+const hasFootnotes = Astro.slots.has('footnotes');
+---
+
+<!doctype html>
+<html lang={lang} dir="ltr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {
+      /* The reveal's hidden state only exists under html.js (global.css). If reveal.ts has not
+         run 4 s later (blocked or failed script), .no-reveal shows everything instead. */
+    }
+    <script is:inline>
+      document.documentElement.classList.add('js');
+      setTimeout(function () {
+        if (!window.__centrateReveal) document.documentElement.classList.add('no-reveal');
+      }, 4000);
+    </script>
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    {
+      noindex ? (
+        <meta name="robots" content="noindex" />
+      ) : (
+        <>
+          <link rel="canonical" href={canonical} />
+          {alternates.map((alt) => (
+            <link rel="alternate" hreflang={alt.hreflang} href={alt.href} />
+          ))}
+          <link rel="alternate" hreflang="x-default" href={xDefault} />
+        </>
+      )
+    }
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content={site.themeColor} />
+    <meta name="format-detection" content="telephone=no" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="sitemap" href="/sitemap-index.xml" />
+    <link rel="preload" href={interLatinUrl} as="font" type="font/woff2" crossorigin />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={copy.meta.siteName} />
+    <meta property="og:locale" content={copy.meta.locale} />
+    <meta property="og:locale:alternate" content={ogLocale[other]} />
+    <meta property="og:title" content={ogTitle ?? title} />
+    <meta property="og:description" content={description} />
+    {!noindex && <meta property="og:url" content={canonical} />}
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:type" content={site.ogImage.type} />
+    <meta property="og:image:width" content={String(site.ogImage.width)} />
+    <meta property="og:image:height" content={String(site.ogImage.height)} />
+    <meta property="og:image:alt" content={copy.meta.ogImageAlt} />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <slot name="head" />
+  </head>
+  <body>
+    <a
+      class="skip-link button-pill button-pill-compact"
+      href="#contenido"
+      data-shell-part="skip-link">{copy.ui.skipLink}</a
+    >
+    <NavBar page={page} />
+    <main id="contenido" tabindex="-1" data-shell-part="main">
+      <slot />
+    </main>
+    {
+      hasFootnotes ? (
+        <Footer page={page}>
+          <slot name="footnotes" slot="footnotes" />
+        </Footer>
+      ) : (
+        <Footer page={page} />
+      )
+    }
+    <LangHint lang={lang} page={page} />
+    {
+      alternate && (
+        <template
+          data-shell={other}
+          data-title={alternate.title}
+          data-description={alternate.description}
+        >
+          <a
+            class="skip-link button-pill button-pill-compact"
+            href="#contenido"
+            data-shell-part="skip-link">{getCopy(other).ui.skipLink}</a
+          >
+          <NavBar page={page} lang={other} />
+          <main id="contenido" tabindex="-1" data-shell-part="main">
+            <slot name="alternate" />
+          </main>
+          <Footer page={page} lang={other} />
+          <LangHint lang={other} page={page} />
+        </template>
+      )
+    }
+    {
+      alternate && (
+        <script is:inline define:vars={{ englishPath: ENGLISH_PATH.source }}>
+          var shell = document.querySelector('template[data-shell]');
+          var lang = new RegExp(englishPath).test(location.pathname) ? 'en' : 'es';
+          if (shell && shell.getAttribute('data-shell') === lang) {
+            var parts = shell.content.querySelectorAll('[data-shell-part]');
+            for (var i = 0; i < parts.length; i++) {
+              var name = parts[i].getAttribute('data-shell-part');
+              var live = document.querySelector('[data-shell-part="' + name + '"]');
+              if (live) live.replaceWith(parts[i]);
+            }
+            document.documentElement.lang = lang;
+            document.title = shell.getAttribute('data-title') || document.title;
+            var meta = document.querySelector('meta[name="description"]');
+            if (meta) meta.setAttribute('content', shell.getAttribute('data-description') || '');
+          }
+          if (shell) shell.remove();
+        </script>
+      )
+    }
+    <script>
+      import { initReveal } from '../scripts/reveal';
+      import { initLanguage } from '../scripts/language';
+
+      initReveal();
+      initLanguage();
+    </script>
+  </body>
+</html>

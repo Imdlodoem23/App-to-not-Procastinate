@@ -1,0 +1,28 @@
+---
+/**
+ * A standalone link on a document page: one on its own line or list item («Descargar
+ * SHA256SUMS.txt», «Todas las versiones en GitHub», «Ver en GitHub»), never inside running
+ * text (that is `link-inline`, always underlined).
+ *
+ * Same look as the `link` utility. On phones and touch screens the box grows to 44 px tall
+ * around the text, so it is as easy to tap as a button without changing how it reads.
+ */
+interface Props {
+  href: string;
+  class?: string;
+}
+
+const { href, class: className } = Astro.props;
+---
+
+<a class:list={['link', 'action-link', className]} href={href}><slot /></a>
+
+<style>
+  @media (max-width: 734px), (pointer: coarse) {
+    .action-link {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+    }
+  }
+</style>

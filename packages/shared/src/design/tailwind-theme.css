@@ -1,0 +1,120 @@
+/*
+ * Tailwind v4 theme for Céntrate. It does not import Tailwind itself; apps write:
+ *
+ *   @import 'tailwindcss';
+ *   @import '@centrate/shared/design/tailwind-theme.css';
+ *
+ * This file brings tokens.css in, so that second import is all an app needs. Colors are mapped
+ * with `inline` to the theme-aware variables of tokens.css (bg-bg, bg-tile, text-fg-muted,
+ * border-border, border-control, text-red-text, outline-focus-ring, bg-accent-tint…), so they
+ * follow data-theme and prefers-color-scheme. Static values are literal (kept equal to
+ * tokens.ts by test/tokens.test.ts).
+ *
+ * Only the design system exists: Tailwind's default palette, type scale, weights, tracking,
+ * leading, radii, shadows, blurs and animations are removed, so shadow-lg, text-xs, font-bold,
+ * rounded-xl, backdrop-blur or animate-bounce produce nothing. What is left:
+ * - text-11 … text-72 (font size with its line height), font-normal / font-semibold,
+ *   tracking-countdown, font-sans;
+ * - rounded-sm/md/lg, rounded-pill/tile/osd, rounded-full (status dots and chips only);
+ * - p-1 = 4px … (4 px grid), border (1 px), outline-2 + outline-offset-2 (focus ring),
+ *   opacity-60 (countdown seconds), size-4/5/6 (16/20/24 px icons);
+ * - `transition` lasts --duration-hover (0 with reduced motion). For the 120 ms state fade use
+ *   duration-(--duration-fade), never duration-120: only the variable follows reduced motion;
+ * - sizes by name: h-(--tile-height), h-(--size-field), size-(--size-status-dot)…
+ * Text colors: text-red, text-neutral and text-accent are not text colors (they fail 4.5:1);
+ * use text-red-text, text-fg-muted and text-accent-text. scripts/lint-colors.mjs flags them.
+ */
+
+@import './tokens.css';
+
+/* Remove Tailwind's defaults outside the design system (see the header). */
+@theme {
+  --color-*: initial;
+  --font-*: initial;
+  --font-weight-*: initial;
+  --text-*: initial;
+  --tracking-*: initial;
+  --leading-*: initial;
+  --radius-*: initial;
+  --shadow-*: initial;
+  --inset-shadow-*: initial;
+  --drop-shadow-*: initial;
+  --text-shadow-*: initial;
+  --blur-*: initial;
+  --animate-*: initial;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-tile: var(--tile);
+  --color-tile-2: var(--tile-2);
+  --color-tile-hover: var(--tile-hover);
+  --color-tile-active: var(--tile-active);
+  --color-tile-2-hover: var(--tile-2-hover);
+  --color-tile-2-active: var(--tile-2-active);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-border: var(--border);
+  --color-control: var(--control);
+  --color-green: var(--green);
+  --color-blue: var(--blue);
+  --color-orange: var(--orange);
+  --color-red: var(--red);
+  --color-red-text: var(--red-text);
+  --color-neutral: var(--neutral);
+  --color-on-accent: var(--on-accent);
+  --color-focus-ring: var(--focus-ring);
+  --color-accent: var(--accent);
+  --color-accent-top: var(--accent-top);
+  --color-accent-tint: var(--accent-tint);
+  --color-accent-text: var(--accent-text);
+  --color-osd-bg: var(--osd-bg);
+  --color-osd-fg: var(--osd-fg);
+
+  --default-transition-duration: var(--duration-hover);
+}
+
+@theme {
+  --font-sans:
+    'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, 'SF Pro Text', Ubuntu,
+    'Noto Sans', sans-serif;
+
+  /* text-11 … text-72, each with its line height (countdowns set solid). */
+  --text-11: 11px;
+  --text-11--line-height: 16px;
+  --text-12: 12px;
+  --text-12--line-height: 16px;
+  --text-13: 13px;
+  --text-13--line-height: 18px;
+  --text-15: 15px;
+  --text-15--line-height: 20px;
+  --text-20: 20px;
+  --text-20--line-height: 24px;
+  --text-28: 28px;
+  --text-28--line-height: 32px;
+  --text-32: 32px;
+  --text-32--line-height: 40px;
+  --text-40: 40px;
+  --text-40--line-height: 40px;
+  --text-48: 48px;
+  --text-48--line-height: 48px;
+  --text-72: 72px;
+  --text-72--line-height: 72px;
+
+  /* font-normal (body) and font-semibold (titles, pills, countdown, OSD). */
+  --font-weight-normal: 400;
+  --font-weight-semibold: 600;
+
+  --tracking-countdown: -0.02em;
+
+  /* rounded-sm/md/lg, and by use: rounded-pill, rounded-tile, rounded-osd */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-pill: 4px;
+  --radius-tile: 6px;
+  --radius-osd: 8px;
+
+  /* p-1 = 4px, p-2 = 8px, p-3 = 12px, p-4 = 16px */
+  --spacing: 4px;
+}

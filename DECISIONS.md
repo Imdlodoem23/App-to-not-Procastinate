@@ -8,6 +8,54 @@ Una línea por decisión, con el porqué. Las más recientes, al final.
 - **TypeScript 6.0** y no la 7.0: `typescript-eslint` solo admite `<6.1`.
 - **Electron 44** (la última estable) con **electron-vite 5 + Vite 7** en la app: electron-vite 5 aún no admite Vite 8. La web usa Astro 7 (Vite 8); npm anida cada versión en su workspace.
 - **`node:sqlite` en vez de `better-sqlite3`** para la base de datos local: Electron 44 trae Node 24 con SQLite integrado (comprobado: SQLite 3.53.4). Así no hay módulos nativos, ni recompilación, y el `.dmg` universal es trivial.
-- **Guardián en Go 1.24** con `kardianos/service`, API HTTP en `127.0.0.1:47600` (configurable).
+- **Guardián en Go 1.26 (lo exige `golang.org/x/sys` actual)** con `kardianos/service`, API HTTP en `127.0.0.1:47600` (configurable).
 - **Agentes sin worktree cuando trabajan en carpetas separadas:** cada módulo vive en su propia carpeta y las dependencias se instalan una vez en la raíz. Un worktree por agente obligaría a repetir `npm install` (Electron pesa cientos de MB) y el contenedor solo tiene 4 CPU. Solo se usan worktrees si dos agentes tocan los mismos archivos.
 - **README y documentos para el usuario en español**; código, identificadores y commits en inglés.
+- **ID fijo de la extensión en Chromium** (`dlabilkpafinafimngfclcfmeghilcah`): el `manifest.json` lleva la clave pública (`key`), así la extensión «descomprimida» tiene siempre el mismo ID en Chrome, Edge y Brave y el guardián puede limitar CORS a ese origen. La clave privada no se guarda: no hace falta para instalarla descomprimida, y Chrome Web Store asigna la suya al publicarla.
+- **Firefox:** su origen `moz-extension://` es aleatorio en cada instalación, así que el guardián acepta cualquier `moz-extension://`, pero las escrituras siguen necesitando el token que da el emparejamiento.
+- **Web en Render pendiente:** la cuenta de Render está en el límite de 25 servicios del plan gratuito. `render.yaml` queda listo y los pasos están en `PENDIENTE_PARA_MI.md`. Las descargas funcionan igual desde GitHub Releases.
+- **Nombre del paquete `.deb` en ASCII** (`centrate`): Debian no admite tildes en el nombre del paquete. La app sigue llamándose «Céntrate» en la interfaz.
+- **Firma ad hoc en macOS** con un `afterPack` (`codesign --force --deep --sign -`) e `identity: null`: sin certificado de Apple, es lo que evita el aviso de «app dañada» en Apple Silicon. El CI lo comprueba con `codesign --verify --deep --strict`.
+
+### Contrato del guardián (`docs/ARCHITECTURE.md`)
+
+- **Diseño elegido por un panel:** 3 propuestas (anti-trampas, robustez y sencillez del cliente) y 2 jueces; ganó la de anti-trampas y se le injertaron las mejores ideas de las otras, con 3 revisores adversariales después.
+- **XP y racha solo con minutos concentrado del Study Mode** (sección 7 al pie de la letra); los bloqueos dan puntos, no XP.
+- **Crédito de bloqueo solo con el equipo despierto**, un bloqueo por minuto real y sin crédito mientras una recompensa abre parte del bloqueo: evita «granjear» puntos con bloqueos solapados o suspendiendo el portátil.
+- **Bonus de +20 por sesión limpia solo desde 25 min** y, en Study Mode, con 0 strikes: evita granjearlo con sesiones de 5 min.
+- **Escalada de intentos global** (no por servicio) y ventana de 30 s deslizante para agrupar detecciones.
+- **Los castigos se apilan** como bloqueos separados; la emergencia sí existe para un castigo (con las reglas de Estricto) y una emergencia cubre varios bloqueos a la vez.
+- **La penalización de emergencia cuenta los puntos «aparcados» en recompensas activas**, y no se puede canjear mientras hay una emergencia en marcha: evita esconder puntos antes de pagar.
+- **Recompensas:** máximo 60 min por servicio, bloqueadas durante el Study Mode, y si se revocan se devuelve la parte proporcional.
+- **Reiniciar cancela una emergencia pendiente.** Los horarios en curso no se pueden tocar, y editar o borrar uno para debilitarlo queda congelado 10 min antes de que empiece.
+- **Ajustes que debilitan tardan 24 h** en aplicarse (tiempo de funcionamiento o verificado); el nivel y la duración del castigo se aplican al momento. La zona horaria se fija en el primer arranque y los cambios posteriores también esperan.
+- **Borrar datos conserva** el saldo negativo, la escalada y los ajustes anti-trampas; reinstalar sí reinicia el registro de puntos.
+- **Los intentos los informa el proceso de fondo de la extensión** (con `webNavigation`), no `blocked.html`: una página se puede abrir a mano y no es fiable como prueba del intento.
+- **Las peticiones con el token de la app no pueden llevar `Origin`**: así el token no sirve desde ninguna web. Terminar el Study Mode antes de tiempo es gratis.
+- **Reiniciar o cerrar sesión termina el Study Mode como «interrumpido»** sin penalización, y la cámara nunca se vuelve a encender sola. «¡Estaba estudiando!» solo reentrena la IA; no devuelve el strike.
+- **Tras reiniciar, un bloqueo recién terminado se mantiene hasta 120 s** («Comprobando la hora…») mientras el guardián verifica que nadie ha adelantado el reloj.
+- **Parar el servicio del guardián durante un bloqueo cuesta como una emergencia**, salvo que sea el instalador (marca de parada planificada) o un apagado del sistema.
+- **Los bloqueos recuperados** del encabezado del hosts (si el estado se perdió) son Estrictos y no dan puntos.
+- **`has-active` devuelve 10** (bloqueo Normal o Estricto) u **11** (Hardcore, Examen o castigo).
+- **Puerto fijo 47600 sin alternativa**: la extensión confía en ese puerto tras el emparejamiento.
+- **Una navegación que inicia una web se bloquea pero no cuenta como intento**: una recarga automática (`meta refresh`), o una pestaña que otra página maneja (un anuncio que lleva su ventana emergente a YouTube cada 31 s), no puede quitar puntos. Chromium no distingue el `location = …` que una página hace por su cuenta de un clic, así que ese caso sigue contando; y algunos redirectores con JavaScript (envoltorios de enlaces con `meta refresh`) dejan de contar. Preferimos no cobrar de más.
+- **En modo lista blanca, una página `data:` o `file:` escrita a mano se manda a `blocked.html`** (sin puntos), porque podría enmarcar cualquier web. No se bloquean los marcos dentro de las páginas permitidas: romperían vídeos, captchas y documentos incrustados. Queda el hueco de usar las herramientas de desarrollo en una página permitida (ARCHITECTURE §16.3).
+- **Las pestañas abiertas se revisan cada 30 s durante un bloqueo**, no solo cuando cambian las reglas: si cancelas el «¿Salir del sitio?» o el navegador no deja mover la pestaña, se vuelve a intentar. En Chrome, la ventana de incógnito revisa sus propias pestañas, porque la principal no las ve.
+
+### Web
+
+- **Iconos de Lucide (ISC; los derivados de Feather, MIT) como excepción a «solo CC0 u OFL»:** son licencias permisivas, la app ya usa `lucide-react` y así la web dibuja los mismos iconos que la app. Su aviso de copyright viaja con la web en `/third-party-notices.txt` y todo queda apuntado en `ASSET-LICENSES.json`.
+- **URLs sin barra final** (`/descargar`, nunca `/descargar/`): enlaces, canónicas, `og:url` y sitemap usan la misma forma (`trailingSlash: 'never'`), y `render.yaml` reescribe cada ruta a su `index.html`.
+- **La URL del sitio sale de Render** (`RENDER_EXTERNAL_URL`) salvo que se defina `SITE_URL` (dominio propio): si el nombre `centrate` está cogido, las canónicas siguen apuntando a la web real.
+- **Imagen Open Graph en PNG** (`public/og.png`, dibujada desde `/og.svg` con Chromium e Inter): las redes sociales no muestran vistas previas en SVG, y resvg no puede cargar las fuentes woff2.
+- **Los presupuestos de peso se comprueban en CI** (`lighthouserc*.json` y `tests/quality.spec.ts`): primera vista ≤ 1,5 MB en cada página (y, según Lighthouse, vídeo ≤ 1,2 MB e imágenes ≤ 360 KB, tres imágenes al tope); en `dist/`, cada imagen AVIF o WebP ≤ 120 KB, el vídeo del hero ≤ 0,4 MB en AV1 y ≤ 1,2 MB en los demás códecs, y cada bucle ≤ 0,5 MB. MB y KB decimales, la lectura más estricta. Un vídeo es el del hero si su nombre lleva «hero».
+
+### Marca e iconos
+
+- **El punto de la marca pasa del centro a la boca de la «C»** (y el hueco, de 80° a 110° para que quepa): con el punto centrado la marca era una diana, de la misma familia que CircleCI (anillo con punto y hueco), Clerk (anillo abierto por la derecha con punto central) y Target (diana), y la bandeja con un bloqueo era la diana de Target en rojo. Se comparó con los 3.463 logotipos de simple-icons 16.33.0 (siluetas normalizadas, 8 orientaciones): CircleCI bajó del puesto 14 al 177 de los más parecidos, Target del 3 al 43 y Clerk del 68 al 1.021, y lo más cercano ahora solo coincide en ser un anillo. Sigue siendo ajustada al píxel a 16, 32 y 48 px. La búsqueda de marcas figurativas en TMview y en la Global Brand Database queda para antes de publicar (`PENDIENTE_PARA_MI.md`). Detalle en `docs/brand.md` «Por qué esta marca».
+- **Un solo dibujo para todos los iconos:** el icono de la app, los favicons, la bandeja y la extensión salen de `assets/brand/icon.svg` e `icon-mono.svg` por identificador (`scripts/brand-masters.mjs`), sin geometría propia en cada generador. La extensión usa el icono de la app y no el disco de la bandeja, que en la barra del navegador parecía un bloqueo siempre activo. El CI comprueba con `--check` que todos los archivos generados están al día.
+- **Avisos de terceros generados para la app y la extensión** (`scripts/gen-third-party-notices.mjs`): salen de `ASSET-LICENSES.json` (campo `shippedIn`), de los paquetes npm que el empaquetado mete en la app (los importados por el código y los `dependencies` que electron-builder copia) y de los módulos Go del guardián, con los textos de licencia de cada paquete o de `scripts/licenses/`. ISC, MIT, BSD, zlib y Apache-2.0 piden el aviso en cada copia; la web ya tenía el suyo. La app lo lleva en `<recursos>/third-party-notices.txt` y la extensión, dentro de cada `.zip`. El CI falla si el archivo no está al día o si un módulo Go nuevo no tiene su licencia.
+
+### Study Mode (IA de la cámara)
+
+- **MediaPipe (Apache-2.0) como excepción a «solo CC0 u OFL»**, igual que Lucide: afecta al modelo Face Landmarker (`face_landmarker.task`), al detector de objetos EfficientDet-Lite0 int8 (`efficientdet_lite0_int8.tflite`) y al motor `@mediapipe/tasks-vision` (JS y WASM). El propio `PROMPT.md` pide MediaPipe con los modelos dentro de la app, y no hay modelos de puntos de la cara que funcionen en el equipo con licencia CC0 (OFL solo sirve para fuentes). Apache-2.0 es permisiva: deja redistribuirlos siempre que viajen su texto y el aviso de copyright. EfficientDet-Lite0 se entrenó con COCO 2017, cuyas anotaciones son CC BY 4.0 (COCO Consortium), y de él solo se usan las clases persona, móvil y libro. El texto de Apache-2.0 y los avisos van con la app en `<recursos>/third-party-notices.txt` (generado desde `ASSET-LICENSES.json`, donde constan el origen, la versión, el sha256 y los datos de entrenamiento de cada archivo).

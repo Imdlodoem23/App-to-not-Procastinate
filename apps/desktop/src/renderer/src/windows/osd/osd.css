@@ -1,0 +1,99 @@
+/*
+ * OSD (PROMPT §10 «Aviso grande»): the window is transparent and wider than any notice
+ * (PLATFORM's `OSD_WINDOW_SIZE`); the pill is centred in it. Pill: `--osd-bg` (black at 60 %)
+ * and `--osd-fg` (white) in both themes, `--radius-lg` (8 px), 28 px text at 600 with 16 px
+ * above and below (64 px tall), 24 px at the sides, the 20 px icon 12 px before the text. It
+ * carries `data-theme="dark"`, so the icon's accent is the dark theme's (made for a dark
+ * background). Colors only from tokens.css.
+ */
+
+@layer components {
+  html[data-window='osd'],
+  html[data-window='osd'] body {
+    background: transparent;
+  }
+
+  /* Browser harness: a window of PLATFORM's size over the page background. */
+  html[data-browser-harness][data-window='osd'] #root {
+    width: 960px;
+    height: 88px;
+    background: transparent;
+    outline: none;
+  }
+
+  .osd {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding: 0 var(--space-3);
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .osd-live {
+    display: flex;
+    justify-content: center;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .osd-pill {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+    max-width: 100%;
+    padding: var(--space-4) calc(var(--space-4) + var(--space-2));
+    border-radius: var(--radius-lg);
+    background: var(--osd-bg);
+    color: var(--osd-fg);
+    font-size: var(--font-size-28);
+    line-height: var(--line-height-28);
+    font-weight: var(--font-weight-semibold);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    animation: osd-fade-in var(--duration-fade) linear;
+  }
+
+  .osd-icon {
+    display: inline-flex;
+    flex: none;
+    color: var(--accent-text);
+  }
+
+  .osd-text {
+    min-width: 0;
+    /* Clip sideways only (with the ellipsis): at 28 px a font whose ascent and descent pass
+       the 32 px line (Noto Sans, Segoe UI) must not lose its glyph tops and descenders. */
+    overflow: clip visible;
+    text-overflow: ellipsis;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .osd-pill {
+      animation: none;
+    }
+  }
+
+  /* High contrast: tokens.css maps the pill to the system pair; add an edge and keep the icon
+     in the text color. */
+  @media (forced-colors: active) {
+    .osd-pill {
+      border: var(--size-border) solid var(--osd-fg);
+    }
+
+    .osd-icon {
+      color: var(--osd-fg);
+    }
+  }
+
+  @keyframes osd-fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+}

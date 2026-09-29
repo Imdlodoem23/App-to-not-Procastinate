@@ -1,0 +1,212 @@
+---
+/**
+ * «Tu cámara no sale de tu ordenador.» (design plan § 4.7) on the `light` surface: the text in
+ * six columns, a camera with a padlock in the other six, and three bold points underneath in
+ * three columns. Up to 1068 px everything stacks in one column: the icon (160 px) over the
+ * headline, the text at 680 px, the points one under another (at 768 a 6 / 6 split left the
+ * 48 px headline on three lines and the points in 210 px strips).
+ *
+ * The icon is drawn by hand for this page (no third-party artwork). Its one motion: when it
+ * reaches 85 % of the viewport, the padlock's shackle drops and closes, once (0.6 s, 0.3 s
+ * after the headline starts). It is closed from the start without JavaScript, with reduced
+ * motion, when printing, or if the reveal failsafe fired. Decorative: the text says it all.
+ */
+import { copyFor } from '../../content/locale';
+
+const copy = copyFor(Astro.url);
+
+const { privacy } = copy;
+const headingId = `${privacy.id}-titulo`;
+---
+
+<section
+  id={privacy.id}
+  data-surface="light"
+  class="privacy section-block gutter"
+  aria-labelledby={headingId}
+>
+  <div class="privacy-intro">
+    <div class="privacy-text">
+      <div data-reveal-group>
+        <h2 id={headingId} class="text-section" data-reveal>{privacy.headline}</h2>
+      </div>
+      {privacy.body.map((paragraph) => <p class="privacy-body text-body">{paragraph}</p>)}
+      <p class="privacy-body privacy-more text-body">
+        <a class="privacy-link link" href={privacy.link.href}>{privacy.link.label}</a>
+      </p>
+    </div>
+
+    <div class="privacy-art">
+      <svg class="privacy-icon" viewBox="0 0 240 240" aria-hidden="true" data-privacy-lock>
+        <g class="privacy-camera">
+          <circle cx="100" cy="94" r="64"></circle>
+          <circle cx="100" cy="94" r="24"></circle>
+          <circle cx="100" cy="94" r="7"></circle>
+          <path d="M100 158v30M60 200h80"></path>
+        </g>
+        <g class="privacy-padlock">
+          <path class="privacy-shackle" d="M174 152v-18a22 22 0 0 1 44 0v18"></path>
+          <rect class="privacy-lock-body" x="160" y="152" width="72" height="56" rx="12"></rect>
+          <path d="M196 172v14"></path>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <ul class="privacy-points" role="list">
+    {
+      privacy.points.map((point) => (
+        <li class="text-body">
+          <strong class="privacy-point-title">{point.title}</strong>
+          <span class="text-secondary">{point.text}</span>
+        </li>
+      ))
+    }
+  </ul>
+</section>
+
+<style>
+  /* Six columns of text, six of art (12-column grid of the content column). */
+  .privacy-intro {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    column-gap: var(--grid-gap);
+    align-items: center;
+  }
+
+  .privacy-text {
+    grid-column: 1 / span 6;
+  }
+
+  .privacy-art {
+    grid-column: 7 / span 6;
+    display: grid;
+    place-items: center;
+  }
+
+  .privacy-body {
+    max-width: var(--measure-text);
+    margin-block-start: 20px;
+  }
+
+  h2 + .privacy-body,
+  [data-reveal-group] + .privacy-body {
+    margin-block-start: var(--space-headline-lead);
+  }
+
+  /* A 44 px target; the margin gives back what it adds around the line, so the text keeps
+     its 20 px of air. */
+  .privacy-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  .privacy-more {
+    margin-block-start: calc(20px - (44px - 1lh) / 2);
+  }
+
+  /* Line drawing: 6 px strokes in the 240 box, in the text colour. The padlock body is filled
+     with the page colour, so the camera's lines stop behind it. */
+  .privacy-icon {
+    width: 240px;
+    height: 240px;
+    fill: none;
+    stroke: var(--text);
+    stroke-width: 6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    overflow: visible;
+  }
+
+  .privacy-lock-body {
+    fill: var(--surface);
+  }
+
+  .privacy-camera circle:last-of-type {
+    fill: var(--text);
+    stroke: none;
+  }
+
+  .privacy-shackle {
+    transition: transform 0.6s var(--curve-reveal) 0.3s;
+  }
+
+  /* Open until it is seen (only when it will be animated). */
+  @media (prefers-reduced-motion: no-preference) {
+    :global(html.js:not(.no-reveal)) .privacy-icon:not([data-closed]) .privacy-shackle {
+      transform: translateY(-16px);
+    }
+  }
+
+  /* Three points: 4 columns each. */
+  .privacy-points {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--grid-gap);
+    margin: var(--space-block) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .privacy-point-title {
+    display: block;
+  }
+
+  /* Medium and small: one column, the icon on top. */
+  @media (max-width: 1068px) {
+    .privacy-intro {
+      grid-template-columns: minmax(0, 1fr);
+      row-gap: 40px;
+    }
+
+    .privacy-text,
+    .privacy-art {
+      grid-column: 1;
+    }
+
+    .privacy-art {
+      grid-row: 1;
+      justify-items: start;
+    }
+
+    .privacy-icon {
+      width: 160px;
+      height: 160px;
+    }
+
+    .privacy-points {
+      grid-template-columns: minmax(0, 1fr);
+      row-gap: 32px;
+      max-width: var(--measure-text);
+    }
+  }
+
+  @media print {
+    .privacy-shackle {
+      transform: none !important;
+    }
+  }
+</style>
+
+<script>
+  // Close the padlock once, when the icon reaches 85 % of the viewport (like the reveal).
+  const icon = document.querySelector<SVGElement>('[data-privacy-lock]');
+  if (icon) {
+    const close = (): void => icon.setAttribute('data-closed', '');
+    if (typeof IntersectionObserver !== 'function') {
+      close();
+    } else {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((entry) => entry.isIntersecting)) {
+            close();
+            observer.disconnect();
+          }
+        },
+        { rootMargin: '0px 0px -15% 0px' },
+      );
+      observer.observe(icon);
+    }
+  }
+</script>

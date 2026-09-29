@@ -1,0 +1,4072 @@
+{
+  "data": {
+    "alwaysAllowedHosts": [
+      "accounts.youtube.com"
+    ],
+    "apps": [
+      {
+        "id": "discord",
+        "name": "Discord",
+        "processes": {
+          "linux": [
+            "Discord",
+            "discord",
+            "DiscordPTB",
+            "DiscordCanary"
+          ],
+          "mac": [
+            "Discord",
+            "Discord PTB",
+            "Discord Canary"
+          ],
+          "win": [
+            "Discord.exe",
+            "DiscordPTB.exe",
+            "DiscordCanary.exe"
+          ]
+        }
+      },
+      {
+        "id": "whatsapp",
+        "name": "WhatsApp",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "WhatsApp"
+          ],
+          "win": [
+            "WhatsApp.exe",
+            "WhatsApp.Root.exe"
+          ]
+        }
+      },
+      {
+        "id": "telegram",
+        "name": "Telegram",
+        "processes": {
+          "linux": [
+            "Telegram",
+            "telegram-desktop"
+          ],
+          "mac": [
+            "Telegram"
+          ],
+          "win": [
+            "Telegram.exe"
+          ]
+        }
+      },
+      {
+        "id": "steam",
+        "name": "Steam",
+        "processes": {
+          "linux": [
+            "steam",
+            "steamwebhelper"
+          ],
+          "mac": [
+            "steam_osx",
+            "Steam Helper"
+          ],
+          "win": [
+            "steam.exe",
+            "steamwebhelper.exe"
+          ]
+        }
+      },
+      {
+        "id": "epic-games-launcher",
+        "name": "Epic Games Launcher",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "EpicGamesLauncher",
+            "EpicGamesLauncher-Mac-Shipping",
+            "EpicWebHelper"
+          ],
+          "win": [
+            "EpicGamesLauncher.exe",
+            "EpicWebHelper.exe"
+          ]
+        }
+      },
+      {
+        "id": "roblox",
+        "name": "Roblox",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "RobloxPlayer"
+          ],
+          "win": [
+            "RobloxPlayerBeta.exe",
+            "RobloxPlayerLauncher.exe"
+          ]
+        }
+      },
+      {
+        "id": "minecraft-launcher",
+        "name": "Minecraft Launcher",
+        "processes": {
+          "linux": [
+            "minecraft-launcher"
+          ],
+          "mac": [
+            "Minecraft"
+          ],
+          "win": [
+            "MinecraftLauncher.exe",
+            "Minecraft.exe",
+            "Minecraft.Windows.exe"
+          ]
+        }
+      },
+      {
+        "id": "fortnite",
+        "name": "Fortnite",
+        "processes": {
+          "linux": [],
+          "mac": [],
+          "win": [
+            "FortniteLauncher.exe",
+            "FortniteClient-Win64-Shipping.exe",
+            "FortniteClient-Win64-Shipping_EAC.exe",
+            "FortniteClient-Win64-Shipping_EAC_EOS.exe",
+            "FortniteClient-Win64-Shipping_BE.exe"
+          ]
+        }
+      },
+      {
+        "id": "league-of-legends",
+        "name": "League of Legends",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "LeagueClient",
+            "LeagueClientUx",
+            "LeagueofLegends",
+            "League of Legends"
+          ],
+          "win": [
+            "LeagueClient.exe",
+            "LeagueClientUx.exe",
+            "LeagueClientUxRender.exe",
+            "League of Legends.exe"
+          ]
+        }
+      },
+      {
+        "id": "valorant",
+        "name": "VALORANT",
+        "processes": {
+          "linux": [],
+          "mac": [],
+          "win": [
+            "VALORANT.exe",
+            "VALORANT-Win64-Shipping.exe"
+          ]
+        }
+      },
+      {
+        "id": "riot-client",
+        "name": "Riot Client",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "Riot Client",
+            "RiotClientServices"
+          ],
+          "win": [
+            "RiotClientServices.exe",
+            "Riot Client.exe",
+            "RiotClientUx.exe",
+            "RiotClientUxRender.exe"
+          ]
+        }
+      },
+      {
+        "id": "battle-net",
+        "name": "Battle.net",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "Battle.net"
+          ],
+          "win": [
+            "Battle.net.exe",
+            "Battle.net Launcher.exe"
+          ]
+        }
+      },
+      {
+        "id": "ea-app",
+        "name": "EA app",
+        "processes": {
+          "linux": [],
+          "mac": [],
+          "win": [
+            "EADesktop.exe"
+          ]
+        }
+      },
+      {
+        "id": "ea-sports-fc",
+        "name": "EA SPORTS FC",
+        "processes": {
+          "linux": [],
+          "mac": [],
+          "win": [
+            "FC24.exe",
+            "FC25.exe",
+            "FC26.exe"
+          ]
+        }
+      },
+      {
+        "id": "ubisoft-connect",
+        "name": "Ubisoft Connect",
+        "processes": {
+          "linux": [],
+          "mac": [],
+          "win": [
+            "UbisoftConnect.exe",
+            "upc.exe"
+          ]
+        }
+      },
+      {
+        "id": "gog-galaxy",
+        "name": "GOG Galaxy",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "GOG Galaxy"
+          ],
+          "win": [
+            "GalaxyClient.exe"
+          ]
+        }
+      },
+      {
+        "id": "geforce-now",
+        "name": "GeForce NOW",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "GeForceNOW"
+          ],
+          "win": [
+            "GeForceNOW.exe"
+          ]
+        }
+      },
+      {
+        "id": "popular-pc-games",
+        "name": "Juegos de PC populares",
+        "processes": {
+          "linux": [
+            "cs2",
+            "dota2",
+            "GTA5.exe",
+            "PlayGTAV.exe",
+            "Overwatch.exe",
+            "Among Us.exe",
+            "Terraria.exe",
+            "Brawlhalla.exe"
+          ],
+          "mac": [],
+          "win": [
+            "cs2.exe",
+            "dota2.exe",
+            "RocketLeague.exe",
+            "GTA5.exe",
+            "GTA5_Enhanced.exe",
+            "PlayGTAV.exe",
+            "r5apex.exe",
+            "r5apex_dx12.exe",
+            "Overwatch.exe",
+            "GenshinImpact.exe",
+            "Among Us.exe",
+            "FallGuys_client_game.exe",
+            "Terraria.exe",
+            "Stardew Valley.exe",
+            "GeometryDash.exe",
+            "Brawlhalla.exe",
+            "RainbowSix.exe",
+            "RainbowSix_BE.exe",
+            "cod.exe"
+          ]
+        }
+      },
+      {
+        "id": "spotify",
+        "name": "Spotify",
+        "processes": {
+          "linux": [
+            "spotify"
+          ],
+          "mac": [
+            "Spotify"
+          ],
+          "win": [
+            "Spotify.exe"
+          ]
+        }
+      }
+    ],
+    "browsers": [
+      {
+        "extensionFamily": "chrome",
+        "family": "chromium",
+        "id": "chrome",
+        "name": "Google Chrome",
+        "processes": {
+          "linux": [
+            "chrome"
+          ],
+          "mac": [
+            "Google Chrome",
+            "Google Chrome Helper",
+            "Google Chrome Beta",
+            "Google Chrome Beta Helper",
+            "Google Chrome Dev",
+            "Google Chrome Dev Helper",
+            "Google Chrome Canary",
+            "Google Chrome Canary Helper"
+          ],
+          "win": [
+            "chrome.exe"
+          ]
+        }
+      },
+      {
+        "extensionFamily": "edge",
+        "family": "chromium",
+        "id": "edge",
+        "name": "Microsoft Edge",
+        "processes": {
+          "linux": [
+            "msedge"
+          ],
+          "mac": [
+            "Microsoft Edge",
+            "Microsoft Edge Helper",
+            "Microsoft Edge Beta",
+            "Microsoft Edge Beta Helper",
+            "Microsoft Edge Dev",
+            "Microsoft Edge Dev Helper",
+            "Microsoft Edge Canary",
+            "Microsoft Edge Canary Helper"
+          ],
+          "win": [
+            "msedge.exe"
+          ]
+        }
+      },
+      {
+        "extensionFamily": "brave",
+        "family": "chromium",
+        "id": "brave",
+        "name": "Brave",
+        "processes": {
+          "linux": [
+            "brave"
+          ],
+          "mac": [
+            "Brave Browser",
+            "Brave Browser Helper",
+            "Brave Browser Beta",
+            "Brave Browser Beta Helper",
+            "Brave Browser Nightly",
+            "Brave Browser Nightly Helper"
+          ],
+          "win": [
+            "brave.exe"
+          ]
+        }
+      },
+      {
+        "extensionFamily": "opera",
+        "family": "chromium",
+        "id": "opera",
+        "name": "Opera",
+        "processes": {
+          "linux": [
+            "opera"
+          ],
+          "mac": [
+            "Opera",
+            "Opera Helper"
+          ],
+          "win": [
+            "opera.exe"
+          ]
+        }
+      },
+      {
+        "extensionFamily": "opera",
+        "family": "chromium",
+        "id": "opera-gx",
+        "name": "Opera GX",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "Opera GX",
+            "Opera GX Helper"
+          ],
+          "win": [
+            "opera.exe"
+          ]
+        }
+      },
+      {
+        "extensionFamily": "vivaldi",
+        "family": "chromium",
+        "id": "vivaldi",
+        "name": "Vivaldi",
+        "processes": {
+          "linux": [
+            "vivaldi-bin"
+          ],
+          "mac": [
+            "Vivaldi",
+            "Vivaldi Helper"
+          ],
+          "win": [
+            "vivaldi.exe"
+          ]
+        }
+      },
+      {
+        "extensionFamily": "firefox",
+        "family": "firefox",
+        "id": "firefox",
+        "name": "Firefox",
+        "processes": {
+          "linux": [
+            "firefox",
+            "firefox-bin",
+            "firefox-esr"
+          ],
+          "mac": [
+            "firefox"
+          ],
+          "win": [
+            "firefox.exe"
+          ]
+        }
+      },
+      {
+        "extensionFamily": "other",
+        "family": "safari",
+        "id": "safari",
+        "name": "Safari",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "Safari",
+            "Safari Technology Preview"
+          ],
+          "win": []
+        }
+      },
+      {
+        "extensionFamily": "chrome",
+        "family": "chromium",
+        "id": "arc",
+        "name": "Arc",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "Arc"
+          ],
+          "win": [
+            "Arc.exe"
+          ]
+        }
+      },
+      {
+        "extensionFamily": "chromium",
+        "family": "chromium",
+        "id": "chromium",
+        "name": "Chromium",
+        "processes": {
+          "linux": [
+            "chromium",
+            "chromium-browser",
+            "chrome"
+          ],
+          "mac": [
+            "Chromium",
+            "Chromium Helper"
+          ],
+          "win": [
+            "chrome.exe"
+          ]
+        }
+      },
+      {
+        "extensionFamily": "chromium",
+        "family": "chromium",
+        "id": "yandex",
+        "name": "Yandex Browser",
+        "processes": {
+          "linux": [
+            "yandex_browser"
+          ],
+          "mac": [
+            "Yandex",
+            "Yandex Helper"
+          ],
+          "win": []
+        }
+      }
+    ],
+    "categories": [
+      {
+        "aliases": [
+          "redes",
+          "redes sociales",
+          "rrss",
+          "rr ss",
+          "rr.ss.",
+          "red social",
+          "sociales",
+          "social media",
+          "socials"
+        ],
+        "appIds": [],
+        "id": "social",
+        "name": "Redes sociales"
+      },
+      {
+        "aliases": [
+          "video",
+          "videos",
+          "vídeos",
+          "streaming",
+          "streamings",
+          "streams",
+          "directos",
+          "series",
+          "pelis",
+          "peliculas",
+          "películas",
+          "series y pelis",
+          "series y peliculas",
+          "plataformas",
+          "plataformas de streaming"
+        ],
+        "appIds": [],
+        "id": "video",
+        "name": "Vídeo y streaming"
+      },
+      {
+        "aliases": [
+          "juegos",
+          "juego",
+          "jueguitos",
+          "videojuegos",
+          "videojuego",
+          "video juegos",
+          "juegos online",
+          "minijuegos",
+          "gaming",
+          "games",
+          "jugar"
+        ],
+        "appIds": [
+          "popular-pc-games"
+        ],
+        "id": "games",
+        "name": "Juegos"
+      },
+      {
+        "aliases": [
+          "mensajeria",
+          "mensajería",
+          "mensajes",
+          "mensajitos",
+          "chats",
+          "chat",
+          "chatear",
+          "mensajeria instantanea"
+        ],
+        "appIds": [],
+        "id": "messaging",
+        "name": "Mensajería"
+      },
+      {
+        "aliases": [
+          "compras",
+          "compras online",
+          "comprar",
+          "tiendas",
+          "tiendas online",
+          "shopping"
+        ],
+        "appIds": [],
+        "id": "shopping",
+        "name": "Compras"
+      },
+      {
+        "aliases": [
+          "noticias",
+          "deportes",
+          "noticias deportivas",
+          "prensa",
+          "prensa deportiva",
+          "periodicos",
+          "periódicos",
+          "diarios",
+          "news"
+        ],
+        "appIds": [],
+        "id": "news",
+        "name": "Noticias y deportes"
+      }
+    ],
+    "multiLabelSuffixes": [
+      "com.es",
+      "org.es",
+      "nom.es",
+      "gob.es",
+      "edu.es",
+      "com.mx",
+      "org.mx",
+      "net.mx",
+      "gob.mx",
+      "edu.mx",
+      "com.ar",
+      "org.ar",
+      "net.ar",
+      "gob.ar",
+      "gov.ar",
+      "edu.ar",
+      "com.co",
+      "org.co",
+      "net.co",
+      "gov.co",
+      "edu.co",
+      "com.pe",
+      "org.pe",
+      "net.pe",
+      "gob.pe",
+      "edu.pe",
+      "com.ve",
+      "org.ve",
+      "net.ve",
+      "gob.ve",
+      "edu.ve",
+      "com.uy",
+      "org.uy",
+      "net.uy",
+      "gub.uy",
+      "edu.uy",
+      "com.ec",
+      "org.ec",
+      "net.ec",
+      "gob.ec",
+      "edu.ec",
+      "com.bo",
+      "org.bo",
+      "net.bo",
+      "gob.bo",
+      "edu.bo",
+      "com.py",
+      "org.py",
+      "net.py",
+      "gov.py",
+      "edu.py",
+      "gob.cl",
+      "gov.cl",
+      "com.gt",
+      "org.gt",
+      "net.gt",
+      "gob.gt",
+      "edu.gt",
+      "com.sv",
+      "org.sv",
+      "gob.sv",
+      "edu.sv",
+      "com.hn",
+      "org.hn",
+      "net.hn",
+      "gob.hn",
+      "edu.hn",
+      "com.ni",
+      "org.ni",
+      "net.ni",
+      "gob.ni",
+      "edu.ni",
+      "co.cr",
+      "or.cr",
+      "go.cr",
+      "ac.cr",
+      "ed.cr",
+      "com.pa",
+      "org.pa",
+      "net.pa",
+      "gob.pa",
+      "edu.pa",
+      "com.do",
+      "org.do",
+      "net.do",
+      "gob.do",
+      "edu.do",
+      "com.cu",
+      "org.cu",
+      "net.cu",
+      "gob.cu",
+      "edu.cu",
+      "com.pr",
+      "org.pr",
+      "net.pr",
+      "gov.pr",
+      "edu.pr",
+      "com.br",
+      "org.br",
+      "net.br",
+      "gov.br",
+      "edu.br",
+      "co.uk",
+      "org.uk",
+      "me.uk",
+      "ltd.uk",
+      "plc.uk",
+      "net.uk",
+      "ac.uk",
+      "gov.uk",
+      "nhs.uk",
+      "police.uk",
+      "com.pt",
+      "org.pt",
+      "gov.pt",
+      "edu.pt",
+      "com.tr",
+      "org.tr",
+      "net.tr",
+      "gov.tr",
+      "edu.tr",
+      "gen.tr",
+      "com.ua",
+      "com.au",
+      "net.au",
+      "org.au",
+      "edu.au",
+      "gov.au",
+      "asn.au",
+      "id.au",
+      "co.nz",
+      "org.nz",
+      "net.nz",
+      "ac.nz",
+      "govt.nz",
+      "school.nz",
+      "co.za",
+      "org.za",
+      "net.za",
+      "gov.za",
+      "ac.za",
+      "co.ma",
+      "ac.ma",
+      "gov.ma",
+      "com.eg",
+      "edu.eg",
+      "gov.eg",
+      "com.ng",
+      "edu.ng",
+      "gov.ng",
+      "co.ke",
+      "ac.ke",
+      "go.ke",
+      "co.il",
+      "org.il",
+      "net.il",
+      "ac.il",
+      "gov.il",
+      "com.sa",
+      "edu.sa",
+      "gov.sa",
+      "co.jp",
+      "ne.jp",
+      "or.jp",
+      "ac.jp",
+      "go.jp",
+      "ad.jp",
+      "ed.jp",
+      "gr.jp",
+      "lg.jp",
+      "co.kr",
+      "or.kr",
+      "ne.kr",
+      "ac.kr",
+      "go.kr",
+      "re.kr",
+      "co.in",
+      "net.in",
+      "org.in",
+      "ac.in",
+      "gov.in",
+      "edu.in",
+      "firm.in",
+      "gen.in",
+      "ind.in",
+      "com.cn",
+      "net.cn",
+      "org.cn",
+      "gov.cn",
+      "edu.cn",
+      "com.hk",
+      "org.hk",
+      "net.hk",
+      "gov.hk",
+      "edu.hk",
+      "com.tw",
+      "org.tw",
+      "net.tw",
+      "gov.tw",
+      "edu.tw",
+      "com.sg",
+      "org.sg",
+      "net.sg",
+      "gov.sg",
+      "edu.sg",
+      "com.my",
+      "org.my",
+      "net.my",
+      "gov.my",
+      "edu.my",
+      "co.id",
+      "or.id",
+      "ac.id",
+      "go.id",
+      "web.id",
+      "co.th",
+      "or.th",
+      "ac.th",
+      "go.th",
+      "in.th",
+      "com.ph",
+      "org.ph",
+      "net.ph",
+      "gov.ph",
+      "edu.ph",
+      "com.pk",
+      "edu.pk",
+      "gov.pk"
+    ],
+    "protectedDomains": [
+      "microsoft.com",
+      "windows.com",
+      "windowsupdate.com",
+      "msftconnecttest.com",
+      "msftncsi.com",
+      "apple.com",
+      "cdn-apple.com",
+      "pool.ntp.org",
+      "ubuntu.com",
+      "debian.org",
+      "fedoraproject.org",
+      "google.com",
+      "cloudflare.com",
+      "cloudflare-dns.com",
+      "dns.google",
+      "github.com",
+      "githubusercontent.com",
+      "centrate.onrender.com",
+      "mozilla.org",
+      "mozilla.net",
+      "localhost"
+    ],
+    "protectedProcesses": [
+      "[System Process]",
+      "System",
+      "Registry",
+      "Idle",
+      "Secure System",
+      "Memory Compression",
+      "smss.exe",
+      "csrss.exe",
+      "wininit.exe",
+      "winlogon.exe",
+      "services.exe",
+      "lsass.exe",
+      "lsaiso.exe",
+      "lsm.exe",
+      "svchost.exe",
+      "userinit.exe",
+      "explorer.exe",
+      "dwm.exe",
+      "fontdrvhost.exe",
+      "LogonUI.exe",
+      "sihost.exe",
+      "ctfmon.exe",
+      "conhost.exe",
+      "dllhost.exe",
+      "taskhostw.exe",
+      "RuntimeBroker.exe",
+      "ApplicationFrameHost.exe",
+      "StartMenuExperienceHost.exe",
+      "ShellExperienceHost.exe",
+      "SearchHost.exe",
+      "SearchApp.exe",
+      "TextInputHost.exe",
+      "spoolsv.exe",
+      "audiodg.exe",
+      "WmiPrvSE.exe",
+      "WUDFHost.exe",
+      "MsMpEng.exe",
+      "SecurityHealthService.exe",
+      "SecurityHealthSystray.exe",
+      "Taskmgr.exe",
+      "SystemSettings.exe",
+      "control.exe",
+      "msiexec.exe",
+      "consent.exe",
+      "LockApp.exe",
+      "SearchIndexer.exe",
+      "MpDefenderCoreService.exe",
+      "NisSrv.exe",
+      "smartscreen.exe",
+      "SgrmBroker.exe",
+      "CredentialUIBroker.exe",
+      "WerFault.exe",
+      "TrustedInstaller.exe",
+      "TiWorker.exe",
+      "MoUsoCoreWorker.exe",
+      "Au_.exe",
+      "Un_A.exe",
+      "osk.exe",
+      "TabTip.exe",
+      "Narrator.exe",
+      "Magnify.exe",
+      "AtBroker.exe",
+      "Utilman.exe",
+      "nvda.exe",
+      "jfw.exe",
+      "kernel_task",
+      "launchd",
+      "WindowServer",
+      "loginwindow",
+      "Finder",
+      "Dock",
+      "SystemUIServer",
+      "ControlCenter",
+      "WindowManager",
+      "NotificationCenter",
+      "coreaudiod",
+      "configd",
+      "securityd",
+      "opendirectoryd",
+      "syspolicyd",
+      "tccd",
+      "mds",
+      "mds_stores",
+      "UserEventAgent",
+      "logd",
+      "notifyd",
+      "cfprefsd",
+      "distnoted",
+      "powerd",
+      "diskarbitrationd",
+      "fseventsd",
+      "authd",
+      "SecurityAgent",
+      "Activity Monitor",
+      "System Settings",
+      "System Preferences",
+      "mDNSResponder",
+      "coreservicesd",
+      "launchservicesd",
+      "hidd",
+      "trustd",
+      "universalaccessd",
+      "installd",
+      "Installer",
+      "osascript",
+      "security_authtrampoline",
+      "authorizationhost",
+      "launchctl",
+      "VoiceOver",
+      "AssistiveControl",
+      "systemd",
+      "init",
+      "kthreadd",
+      "systemd-logind",
+      "systemd-resolved",
+      "systemd-journald",
+      "systemd-udevd",
+      "dbus-daemon",
+      "dbus-broker",
+      "polkitd",
+      "NetworkManager",
+      "Xorg",
+      "Xwayland",
+      "gnome-shell",
+      "gnome-session",
+      "gnome-session-binary",
+      "mutter",
+      "plasmashell",
+      "ksmserver",
+      "kwin",
+      "kwin_x11",
+      "kwin_wayland",
+      "xfwm4",
+      "xfce4-session",
+      "cinnamon",
+      "gdm",
+      "gdm3",
+      "sddm",
+      "lightdm",
+      "pipewire",
+      "wireplumber",
+      "pulseaudio",
+      "sshd",
+      "sshd-session",
+      "login",
+      "agetty",
+      "getty",
+      "gnome-system-monitor",
+      "plasma-systemmonitor",
+      "ksysguard",
+      "xfce4-taskmanager",
+      "sway",
+      "Hyprland",
+      "labwc",
+      "wayfire",
+      "weston",
+      "niri",
+      "cosmic-comp",
+      "i3",
+      "gsd-xsettings",
+      "gsd-media-keys",
+      "gsd-power",
+      "gsd-keyboard",
+      "gsd-a11y-settings",
+      "gsd-color",
+      "gsd-wacom",
+      "gsd-sound",
+      "gsd-smartcard",
+      "gsd-rfkill",
+      "gsd-housekeeping",
+      "gsd-print-notifications",
+      "gsd-sharing",
+      "gsd-datetime",
+      "gsd-screensaver-proxy",
+      "gsd-usb-protection",
+      "xdg-desktop-portal",
+      "xdg-desktop-portal-gnome",
+      "xdg-desktop-portal-gtk",
+      "xdg-desktop-portal-kde",
+      "xdg-desktop-portal-wlr",
+      "xdg-desktop-portal-hyprland",
+      "xdg-document-portal",
+      "xdg-permission-store",
+      "at-spi-bus-launcher",
+      "at-spi2-registryd",
+      "pkexec",
+      "polkit-agent-helper-1",
+      "polkit-gnome-authentication-agent-1",
+      "polkit-kde-authentication-agent-1",
+      "sudo",
+      "su",
+      "doas",
+      "dpkg",
+      "apt",
+      "apt-get",
+      "rpm",
+      "dnf",
+      "packagekitd",
+      "systemctl",
+      "orca",
+      "onboard",
+      "Céntrate.exe",
+      "Centrate.exe",
+      "Céntrate",
+      "Centrate",
+      "Céntrate Helper",
+      "Céntrate Helper (GPU)",
+      "Céntrate Helper (Plugin)",
+      "Céntrate Helper (Renderer)",
+      "centrate-guardian",
+      "centrate-guardian.exe",
+      "Uninstall Céntrate.exe",
+      "Uninstall Centrate.exe"
+    ],
+    "services": [
+      {
+        "aliases": [
+          "tiktok",
+          "tik tok",
+          "tik-tok",
+          "tictoc",
+          "tic toc",
+          "tiktoc",
+          "tictok",
+          "tiktk",
+          "tt"
+        ],
+        "appIds": [],
+        "categories": [
+          "social"
+        ],
+        "domains": [
+          "tiktok.com",
+          "www.tiktok.com",
+          "m.tiktok.com",
+          "vm.tiktok.com",
+          "vt.tiktok.com",
+          "tiktokv.com",
+          "tiktokcdn.com",
+          "tiktokcdn-us.com",
+          "ttwstatic.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "tiktok",
+        "monogram": "TT",
+        "name": "TikTok",
+        "titleHints": [
+          "TikTok - Make Your Day"
+        ]
+      },
+      {
+        "aliases": [
+          "instagram",
+          "insta",
+          "ig",
+          "instagran",
+          "instragram",
+          "istagram",
+          "intagram",
+          "instgram",
+          "insta gram",
+          "reels"
+        ],
+        "appIds": [],
+        "categories": [
+          "social"
+        ],
+        "domains": [
+          "instagram.com",
+          "www.instagram.com",
+          "m.instagram.com",
+          "l.instagram.com",
+          "i.instagram.com",
+          "api.instagram.com",
+          "graph.instagram.com",
+          "help.instagram.com",
+          "about.instagram.com",
+          "instagr.am",
+          "www.instagr.am",
+          "ig.me",
+          "cdninstagram.com",
+          "static.cdninstagram.com",
+          "scontent.cdninstagram.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "instagram",
+        "monogram": "IG",
+        "name": "Instagram",
+        "titleHints": [
+          "Instagram photos and videos",
+          "Fotos y vídeos de Instagram"
+        ]
+      },
+      {
+        "aliases": [
+          "x",
+          "twitter",
+          "tuiter",
+          "twiter",
+          "twitt",
+          "tweeter",
+          "x twitter",
+          "twitter x"
+        ],
+        "appIds": [],
+        "categories": [
+          "social"
+        ],
+        "domains": [
+          "x.com",
+          "www.x.com",
+          "mobile.x.com",
+          "api.x.com",
+          "pro.x.com",
+          "twitter.com",
+          "www.twitter.com",
+          "mobile.twitter.com",
+          "api.twitter.com",
+          "platform.twitter.com",
+          "t.co",
+          "twimg.com",
+          "abs.twimg.com",
+          "abs-0.twimg.com",
+          "pbs.twimg.com",
+          "video.twimg.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "x-twitter",
+        "monogram": "X",
+        "name": "X (Twitter)",
+        "titleHints": [
+          "X",
+          "Twitter"
+        ]
+      },
+      {
+        "aliases": [
+          "facebook",
+          "face",
+          "fb",
+          "feis",
+          "feisbuk",
+          "fesbuk",
+          "facebok",
+          "facebuk",
+          "face book"
+        ],
+        "appIds": [],
+        "categories": [
+          "social"
+        ],
+        "domains": [
+          "facebook.com",
+          "www.facebook.com",
+          "m.facebook.com",
+          "web.facebook.com",
+          "mobile.facebook.com",
+          "touch.facebook.com",
+          "mbasic.facebook.com",
+          "l.facebook.com",
+          "lm.facebook.com",
+          "es-es.facebook.com",
+          "es-la.facebook.com",
+          "d.facebook.com",
+          "x.facebook.com",
+          "free.facebook.com",
+          "fb.com",
+          "www.fb.com",
+          "fb.me",
+          "fb.watch",
+          "fb.gg"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "facebook",
+        "monogram": "FB",
+        "name": "Facebook",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "snapchat",
+          "snap",
+          "snachat",
+          "esnapchat",
+          "snap chat"
+        ],
+        "appIds": [],
+        "categories": [
+          "social"
+        ],
+        "domains": [
+          "snapchat.com",
+          "www.snapchat.com",
+          "web.snapchat.com",
+          "accounts.snapchat.com",
+          "story.snapchat.com",
+          "map.snapchat.com",
+          "sc-cdn.net",
+          "sc-static.net"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "snapchat",
+        "monogram": "SC",
+        "name": "Snapchat",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "reddit",
+          "redit",
+          "reddi",
+          "reditt"
+        ],
+        "appIds": [],
+        "categories": [
+          "social"
+        ],
+        "domains": [
+          "reddit.com",
+          "www.reddit.com",
+          "old.reddit.com",
+          "new.reddit.com",
+          "np.reddit.com",
+          "m.reddit.com",
+          "i.reddit.com",
+          "sh.reddit.com",
+          "oauth.reddit.com",
+          "gql.reddit.com",
+          "redd.it",
+          "i.redd.it",
+          "v.redd.it",
+          "preview.redd.it",
+          "external-preview.redd.it",
+          "redditmedia.com",
+          "styles.redditmedia.com",
+          "redditstatic.com",
+          "www.redditstatic.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "reddit",
+        "monogram": "R",
+        "name": "Reddit",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "pinterest",
+          "pinteres",
+          "pinterst",
+          "pintrest"
+        ],
+        "appIds": [],
+        "categories": [
+          "social"
+        ],
+        "domains": [
+          "pinterest.com",
+          "www.pinterest.com",
+          "es.pinterest.com",
+          "pinterest.es",
+          "www.pinterest.es",
+          "mx.pinterest.com",
+          "ar.pinterest.com",
+          "co.pinterest.com",
+          "cl.pinterest.com",
+          "pe.pinterest.com",
+          "uk.pinterest.com",
+          "fr.pinterest.com",
+          "de.pinterest.com",
+          "it.pinterest.com",
+          "br.pinterest.com",
+          "pinterest.com.mx",
+          "www.pinterest.com.mx",
+          "pinterest.co.uk",
+          "www.pinterest.co.uk",
+          "api.pinterest.com",
+          "pin.it",
+          "pinimg.com",
+          "i.pinimg.com",
+          "s.pinimg.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "pinterest",
+        "monogram": "P",
+        "name": "Pinterest",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "bereal",
+          "be real"
+        ],
+        "appIds": [],
+        "categories": [
+          "social"
+        ],
+        "domains": [
+          "bereal.com",
+          "www.bereal.com",
+          "bere.al"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "bereal",
+        "monogram": "BR",
+        "name": "BeReal",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "threads",
+          "treads",
+          "thread"
+        ],
+        "appIds": [],
+        "categories": [
+          "social"
+        ],
+        "domains": [
+          "threads.com",
+          "www.threads.com",
+          "threads.net",
+          "www.threads.net"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "threads",
+        "monogram": "TH",
+        "name": "Threads",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "tumblr",
+          "tumbler",
+          "tumbl"
+        ],
+        "appIds": [],
+        "categories": [
+          "social"
+        ],
+        "domains": [
+          "tumblr.com",
+          "www.tumblr.com",
+          "assets.tumblr.com",
+          "media.tumblr.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "tumblr",
+        "monogram": "T",
+        "name": "Tumblr",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "bluesky",
+          "blue sky",
+          "bsky"
+        ],
+        "appIds": [],
+        "categories": [
+          "social"
+        ],
+        "domains": [
+          "bsky.app",
+          "bsky.social",
+          "cdn.bsky.app",
+          "video.bsky.app",
+          "public.api.bsky.app",
+          "embed.bsky.app",
+          "blueskyweb.xyz"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "bluesky",
+        "monogram": "BS",
+        "name": "Bluesky",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "forocoches",
+          "foro coches"
+        ],
+        "appIds": [],
+        "categories": [
+          "social"
+        ],
+        "domains": [
+          "forocoches.com",
+          "www.forocoches.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "forocoches",
+        "monogram": "FC",
+        "name": "Forocoches",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "youtube",
+          "yt",
+          "ytb",
+          "you tube",
+          "youtbe",
+          "youtub",
+          "yotube",
+          "yutub",
+          "yutube",
+          "utube",
+          "u tube",
+          "youtube music",
+          "youtube shorts",
+          "shorts"
+        ],
+        "appIds": [],
+        "categories": [
+          "video"
+        ],
+        "domains": [
+          "youtube.com",
+          "www.youtube.com",
+          "m.youtube.com",
+          "music.youtube.com",
+          "youtu.be",
+          "youtube-nocookie.com",
+          "www.youtube-nocookie.com",
+          "youtubei.googleapis.com",
+          "tv.youtube.com",
+          "studio.youtube.com",
+          "youtube.googleapis.com",
+          "youtubekids.com",
+          "www.youtubekids.com",
+          "ytimg.com",
+          "i.ytimg.com",
+          "s.ytimg.com",
+          "i9.ytimg.com",
+          "yt3.ggpht.com",
+          "yt3.googleusercontent.com"
+        ],
+        "educationalCapable": true,
+        "excludedSubdomains": [],
+        "id": "youtube",
+        "monogram": "YT",
+        "name": "YouTube",
+        "titleHints": [
+          "YouTube Music",
+          "YouTube Kids"
+        ]
+      },
+      {
+        "aliases": [
+          "twitch",
+          "twich",
+          "twitch tv",
+          "twtich",
+          "tuich",
+          "tuitch"
+        ],
+        "appIds": [],
+        "categories": [
+          "video"
+        ],
+        "domains": [
+          "twitch.tv",
+          "www.twitch.tv",
+          "m.twitch.tv",
+          "clips.twitch.tv",
+          "player.twitch.tv",
+          "gql.twitch.tv",
+          "passport.twitch.tv",
+          "id.twitch.tv",
+          "dashboard.twitch.tv",
+          "irc-ws.chat.twitch.tv",
+          "pubsub-edge.twitch.tv",
+          "twitchcdn.net",
+          "static.twitchcdn.net",
+          "ttvnw.net",
+          "usher.ttvnw.net",
+          "jtvnw.net",
+          "static-cdn.jtvnw.net"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "twitch",
+        "monogram": "TW",
+        "name": "Twitch",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "kick",
+          "kick.com"
+        ],
+        "appIds": [],
+        "categories": [
+          "video"
+        ],
+        "domains": [
+          "kick.com",
+          "www.kick.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "kick",
+        "monogram": "K",
+        "name": "Kick",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "netflix",
+          "netflis",
+          "netflx",
+          "netfix",
+          "neflix",
+          "netfli",
+          "nefli",
+          "net flix"
+        ],
+        "appIds": [],
+        "categories": [
+          "video"
+        ],
+        "domains": [
+          "netflix.com",
+          "www.netflix.com",
+          "nflxext.com",
+          "assets.nflxext.com",
+          "nflximg.com",
+          "nflximg.net",
+          "nflxso.net",
+          "nflxvideo.net"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "netflix",
+        "monogram": "N",
+        "name": "Netflix",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "disney",
+          "disney plus",
+          "disney+",
+          "disneyplus",
+          "disney mas",
+          "disny",
+          "disni"
+        ],
+        "appIds": [],
+        "categories": [
+          "video"
+        ],
+        "domains": [
+          "disneyplus.com",
+          "www.disneyplus.com",
+          "disney-plus.net",
+          "bamgrid.com",
+          "dssott.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "disney-plus",
+        "monogram": "D+",
+        "name": "Disney+",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "prime video",
+          "prime",
+          "amazon prime",
+          "amazon prime video",
+          "amazon video",
+          "primevideo"
+        ],
+        "appIds": [],
+        "categories": [
+          "video"
+        ],
+        "domains": [
+          "primevideo.com",
+          "www.primevideo.com",
+          "atv-ps.amazon.com",
+          "atv-ps-eu.amazon.com",
+          "aiv-cdn.net",
+          "aiv-delivery.net"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "prime-video",
+        "monogram": "PV",
+        "name": "Prime Video",
+        "titleHints": [
+          "Amazon Prime Video"
+        ]
+      },
+      {
+        "aliases": [
+          "hbo",
+          "max",
+          "hbo max",
+          "hbomax",
+          "hbo+"
+        ],
+        "appIds": [],
+        "categories": [
+          "video"
+        ],
+        "domains": [
+          "hbomax.com",
+          "www.hbomax.com",
+          "play.hbomax.com",
+          "max.com",
+          "www.max.com",
+          "play.max.com",
+          "auth.max.com",
+          "hbo.com",
+          "www.hbo.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "hbo-max",
+        "monogram": "HB",
+        "name": "HBO Max",
+        "titleHints": [
+          "Max",
+          "HBO"
+        ]
+      },
+      {
+        "aliases": [
+          "movistar plus",
+          "movistar+",
+          "movistar plus+",
+          "movistar",
+          "movistar tv",
+          "m+"
+        ],
+        "appIds": [],
+        "categories": [
+          "video"
+        ],
+        "domains": [
+          "movistarplus.es",
+          "www.movistarplus.es",
+          "ver.movistarplus.es"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "movistar-plus",
+        "monogram": "M+",
+        "name": "Movistar Plus+",
+        "titleHints": [
+          "Movistar Plus"
+        ]
+      },
+      {
+        "aliases": [
+          "crunchyroll",
+          "crunchy",
+          "crunchiroll",
+          "cruncyroll",
+          "crunchy roll",
+          "anime"
+        ],
+        "appIds": [],
+        "categories": [
+          "video"
+        ],
+        "domains": [
+          "crunchyroll.com",
+          "www.crunchyroll.com",
+          "static.crunchyroll.com",
+          "sso.crunchyroll.com",
+          "beta-api.crunchyroll.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "crunchyroll",
+        "monogram": "CR",
+        "name": "Crunchyroll",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "filmin"
+        ],
+        "appIds": [],
+        "categories": [
+          "video"
+        ],
+        "domains": [
+          "filmin.es",
+          "www.filmin.es"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "filmin",
+        "monogram": "F",
+        "name": "Filmin",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "atresplayer",
+          "atres player",
+          "atres"
+        ],
+        "appIds": [],
+        "categories": [
+          "video"
+        ],
+        "domains": [
+          "atresplayer.com",
+          "www.atresplayer.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "atresplayer",
+        "monogram": "A3",
+        "name": "Atresplayer",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "mitele",
+          "mi tele"
+        ],
+        "appIds": [],
+        "categories": [
+          "video"
+        ],
+        "domains": [
+          "mitele.es",
+          "www.mitele.es"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "mitele",
+        "monogram": "MT",
+        "name": "Mitele",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "dazn",
+          "dazon"
+        ],
+        "appIds": [],
+        "categories": [
+          "video"
+        ],
+        "domains": [
+          "dazn.com",
+          "www.dazn.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "dazn",
+        "monogram": "DZ",
+        "name": "DAZN",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "poki",
+          "poki games",
+          "poky"
+        ],
+        "appIds": [],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "poki.com",
+          "www.poki.com",
+          "poki-gdn.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "poki",
+        "monogram": "PK",
+        "name": "Poki",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "crazygames",
+          "crazy games",
+          "crazy game",
+          "creizi games"
+        ],
+        "appIds": [],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "crazygames.com",
+          "www.crazygames.com",
+          "games.crazygames.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "crazygames",
+        "monogram": "CG",
+        "name": "CrazyGames",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "miniclip",
+          "mini clip"
+        ],
+        "appIds": [],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "miniclip.com",
+          "www.miniclip.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "miniclip",
+        "monogram": "M",
+        "name": "Miniclip",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "friv",
+          "friv.com"
+        ],
+        "appIds": [],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "friv.com",
+          "www.friv.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "friv",
+        "monogram": "FV",
+        "name": "Friv",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "y8",
+          "y8.com"
+        ],
+        "appIds": [],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "y8.com",
+          "www.y8.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "y8",
+        "monogram": "Y8",
+        "name": "Y8",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "kongregate"
+        ],
+        "appIds": [],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "kongregate.com",
+          "www.kongregate.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "kongregate",
+        "monogram": "KG",
+        "name": "Kongregate",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "juegos.com"
+        ],
+        "appIds": [],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "juegos.com",
+          "www.juegos.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "juegos-com",
+        "monogram": "J",
+        "name": "Juegos.com",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "minijuegos.com"
+        ],
+        "appIds": [],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "minijuegos.com",
+          "www.minijuegos.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "minijuegos-com",
+        "monogram": "MJ",
+        "name": "Minijuegos.com",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "1001juegos",
+          "1001 juegos",
+          "1001juegos.com"
+        ],
+        "appIds": [],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "1001juegos.com",
+          "www.1001juegos.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "1001juegos",
+        "monogram": "1J",
+        "name": "1001Juegos",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "coolmath",
+          "coolmath games",
+          "cool math games"
+        ],
+        "appIds": [],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "coolmathgames.com",
+          "www.coolmathgames.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "coolmath-games",
+        "monogram": "CM",
+        "name": "Coolmath Games",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "itch",
+          "itch.io",
+          "itchio"
+        ],
+        "appIds": [],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "itch.io",
+          "itch.zone",
+          "img.itch.zone"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "itch-io",
+        "monogram": "IT",
+        "name": "itch.io",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "geforce now",
+          "geforcenow",
+          "geforce now cloud",
+          "nvidia geforce now"
+        ],
+        "appIds": [
+          "geforce-now"
+        ],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "geforcenow.com",
+          "www.geforcenow.com",
+          "play.geforcenow.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "geforce-now",
+        "monogram": "GN",
+        "name": "GeForce NOW",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "xbox cloud gaming",
+          "xbox cloud",
+          "xcloud",
+          "x cloud",
+          "cloud gaming de xbox"
+        ],
+        "appIds": [],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "www.xbox.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "xbox-cloud-gaming",
+        "monogram": "XC",
+        "name": "Xbox Cloud Gaming",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "now.gg",
+          "nowgg",
+          "now gg"
+        ],
+        "appIds": [],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "now.gg",
+          "www.now.gg"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "now-gg",
+        "monogram": "NG",
+        "name": "now.gg",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "boosteroid",
+          "busteroid"
+        ],
+        "appIds": [],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "boosteroid.com",
+          "www.boosteroid.com",
+          "cloud.boosteroid.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "boosteroid",
+        "monogram": "BO",
+        "name": "Boosteroid",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "roblox",
+          "roblos",
+          "robox",
+          "rolox",
+          "robloks",
+          "rovlox"
+        ],
+        "appIds": [
+          "roblox"
+        ],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "roblox.com",
+          "www.roblox.com",
+          "web.roblox.com",
+          "auth.roblox.com",
+          "apis.roblox.com",
+          "gamejoin.roblox.com",
+          "clientsettings.roblox.com",
+          "clientsettingscdn.roblox.com",
+          "ro.blox.com",
+          "rbxcdn.com",
+          "setup.rbxcdn.com",
+          "js.rbxcdn.com",
+          "css.rbxcdn.com",
+          "tr.rbxcdn.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [
+          "create.roblox.com"
+        ],
+        "id": "roblox",
+        "monogram": "RB",
+        "name": "Roblox",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "steam",
+          "stim",
+          "estim",
+          "steam store"
+        ],
+        "appIds": [
+          "steam"
+        ],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "steampowered.com",
+          "www.steampowered.com",
+          "store.steampowered.com",
+          "help.steampowered.com",
+          "login.steampowered.com",
+          "checkout.steampowered.com",
+          "api.steampowered.com",
+          "steamcommunity.com",
+          "www.steamcommunity.com",
+          "s.team",
+          "steam-chat.com",
+          "steamstatic.com",
+          "store.akamai.steamstatic.com",
+          "cdn.akamai.steamstatic.com",
+          "community.akamai.steamstatic.com",
+          "shared.akamai.steamstatic.com",
+          "avatars.akamai.steamstatic.com",
+          "store.cloudflare.steamstatic.com",
+          "cdn.cloudflare.steamstatic.com",
+          "community.cloudflare.steamstatic.com",
+          "shared.cloudflare.steamstatic.com",
+          "avatars.cloudflare.steamstatic.com",
+          "store.fastly.steamstatic.com",
+          "shared.fastly.steamstatic.com",
+          "steamcdn-a.akamaihd.net"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "steam",
+        "monogram": "ST",
+        "name": "Steam",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "epic",
+          "epic games",
+          "epicgames",
+          "epic games store",
+          "epic store",
+          "epic launcher",
+          "epic games launcher"
+        ],
+        "appIds": [
+          "epic-games-launcher"
+        ],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "epicgames.com",
+          "store.epicgames.com",
+          "launcher.store.epicgames.com",
+          "epicgames-download1.akamaized.net"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [
+          "www.epicgames.com",
+          "dev.epicgames.com"
+        ],
+        "id": "epic-games",
+        "monogram": "EG",
+        "name": "Epic Games",
+        "titleHints": [
+          "Epic Games Launcher"
+        ]
+      },
+      {
+        "aliases": [
+          "minecraft",
+          "maincra",
+          "maincraft",
+          "minecraf",
+          "mine craft",
+          "minecraft launcher",
+          "mine"
+        ],
+        "appIds": [
+          "minecraft-launcher"
+        ],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "minecraft.net",
+          "www.minecraft.net",
+          "session.minecraft.net",
+          "textures.minecraft.net",
+          "libraries.minecraft.net",
+          "resources.download.minecraft.net",
+          "pc.realms.minecraft.net",
+          "api.minecraftservices.com",
+          "mojang.com",
+          "www.mojang.com",
+          "launcher.mojang.com",
+          "launchermeta.mojang.com",
+          "piston-meta.mojang.com",
+          "piston-data.mojang.com",
+          "sessionserver.mojang.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [
+          "education.minecraft.net"
+        ],
+        "id": "minecraft",
+        "monogram": "MC",
+        "name": "Minecraft",
+        "titleHints": [
+          "Minecraft Launcher"
+        ]
+      },
+      {
+        "aliases": [
+          "fortnite",
+          "fornite",
+          "fortnait",
+          "fornait",
+          "fortnie"
+        ],
+        "appIds": [
+          "fortnite"
+        ],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "fortnite.com",
+          "www.fortnite.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "fortnite",
+        "monogram": "FN",
+        "name": "Fortnite",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "league of legends",
+          "lol",
+          "league",
+          "liga de leyendas",
+          "leage of legends"
+        ],
+        "appIds": [
+          "league-of-legends"
+        ],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "leagueoflegends.com",
+          "www.leagueoflegends.com",
+          "ddragon.leagueoflegends.com",
+          "lolesports.com",
+          "www.lolesports.com",
+          "lolstatic-a.akamaihd.net"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "league-of-legends",
+        "monogram": "LL",
+        "name": "League of Legends",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "valorant",
+          "valo",
+          "balorant",
+          "valoran"
+        ],
+        "appIds": [
+          "valorant"
+        ],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "playvalorant.com",
+          "www.playvalorant.com",
+          "valorantesports.com",
+          "www.valorantesports.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "valorant",
+        "monogram": "VA",
+        "name": "VALORANT",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "riot",
+          "riot client",
+          "riot games",
+          "riotgames"
+        ],
+        "appIds": [
+          "riot-client"
+        ],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "riotgames.com",
+          "www.riotgames.com",
+          "auth.riotgames.com",
+          "authenticate.riotgames.com",
+          "account.riotgames.com",
+          "riotcdn.net"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "riot-client",
+        "monogram": "RC",
+        "name": "Riot Client",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "battle.net",
+          "battle net",
+          "battlenet",
+          "blizzard",
+          "batlenet"
+        ],
+        "appIds": [
+          "battle-net"
+        ],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "battle.net",
+          "www.battle.net",
+          "eu.battle.net",
+          "us.battle.net",
+          "account.battle.net",
+          "blizzard.com",
+          "www.blizzard.com",
+          "news.blizzard.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "battle-net",
+        "monogram": "BN",
+        "name": "Battle.net",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "ea",
+          "ea app",
+          "ea games",
+          "electronic arts",
+          "origin"
+        ],
+        "appIds": [
+          "ea-app"
+        ],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "ea.com",
+          "www.ea.com",
+          "accounts.ea.com",
+          "signin.ea.com",
+          "origin.com",
+          "www.origin.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "ea-app",
+        "monogram": "EA",
+        "name": "EA app",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "ea sports fc",
+          "ea fc",
+          "eafc",
+          "fc",
+          "fc 24",
+          "fc 25",
+          "fc 26",
+          "fifa",
+          "ea sports"
+        ],
+        "appIds": [
+          "ea-sports-fc"
+        ],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "easports.com",
+          "www.easports.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "ea-sports-fc",
+        "monogram": "EF",
+        "name": "EA SPORTS FC",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "ubisoft",
+          "ubisoft connect",
+          "uplay"
+        ],
+        "appIds": [
+          "ubisoft-connect"
+        ],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "ubisoft.com",
+          "www.ubisoft.com",
+          "store.ubisoft.com",
+          "account.ubisoft.com",
+          "connect.ubisoft.com",
+          "ubisoftconnect.com",
+          "www.ubisoftconnect.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "ubisoft-connect",
+        "monogram": "UB",
+        "name": "Ubisoft Connect",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "gog",
+          "gog galaxy",
+          "gog.com"
+        ],
+        "appIds": [
+          "gog-galaxy"
+        ],
+        "categories": [
+          "games"
+        ],
+        "domains": [
+          "gog.com",
+          "www.gog.com",
+          "gog-statics.com",
+          "images.gog-statics.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "gog",
+        "monogram": "GG",
+        "name": "GOG",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "discord",
+          "discor",
+          "disord",
+          "discordd",
+          "dizcord"
+        ],
+        "appIds": [
+          "discord"
+        ],
+        "categories": [
+          "messaging"
+        ],
+        "domains": [
+          "discord.com",
+          "www.discord.com",
+          "ptb.discord.com",
+          "canary.discord.com",
+          "discordapp.com",
+          "www.discordapp.com",
+          "cdn.discordapp.com",
+          "discordapp.net",
+          "media.discordapp.net",
+          "images-ext-1.discordapp.net",
+          "discord.gg",
+          "gateway.discord.gg",
+          "discord.media",
+          "discord.new",
+          "dis.gd"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "discord",
+        "monogram": "DC",
+        "name": "Discord",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "whatsapp",
+          "whatsapp web",
+          "whatsap",
+          "whats",
+          "wasap",
+          "wasa",
+          "guasap",
+          "watsap",
+          "wsp",
+          "wpp",
+          "wa"
+        ],
+        "appIds": [
+          "whatsapp"
+        ],
+        "categories": [
+          "messaging"
+        ],
+        "domains": [
+          "whatsapp.com",
+          "www.whatsapp.com",
+          "web.whatsapp.com",
+          "api.whatsapp.com",
+          "chat.whatsapp.com",
+          "wa.me",
+          "whatsapp.net",
+          "static.whatsapp.net",
+          "mmg.whatsapp.net",
+          "pps.whatsapp.net"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "whatsapp",
+        "monogram": "WA",
+        "name": "WhatsApp",
+        "titleHints": [
+          "WhatsApp Web"
+        ]
+      },
+      {
+        "aliases": [
+          "telegram",
+          "telegram web",
+          "telegran",
+          "telgram",
+          "tg"
+        ],
+        "appIds": [
+          "telegram"
+        ],
+        "categories": [
+          "messaging"
+        ],
+        "domains": [
+          "telegram.org",
+          "www.telegram.org",
+          "web.telegram.org",
+          "webk.telegram.org",
+          "webz.telegram.org",
+          "weba.telegram.org",
+          "desktop.telegram.org",
+          "pluto.web.telegram.org",
+          "venus.web.telegram.org",
+          "aurora.web.telegram.org",
+          "vesta.web.telegram.org",
+          "flora.web.telegram.org",
+          "pluto-1.web.telegram.org",
+          "venus-1.web.telegram.org",
+          "aurora-1.web.telegram.org",
+          "vesta-1.web.telegram.org",
+          "flora-1.web.telegram.org",
+          "kws1.web.telegram.org",
+          "kws2.web.telegram.org",
+          "kws3.web.telegram.org",
+          "kws4.web.telegram.org",
+          "kws5.web.telegram.org",
+          "kws1-1.web.telegram.org",
+          "kws2-1.web.telegram.org",
+          "kws3-1.web.telegram.org",
+          "kws4-1.web.telegram.org",
+          "kws5-1.web.telegram.org",
+          "zws1.web.telegram.org",
+          "zws2.web.telegram.org",
+          "zws3.web.telegram.org",
+          "zws4.web.telegram.org",
+          "zws5.web.telegram.org",
+          "zws1-1.web.telegram.org",
+          "zws2-1.web.telegram.org",
+          "zws3-1.web.telegram.org",
+          "zws4-1.web.telegram.org",
+          "zws5-1.web.telegram.org",
+          "t.me",
+          "telegram.me",
+          "telesco.pe"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "telegram",
+        "monogram": "TG",
+        "name": "Telegram",
+        "titleHints": [
+          "Telegram Web"
+        ]
+      },
+      {
+        "aliases": [
+          "messenger",
+          "facebook messenger",
+          "mesenger",
+          "fb messenger"
+        ],
+        "appIds": [],
+        "categories": [
+          "messaging"
+        ],
+        "domains": [
+          "messenger.com",
+          "www.messenger.com",
+          "m.me"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "messenger",
+        "monogram": "MS",
+        "name": "Messenger",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "amazon",
+          "amazon.es",
+          "amazon.com",
+          "amazn",
+          "amazom",
+          "amason"
+        ],
+        "appIds": [],
+        "categories": [
+          "shopping"
+        ],
+        "domains": [
+          "amazon.es",
+          "www.amazon.es",
+          "amazon.com",
+          "www.amazon.com",
+          "amazon.co.uk",
+          "www.amazon.co.uk",
+          "amazon.de",
+          "www.amazon.de",
+          "amazon.fr",
+          "www.amazon.fr",
+          "amazon.it",
+          "www.amazon.it",
+          "amazon.com.mx",
+          "www.amazon.com.mx",
+          "amzn.to",
+          "amzn.eu",
+          "a.co"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [
+          "aws.amazon.com",
+          "read.amazon.com",
+          "leer.amazon.es"
+        ],
+        "id": "amazon",
+        "monogram": "AZ",
+        "name": "Amazon",
+        "titleHints": [
+          "Amazon.es",
+          "Amazon.com"
+        ]
+      },
+      {
+        "aliases": [
+          "aliexpress",
+          "ali express",
+          "ali",
+          "aliexpres",
+          "aliespres",
+          "aliexprés"
+        ],
+        "appIds": [],
+        "categories": [
+          "shopping"
+        ],
+        "domains": [
+          "aliexpress.com",
+          "www.aliexpress.com",
+          "es.aliexpress.com",
+          "m.aliexpress.com",
+          "login.aliexpress.com",
+          "a.aliexpress.com",
+          "s.click.aliexpress.com",
+          "aliexpress.us",
+          "www.aliexpress.us"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "aliexpress",
+        "monogram": "AE",
+        "name": "AliExpress",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "shein",
+          "shien",
+          "sheín",
+          "she in"
+        ],
+        "appIds": [],
+        "categories": [
+          "shopping"
+        ],
+        "domains": [
+          "shein.com",
+          "www.shein.com",
+          "es.shein.com",
+          "m.shein.com",
+          "us.shein.com",
+          "img.ltwebstatic.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "shein",
+        "monogram": "SH",
+        "name": "Shein",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "temu",
+          "temú"
+        ],
+        "appIds": [],
+        "categories": [
+          "shopping"
+        ],
+        "domains": [
+          "temu.com",
+          "www.temu.com",
+          "share.temu.com",
+          "img.kwcdn.com",
+          "aimg.kwcdn.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "temu",
+        "monogram": "TE",
+        "name": "Temu",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "zalando",
+          "zalando prive"
+        ],
+        "appIds": [],
+        "categories": [
+          "shopping"
+        ],
+        "domains": [
+          "zalando.es",
+          "www.zalando.es",
+          "zalando.com",
+          "www.zalando.com",
+          "zalando-prive.es",
+          "www.zalando-prive.es"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "zalando",
+        "monogram": "ZA",
+        "name": "Zalando",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "ebay",
+          "e bay",
+          "ebei"
+        ],
+        "appIds": [],
+        "categories": [
+          "shopping"
+        ],
+        "domains": [
+          "ebay.es",
+          "www.ebay.es",
+          "ebay.com",
+          "www.ebay.com",
+          "signin.ebay.es",
+          "signin.ebay.com",
+          "ebay.us",
+          "i.ebayimg.com",
+          "ebaystatic.com",
+          "ir.ebaystatic.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "ebay",
+        "monogram": "EB",
+        "name": "eBay",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "wallapop",
+          "walapop",
+          "wallapo",
+          "guallapop",
+          "wallapp"
+        ],
+        "appIds": [],
+        "categories": [
+          "shopping"
+        ],
+        "domains": [
+          "wallapop.com",
+          "www.wallapop.com",
+          "es.wallapop.com",
+          "api.wallapop.com",
+          "cdn.wallapop.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "wallapop",
+        "monogram": "WP",
+        "name": "Wallapop",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "vinted",
+          "binted",
+          "vintet"
+        ],
+        "appIds": [],
+        "categories": [
+          "shopping"
+        ],
+        "domains": [
+          "vinted.es",
+          "www.vinted.es",
+          "vinted.com",
+          "www.vinted.com",
+          "vinted.fr",
+          "www.vinted.fr"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "vinted",
+        "monogram": "VI",
+        "name": "Vinted",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "marca",
+          "marca.com",
+          "diario marca"
+        ],
+        "appIds": [],
+        "categories": [
+          "news"
+        ],
+        "domains": [
+          "marca.com",
+          "www.marca.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "marca",
+        "monogram": "MA",
+        "name": "Marca",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "as",
+          "as.com",
+          "diario as"
+        ],
+        "appIds": [],
+        "categories": [
+          "news"
+        ],
+        "domains": [
+          "as.com",
+          "www.as.com",
+          "resultados.as.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "as",
+        "monogram": "AS",
+        "name": "AS",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "mundo deportivo",
+          "mundodeportivo",
+          "el mundo deportivo"
+        ],
+        "appIds": [],
+        "categories": [
+          "news"
+        ],
+        "domains": [
+          "mundodeportivo.com",
+          "www.mundodeportivo.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "mundo-deportivo",
+        "monogram": "MD",
+        "name": "Mundo Deportivo",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "sport",
+          "diario sport",
+          "sport.es"
+        ],
+        "appIds": [],
+        "categories": [
+          "news"
+        ],
+        "domains": [
+          "sport.es",
+          "www.sport.es"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "sport",
+        "monogram": "SP",
+        "name": "Sport",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "relevo"
+        ],
+        "appIds": [],
+        "categories": [
+          "news"
+        ],
+        "domains": [
+          "relevo.com",
+          "www.relevo.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "relevo",
+        "monogram": "RL",
+        "name": "Relevo",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "espn",
+          "espn deportes"
+        ],
+        "appIds": [],
+        "categories": [
+          "news"
+        ],
+        "domains": [
+          "espn.com",
+          "www.espn.com",
+          "espn.com.mx",
+          "www.espn.com.mx",
+          "espn.go.com",
+          "espndeportes.espn.com",
+          "espncdn.com",
+          "a.espncdn.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "espn",
+        "monogram": "ES",
+        "name": "ESPN",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "transfermarkt",
+          "transfer market",
+          "transfermark"
+        ],
+        "appIds": [],
+        "categories": [
+          "news"
+        ],
+        "domains": [
+          "transfermarkt.es",
+          "www.transfermarkt.es",
+          "transfermarkt.com",
+          "www.transfermarkt.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "transfermarkt",
+        "monogram": "TM",
+        "name": "Transfermarkt",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "flashscore",
+          "flash score",
+          "flashcore"
+        ],
+        "appIds": [],
+        "categories": [
+          "news"
+        ],
+        "domains": [
+          "flashscore.es",
+          "www.flashscore.es",
+          "flashscore.com",
+          "www.flashscore.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "flashscore",
+        "monogram": "FS",
+        "name": "Flashscore",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "sofascore",
+          "sofa score",
+          "sofascor"
+        ],
+        "appIds": [],
+        "categories": [
+          "news"
+        ],
+        "domains": [
+          "sofascore.com",
+          "www.sofascore.com",
+          "api.sofascore.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "sofascore",
+        "monogram": "SS",
+        "name": "Sofascore",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "besoccer",
+          "be soccer"
+        ],
+        "appIds": [],
+        "categories": [
+          "news"
+        ],
+        "domains": [
+          "besoccer.com",
+          "www.besoccer.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "besoccer",
+        "monogram": "BE",
+        "name": "BeSoccer",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "el pais",
+          "el país",
+          "elpais",
+          "diario el pais"
+        ],
+        "appIds": [],
+        "categories": [
+          "news"
+        ],
+        "domains": [
+          "elpais.com",
+          "www.elpais.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "el-pais",
+        "monogram": "EP",
+        "name": "El País",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "el mundo",
+          "elmundo",
+          "diario el mundo"
+        ],
+        "appIds": [],
+        "categories": [
+          "news"
+        ],
+        "domains": [
+          "elmundo.es",
+          "www.elmundo.es"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "el-mundo",
+        "monogram": "EM",
+        "name": "El Mundo",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "20minutos",
+          "20 minutos",
+          "veinte minutos"
+        ],
+        "appIds": [],
+        "categories": [
+          "news"
+        ],
+        "domains": [
+          "20minutos.es",
+          "www.20minutos.es"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "20minutos",
+        "monogram": "20",
+        "name": "20minutos",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "abc",
+          "abc.es",
+          "diario abc"
+        ],
+        "appIds": [],
+        "categories": [
+          "news"
+        ],
+        "domains": [
+          "abc.es",
+          "www.abc.es"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "abc",
+        "monogram": "AB",
+        "name": "ABC",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "la vanguardia",
+          "lavanguardia",
+          "vanguardia"
+        ],
+        "appIds": [],
+        "categories": [
+          "news"
+        ],
+        "domains": [
+          "lavanguardia.com",
+          "www.lavanguardia.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "la-vanguardia",
+        "monogram": "LV",
+        "name": "La Vanguardia",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "eldiario",
+          "eldiario.es",
+          "el diario.es"
+        ],
+        "appIds": [],
+        "categories": [
+          "news"
+        ],
+        "domains": [
+          "eldiario.es",
+          "www.eldiario.es"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "eldiario-es",
+        "monogram": "ED",
+        "name": "elDiario.es",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "el confidencial",
+          "elconfidencial"
+        ],
+        "appIds": [],
+        "categories": [
+          "news"
+        ],
+        "domains": [
+          "elconfidencial.com",
+          "www.elconfidencial.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "el-confidencial",
+        "monogram": "EC",
+        "name": "El Confidencial",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "xataka",
+          "xataca",
+          "chataka"
+        ],
+        "appIds": [],
+        "categories": [
+          "news"
+        ],
+        "domains": [
+          "xataka.com",
+          "www.xataka.com",
+          "xatakamovil.com",
+          "www.xatakamovil.com",
+          "xatakandroid.com",
+          "www.xatakandroid.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "xataka",
+        "monogram": "XA",
+        "name": "Xataka",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "meneame",
+          "menéame"
+        ],
+        "appIds": [],
+        "categories": [
+          "news"
+        ],
+        "domains": [
+          "meneame.net",
+          "www.meneame.net"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "meneame",
+        "monogram": "MN",
+        "name": "Menéame",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "linkedin",
+          "linked in",
+          "linkedln",
+          "linkdin",
+          "linkedim"
+        ],
+        "appIds": [],
+        "categories": [],
+        "domains": [
+          "linkedin.com",
+          "www.linkedin.com",
+          "es.linkedin.com",
+          "lnkd.in",
+          "licdn.com",
+          "static.licdn.com",
+          "media.licdn.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "linkedin",
+        "monogram": "in",
+        "name": "LinkedIn",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "vimeo",
+          "vimeo.com"
+        ],
+        "appIds": [],
+        "categories": [],
+        "domains": [
+          "vimeo.com",
+          "www.vimeo.com",
+          "player.vimeo.com",
+          "vimeocdn.com",
+          "f.vimeocdn.com",
+          "i.vimeocdn.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "vimeo",
+        "monogram": "V",
+        "name": "Vimeo",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "chess.com",
+          "chess",
+          "chesscom",
+          "ajedrez"
+        ],
+        "appIds": [],
+        "categories": [],
+        "domains": [
+          "chess.com",
+          "www.chess.com",
+          "chesscomfiles.com",
+          "images.chesscomfiles.com"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "chess-com",
+        "monogram": "CH",
+        "name": "Chess.com",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "lichess",
+          "lichess.org",
+          "li chess"
+        ],
+        "appIds": [],
+        "categories": [],
+        "domains": [
+          "lichess.org",
+          "lichess1.org"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "lichess",
+        "monogram": "LI",
+        "name": "Lichess",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "spotify",
+          "spoti",
+          "spotifai",
+          "espotify",
+          "spotfy"
+        ],
+        "appIds": [
+          "spotify"
+        ],
+        "categories": [],
+        "domains": [
+          "spotify.com",
+          "www.spotify.com",
+          "open.spotify.com",
+          "accounts.spotify.com",
+          "apresolve.spotify.com",
+          "spclient.wg.spotify.com",
+          "spoti.fi",
+          "scdn.co",
+          "i.scdn.co",
+          "open.scdn.co"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "spotify",
+        "monogram": "SY",
+        "name": "Spotify",
+        "titleHints": []
+      },
+      {
+        "aliases": [
+          "rtve",
+          "rtve play",
+          "rtveplay",
+          "tve"
+        ],
+        "appIds": [],
+        "categories": [],
+        "domains": [
+          "rtve.es",
+          "www.rtve.es"
+        ],
+        "educationalCapable": false,
+        "excludedSubdomains": [],
+        "id": "rtve-play",
+        "monogram": "RT",
+        "name": "RTVE Play",
+        "titleHints": []
+      }
+    ],
+    "studyAppWhitelist": [
+      {
+        "id": "browsers",
+        "name": "Navegadores",
+        "processes": {
+          "linux": [
+            "chrome",
+            "chromium",
+            "chromium-browser",
+            "msedge",
+            "firefox",
+            "firefox-bin",
+            "firefox-esr",
+            "brave",
+            "opera",
+            "vivaldi-bin"
+          ],
+          "mac": [
+            "Google Chrome",
+            "Microsoft Edge",
+            "firefox",
+            "Brave Browser",
+            "Safari",
+            "Opera",
+            "Vivaldi",
+            "Arc",
+            "Chromium"
+          ],
+          "win": [
+            "chrome.exe",
+            "msedge.exe",
+            "msedgewebview2.exe",
+            "firefox.exe",
+            "brave.exe",
+            "opera.exe",
+            "vivaldi.exe"
+          ]
+        }
+      },
+      {
+        "id": "word",
+        "name": "Microsoft Word",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "Microsoft Word"
+          ],
+          "win": [
+            "WINWORD.EXE"
+          ]
+        }
+      },
+      {
+        "id": "excel",
+        "name": "Microsoft Excel",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "Microsoft Excel"
+          ],
+          "win": [
+            "EXCEL.EXE"
+          ]
+        }
+      },
+      {
+        "id": "powerpoint",
+        "name": "Microsoft PowerPoint",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "Microsoft PowerPoint"
+          ],
+          "win": [
+            "POWERPNT.EXE"
+          ]
+        }
+      },
+      {
+        "id": "onenote",
+        "name": "Microsoft OneNote",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "Microsoft OneNote"
+          ],
+          "win": [
+            "ONENOTE.EXE",
+            "onenoteim.exe"
+          ]
+        }
+      },
+      {
+        "id": "teams",
+        "name": "Microsoft Teams",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "MSTeams",
+            "Microsoft Teams"
+          ],
+          "win": [
+            "ms-teams.exe",
+            "Teams.exe"
+          ]
+        }
+      },
+      {
+        "id": "notion",
+        "name": "Notion",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "Notion"
+          ],
+          "win": [
+            "Notion.exe"
+          ]
+        }
+      },
+      {
+        "id": "obsidian",
+        "name": "Obsidian",
+        "processes": {
+          "linux": [
+            "obsidian"
+          ],
+          "mac": [
+            "Obsidian"
+          ],
+          "win": [
+            "Obsidian.exe"
+          ]
+        }
+      },
+      {
+        "id": "acrobat",
+        "name": "Adobe Acrobat",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "AdobeAcrobat",
+            "AdobeReader"
+          ],
+          "win": [
+            "Acrobat.exe",
+            "AcroRd32.exe"
+          ]
+        }
+      },
+      {
+        "id": "libreoffice",
+        "name": "LibreOffice",
+        "processes": {
+          "linux": [
+            "soffice.bin",
+            "soffice",
+            "libreoffice"
+          ],
+          "mac": [
+            "soffice"
+          ],
+          "win": [
+            "soffice.exe",
+            "soffice.bin"
+          ]
+        }
+      },
+      {
+        "id": "iwork",
+        "name": "Pages, Numbers y Keynote",
+        "processes": {
+          "linux": [],
+          "mac": [
+            "Pages",
+            "Numbers",
+            "Keynote"
+          ],
+          "win": []
+        }
+      },
+      {
+        "id": "vscode",
+        "name": "Visual Studio Code",
+        "processes": {
+          "linux": [
+            "code"
+          ],
+          "mac": [
+            "Code",
+            "Visual Studio Code"
+          ],
+          "win": [
+            "Code.exe"
+          ]
+        }
+      },
+      {
+        "id": "geogebra",
+        "name": "GeoGebra",
+        "processes": {
+          "linux": [
+            "geogebra"
+          ],
+          "mac": [
+            "GeoGebra"
+          ],
+          "win": [
+            "GeoGebra.exe"
+          ]
+        }
+      },
+      {
+        "id": "zoom",
+        "name": "Zoom",
+        "processes": {
+          "linux": [
+            "zoom"
+          ],
+          "mac": [
+            "zoom.us"
+          ],
+          "win": [
+            "Zoom.exe"
+          ]
+        }
+      },
+      {
+        "id": "anki",
+        "name": "Anki",
+        "processes": {
+          "linux": [
+            "anki"
+          ],
+          "mac": [
+            "anki"
+          ],
+          "win": [
+            "anki.exe"
+          ]
+        }
+      },
+      {
+        "id": "zotero",
+        "name": "Zotero",
+        "processes": {
+          "linux": [
+            "zotero"
+          ],
+          "mac": [
+            "zotero"
+          ],
+          "win": [
+            "zotero.exe"
+          ]
+        }
+      },
+      {
+        "id": "calculator",
+        "name": "Calculadora",
+        "processes": {
+          "linux": [
+            "gnome-calculator",
+            "kcalc"
+          ],
+          "mac": [
+            "Calculator"
+          ],
+          "win": [
+            "CalculatorApp.exe",
+            "Calculator.exe"
+          ]
+        }
+      },
+      {
+        "id": "text-editor",
+        "name": "Editor de texto",
+        "processes": {
+          "linux": [
+            "gnome-text-editor",
+            "gedit",
+            "kate"
+          ],
+          "mac": [
+            "TextEdit"
+          ],
+          "win": [
+            "notepad.exe"
+          ]
+        }
+      }
+    ],
+    "studyWhitelist": [
+      {
+        "domains": [
+          "classroom.google.com"
+        ],
+        "hostPatterns": [],
+        "id": "google-classroom",
+        "name": "Google Classroom"
+      },
+      {
+        "domains": [
+          "docs.google.com",
+          "drive.google.com",
+          "sheets.google.com",
+          "slides.google.com",
+          "forms.google.com",
+          "sites.google.com",
+          "keep.google.com",
+          "meet.google.com",
+          "usercontent.google.com",
+          "docs.googleusercontent.com",
+          "clients6.google.com"
+        ],
+        "hostPatterns": [
+          "^[a-z0-9-]+-docs\\.googleusercontent\\.com$",
+          "^lh[3-7](?:-[a-z]+)?\\.googleusercontent\\.com$",
+          "^lh[3-7]\\.google\\.com$"
+        ],
+        "id": "google-workspace",
+        "name": "Google Docs, Drive, Slides y Sheets"
+      },
+      {
+        "domains": [
+          "accounts.google.com",
+          "apis.google.com",
+          "ogs.google.com",
+          "ssl.gstatic.com",
+          "www.gstatic.com",
+          "fonts.gstatic.com",
+          "fonts.googleapis.com"
+        ],
+        "hostPatterns": [],
+        "id": "google-account",
+        "name": "Cuenta de Google"
+      },
+      {
+        "domains": [
+          "scholar.google.com",
+          "scholar.google.es"
+        ],
+        "hostPatterns": [],
+        "id": "google-scholar",
+        "name": "Google Académico"
+      },
+      {
+        "domains": [
+          "moodle.org",
+          "moodle.com",
+          "moodlecloud.com"
+        ],
+        "hostPatterns": [],
+        "id": "moodle",
+        "name": "Moodle"
+      },
+      {
+        "domains": [
+          "office.com",
+          "www.office.com",
+          "microsoft365.com",
+          "www.microsoft365.com",
+          "cloud.microsoft",
+          "login.microsoftonline.com",
+          "login.live.com",
+          "onedrive.live.com",
+          "officeapps.live.com",
+          "teams.live.com",
+          "teams.microsoft.com",
+          "sharepoint.com",
+          "onenote.com",
+          "www.onenote.com",
+          "cdn.office.net",
+          "sharepointonline.com",
+          "msauth.net",
+          "msftauth.net",
+          "account.live.com",
+          "1drv.ms",
+          "1drv.com",
+          "microsoftpersonalcontent.com"
+        ],
+        "hostPatterns": [],
+        "id": "microsoft-365",
+        "name": "Microsoft 365"
+      },
+      {
+        "domains": [
+          "wikipedia.org",
+          "es.wikipedia.org",
+          "en.wikipedia.org",
+          "es.m.wikipedia.org",
+          "en.m.wikipedia.org",
+          "wikimedia.org",
+          "upload.wikimedia.org",
+          "wiktionary.org",
+          "es.wiktionary.org"
+        ],
+        "hostPatterns": [],
+        "id": "wikipedia",
+        "name": "Wikipedia"
+      },
+      {
+        "domains": [
+          "khanacademy.org",
+          "www.khanacademy.org",
+          "es.khanacademy.org",
+          "kastatic.org",
+          "cdn.kastatic.org"
+        ],
+        "hostPatterns": [],
+        "id": "khan-academy",
+        "name": "Khan Academy"
+      },
+      {
+        "domains": [
+          "geogebra.org",
+          "www.geogebra.org"
+        ],
+        "hostPatterns": [],
+        "id": "geogebra",
+        "name": "GeoGebra"
+      },
+      {
+        "domains": [
+          "desmos.com",
+          "www.desmos.com"
+        ],
+        "hostPatterns": [],
+        "id": "desmos",
+        "name": "Desmos"
+      },
+      {
+        "domains": [
+          "wolframalpha.com",
+          "www.wolframalpha.com",
+          "wolframcdn.com"
+        ],
+        "hostPatterns": [],
+        "id": "wolframalpha",
+        "name": "WolframAlpha"
+      },
+      {
+        "domains": [
+          "rae.es",
+          "www.rae.es",
+          "dle.rae.es"
+        ],
+        "hostPatterns": [],
+        "id": "rae",
+        "name": "RAE (diccionario)"
+      },
+      {
+        "domains": [
+          "translate.google.com",
+          "translate.google.es",
+          "deepl.com",
+          "www.deepl.com",
+          "wordreference.com",
+          "www.wordreference.com",
+          "linguee.es",
+          "www.linguee.es",
+          "linguee.com",
+          "www.linguee.com",
+          "reverso.net",
+          "context.reverso.net"
+        ],
+        "hostPatterns": [],
+        "id": "translators",
+        "name": "Traductores y diccionarios"
+      },
+      {
+        "domains": [
+          "educa.madrid.org",
+          "educa2.madrid.org",
+          "raices.madrid.org",
+          "educacionadistancia.juntadeandalucia.es",
+          "seneca.juntadeandalucia.es",
+          "aules.edu.gva.es",
+          "xtec.cat",
+          "edu365.cat",
+          "educa.jcyl.es",
+          "edu.xunta.gal",
+          "aeducar.es",
+          "educamosclm.castillalamancha.es",
+          "murciaeduca.es",
+          "educarex.es",
+          "educastur.es",
+          "educantabria.es",
+          "www3.gobiernodecanarias.org",
+          "educaib.eu"
+        ],
+        "hostPatterns": [],
+        "id": "school-platforms",
+        "name": "Plataformas educativas"
+      },
+      {
+        "domains": [
+          "blinklearning.com",
+          "smsavia.com",
+          "anayaeducacion.es",
+          "oupe.es"
+        ],
+        "hostPatterns": [],
+        "id": "publishers",
+        "name": "Libros digitales de editoriales"
+      },
+      {
+        "domains": [
+          "liveworksheets.com",
+          "quizlet.com",
+          "kahoot.it",
+          "genial.ly",
+          "zoom.us"
+        ],
+        "hostPatterns": [],
+        "id": "class-tools",
+        "name": "Herramientas de clase"
+      },
+      {
+        "domains": [
+          "notion.so",
+          "www.notion.so",
+          "notion.site",
+          "notion.com",
+          "notion-static.com",
+          "notionusercontent.com"
+        ],
+        "hostPatterns": [],
+        "id": "notion",
+        "name": "Notion"
+      }
+    ],
+    "version": 3
+  },
+  "generatedBy": "scripts/gen-guardian-data.mjs",
+  "sourceSha256": "46f2193170b7e226b4fc9cfbcfc290ff85c43034c6c21b14a1ab23a50dedf081"
+}

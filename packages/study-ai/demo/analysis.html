@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      The hidden analysis window's page (HANDOFF §1.1 and §1.4) for the browser smoke test.
+      Its CSP is the one the HANDOFF prescribes, with `centrate-ai:` replaced by 'self' (this
+      loopback server plays the asset protocol). test/runtime/handoff-csp.test.ts keeps both in
+      sync, and demo/smoke.pw.ts runs the real MediaPipe pipeline under it: a policy that
+      breaks MediaPipe fails there, not silently as no-camera mode in the app.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; img-src 'none'; media-src mediastream: blob:; style-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>Céntrate · analysis window (test page)</title>
+    <script type="module" src="./analysis.ts"></script>
+  </head>
+  <body></body>
+</html>

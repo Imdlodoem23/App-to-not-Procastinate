@@ -1,0 +1,157 @@
+{
+  "data": {
+    "emergency": {
+      "confirmWindowMinutes": 5,
+      "countdownMinutes": {
+        "normal": 10,
+        "strict": 30
+      },
+      "phrases": {
+        "en": "I accept breaking my commitment and losing my points",
+        "es": "Acepto romper mi compromiso y perder mis puntos"
+      }
+    },
+    "points": {
+      "attemptBasePenalty": 10,
+      "attemptDedupeWindowMs": 30000,
+      "attemptEscalationWindowMs": 300000,
+      "attemptPenaltyCap": 80,
+      "attemptPenaltyMultiplier": 2,
+      "blockPointsPerMinute": 1,
+      "cleanSessionBonus": 20,
+      "cleanSessionMinMinutes": 25,
+      "dailyGoalDefaultMinutes": 60,
+      "dailyGoalMaxMinutes": 600,
+      "dailyGoalMinMinutes": 15,
+      "earningBlockKinds": [
+        "manual",
+        "schedule"
+      ],
+      "emergencyBalanceDivisor": 2,
+      "emergencyMinPenalty": 200,
+      "levelXpStep": 30,
+      "punishmentPenalty": 100,
+      "strikePenalty": 15,
+      "studyPointsPerFocusMinute": 2,
+      "xpPerFocusMinute": 1
+    },
+    "pomodoroPresets": [
+      {
+        "breakMinutes": 5,
+        "cycles": 4,
+        "id": "25-5",
+        "workMinutes": 25
+      },
+      {
+        "breakMinutes": 10,
+        "cycles": 2,
+        "id": "50-10",
+        "workMinutes": 50
+      }
+    ],
+    "rewardOffers": [
+      {
+        "cost": 150,
+        "id": "youtube-15",
+        "minutes": 15,
+        "serviceId": "youtube"
+      },
+      {
+        "cost": 280,
+        "id": "youtube-30",
+        "minutes": 30,
+        "serviceId": "youtube"
+      },
+      {
+        "cost": 150,
+        "id": "tiktok-15",
+        "minutes": 15,
+        "serviceId": "tiktok"
+      },
+      {
+        "cost": 150,
+        "id": "instagram-15",
+        "minutes": 15,
+        "serviceId": "instagram"
+      },
+      {
+        "cost": 280,
+        "id": "twitch-30",
+        "minutes": 30,
+        "serviceId": "twitch"
+      },
+      {
+        "cost": 400,
+        "id": "netflix-45",
+        "minutes": 45,
+        "serviceId": "netflix"
+      },
+      {
+        "cost": 120,
+        "id": "discord-15",
+        "minutes": 15,
+        "serviceId": "discord"
+      },
+      {
+        "cost": 300,
+        "id": "roblox-30",
+        "minutes": 30,
+        "serviceId": "roblox"
+      }
+    ],
+    "rulesVersion": 2,
+    "study": {
+      "completionGraceMs": 30000,
+      "defaultPunishmentLevel": "distractions",
+      "doubtAfterMs": {
+        "default": 15000,
+        "max": 60000,
+        "min": 10000
+      },
+      "finalHeartbeatGraceMs": 20000,
+      "focusFlushMinutes": 5,
+      "focusScoreThreshold": {
+        "default": 50,
+        "max": 80,
+        "min": 30
+      },
+      "heartbeatIntervalMs": 15000,
+      "heartbeatTimeoutMs": 120000,
+      "maxPausesPerWindow": 2,
+      "maxStrikes": 3,
+      "noFaceStrikeMs": {
+        "default": 60000,
+        "max": 180000,
+        "min": 30000
+      },
+      "outcomeWindowMs": 86400000,
+      "pauseMs": 300000,
+      "pauseWindowMs": 3600000,
+      "plannedMinutes": {
+        "max": 480,
+        "min": 5
+      },
+      "pomodoroBreakMinutes": {
+        "max": 60,
+        "min": 1
+      },
+      "pomodoroWorkMinutes": {
+        "max": 120,
+        "min": 5
+      },
+      "punishmentMinutes": {
+        "default": 60,
+        "max": 120,
+        "min": 15
+      },
+      "strikeAfterDoubtMs": {
+        "default": 30000,
+        "max": 120000,
+        "min": 15000
+      },
+      "strikeCooldownMs": 60000
+    }
+  },
+  "generatedBy": "scripts/gen-guardian-data.mjs",
+  "sourceSha256": "8a2f3a6b185135c39407aa26af83246b3a36f75ce1c50b3190d266e15b096904"
+}

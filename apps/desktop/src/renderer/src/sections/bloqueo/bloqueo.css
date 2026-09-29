@@ -1,0 +1,238 @@
+/*
+ * Section 2 «Bloqueo» (PROMPT §10): only the layout the UI kit does not already draw. Colors,
+ * sizes and radii come from tokens.css; no shadows, no gradients, no animation besides the
+ * kit's hover and bar transitions.
+ */
+
+@layer components {
+  .bq-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  /* «¿Qué quieres hacer?» and the line of chips under it (height reserved: nothing jumps). */
+  .bq-composer {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+
+  .bq-field-line {
+    margin-bottom: var(--space-1);
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+    height: 20px;
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+    color: var(--fg-muted);
+    white-space: nowrap;
+  }
+
+  .bq-note {
+    flex: none;
+    padding-left: var(--space-1);
+  }
+
+  .bq-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+    min-height: 20px;
+  }
+
+  .bq-chips[data-line] {
+    flex-wrap: nowrap;
+  }
+
+  /* A service's catalog monogram, drawn as its icon inside a chip. */
+  .bq-monogram {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 14px;
+    padding: 0 2px;
+    border-radius: var(--radius-sm);
+    background: var(--tile-2);
+    color: var(--fg);
+    font-size: var(--font-size-11);
+    line-height: 14px;
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: 0;
+  }
+
+  .bq-chip-editor {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .bq-chip-editor-label,
+  .bq-reason-label {
+    flex: none;
+    color: var(--fg-muted);
+  }
+
+  /* «Tu motivo»: a label and a one-line field. */
+  .bq-reason-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .bq-reason-row .c-field {
+    flex: 1 1 auto;
+  }
+
+  /* Editar… | Bloquear hasta 17:42 (and Reparar | Reintentar). */
+  .bq-actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+
+  .bq-actions-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--layout-tile-gap);
+  }
+
+  /* Each action fills its cell. */
+  .bq-actions-grid > * {
+    display: flex;
+    min-width: 0;
+  }
+
+  .bq-actions-grid > * > .c-tile,
+  .bq-actions-grid > * > .c-confirm {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* «Bloqueando…» is busy, not unavailable: it is the only sign that the block is being made,
+     so its label keeps full contrast (presses are still ignored: aria-disabled). */
+  .c-confirm.bq-busy[aria-disabled='true'] {
+    opacity: 1;
+  }
+
+  /* «Sí, bloquear 6 h» during its 2 s: only the fill is dimmed (the kit's 45 %) and the label
+     turns --fg, so what is about to be confirmed stays readable (≥ 6:1 in both themes). High
+     contrast keeps the kit's system colors. */
+  @media (forced-colors: none) {
+    .c-confirm.bq-locked[aria-disabled='true'] {
+      opacity: 1;
+      background: color-mix(in srgb, var(--blue) calc(var(--disabled-opacity) * 100%), var(--bg));
+      color: var(--fg);
+    }
+  }
+
+  .bq-span-2 {
+    grid-column: span 2;
+  }
+  .bq-span-3 {
+    grid-column: span 3;
+  }
+  .bq-span-4 {
+    grid-column: span 4;
+  }
+
+  /* Active block: countdown, 3 px mode bar, the line under it. */
+  .bq-countdown-row {
+    display: flex;
+    align-items: center;
+    min-height: var(--countdown-size);
+  }
+
+  .bq-boot-hold {
+    display: flex;
+    align-items: center;
+    height: var(--countdown-size);
+    color: var(--fg-muted);
+  }
+
+  .bq-under-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+    min-height: var(--line-height-12);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+    color: var(--fg-muted);
+    white-space: nowrap;
+  }
+
+  .bq-under-bar > :last-child:not(:first-child) {
+    margin-left: auto;
+  }
+
+  .bq-reason {
+    min-width: 0;
+    font-style: italic;
+  }
+
+  .bq-points {
+    color: var(--red-text);
+  }
+
+  /* The undo line keeps the help line's height; its button has a 32 px target. */
+  .bq-undo {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+
+  /* «Otro…»: the minutes field takes three columns, at the tiles' height. */
+  .bq-other-field {
+    grid-column: span 3;
+    min-width: 0;
+  }
+
+  .bq-other-field .c-field {
+    height: var(--tile-height);
+  }
+
+  /* Other active blocks: 28 px rows. */
+  .bq-rows {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .bq-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    height: var(--size-block-row);
+  }
+
+  .bq-row-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  .bq-more {
+    display: flex;
+    align-items: center;
+    min-height: var(--line-height-12);
+  }
+
+  .bq-emergency-text {
+    white-space: nowrap;
+  }
+}

@@ -1,0 +1,556 @@
+---
+/**
+ * Hero (design plan § 4.2 and § 6.3): eyebrow, two-beat headline, the download button for the
+ * visitor's system and, as the visual, the Céntrate window floating on its own.
+ *
+ * - The static HTML offers Windows (the priority); the script swaps label, note and href for
+ *   macOS, Linux or «Ver las descargas». Every label and note sits in the same grid cell, so
+ *   the button and the note keep their size whatever the system (no layout shift).
+ * - Until the real video exists, the window plays the story in about 9 s, once: it types
+ *   «no veo YouTube en una hora», Enter shows the confirmation, Enter again starts the
+ *   countdown. Three AppWindow states stacked in one cell, aligned to the bottom, so the window
+ *   grows upwards like the real one. It starts only once the window is really in view (not
+ *   below the fold of a laptop), pauses off screen, and has a Pausar / Reproducir / Repetir
+ *   control that never covers the window: beside its bottom-right corner from 735 px (sticky,
+ *   so it stays on screen while the window does), under its right edge on phones. The control
+ *   shows only once the story has started, so it never offers «Pausar» over a still frame. It
+ *   never runs with reduced motion or without JavaScript: then the window shows the 'typing'
+ *   state, which tells the product in one frame, and the control is not there (removed by
+ *   CSS, so the layout never shifts).
+ * - The h1 is the LCP element: never hidden, never animated. Only the window reveals.
+ */
+import AppWindow from '../AppWindow.astro';
+import { copyFor } from '../../content/locale';
+import { DEFAULT_OS, downloadUrl, primaryAsset, type OS } from '../../lib/downloads';
+import { langFromPath, routes } from '../../lib/i18n';
+
+const copy = copyFor(Astro.url);
+
+const { hero, ui } = copy;
+const lang = langFromPath(Astro.url.pathname);
+const headline = hero.headline.split(/(?<=\.)\s+/);
+
+const systems: readonly OS[] = ['windows', 'mac', 'linux', 'other'];
+const hrefFor = (os: OS): string => {
+  const asset = primaryAsset[os];
+  return asset ? downloadUrl(asset) : routes[lang].download;
+};
+const hrefs = Object.fromEntries(systems.map((os) => [os, hrefFor(os)]));
+---
+
+<section data-surface="light" class="hero gutter" data-hero>
+  <div class="hero-copy">
+    <p class="text-lead font-semibold">{hero.eyebrow}</p>
+    <h1 class="hero-headline text-hero sentence-lines">
+      {headline.map((sentence) => <span>{sentence}</span>)}
+    </h1>
+
+    <div class="hero-actions" data-hero-cta data-os={DEFAULT_OS} data-hrefs={JSON.stringify(hrefs)}>
+      <a class="button-pill hero-button" href={hrefFor(DEFAULT_OS)} data-hero-button>
+        <span class="hero-stack">
+          {systems.map((os) => <span data-for={os}>{hero.cta[os].label}</span>)}
+        </span>
+      </a>
+      <p class="hero-note hero-stack text-small text-secondary">
+        {systems.map((os) => <span data-for={os}>{hero.cta[os].note}</span>)}
+      </p>
+      <a class="hero-other link" href={hero.otherSystems.href}>{hero.otherSystems.label}</a>
+    </div>
+  </div>
+
+  <div class="hero-visual" data-reveal>
+    <div class="hero-stage" role="img" aria-label={hero.visualAria} data-hero-stage data-phase="typing">
+      <AppWindow
+        state="typing"
+        decorative
+        class="hero-window shadow-window"
+        data-hero-layer="typing"
+      />
+      <AppWindow
+        state="confirm"
+        decorative
+        class="hero-window shadow-window"
+        data-hero-layer="confirm"
+      />
+      <AppWindow
+        state="countdown"
+        decorative
+        windowTitle={copy.appWindow.title.idle}
+        class="hero-window shadow-window"
+        data-hero-layer="countdown"
+      />
+    </div>
+
+    <button
+      type="button"
+      class="hero-control text-small"
+      data-hero-control
+      data-state="waiting"
+      data-label-pause={ui.pause}
+      data-label-play={ui.play}
+      data-label-replay={ui.replay}
+      data-aria-pause={ui.pauseVideo}
+      data-aria-play={ui.playVideo}
+      data-aria-replay={ui.replayVideo}
+      aria-label={ui.pauseVideo}
+    >
+      <svg class="hero-control-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <g data-icon="pause"
+          ><rect x="14" y="3" width="5" height="18" rx="1"></rect><rect
+            x="5"
+            y="3"
+            width="5"
+            height="18"
+            rx="1"></rect></g
+        >
+        <g data-icon="play"
+          ><path
+            d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"
+          ></path></g
+        >
+        <g data-icon="replay"
+          ><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"
+          ></path></g
+        >
+      </svg>
+      <span data-hero-control-label>{ui.pause}</span>
+    </button>
+  </div>
+</section>
+
+<style>
+  .hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-block: var(--hero-pad-top) var(--section-pad-block);
+    text-align: center;
+  }
+
+  .hero-copy {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: var(--measure-lead);
+  }
+
+  .hero-headline {
+    margin-block-start: var(--space-eyebrow);
+  }
+
+  .hero-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    margin-block-start: var(--hero-actions-gap);
+  }
+
+  /* Every variant in one grid cell: the box is as big as the biggest, so nothing moves when
+     the script picks the visitor's system. Hidden variants leave the accessibility tree. */
+  .hero-stack {
+    display: grid;
+  }
+
+  .hero-stack > span {
+    grid-area: 1 / 1;
+    visibility: hidden;
+  }
+
+  [data-os='windows'] [data-for='windows'],
+  [data-os='mac'] [data-for='mac'],
+  [data-os='linux'] [data-for='linux'],
+  [data-os='other'] [data-for='other'] {
+    visibility: visible;
+  }
+
+  .hero-button {
+    margin-block-end: 4px;
+  }
+
+  /* On a phone the button already goes to /descargar: the link would repeat it. Hidden but
+     kept in the layout, so the window below does not jump. */
+  [data-os='other'] .hero-other {
+    visibility: hidden;
+  }
+
+  /* Visual ------------------------------------------------------------------------------- */
+  /* Three columns with the window in the middle: the control lives in the right-hand one, so
+     it can sit beside the window without ever covering it. The side columns may be narrower
+     than the control (768 px with «Reproducir»); it then runs into the page gutter, never
+     into the window and never past the screen edge (735 px: 9 px spare). */
+  .hero-visual {
+    --aw-zoom: var(--aw-zoom-hero);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-self: stretch;
+    margin-block-start: var(--hero-visual-gap);
+  }
+
+  .hero-visual > .hero-stage {
+    grid-column: 2;
+  }
+
+  .hero-stage {
+    display: grid;
+    align-items: end;
+    justify-items: center;
+  }
+
+  .hero-stage > :global(.hero-window) {
+    grid-area: 1 / 1;
+    transition:
+      opacity var(--duration-app-fade) linear,
+      visibility 0s linear var(--duration-app-fade);
+  }
+
+  .hero-stage:not([data-phase='typing']) > :global([data-hero-layer='typing']),
+  .hero-stage:not([data-phase='confirm']) > :global([data-hero-layer='confirm']),
+  .hero-stage:not([data-phase='countdown']) > :global([data-hero-layer='countdown']) {
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  .hero-stage[data-phase='typing'] > :global([data-hero-layer='typing']),
+  .hero-stage[data-phase='confirm'] > :global([data-hero-layer='confirm']),
+  .hero-stage[data-phase='countdown'] > :global([data-hero-layer='countdown']) {
+    transition-delay: 0s;
+  }
+
+  /* The caret blinks only while the sequence plays (never with reduced motion). */
+  @media (prefers-reduced-motion: no-preference) {
+    .hero-stage[data-blink] :global(.aw-caret) {
+      animation: hero-caret 1s steps(1, end) infinite;
+    }
+  }
+
+  @keyframes hero-caret {
+    50% {
+      opacity: 0;
+    }
+  }
+
+  /* Pausar / Reproducir / Repetir: a small glass pill beside the window's bottom-right corner,
+     16 px off its edge. Sticky, like the Highlights pill: while the window runs past the bottom
+     of the screen, the pill rides 24 px above that edge (never above the window's own top, its
+     grid area), so it can always be seen and pressed while the window moves, and it never
+     covers the window's UI. Its box is in the layout from the first paint; it stays hidden
+     (space kept) until the story really starts. Only no-JS and reduced motion, known before
+     the body is parsed, remove it. */
+  .hero-control {
+    grid-column: 3;
+    align-self: end;
+    justify-self: start;
+    position: sticky;
+    bottom: 24px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: var(--chip-h);
+    margin-inline-start: 16px;
+    padding-inline: 14px 16px;
+    border: 1px solid transparent;
+    border-radius: var(--shape-pill);
+    background-color: var(--palette-glass-control);
+    -webkit-backdrop-filter: var(--nav-backdrop);
+    backdrop-filter: var(--nav-backdrop);
+    color: var(--palette-ink);
+    white-space: nowrap;
+    transition: background-color 100ms linear;
+  }
+
+  .hero-control[data-state='waiting'] {
+    visibility: hidden;
+  }
+
+  :global(html:not(.js)) .hero-control {
+    display: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hero-control {
+      display: none;
+    }
+  }
+
+  .hero-control:hover {
+    background-color: var(--palette-glass-control-hover);
+  }
+
+  /* Phones: the window fills the column, so there is no room beside it. The control goes
+     under its right edge, static (sticky would pull it back onto the window). 44 px touch
+     targets for the two small controls. */
+  @media (max-width: 734px) {
+    .hero-other {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+    }
+
+    .hero-visual {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      align-self: auto;
+      gap: 16px;
+    }
+
+    .hero-control {
+      position: static;
+      height: 44px;
+      margin-inline-start: 0;
+    }
+  }
+
+  .hero-control-icon {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .hero-control-icon [data-icon] {
+    display: none;
+  }
+
+  .hero-control[data-state='playing'] [data-icon='pause'],
+  .hero-control[data-state='paused'] [data-icon='play'],
+  .hero-control[data-state='ended'] [data-icon='replay'] {
+    display: inline;
+  }
+
+  .hero-control[data-state='playing'] [data-icon='pause'],
+  .hero-control[data-state='paused'] [data-icon='play'] {
+    fill: currentColor;
+    stroke: none;
+  }
+</style>
+
+<script>
+  import { detectPlatform, type OS } from '../../lib/downloads';
+
+  // ---- Download button for the visitor's system ----------------------------------------------
+  for (const cta of document.querySelectorAll<HTMLElement>('[data-hero-cta]')) {
+    const { os } = detectPlatform();
+    const hrefs = JSON.parse(cta.dataset.hrefs ?? '{}') as Partial<Record<OS, string>>;
+    const button = cta.querySelector<HTMLAnchorElement>('[data-hero-button]');
+    const href = hrefs[os];
+    if (button && href) {
+      cta.dataset.os = os;
+      button.href = href;
+    }
+  }
+
+  // ---- The window's sequence (design plan § 6.3) ---------------------------------------------
+  /** Milliseconds from the start of the sequence. */
+  const T = {
+    typeStart: 800,
+    charMs: 70,
+    /** First Enter: the confirmation card. */
+    confirm: 3200,
+    /** The second Enter shows as a press on «Bloquear hasta 17:42» just before it applies. */
+    press: 4800,
+    countdown: 5000,
+    end: 9000,
+  } as const;
+  const BLOCK_SECONDS = 3600;
+
+  /** The app's format: H:MM:SS from one hour up, M:SS below; the seconds go apart (60 %). */
+  function splitCountdown(total: number): [string, string] {
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = String(total % 60).padStart(2, '0');
+    return h > 0 ? [`${h}:${String(m).padStart(2, '0')}`, `:${s}`] : [String(m), `:${s}`];
+  }
+
+  /** Drives the window; false when its pieces are missing (it then keeps its static frame). */
+  function setupSequence(stage: HTMLElement, control: HTMLButtonElement): boolean {
+    const q = <E extends Element = HTMLElement>(selector: string): E | null =>
+      stage.querySelector<E>(selector);
+    const typingLayer = q('[data-hero-layer="typing"]');
+    const typed = typingLayer?.querySelector<HTMLElement>('[data-aw-typed]');
+    const placeholder = typingLayer?.querySelector<HTMLElement>('[data-aw-placeholder]');
+    const caret = typingLayer?.querySelector<HTMLElement>('[data-aw-caret]');
+    const helpIdle = typingLayer?.querySelector<HTMLElement>('[data-aw-help-idle]');
+    const chipsBox = typingLayer?.querySelector<HTMLElement>('[data-aw-chips]');
+    const chips = Array.from(typingLayer?.querySelectorAll<HTMLElement>('[data-aw-chip]') ?? []);
+    const countdownLayer = q('[data-hero-layer="countdown"]');
+    const main = countdownLayer?.querySelector<HTMLElement>('[data-aw-countdown-main]');
+    const seconds = countdownLayer?.querySelector<HTMLElement>('[data-aw-countdown-seconds]');
+    const bar = countdownLayer?.querySelector<HTMLElement>('[data-aw-bar]');
+    const submit = q('[data-hero-layer="confirm"] [data-aw-submit]');
+    const label = control.querySelector<HTMLElement>('[data-hero-control-label]');
+    if (!typed || !placeholder || !caret || !helpIdle || !chipsBox || !main || !seconds || !bar) {
+      return false;
+    }
+
+    // The static HTML already holds the phrase and the chips: read them instead of repeating
+    // strings here. The service chip appears once its name is typed, the time chips at the end.
+    const phrase = (typed.textContent ?? '').trim();
+    // The chip's own text, without its monogram.
+    const serviceName = Array.from(chips[0]?.childNodes ?? [])
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => node.textContent ?? '')
+      .join('')
+      .trim()
+      .toLocaleLowerCase('es');
+    const serviceAt = phrase.toLocaleLowerCase('es').indexOf(serviceName);
+    const chipAt = chips.map((_, i) =>
+      i === 0 && serviceAt >= 0 ? serviceAt + serviceName.length : phrase.length,
+    );
+    const typedAt = (count: number): number => T.typeStart + count * T.charMs;
+
+    let elapsed = 0;
+    let frame = 0;
+    let last = 0;
+    let userPaused = false;
+    let ended = false;
+    let inView = false;
+    const shown: Record<string, string | boolean> = {};
+
+    /** Writes only what changed since the last frame. */
+    function put(key: string, value: string | boolean, write: () => void): void {
+      if (shown[key] === value) return;
+      shown[key] = value;
+      write();
+    }
+
+    function render(t: number): void {
+      const phase = t < T.confirm ? 'typing' : t < T.countdown ? 'confirm' : 'countdown';
+      put('phase', phase, () => (stage.dataset.phase = phase));
+
+      const count = Math.max(0, Math.min(phrase.length, Math.floor((t - T.typeStart) / T.charMs)));
+      put('typed', String(count), () => {
+        typed!.textContent = phrase.slice(0, count);
+        placeholder!.hidden = count > 0;
+        caret!.hidden = false;
+      });
+      const visibleChips = chipAt.filter((at) => t >= typedAt(at)).length;
+      put('chips', String(visibleChips), () => {
+        helpIdle!.hidden = visibleChips > 0;
+        chipsBox!.hidden = visibleChips === 0;
+        chips.forEach((chip, i) => (chip.hidden = i >= visibleChips));
+      });
+
+      put('pressed', t >= T.press && t < T.countdown, () =>
+        submit?.toggleAttribute('data-pressed', t >= T.press && t < T.countdown),
+      );
+
+      const left = BLOCK_SECONDS - Math.max(0, Math.floor((t - T.countdown) / 1000));
+      put('left', String(left), () => {
+        const [m, s] = splitCountdown(left);
+        main!.textContent = m;
+        seconds!.textContent = s;
+        bar!.style.setProperty('--aw-bar', String(left / BLOCK_SECONDS));
+      });
+      syncBlink();
+    }
+
+    function setControl(state: 'playing' | 'paused' | 'ended'): void {
+      const key = state === 'playing' ? 'Pause' : state === 'paused' ? 'Play' : 'Replay';
+      control.dataset.state = state;
+      control.setAttribute('aria-label', control.dataset[`aria${key}`] ?? '');
+      if (label) label.textContent = control.dataset[`label${key}`] ?? '';
+    }
+
+    const running = (): boolean => !userPaused && !ended && inView && !document.hidden;
+
+    /** The caret blinks only while the sequence is actually typing: paused, ended, off screen
+     *  or in a hidden tab it stays still (nothing moves on its own once paused). */
+    const syncBlink = (): void => {
+      stage.toggleAttribute('data-blink', stage.dataset.phase === 'typing' && running());
+    };
+
+    function tick(now: number): void {
+      // Cap the step so a stalled frame never skips half the story.
+      elapsed += Math.min(now - last, 100);
+      last = now;
+      if (elapsed >= T.end) {
+        elapsed = T.end;
+        ended = true;
+      }
+      render(elapsed);
+      if (ended) {
+        frame = 0;
+        setControl('ended');
+        return;
+      }
+      frame = requestAnimationFrame(tick);
+    }
+
+    function update(): void {
+      if (running() && !frame) {
+        last = performance.now();
+        frame = requestAnimationFrame(tick);
+      } else if (!running() && frame) {
+        cancelAnimationFrame(frame);
+        frame = 0;
+      }
+      syncBlink();
+    }
+
+    control.addEventListener('click', () => {
+      if (ended) {
+        ended = false;
+        userPaused = false;
+        elapsed = 0;
+        render(0);
+      } else {
+        userPaused = !userPaused;
+      }
+      setControl(userPaused ? 'paused' : 'playing');
+      update();
+    });
+
+    // The story starts only once the window is really in view: three quarters of it, or 60 %
+    // of the screen for a window taller than the screen. On a laptop, where the hero shows
+    // only the top of the window, it waits for the first scroll instead of playing below the
+    // fold. Once started it pauses only when less than a quarter is left on screen.
+    let started = false;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry) return;
+        const ratio = entry.intersectionRatio;
+        const screen = entry.rootBounds?.height || window.innerHeight;
+        const share = entry.intersectionRect.height / screen;
+        if (!started && (ratio >= 0.75 || share >= 0.6)) {
+          started = true;
+          // The control shows from here on (it was 'waiting', hidden with its space kept).
+          setControl('playing');
+        }
+        inView = started && (ratio >= 0.25 || share >= 0.25);
+        update();
+      },
+      // Fine steps, so a window taller than the screen still reports the 60 % crossing.
+      { threshold: Array.from({ length: 21 }, (_, i) => i / 20) },
+    );
+    observer.observe(stage);
+    document.addEventListener('visibilitychange', update);
+
+    // Reduced motion switched on mid-way: stop and go back to the one-frame story (the CSS
+    // removes the control).
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+    reduced.addEventListener('change', () => {
+      if (!reduced.matches) return;
+      ended = true;
+      update();
+      render(T.confirm - 1);
+    });
+
+    render(0);
+    return true;
+  }
+
+  if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    for (const hero of document.querySelectorAll<HTMLElement>('[data-hero]')) {
+      const stage = hero.querySelector<HTMLElement>('[data-hero-stage]');
+      const control = hero.querySelector<HTMLButtonElement>('[data-hero-control]');
+      // A window the script cannot drive keeps its static frame, and its control stays
+      // 'waiting': hidden, with its box kept, so nothing moves.
+      if (stage && control) setupSequence(stage, control);
+    }
+  }
+</script>

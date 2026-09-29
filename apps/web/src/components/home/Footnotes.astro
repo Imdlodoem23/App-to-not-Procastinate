@@ -1,0 +1,106 @@
+---
+/**
+ * Numbered notes of the home page (design plan § 4.12), rendered at the top of the footer
+ * (Base.astro's `footnotes` slot, `alt` surface). Numbers follow copy.footnotes.items, the
+ * order in which the notes first appear on the page.
+ *
+ * Links both ways: references (FootnoteRef.astro, or any `<a href="#nota-{n}">`) jump here,
+ * and each note's «Volver al texto» jumps back. Without JavaScript it goes back to the first
+ * reference (`#ref-{id}-1`). With it, it goes back to the reference the visitor came from, and
+ * falls back to the first reference found on the page if `ref-{id}-1` does not exist.
+ */
+import { footnoteList } from '../../content/copy';
+import { copyFor } from '../../content/locale';
+
+const copy = copyFor(Astro.url);
+
+const { footnotes, ui } = copy;
+const headingId = `${footnotes.id}-titulo`;
+---
+
+<section id={footnotes.id} class="footnotes" aria-labelledby={headingId}>
+  <h2 id={headingId} class="sr-only">{footnotes.title}</h2>
+  <ol class="footnotes-list">
+    {
+      footnoteList(copy).map((note) => (
+        <li id={`nota-${note.n}`} class="footnotes-item">
+          {note.text}{' '}
+          <a class="footnotes-back" href={`#ref-${note.id}-1`} data-footnote-back={note.n}>
+            {ui.footnoteBack}
+          </a>
+        </li>
+      ))
+    }
+  </ol>
+</section>
+
+<style>
+  /* 12 px notes in the footer's grey, 840 wide, 8 apart. */
+  .footnotes-list {
+    max-width: var(--measure-lead);
+    margin: 0;
+    padding-inline-start: 1.5em;
+    list-style: decimal;
+    font-size: var(--type-note-size);
+    line-height: var(--type-note-lh);
+    letter-spacing: var(--type-note-ls);
+    color: var(--text-secondary);
+  }
+
+  .footnotes-item {
+    padding-inline-start: 0.25em;
+    scroll-margin-block-start: calc(var(--nav-height) + 24px);
+  }
+
+  .footnotes-item + .footnotes-item {
+    margin-block-start: 8px;
+  }
+
+  .footnotes-item::marker {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* The note you jumped to reads in the text colour. */
+  .footnotes-item:target {
+    color: var(--text);
+  }
+
+  /* Always underlined: blue on the notes' grey differs by hue alone (WCAG 1.4.1). The
+     pseudo-element makes a 44 px tall target without growing the line. */
+  .footnotes-back {
+    position: relative;
+    color: var(--link);
+    white-space: nowrap;
+    text-decoration-line: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.18em;
+  }
+
+  .footnotes-back::after {
+    content: '';
+    position: absolute;
+    inset: -14px -8px;
+  }
+</style>
+
+<script>
+  // Point each «Volver al texto» at a reference that exists.
+  for (const back of document.querySelectorAll<HTMLAnchorElement>('[data-footnote-back]')) {
+    const target = back.getAttribute('href')?.slice(1) ?? '';
+    if (target && document.getElementById(target)) continue;
+    const ref = document.querySelector<HTMLAnchorElement>(
+      `a[href="#nota-${back.dataset.footnoteBack}"]`,
+    );
+    if (!ref) continue;
+    if (!ref.id) ref.id = `ref-nota-${back.dataset.footnoteBack}`;
+    back.setAttribute('href', `#${ref.id}`);
+  }
+
+  // …and at the reference the visitor actually came from.
+  document.addEventListener('click', (event) => {
+    const ref = (event.target as Element | null)?.closest<HTMLAnchorElement>('a[href^="#nota-"]');
+    if (!ref?.id) return;
+    const note = document.getElementById(ref.getAttribute('href')?.slice(1) ?? '');
+    note?.querySelector('[data-footnote-back]')?.setAttribute('href', `#${ref.id}`);
+  });
+</script>

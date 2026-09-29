@@ -1,0 +1,64 @@
+---
+/**
+ * One section of a document page: an anchor target with its <h2>, separated from the previous
+ * section by a hairline and the stepped document spacing (64 / 56 / 48 on each side).
+ *
+ * Every document page uses the same heading scale, so the page headline keeps its weight:
+ * h1 `text-hero` (64 / 56 / 40, DocPage), h2 `text-lead` in 600 (28 / 24 / 21, here) and
+ * h3 `text-title` (21 / 21 / 17, download tiles, problems, release notes).
+ * Children are spaced by the section itself; see the rhythm rules below.
+ */
+interface Props {
+  id: string;
+  title: string;
+}
+
+const { id, title } = Astro.props;
+const headingId = `${id}-titulo`;
+---
+
+<section id={id} class="doc-section" aria-labelledby={headingId}>
+  <h2 id={headingId} class="doc-section-title text-lead font-semibold">
+    {title}
+  </h2>
+  <slot />
+</section>
+
+<style>
+  /* Jumps from the index land a little below the bar, not glued to it. */
+  .doc-section {
+    scroll-margin-top: 32px;
+  }
+
+  .doc-section + .doc-section {
+    margin-top: var(--space-doc-section);
+    padding-top: var(--space-doc-section);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .doc-section-title {
+    margin-bottom: var(--space-headline-lead);
+  }
+
+  /* Rhythm inside a section: 20 between paragraphs of text, 40 around bigger blocks. */
+  .doc-section > :global(* + *) {
+    margin-top: 20px;
+  }
+
+  .doc-section > :global(.doc-block + *),
+  .doc-section > :global(* + .doc-block) {
+    margin-top: 40px;
+  }
+
+  @media (max-width: 734px) {
+    .doc-section > :global(.doc-block + *),
+    .doc-section > :global(* + .doc-block) {
+      margin-top: 32px;
+    }
+  }
+
+  /* The headline's own margin sets the first gap (last, so it wins over the rules above). */
+  .doc-section > :global(.doc-section-title + *) {
+    margin-top: 0;
+  }
+</style>

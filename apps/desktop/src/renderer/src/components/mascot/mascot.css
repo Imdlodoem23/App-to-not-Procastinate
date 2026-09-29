@@ -1,0 +1,11 @@
+/*
+ * The large mascot (Recompensas): a block painted through its CSS mask (`mascotStyle`), sized
+ * by the component. The header glyph uses the kit's `.c-icon`.
+ */
+
+@layer components {
+  .c-mascot {
+    display: block;
+    flex: none;
+  }
+}

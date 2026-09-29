@@ -1,0 +1,378 @@
+/*
+ * Bloqueos window (PROMPT §10 «Ventanas de detalle»): the section pattern of the main window at
+ * 600 DIP, the form in two columns («en dos columnas si hace falta», like G-Helper's «Fans +
+ * Power»): what to block on the left, how long, how and why on the right, the action bar pinned
+ * to the bottom while the form scrolls. Colors come only from tokens.css; no cards, shadows or
+ * separators (the pinned bar only repeats the window background).
+ */
+
+@layer components {
+  .blq {
+    /* Height of the pinned action bar (top air + door tile + gap + help line + bottom air):
+       form controls scroll into view above it, never under it. FormActions overwrites it with
+       the measured height (the naming row is taller); this is the first-paint fallback. */
+    --blq-actions-height: calc(
+      var(--space-2) + var(--size-tile-door) + var(--space-1) + var(--line-height-12) +
+        var(--layout-margin)
+    );
+    display: flex;
+    flex-direction: column;
+    gap: var(--section-gap);
+    min-width: 0;
+  }
+
+  /* The form: two columns. The catalog list is narrow text; the right column holds rows of
+     tiles, so it gets a little more. */
+  .blq-form {
+    display: grid;
+    grid-template-columns: minmax(0, 9fr) minmax(0, 10fr);
+    gap: var(--section-gap) var(--space-4);
+    align-items: start;
+  }
+
+  .blq-what,
+  .blq-how {
+    display: flex;
+    flex-direction: column;
+    gap: var(--section-gap);
+    min-width: 0;
+  }
+
+  .blq-form :is(button, input) {
+    scroll-margin-bottom: calc(var(--blq-actions-height) + var(--space-2));
+  }
+
+  /* «Guardar como plantilla | Bloquear…», pinned to the bottom of the window while the form is
+     taller than it; it scrolls away with the form once the lists below come up. */
+  .blq-actions {
+    position: sticky;
+    bottom: calc(-1 * var(--layout-margin));
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-bottom: calc(-1 * var(--layout-margin));
+    padding: var(--space-2) 0 var(--layout-margin);
+    background: var(--bg);
+  }
+
+  /* A 2 × 2 grid for a row of four that does not fit its column (Modo). */
+  .blq-grid-2 .c-tilegrid[data-columns] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* A row whose help needs two lines in its column: both reserved, so nothing jumps. */
+  .blq-help-2 .c-help {
+    align-items: flex-start;
+    min-height: calc(2 * var(--line-height-12));
+    white-space: normal;
+    overflow: visible;
+  }
+
+  /* Custom domains, then apps, one under the other in the left column. */
+  .blq-entries {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .blq-text,
+  .blq-note {
+    margin: 0;
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+
+  .blq-text {
+    font-size: var(--font-size-13);
+    line-height: var(--line-height-13);
+  }
+
+  .blq-note,
+  .blq-muted {
+    color: var(--fg-muted);
+  }
+
+  .blq-label {
+    color: var(--fg-muted);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+
+  /* Help lines that report a result may wrap here (the detail window scrolls). */
+  .c-help.blq-wrap {
+    white-space: normal;
+    overflow: visible;
+    min-height: var(--line-height-12);
+  }
+
+  /* Two decisions side by side. */
+  .blq-two {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+    align-items: start;
+  }
+
+  .blq-col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+
+  .blq-field-row {
+    display: flex;
+    gap: var(--layout-tile-gap);
+    min-width: 0;
+  }
+
+  .blq-field-row > .c-field {
+    flex: 1 1 auto;
+  }
+
+  .blq-field-row > .c-tile {
+    flex: none;
+    width: 96px;
+  }
+
+  /* Catalog groups ------------------------------------------------------------------------ */
+
+  .blq-groups,
+  .blq-results {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .blq-group-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    min-height: var(--size-min-target);
+  }
+
+  /* «Otros» has no checkbox: its name lines up with the category names. */
+  .blq-group-name {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: var(--size-min-target);
+    padding-left: 24px;
+  }
+
+  .blq-group > .blq-note {
+    padding-left: 24px;
+  }
+
+  .blq-services {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--space-3);
+    padding-left: 24px;
+  }
+
+  .blq-results > .blq-services {
+    padding-left: 0;
+  }
+
+  .blq-services .c-check-label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* Entry and suggestion chips (24 px, round like the main window's chips; 32 px hit area). */
+  .blq-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-1);
+    padding: var(--space-1) 0;
+  }
+
+  .blq-chip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    max-width: 100%;
+    height: 24px;
+    padding: 0 var(--space-2);
+    border: var(--size-border) solid var(--border);
+    border-radius: 999px;
+    background: var(--tile);
+    color: var(--fg);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+    transition: background-color var(--duration-hover) linear;
+  }
+
+  /* Centred 32 px, whatever the border: the insets count from inside it (a 1 px border made
+     `inset: -4px 0` 30 px). */
+  .blq-chip::after {
+    content: '';
+    position: absolute;
+    top: calc(50% - var(--size-min-target) / 2);
+    right: 0;
+    bottom: calc(50% - var(--size-min-target) / 2);
+    left: 0;
+  }
+
+  .blq-chip:hover {
+    background: var(--tile-hover);
+  }
+
+  .blq-chip[data-kind='suggestion'] {
+    border-style: dashed;
+    border-color: var(--control);
+  }
+
+  .blq-chip-text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .blq-chip-icon {
+    color: var(--fg-muted);
+  }
+
+  /* Rows ------------------------------------------------------------------------------------ */
+
+  .blq-list {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .blq-block-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--size-block-row);
+  }
+
+  .blq-block-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .blq-block-until {
+    flex: none;
+    color: var(--fg-muted);
+    white-space: nowrap;
+  }
+
+  .blq-rows {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .blq-rows .c-settings-title,
+  .blq-rows .c-settings-desc {
+    overflow-wrap: anywhere;
+  }
+
+  .blq-row-actions {
+    display: flex;
+    gap: var(--layout-tile-gap);
+  }
+
+  .blq-row-actions > .c-tile {
+    width: 88px;
+  }
+
+  /* «Sí» and «No» differ in width: the switches (and the «Editar» beside them) line up. */
+  .blq-row-actions > .c-toggle {
+    justify-content: flex-end;
+    min-width: 64px;
+  }
+
+  .blq-inline {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  /* A row of two equal tiles («Guardar como plantilla | Bloquear…»). */
+  .blq-row-2 .c-tilegrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* An addition to the whitelist that waits its 24 h: dashed, like a suggestion. */
+  .blq-chip[data-kind='pending'] {
+    border-style: dashed;
+    border-color: var(--control);
+    color: var(--fg-muted);
+  }
+
+  /* Schedule editor and exam whitelist ------------------------------------------------------ */
+
+  /* In place under the list, no card: a sub-heading and the same rows as the form. */
+  .blq-editor,
+  .blq-whitelist {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    min-width: 0;
+  }
+
+  .blq-whitelist {
+    gap: var(--space-2);
+  }
+
+  .blq-editor-title {
+    margin: 0;
+    font-size: var(--font-size-13);
+    line-height: var(--line-height-13);
+    font-weight: var(--font-weight-semibold);
+    overflow-wrap: anywhere;
+  }
+
+  /* Results and guards may take two lines here (the detail window scrolls). */
+  .blq-editor .c-help,
+  .blq-whitelist .c-help {
+    white-space: normal;
+    overflow: visible;
+  }
+
+  .blq-fieldset {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .blq-fieldset > legend {
+    padding: 0;
+    margin-bottom: var(--space-1);
+  }
+
+  /* L M X J V S D: one checkbox per day, each a 32 px target at least. */
+  .blq-days {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-3);
+  }
+
+  .blq-days .c-check {
+    min-width: 40px;
+  }
+
+  /* The six categories in three columns. */
+  .blq-categories {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    column-gap: var(--space-3);
+  }
+
+  .blq-categories .c-check-label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}

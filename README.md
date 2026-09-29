@@ -42,14 +42,34 @@ flowchart LR
 - **Extensión** (`apps/extension`): bloquea al instante dentro del navegador y muestra la página de «bloqueado».
 - **Web** (`apps/web`): presenta la app y permite descargarla.
 - **Compartido** (`packages/shared`): catálogo, parser de frases, reglas de puntos y tokens de diseño.
+- **Nube opcional** (`apps/api`): cuentas, estadísticas en varios ordenadores, amigos y coach con IA. Mira más abajo.
 
 ## Privacidad
 
 Sin cuenta, sin telemetría y funciona sin internet. Las imágenes de la cámara se procesan en tu ordenador y nunca se guardan ni se suben. Más detalles en [`PRIVACY.md`](PRIVACY.md).
 
+## Nube opcional: cuentas, amigos y coach
+
+Céntrate no necesita cuenta ni internet. Si quieres, puedes iniciar sesión (con Google o con un código por email) para:
+
+- ver tus estadísticas de todos tus ordenadores y tus gráficas en un panel web;
+- tener amigos, compararte en un ranking semanal y ver quién está concentrado ahora («estudiar juntos»);
+- elegir un compañero de responsabilidad que reciba un aviso si usas el desbloqueo de emergencia o abandonas una sesión de estudio (y que, si quieres, tenga que aprobarlo);
+- usar el coach con IA (Claude, de Anthropic): divide una tarea grande en pasos, prepara un plan para un examen, entiende frases que el parser no entiende y te resume la semana.
+
+Cómo protege tu privacidad:
+
+- **Todo empieza apagado.** Cada cosa que se comparte tiene su propio interruptor en la app.
+- **Solo números.** A la nube suben totales diarios (minutos, puntos, intentos), nunca qué bloqueas, por qué, tus tareas ni los títulos de las ventanas. Tus amigos solo ven lo que tú compartes, y solo si ellos comparten lo mismo.
+- **El coach solo recibe el texto que escribes al pedirle ayuda.** Pasa por el servidor (la clave de la API nunca va dentro de la app) y no se guarda.
+- **Tus datos son tuyos.** Desde el panel web puedes descargarlo todo en JSON o borrar la cuenta con todo lo que tiene.
+- **La nube nunca manda sobre tu ordenador.** No puede empezar, alargar ni terminar un bloqueo, y el guardián no depende de ella.
+
+El servidor (`apps/api`, Fastify + Postgres) se despliega en Render con `render.yaml`. Cada función se activa al poner su clave (Google, Resend, Anthropic) y sin ellas queda apagada sin romper nada. Qué claves hacen falta: [`PENDIENTE_PARA_MI.md`](PENDIENTE_PARA_MI.md). Contrato técnico: [`docs/API.md`](docs/API.md). En el plan gratuito de Render el servidor se duerme tras 15 minutos sin uso y la base de datos gratuita caduca; la app lo tiene en cuenta (tiempos de espera cortos y una cola que reintenta sin conexión).
+
 ## Desarrollo
 
-Requisitos: Node 22 o superior y Go 1.24 o superior.
+Requisitos: Node 22 o superior y Go 1.26 o superior.
 
 ```bash
 npm install          # instala todo el monorepo
@@ -61,6 +81,7 @@ npm run build        # compila la web, la extensión y la app
 
 npm run dev -w apps/desktop   # app de escritorio en modo desarrollo
 npm run dev -w apps/web       # web en http://localhost:4321
+npm run dev -w apps/api       # nube opcional en http://localhost:3000 (variables: apps/api/.env.example)
 ```
 
 ## Licencia

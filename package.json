@@ -19,10 +19,14 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
-    "test:go": "cd guardian && go vet ./... && go test ./..."
+    "test:go": "cd guardian && go vet ./... && go test ./...",
+    "gen:guardian": "node scripts/gen-guardian-data.mjs",
+    "gen:icons": "node scripts/gen-app-icons.mjs",
+    "lint:tokens": "node scripts/lint-colors.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^24.0.0",
     "eslint": "^10.11.0",
     "eslint-config-prettier": "^10.1.8",

@@ -1,0 +1,287 @@
+# Regenerates the website's visual material from the real app (PROMPT.md § 11 «Material
+# visual») and opens a pull request with it, by hand (workflow_dispatch) and on every release
+# (release published, or the Release workflow finishing successfully):
+#
+# - Stills and frame-by-frame videos (scripts/marketing/build-media.mjs): the built Electron app
+#   in harness mode (fixture data, fake guardian, frozen clock) at device scale factor 2 under
+#   Xvfb, and the extension's blocked page in Chromium with a fake clock. Services show neutral
+#   monograms, never their favicons (the app runs with --harness-neutral-service-icons, and
+#   assertNeutralIcons checks every named moment). Videos: AV1 (SVT-AV1), VP9 and H.264
+#   (bt709) plus WebP posters, within the budgets (hero ≤ 0.4 MB AV1 / ≤ 1.2 MB H.264, loops
+#   ≤ 0.5 MB, images ≤ 120 KB, first view ≤ 1.5 MB). Output: apps/web/public/media/ with
+#   manifest.json.
+# - The Open Graph images (apps/web/scripts/render-og.mjs) and every icon drawn from the brand
+#   masters: app icons and favicons (scripts/gen-app-icons.mjs), tray icons
+#   (apps/desktop/scripts/gen-tray-icons.mjs) and extension icons
+#   (apps/extension/scripts/gen-icons.mjs), when those scripts exist.
+# - The desktop and extension third-party notices (scripts/gen-third-party-notices.mjs).
+# - ASSET-LICENSES.json: the generated-media entry.
+#
+# The lossless masters (FFV1) and the PNG stills go to the «marketing-masters» artifact only.
+#
+# Before the pull request, «Check budgets» re-checks the final apps/web/public/media tree
+# (scripts/marketing/check-budgets.mjs: every file listed in manifest.json with its size, each
+# file within its budget, the first view ≤ 1.5 MB) and runs the website's weight tests on the
+# built site; the pull request is only opened when both pass.
+#
+# Pull request: against `main` (or the branch given when run by hand; the default branch when it
+# does not exist), from the branch marketing-assets/<base>, updated in place by later runs.
+# Repository settings this needs (PENDIENTE_PARA_MI.md, «Material de la web»): GITHUB_TOKEN
+# needs «Allow GitHub Actions to create and approve pull requests» (Settings › Actions ›
+# General › Workflow permissions). Pull requests opened with GITHUB_TOKEN do not start other
+# workflows: set a MARKETING_PR_TOKEN secret (fine-grained, contents + pull requests: write) to
+# have CI run on them, or close and reopen the pull request.
+name: Marketing assets
+
+on:
+  release:
+    types: [published]
+  # release.yml publishes with GITHUB_TOKEN, whose events start no other workflow: follow the
+  # Release workflow itself as well.
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      base:
+        description: 'Branch to regenerate from and open the pull request against'
+        required: false
+        default: 'main'
+      langs:
+        description: 'Languages to capture (es, en), comma separated'
+        required: false
+        default: 'es'
+      only:
+        description: 'Only these jobs (stills, hero, extend-undo, blocked-page); empty = all'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: marketing-assets
+  cancel-in-progress: false
+
+jobs:
+  media:
+    name: Capture, encode and open a pull request
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TZ: Europe/Madrid
+      LANG: es_ES.UTF-8
+      ASTRO_TELEMETRY_DISABLED: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Pick the base branch
+        id: base
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WANTED: ${{ inputs.base || 'main' }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$WANTED" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "::error::Invalid branch name: $WANTED"; exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/branches/$WANTED" --silent 2>/dev/null; then
+            BRANCH="$WANTED"
+          else
+            BRANCH="$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)"
+            echo "::warning::Branch $WANTED does not exist: regenerating from $BRANCH and opening the pull request against it."
+          fi
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.base.outputs.branch }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck the capture scripts
+        run: npx tsc -p scripts/marketing/tsconfig.json
+
+      - name: ffmpeg, Xvfb and fonts
+        # Noto Sans (OFL) is a family of the app's font stack; fonts-noto-extra adds its
+        # SemiBold (600), which the UI uses.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg xvfb fonts-noto-core fonts-noto-extra
+          ffmpeg -hide_banner -version | head -n 1
+
+      - name: Chromium (blocked page, Open Graph image)
+        run: npx playwright install --with-deps chromium
+
+      - name: Build the desktop app and the extension
+        run: |
+          npm run build -w apps/desktop
+          npm run build -w apps/extension
+
+      - name: Stills and videos
+        env:
+          LANGS: ${{ inputs.langs || 'es' }}
+          ONLY: ${{ inputs.only || '' }}
+        run: |
+          node scripts/marketing/build-media.mjs \
+            --langs "$LANGS" --only "$ONLY" --work "$RUNNER_TEMP/marketing"
+
+      - name: App icons
+        # Every icon from the brand masters in assets/brand (docs/brand.md): app icons and
+        # favicons, tray and menu bar, extension. Then the third-party notices, which list what
+        # ASSET-LICENSES.json and the shipped packages hold. A failure here or in the Open Graph
+        # step still lets the media reach the pull request (the run shows the failed step).
+        continue-on-error: true
+        run: |
+          status=0
+          for script in \
+            scripts/gen-app-icons.mjs \
+            apps/desktop/scripts/gen-tray-icons.mjs \
+            apps/extension/scripts/gen-icons.mjs \
+            scripts/gen-third-party-notices.mjs; do
+            if [ -f "$script" ]; then
+              node "$script" || status=1
+            else
+              echo "$script not found: its files are left as they are."
+            fi
+          done
+          exit "$status"
+
+      - name: Open Graph images
+        continue-on-error: true
+        run: |
+          if [ -f apps/web/scripts/render-og.mjs ]; then
+            npm run build -w apps/web
+            npm run og -w apps/web
+          else
+            echo "apps/web/scripts/render-og.mjs not found: Open Graph images left as they are."
+          fi
+
+      - name: Format generated JSON
+        run: npx prettier --write ASSET-LICENSES.json apps/web/public/media/manifest.json
+
+      - name: Check budgets
+        # The gate before the pull request (PROMPT.md § 11 «Presupuestos»), on the final media
+        # folder whatever this run re-encoded: a partial run (`only`) keeps older entries, and
+        # the pull request may get no CI (GITHUB_TOKEN). check-budgets.mjs: every file listed in
+        # manifest.json with its size, hero ≤ 0.4 MB AV1 / ≤ 1.2 MB VP9 and H.264, loops
+        # ≤ 0.5 MB, images ≤ 120 KB, first view ≤ 1.5 MB (totals in the run summary). Then the
+        # website's own weight tests (apps/web/tests/quality.spec.ts) on the built site: every
+        # file of dist/ within its budget and the first view of every page ≤ 1.5 MB.
+        run: |
+          node scripts/marketing/check-budgets.mjs --summary "$GITHUB_STEP_SUMMARY"
+          npm run build -w apps/web
+          npm run test:quality -w apps/web -- -g weight
+
+      - name: Summary
+        if: ${{ !cancelled() }}
+        run: |
+          node --input-type=module - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import { existsSync, readFileSync } from 'node:fs';
+          const file = 'apps/web/public/media/manifest.json';
+          if (!existsSync(file)) {
+            console.log('No media manifest was written.');
+            process.exit(0);
+          }
+          const m = JSON.parse(readFileSync(file, 'utf8'));
+          const kb = (n) => `${(n / 1000).toFixed(1)} kB`;
+          console.log('### Marketing media\n');
+          console.log('| Video | Size | Duration | AV1 | VP9 | H.264 | Poster |');
+          console.log('| --- | --- | --- | --- | --- | --- | --- |');
+          for (const v of m.videos) {
+            const by = Object.fromEntries(v.sources.map((s) => [s.codec, s]));
+            const cell = (s) => (s ? `${kb(s.bytes)} / ${kb(s.budget)}` : '');
+            console.log(
+              `| ${v.lang}/${v.id} | ${v.width}×${v.height} | ${(v.durationMs / 1000).toFixed(1)} s | ${cell(by.av1)} | ${cell(by.vp9)} | ${cell(by.h264)} | ${kb(v.poster.bytes)} |`,
+            );
+          }
+          const largest = Math.max(0, ...m.stills.map((s) => Math.max(s.avif.bytes, s.webp.bytes)));
+          console.log(`\n${m.stills.length} stills, largest ${kb(largest)} (budget ${kb(m.budgets.image)}).`);
+          EOF
+
+      - name: Upload masters and PNG stills
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketing-masters
+          path: |
+            ${{ runner.temp }}/marketing/masters
+            ${{ runner.temp }}/marketing/*/stills/*.png
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketing-test-results
+          path: ${{ runner.temp }}/marketing/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Paths for the pull request
+        # Only what this workflow regenerates; a path that neither exists nor is tracked would
+        # make `git add` fail, so it is left out.
+        id: paths
+        run: |
+          {
+            echo 'list<<PATHS'
+            for path in \
+              apps/web/public/media \
+              apps/web/public/og.png \
+              apps/web/public/og-en.png \
+              apps/web/public/favicon.svg \
+              apps/web/public/favicon-32.png \
+              apps/web/public/apple-touch-icon.png \
+              apps/desktop/build/icon.icns \
+              apps/desktop/build/icon.ico \
+              apps/desktop/build/icon.png \
+              apps/desktop/build/icons \
+              apps/desktop/resources/assets/tray \
+              apps/desktop/resources/third-party-notices.txt \
+              apps/extension/public/icons \
+              apps/extension/public/third-party-notices.txt \
+              ASSET-LICENSES.json; do
+              if [ -e "$path" ] || [ -n "$(git ls-files -- "$path")" ]; then echo "$path"; fi
+            done
+            echo 'PATHS'
+          } >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update the pull request
+        id: pr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.MARKETING_PR_TOKEN || secrets.GITHUB_TOKEN }}
+          base: ${{ steps.base.outputs.branch }}
+          branch: marketing-assets/${{ steps.base.outputs.branch }}
+          delete-branch: true
+          add-paths: ${{ steps.paths.outputs.list }}
+          commit-message: 'chore(web): regenerate marketing media, Open Graph images and app icons'
+          title: 'Regenerate marketing media'
+          body: |
+            Material regenerated from the real app by `.github/workflows/marketing-assets.yml` (run [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}), trigger `${{ github.event_name }}`, from `${{ steps.base.outputs.branch }}` at `${{ steps.paths.outputs.sha }}`).
+
+            - `apps/web/public/media/`: stills and frame-by-frame videos (AV1, VP9, H.264 bt709, WebP posters) listed in `manifest.json`, within the PROMPT.md § 11 budgets. The run summary has the sizes.
+            - Open Graph images, and the app, favicon, tray and extension icons from `assets/brand`, when their scripts exist.
+            - Third-party notices of the desktop app and the extension.
+            - `ASSET-LICENSES.json`: the generated-media entry.
+
+            Lossless masters and PNG stills: artifact `marketing-masters` of the run.
+
+      - name: Pull request
+        if: ${{ steps.pr.outputs.pull-request-url != '' }}
+        env:
+          URL: ${{ steps.pr.outputs.pull-request-url }}
+          OPERATION: ${{ steps.pr.outputs.pull-request-operation }}
+        run: |
+          echo "Pull request ($OPERATION): $URL" | tee -a "$GITHUB_STEP_SUMMARY"

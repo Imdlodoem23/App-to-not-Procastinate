@@ -1,0 +1,13 @@
+---
+/**
+ * The three chapters of the home page, Bloqueo, Study Mode and Progreso (design plan § 4.6),
+ * one after the other on the `alt` surface. Texts: copy.chapters; visuals: ./chapters.ts.
+ */
+import Chapter from './Chapter.astro';
+import { chaptersFor } from './chapters';
+import { copyFor } from '../../content/locale';
+
+const chapters = chaptersFor(copyFor(Astro.url));
+---
+
+{chapters.map((chapter) => <Chapter chapter={chapter} />)}

@@ -1,0 +1,704 @@
+{
+  "$comment": [
+    "Catalog-helper and validation parity vectors. Run by packages/shared/test/catalog-vectors.test.ts (vitest) and by the guardian Go tests (its ports of the catalog helpers, the target keys, the text-length rule and the allow-distraction check); both must pass unchanged.",
+    "Each vector: call fn(...args) and compare with expect by deep equality (null = no match / valid). findServiceByDomain returns the service id. textFieldIssue returns the ValidationIssue kind or null; text lengths count UTF-16 code units. findAllowDistraction args are (entries, paths[, platform]).",
+    "Expectations were written by hand from the rules; never regenerate them from either implementation."
+  ],
+  "formatVersion": 1,
+  "vectors": [
+    {
+      "name": "isValidDomain 'example.org'",
+      "fn": "isValidDomain",
+      "args": ["example.org"],
+      "expect": true
+    },
+    {
+      "name": "isValidDomain 'Example.org'",
+      "fn": "isValidDomain",
+      "args": ["Example.org"],
+      "expect": false
+    },
+    {
+      "name": "isValidDomain 'localhost'",
+      "fn": "isValidDomain",
+      "args": ["localhost"],
+      "expect": false
+    },
+    {
+      "name": "isValidDomain '1.2.3.4'",
+      "fn": "isValidDomain",
+      "args": ["1.2.3.4"],
+      "expect": false
+    },
+    {
+      "name": "isValidDomain 'a..b.com'",
+      "fn": "isValidDomain",
+      "args": ["a..b.com"],
+      "expect": false
+    },
+    {
+      "name": "isValidDomain '-a.com'",
+      "fn": "isValidDomain",
+      "args": ["-a.com"],
+      "expect": false
+    },
+    {
+      "name": "isValidDomain 'bbc.co.uk'",
+      "fn": "isValidDomain",
+      "args": ["bbc.co.uk"],
+      "expect": true
+    },
+    {
+      "name": "isValidDomain 'xn--and-6ma2c.es'",
+      "fn": "isValidDomain",
+      "args": ["xn--and-6ma2c.es"],
+      "expect": true
+    },
+    {
+      "name": "isValidDomain 'example.org.'",
+      "fn": "isValidDomain",
+      "args": ["example.org."],
+      "expect": false
+    },
+    {
+      "name": "expandDomainVariants 'example.com'",
+      "fn": "expandDomainVariants",
+      "args": ["example.com"],
+      "expect": ["example.com", "www.example.com"]
+    },
+    {
+      "name": "expandDomainVariants 'www.example.com'",
+      "fn": "expandDomainVariants",
+      "args": ["www.example.com"],
+      "expect": ["www.example.com", "example.com"]
+    },
+    {
+      "name": "expandDomainVariants 'm.example.com'",
+      "fn": "expandDomainVariants",
+      "args": ["m.example.com"],
+      "expect": ["m.example.com"]
+    },
+    {
+      "name": "expandDomainVariants 'bbc.co.uk'",
+      "fn": "expandDomainVariants",
+      "args": ["bbc.co.uk"],
+      "expect": ["bbc.co.uk", "www.bbc.co.uk"]
+    },
+    {
+      "name": "expandDomainVariants 'news.bbc.co.uk'",
+      "fn": "expandDomainVariants",
+      "args": ["news.bbc.co.uk"],
+      "expect": ["news.bbc.co.uk"]
+    },
+    {
+      "name": "expandDomainVariants 'https://Example.com/x'",
+      "fn": "expandDomainVariants",
+      "args": ["https://Example.com/x"],
+      "expect": ["example.com", "www.example.com"]
+    },
+    {
+      "name": "expandDomainVariants 'not a domain'",
+      "fn": "expandDomainVariants",
+      "args": ["not a domain"],
+      "expect": []
+    },
+    {
+      "name": "isValidProcessName 'steam.exe' (len 9)",
+      "fn": "isValidProcessName",
+      "args": ["steam.exe"],
+      "expect": true
+    },
+    {
+      "name": "isValidProcessName 'C:\\\\x\\\\game.exe' (len 13)",
+      "fn": "isValidProcessName",
+      "args": ["C:\\x\\game.exe"],
+      "expect": false
+    },
+    {
+      "name": "isValidProcessName ' game.exe' (len 9)",
+      "fn": "isValidProcessName",
+      "args": [" game.exe"],
+      "expect": false
+    },
+    {
+      "name": "isValidProcessName 'a\\u202eb.exe' (len 7)",
+      "fn": "isValidProcessName",
+      "args": ["a\u202eb.exe"],
+      "expect": false
+    },
+    {
+      "name": "isValidProcessName '' (len 0)",
+      "fn": "isValidProcessName",
+      "args": [""],
+      "expect": false
+    },
+    {
+      "name": "isValidProcessName 'xxxxxxxxxxxxxxxxxxxx' (len 128)",
+      "fn": "isValidProcessName",
+      "args": [
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      ],
+      "expect": true
+    },
+    {
+      "name": "isValidProcessName 'xxxxxxxxxxxxxxxxxxxx' (len 129)",
+      "fn": "isValidProcessName",
+      "args": [
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      ],
+      "expect": false
+    },
+    {
+      "name": "isValidProcessName 'My Game.exe' (len 11)",
+      "fn": "isValidProcessName",
+      "args": ["My Game.exe"],
+      "expect": true
+    },
+    {
+      "name": "isValidProcessName '..' (len 2)",
+      "fn": "isValidProcessName",
+      "args": [".."],
+      "expect": false
+    },
+    {
+      "name": "isProtectedProcessName 'explorer.exe'",
+      "fn": "isProtectedProcessName",
+      "args": ["explorer.exe"],
+      "expect": true
+    },
+    {
+      "name": "isProtectedProcessName 'Explorer'",
+      "fn": "isProtectedProcessName",
+      "args": ["Explorer"],
+      "expect": true
+    },
+    {
+      "name": "isProtectedProcessName 'svchost.exe'",
+      "fn": "isProtectedProcessName",
+      "args": ["svchost.exe"],
+      "expect": true
+    },
+    {
+      "name": "isProtectedProcessName 'C\u00e9ntrate.exe'",
+      "fn": "isProtectedProcessName",
+      "args": ["C\u00e9ntrate.exe"],
+      "expect": true
+    },
+    {
+      "name": "isProtectedProcessName 'C\u00e9ntrate Setup 1.0.0.exe'",
+      "fn": "isProtectedProcessName",
+      "args": ["C\u00e9ntrate Setup 1.0.0.exe"],
+      "expect": true
+    },
+    {
+      "name": "isProtectedProcessName 'steam.exe'",
+      "fn": "isProtectedProcessName",
+      "args": ["steam.exe"],
+      "expect": false
+    },
+    {
+      "name": "processNameKey ['Steam.EXE', 'win']",
+      "fn": "processNameKey",
+      "args": ["Steam.EXE", "win"],
+      "expect": "steam.exe"
+    },
+    {
+      "name": "processNameKey ['Steam', 'linux']",
+      "fn": "processNameKey",
+      "args": ["Steam", "linux"],
+      "expect": "Steam"
+    },
+    {
+      "name": "processNameKey ['Cafe\u0301', 'mac']",
+      "fn": "processNameKey",
+      "args": ["Cafe\u0301", "mac"],
+      "expect": "caf\u00e9"
+    },
+    {
+      "name": "processNameKey ['Cafe\u0301', 'linux']",
+      "fn": "processNameKey",
+      "args": ["Cafe\u0301", "linux"],
+      "expect": "Caf\u00e9"
+    },
+    {
+      "name": "findServiceByDomain 'https://es.m.youtube.com/watch'",
+      "fn": "findServiceByDomain",
+      "args": ["https://es.m.youtube.com/watch"],
+      "expect": "youtube"
+    },
+    {
+      "name": "findServiceByDomain 'youtubei.googleapis.com'",
+      "fn": "findServiceByDomain",
+      "args": ["youtubei.googleapis.com"],
+      "expect": "youtube"
+    },
+    {
+      "name": "findServiceByDomain 'googleapis.com'",
+      "fn": "findServiceByDomain",
+      "args": ["googleapis.com"],
+      "expect": null
+    },
+    {
+      "name": "findServiceByDomain 'accounts.youtube.com'",
+      "fn": "findServiceByDomain",
+      "args": ["accounts.youtube.com"],
+      "expect": null
+    },
+    {
+      "name": "findServiceByDomain 'aws.amazon.com'",
+      "fn": "findServiceByDomain",
+      "args": ["aws.amazon.com"],
+      "expect": null
+    },
+    {
+      "name": "findServiceByDomain 'docs.aws.amazon.com'",
+      "fn": "findServiceByDomain",
+      "args": ["docs.aws.amazon.com"],
+      "expect": null
+    },
+    {
+      "name": "findServiceByDomain 'www.amazon.co.uk'",
+      "fn": "findServiceByDomain",
+      "args": ["www.amazon.co.uk"],
+      "expect": "amazon"
+    },
+    {
+      "name": "findServiceByDomain 'example.org'",
+      "fn": "findServiceByDomain",
+      "args": ["example.org"],
+      "expect": null
+    },
+    {
+      "name": "matchesHostPattern 'doc-0s-8c-docs.googleusercontent.com'",
+      "fn": "matchesHostPattern",
+      "args": [
+        "doc-0s-8c-docs.googleusercontent.com",
+        "^[a-z0-9-]+-docs\\.googleusercontent\\.com$"
+      ],
+      "expect": true
+    },
+    {
+      "name": "matchesHostPattern 'yt3.googleusercontent.com'",
+      "fn": "matchesHostPattern",
+      "args": ["yt3.googleusercontent.com", "^[a-z0-9-]+-docs\\.googleusercontent\\.com$"],
+      "expect": false
+    },
+    {
+      "name": "matchesHostPattern 'evil.com.doc-0s-docs.googleusercontent.com'",
+      "fn": "matchesHostPattern",
+      "args": [
+        "evil.com.doc-0s-docs.googleusercontent.com",
+        "^[a-z0-9-]+-docs\\.googleusercontent\\.com$"
+      ],
+      "expect": false
+    },
+    {
+      "name": "matchesHostPattern 'example.org'",
+      "fn": "matchesHostPattern",
+      "args": ["example.org", "example\\.org"],
+      "expect": false
+    },
+    {
+      "name": "matchesHostPattern 'DOC-0S-docs.googleusercontent.com'",
+      "fn": "matchesHostPattern",
+      "args": ["DOC-0S-docs.googleusercontent.com", "^[a-z0-9-]+-docs\\.googleusercontent\\.com$"],
+      "expect": false
+    },
+    {
+      "name": "domainTargetKey 'www.youtube.com'",
+      "fn": "domainTargetKey",
+      "args": ["www.youtube.com"],
+      "expect": "svc:youtube"
+    },
+    {
+      "name": "domainTargetKey 'www.example.org'",
+      "fn": "domainTargetKey",
+      "args": ["www.example.org"],
+      "expect": "dom:example.org"
+    },
+    {
+      "name": "domainTargetKey 'example.org'",
+      "fn": "domainTargetKey",
+      "args": ["example.org"],
+      "expect": "dom:example.org"
+    },
+    {
+      "name": "domainTargetKey 'accounts.youtube.com'",
+      "fn": "domainTargetKey",
+      "args": ["accounts.youtube.com"],
+      "expect": "dom:accounts.youtube.com"
+    },
+    {
+      "name": "processTargetKey ['steam.exe', 'win']",
+      "fn": "processTargetKey",
+      "args": ["steam.exe", "win"],
+      "expect": "svc:steam"
+    },
+    {
+      "name": "processTargetKey ['Discord', 'mac']",
+      "fn": "processTargetKey",
+      "args": ["Discord", "mac"],
+      "expect": "svc:discord"
+    },
+    {
+      "name": "processTargetKey ['cs2.exe', 'win']",
+      "fn": "processTargetKey",
+      "args": ["cs2.exe", "win"],
+      "expect": "app:popular-pc-games"
+    },
+    {
+      "name": "processTargetKey ['MyGame.exe', 'win']",
+      "fn": "processTargetKey",
+      "args": ["MyGame.exe", "win"],
+      "expect": "proc:mygame.exe"
+    },
+    {
+      "name": "processTargetKey ['MyGame', 'linux']",
+      "fn": "processTargetKey",
+      "args": ["MyGame", "linux"],
+      "expect": "proc:MyGame"
+    },
+    {
+      "name": "textFieldIssue reason of 140 BMP characters",
+      "fn": "textFieldIssue",
+      "args": [
+        "reason",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "expect": null
+    },
+    {
+      "name": "textFieldIssue reason of 141 BMP characters",
+      "fn": "textFieldIssue",
+      "args": [
+        "reason",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "expect": "length"
+    },
+    {
+      "name": "textFieldIssue reason of 139 characters plus an emoji (141 units)",
+      "fn": "textFieldIssue",
+      "args": [
+        "reason",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\ud83d\ude00"
+      ],
+      "expect": "length"
+    },
+    {
+      "name": "textFieldIssue reason of 138 characters plus an emoji (140 units)",
+      "fn": "textFieldIssue",
+      "args": [
+        "reason",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\ud83d\ude00"
+      ],
+      "expect": null
+    },
+    {
+      "name": "textFieldIssue reason of 140 two-byte characters",
+      "fn": "textFieldIssue",
+      "args": [
+        "reason",
+        "\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1\u00f1"
+      ],
+      "expect": null
+    },
+    {
+      "name": "textFieldIssue reason with a control character",
+      "fn": "textFieldIssue",
+      "args": ["reason", "a\u0000b"],
+      "expect": "pattern"
+    },
+    {
+      "name": "textFieldIssue reason with a bidi override",
+      "fn": "textFieldIssue",
+      "args": ["reason", "hola\u202eadios"],
+      "expect": "pattern"
+    },
+    {
+      "name": "textFieldIssue task of 80 characters",
+      "fn": "textFieldIssue",
+      "args": [
+        "task",
+        "tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+      ],
+      "expect": null
+    },
+    {
+      "name": "textFieldIssue task of 79 characters plus an emoji",
+      "fn": "textFieldIssue",
+      "args": [
+        "task",
+        "ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\ud83d\ude00"
+      ],
+      "expect": "length"
+    },
+    {
+      "name": "textFieldIssue empty schedule name",
+      "fn": "textFieldIssue",
+      "args": ["scheduleName", ""],
+      "expect": "length"
+    },
+    {
+      "name": "textFieldIssue schedule name of 60 characters",
+      "fn": "textFieldIssue",
+      "args": ["scheduleName", "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"],
+      "expect": null
+    },
+    {
+      "name": "textFieldIssue schedule name of 59 characters plus an emoji",
+      "fn": "textFieldIssue",
+      "args": [
+        "scheduleName",
+        "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn\ud83d\ude00"
+      ],
+      "expect": "length"
+    },
+    {
+      "name": "textFieldIssue phrase of 400 characters",
+      "fn": "textFieldIssue",
+      "args": [
+        "phrase",
+        "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
+      ],
+      "expect": null
+    },
+    {
+      "name": "textFieldIssue phrase of 399 characters plus an emoji",
+      "fn": "textFieldIssue",
+      "args": [
+        "phrase",
+        "ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp\ud83d\ude00"
+      ],
+      "expect": "length"
+    },
+    {
+      "name": "textFieldIssue empty phrase",
+      "fn": "textFieldIssue",
+      "args": ["phrase", ""],
+      "expect": "length"
+    },
+    {
+      "name": "findAllowDistraction study sites are fine",
+      "fn": "findAllowDistraction",
+      "args": [
+        {
+          "domains": ["wikipedia.org", "aulavirtual.example.edu"],
+          "processes": ["GeoGebra.exe"]
+        },
+        {
+          "domains": "allow.customDomains",
+          "processes": "allow.customProcesses"
+        }
+      ],
+      "expect": null
+    },
+    {
+      "name": "findAllowDistraction a service domain",
+      "fn": "findAllowDistraction",
+      "args": [
+        {
+          "domains": ["wikipedia.org", "youtube.com"],
+          "processes": []
+        },
+        {
+          "domains": "allow.customDomains",
+          "processes": "allow.customProcesses"
+        }
+      ],
+      "expect": {
+        "path": "allow.customDomains[1]",
+        "reason": "service_domain",
+        "serviceId": "youtube",
+        "appId": null
+      }
+    },
+    {
+      "name": "findAllowDistraction a host under a service domain",
+      "fn": "findAllowDistraction",
+      "args": [
+        {
+          "domains": ["es.m.youtube.com"],
+          "processes": []
+        },
+        {
+          "domains": "allow.customDomains",
+          "processes": "allow.customProcesses"
+        }
+      ],
+      "expect": {
+        "path": "allow.customDomains[0]",
+        "reason": "service_domain",
+        "serviceId": "youtube",
+        "appId": null
+      }
+    },
+    {
+      "name": "findAllowDistraction a parent of a service domain",
+      "fn": "findAllowDistraction",
+      "args": [
+        {
+          "domains": ["googleapis.com"],
+          "processes": []
+        },
+        {
+          "domains": "allow.customDomains",
+          "processes": "allow.customProcesses"
+        }
+      ],
+      "expect": {
+        "path": "allow.customDomains[0]",
+        "reason": "parent_of_service_domain",
+        "serviceId": "youtube",
+        "appId": null
+      }
+    },
+    {
+      "name": "findAllowDistraction a multi-label public suffix",
+      "fn": "findAllowDistraction",
+      "args": [
+        {
+          "domains": ["co.uk"],
+          "processes": []
+        },
+        {
+          "domains": "allow.customDomains",
+          "processes": "allow.customProcesses"
+        }
+      ],
+      "expect": {
+        "path": "allow.customDomains[0]",
+        "reason": "public_suffix",
+        "serviceId": null,
+        "appId": null
+      }
+    },
+    {
+      "name": "findAllowDistraction another public suffix",
+      "fn": "findAllowDistraction",
+      "args": [
+        {
+          "domains": ["com.br"],
+          "processes": []
+        },
+        {
+          "domains": "allow.customDomains",
+          "processes": "allow.customProcesses"
+        }
+      ],
+      "expect": {
+        "path": "allow.customDomains[0]",
+        "reason": "public_suffix",
+        "serviceId": null,
+        "appId": null
+      }
+    },
+    {
+      "name": "findAllowDistraction an excluded subdomain stays allowed",
+      "fn": "findAllowDistraction",
+      "args": [
+        {
+          "domains": ["aws.amazon.com"],
+          "processes": []
+        },
+        {
+          "domains": "allow.customDomains",
+          "processes": "allow.customProcesses"
+        }
+      ],
+      "expect": null
+    },
+    {
+      "name": "findAllowDistraction a distraction app",
+      "fn": "findAllowDistraction",
+      "args": [
+        {
+          "domains": [],
+          "processes": ["notepad.exe", "steam.exe"]
+        },
+        {
+          "domains": "allow.customDomains",
+          "processes": "allow.customProcesses"
+        }
+      ],
+      "expect": {
+        "path": "allow.customProcesses[1]",
+        "reason": "distraction_app",
+        "serviceId": null,
+        "appId": "steam"
+      }
+    },
+    {
+      "name": "findAllowDistraction a distraction app, any case on Windows",
+      "fn": "findAllowDistraction",
+      "args": [
+        {
+          "domains": [],
+          "processes": ["STEAM.EXE"]
+        },
+        {
+          "domains": "allow.customDomains",
+          "processes": "allow.customProcesses"
+        }
+      ],
+      "expect": {
+        "path": "allow.customProcesses[0]",
+        "reason": "distraction_app",
+        "serviceId": null,
+        "appId": "steam"
+      }
+    },
+    {
+      "name": "findAllowDistraction a category-wide game",
+      "fn": "findAllowDistraction",
+      "args": [
+        {
+          "domains": [],
+          "processes": ["cs2.exe"]
+        },
+        {
+          "domains": "allow.customDomains",
+          "processes": "allow.customProcesses"
+        }
+      ],
+      "expect": {
+        "path": "allow.customProcesses[0]",
+        "reason": "distraction_app",
+        "serviceId": null,
+        "appId": "popular-pc-games"
+      }
+    },
+    {
+      "name": "findAllowDistraction a Windows name is fine on Linux only when it is not a Linux app",
+      "fn": "findAllowDistraction",
+      "args": [
+        {
+          "domains": [],
+          "processes": ["steam.exe"]
+        },
+        {
+          "domains": "allow.customDomains",
+          "processes": "allow.customProcesses"
+        },
+        "linux"
+      ],
+      "expect": null
+    },
+    {
+      "name": "findAllowDistraction Linux names are exact",
+      "fn": "findAllowDistraction",
+      "args": [
+        {
+          "domains": [],
+          "processes": ["Steam"]
+        },
+        {
+          "domains": "allow.customDomains",
+          "processes": "allow.customProcesses"
+        },
+        "linux"
+      ],
+      "expect": null
+    }
+  ]
+}

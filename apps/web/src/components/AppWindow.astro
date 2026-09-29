@@ -1,0 +1,1006 @@
+---
+/**
+ * AppWindow: a faithful HTML/CSS picture of the Céntrate desktop window (PROMPT.md section
+ * 10, dark theme, G-Helper-like stacked sections) for the website. It is an image, never a
+ * control: no buttons, links or inputs, never focusable. Real captures replace it later.
+ *
+ * - `state` picks what the window shows; sections that do not star in the state fold to
+ *   their header, as in the app.
+ * - `parts` crops it to some sections (the title bar follows `chrome`).
+ * - Default a11y: role="img" + aria-label (copy.appWindow.aria[state], or `label`). With
+ *   `decorative`: aria-hidden + inert, for when the text next to it already says it.
+ * - Scale it from outside with `--aw-zoom` (CSS zoom, so the layout shrinks too); the
+ *   per-placement tokens are --aw-zoom-hero | highlight | card | stage.
+ * - Hooks for scripts and scenes: data-aw-part on each section (and on the «−10 puntos»
+ *   line of the blocked page), and data-aw-* on the pieces the hero sequence animates
+ *   (field text, caret, chips, countdown, bar, submit button).
+ *
+ * Measures (idle): 440 wide, 32 title bar, 12 padding and section gap, 20 headers,
+ * 44 field, 24 help line, 56 / 40 / 32 tiles with a 4 gap → 492 tall.
+ * Plan: docs/web/design-plan.md section 7.
+ */
+import type { HTMLAttributes } from 'astro/types';
+import { fill, type AppWindowState } from '../content/copy';
+import { copyFor } from '../content/locale';
+import { langFromPath } from '../lib/i18n';
+
+const copy = copyFor(Astro.url);
+
+type AppWindowPart = 'block' | 'study' | 'progress' | 'footer';
+
+interface Props extends Omit<
+  HTMLAttributes<'div'>,
+  'class' | 'role' | 'aria-label' | 'aria-hidden' | 'inert' | 'title'
+> {
+  state: AppWindowState;
+  /** Crop: only these sections (default: every section of the state). */
+  parts?: readonly AppWindowPart[];
+  /** Title bar (default true; the blocked page never has one). */
+  chrome?: boolean;
+  /** aria-hidden + inert instead of role="img". */
+  decorative?: boolean;
+  /** Accessible name; defaults to copy.appWindow.aria[state]. */
+  label?: string;
+  /** Overrides the window title (the hero sequence keeps «Céntrate» during its countdown). */
+  windowTitle?: string;
+  class?: string;
+}
+
+const {
+  state,
+  parts,
+  chrome = true,
+  decorative = false,
+  label,
+  windowTitle,
+  class: className,
+  ...rest
+} = Astro.props;
+
+const t = copy.appWindow;
+const lang = langFromPath(Astro.url.pathname);
+const isBlockedPage = state === 'blocked-page';
+const show = (part: AppWindowPart): boolean => !parts || parts.includes(part);
+
+/** Sample version shown in the footer (the real one lives in the app). */
+const SAMPLE_VERSION = '1.2.0';
+
+// What each section shows in each state. A section that does not star in the state folds
+// to its header (section 10: «Oculta lo que no aplica… se pliegan a su cabecera»).
+const blockMode = (
+  {
+    idle: 'idle',
+    typing: 'typing',
+    confirm: 'confirm',
+    countdown: 'active',
+    study: 'folded-active',
+    progress: 'folded-none',
+    'blocked-page': 'none',
+  } as const
+)[state];
+const studyMode = (
+  {
+    idle: 'ready',
+    typing: 'ready',
+    confirm: 'folded',
+    countdown: 'ready',
+    study: 'active',
+    progress: 'folded',
+    'blocked-page': 'none',
+  } as const
+)[state];
+const progressFolded = state === 'confirm';
+
+const title =
+  windowTitle ??
+  (state === 'countdown' ? t.title.blocked : state === 'study' ? t.title.study : t.title.idle);
+
+/** Neutral monogram instead of the service favicon (legal: no brand logos). */
+const monogram = (name: string): string => name.charAt(0).toLocaleUpperCase(lang);
+
+const [chipService, chipDuration, chipUntil] = t.block.chips;
+
+// Lucide shapes (ISC), drawn at 24 in their own viewBox with a 1.75 stroke.
+const icons = {
+  lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  book: '<path d="M12 5v16"/><path d="M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/>',
+  sprout:
+    '<path d="M14 9.536V7a4 4 0 0 1 4-4h1.5a.5.5 0 0 1 .5.5V5a4 4 0 0 1-4 4 4 4 0 0 0-4 4c0 2 1 3 1 5a5 5 0 0 1-1 3"/><path d="M4 9a5 5 0 0 1 8 4 5 5 0 0 1-8-4"/><path d="M5 21h14"/>',
+  notebook:
+    '<path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4"/><path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><path d="M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"/>',
+  cap: '<path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>',
+  ellipsis: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  timer:
+    '<line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/>',
+  hourglass:
+    '<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  pause:
+    '<rect x="14" y="3" width="5" height="18" rx="1"/><rect x="5" y="3" width="5" height="18" rx="1"/>',
+  rain: '<path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M16 14v6"/><path d="M8 14v6"/><path d="M12 16v6"/>',
+  eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+  stop: '<rect width="18" height="18" x="3" y="3" rx="2"/>',
+  chart:
+    '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+  gift: '<path d="M12 7v14"/><path d="M20 11v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8"/><path d="M7.5 7a1 1 0 0 1 0-5A4.8 8 0 0 1 12 7a4.8 8 0 0 1 4.5-5 1 1 0 0 1 0 5"/><rect x="3" y="7" width="18" height="4" rx="1"/>',
+  trophy:
+    '<path d="M10 14.66V17a1 1 0 0 1-1 1 2 2 0 0 0-2 2v2"/><path d="M14 14.66V17a1 1 0 0 0 1 1 2 2 0 0 1 2 2v2"/><path d="M17.916 10H19.5A2.5 2.5 0 0 0 22 7.5V5a1 1 0 0 0-1-1h-3"/><path d="M4 22h16"/><path d="M6 9a6 6 0 0 0 12 0V3a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1z"/><path d="M6.084 10H4.5A2.5 2.5 0 0 1 2 7.5V5a1 1 0 0 1 1-1h3"/>',
+  mini: '<path d="M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4"/><rect width="10" height="7" x="12" y="13" rx="2"/>',
+  settings:
+    '<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/>',
+  exit: '<path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>',
+} as const;
+type IconName = keyof typeof icons;
+
+interface Tile {
+  label: string;
+  icon?: IconName;
+  door?: boolean;
+  selected?: boolean;
+}
+const isDoor = (label: string): boolean => label.endsWith('…');
+
+const templateIcons: IconName[] = ['notebook', 'cap', 'book', 'ellipsis'];
+const templates: Tile[] = t.block.templates.map((label, i) => ({
+  label,
+  icon: templateIcons[i],
+  door: isDoor(label),
+}));
+const presetIcons: IconName[] = ['timer', 'hourglass', 'clock', 'ellipsis'];
+const presets: Tile[] = t.study.presets.map((label, i) => ({
+  label,
+  icon: presetIcons[i],
+  door: isDoor(label),
+}));
+const studyTileIcons: IconName[] = ['pause', 'rain', 'eye', 'stop'];
+const studyTiles: Tile[] = t.study.tiles.map((label, i) => ({ label, icon: studyTileIcons[i] }));
+const progressIcons: IconName[] = ['chart', 'gift', 'trophy'];
+const progressDoors: Tile[] = t.progress.tiles.map((label, i) => ({
+  label,
+  icon: progressIcons[i],
+  door: true,
+}));
+const footerIcons: IconName[] = ['mini', 'settings', 'exit'];
+const footerButtons: Tile[] = t.footer.buttons.map((label, i) => ({
+  label,
+  icon: footerIcons[i],
+}));
+const modes: Tile[] = t.block.confirm.modes.map((label) => ({
+  label,
+  selected: label === t.block.confirm.selectedMode,
+}));
+const extend: Tile[] = t.block.extend.map((label) => ({ label, door: isDoor(label) }));
+
+/** 42:18 of a 60 min block → 70.5 % left. */
+const COUNTDOWN_RATIO = (42 * 60 + 18) / 3600;
+/** 42 of 60 min of the daily goal; the Study Mode meter at 80 % («Concentrado»). */
+const GOAL_RATIO = 42 / 60;
+const METER_RATIO = 0.8;
+
+const a11y = decorative
+  ? { 'aria-hidden': 'true' as const, inert: true }
+  : { role: 'img' as const, 'aria-label': label ?? t.aria[state] };
+---
+
+<div
+  class:list={['aw', className]}
+  data-aw-state={state}
+  data-aw-chrome={chrome && !isBlockedPage ? '' : undefined}
+  {...a11y}
+  {...rest}
+>
+  {
+    chrome && !isBlockedPage && (
+      <div class="aw-titlebar">
+        <span class="aw-title" data-aw-title>
+          {title}
+        </span>
+        <span class="aw-close">
+          <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true">
+            <path d="M0.5 0.5l9 9M9.5 0.5l-9 9" />
+          </svg>
+        </span>
+      </div>
+    )
+  }
+
+  {
+    isBlockedPage ? (
+      <div class="aw-blocked">
+        <div class="aw-header">
+          <span class="aw-monogram">{monogram(chipService)}</span>
+          <span class="aw-header-title">{t.blockedPage.header}</span>
+          <span class="aw-header-meta">{t.blockedPage.meta}</span>
+        </div>
+        <p class="aw-blocked-motive">{t.blockedPage.motive}</p>
+        <p class="aw-blocked-points" data-aw-part="points">
+          {t.blockedPage.points}
+        </p>
+        <p class="aw-blocked-quip">{t.blockedPage.quip}</p>
+        <div class="aw-row aw-row-1">
+          <span class="aw-tile aw-tile-40">
+            <span class="aw-label">{t.blockedPage.back}</span>
+          </span>
+        </div>
+      </div>
+    ) : (
+      <div class="aw-body">
+        {show('block') && (
+          <section class="aw-section" data-aw-part="block" data-aw-mode={blockMode}>
+            {blockMode === 'folded-active' ? (
+              <div class="aw-header">
+                <svg class="aw-icon" viewBox="0 0 24 24" aria-hidden="true" set:html={icons.lock} />
+                <span class="aw-header-title">{t.block.folded}</span>
+                <span class="aw-header-meta">{t.block.activeMeta}</span>
+              </div>
+            ) : blockMode === 'active' ? (
+              <>
+                <div class="aw-header">
+                  <svg
+                    class="aw-icon"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                    set:html={icons.lock}
+                  />
+                  <span class="aw-header-title">{t.block.activeHeader}</span>
+                  <span class="aw-header-meta">
+                    {t.block.activeMeta}
+                    <span class="aw-pill">{t.block.newPill}</span>
+                  </span>
+                </div>
+                <p class="aw-countdown">
+                  <span data-aw-countdown-main>{t.block.countdown.minutes}</span>
+                  <span class="aw-countdown-seconds" data-aw-countdown-seconds>
+                    {t.block.countdown.seconds}
+                  </span>
+                </p>
+                <div class="aw-bar aw-bar-countdown">
+                  <span class="aw-bar-fill" data-aw-bar style={`--aw-bar: ${COUNTDOWN_RATIO}`} />
+                </div>
+                <p class="aw-help aw-motive">{t.block.motive}</p>
+                <div class="aw-row aw-row-4 aw-gap-before">
+                  {extend.map((tile) => (
+                    <span class:list={['aw-tile', 'aw-tile-32', { 'aw-door': tile.door }]}>
+                      <span class="aw-label">{tile.label}</span>
+                    </span>
+                  ))}
+                </div>
+                <p class="aw-emergency">{t.block.emergency}</p>
+              </>
+            ) : (
+              <>
+                <div class="aw-header">
+                  <svg
+                    class="aw-icon"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                    set:html={icons.lock}
+                  />
+                  <span class="aw-header-title">{t.block.idleHeader}</span>
+                  {blockMode !== 'folded-none' && (
+                    <span class="aw-header-meta">{t.block.idleMeta}</span>
+                  )}
+                </div>
+                {blockMode !== 'folded-none' && (
+                  <>
+                    <div class="aw-field">
+                      {/* On one line: the span keeps white space (white-space: pre). */}
+                      <span class="aw-typed" data-aw-typed lang={lang === 'es' ? undefined : 'es'}>{blockMode === 'idle' ? '' : t.block.typed}</span>
+                      {blockMode !== 'confirm' && (
+                        <span class="aw-caret" data-aw-caret hidden={blockMode === 'idle'} />
+                      )}
+                      <span class="aw-placeholder" data-aw-placeholder hidden={blockMode !== 'idle'}>
+                        {t.block.field}
+                      </span>
+                    </div>
+                    {blockMode === 'confirm' ? (
+                      <>
+                        <div class="aw-help aw-chips">
+                          <span class="aw-chip">
+                            <span class="aw-monogram aw-monogram-sm">{monogram(t.block.confirm.what)}</span>
+                            {t.block.confirm.what}
+                          </span>
+                          <span class="aw-chip">{t.block.confirm.duration}</span>
+                          <span class="aw-muted">{t.block.confirm.ends}</span>
+                        </div>
+                        <div class="aw-row aw-row-4 aw-gap-before">
+                          {modes.map((tile) => (
+                            <span
+                              class:list={[
+                                'aw-tile',
+                                'aw-tile-32',
+                                { 'aw-selected': tile.selected },
+                              ]}
+                            >
+                              <span class="aw-label">{tile.label}</span>
+                            </span>
+                          ))}
+                        </div>
+                        <p class="aw-help">{t.block.confirm.help}</p>
+                        <div class="aw-motive-row">
+                          <span class="aw-motive-label">{t.block.confirm.motiveLabel}</span>
+                          <span class="aw-field aw-field-32">{t.block.confirm.motive}</span>
+                        </div>
+                        <p class="aw-help">{t.block.confirm.reminder}</p>
+                        <div class="aw-row aw-row-confirm">
+                          <span class="aw-tile aw-tile-40 aw-door">
+                            <span class="aw-label">{t.block.confirm.edit}</span>
+                          </span>
+                          <span class="aw-tile aw-tile-40 aw-primary" data-aw-submit>
+                            <span class="aw-label">{t.block.confirm.submit}</span>
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div class="aw-help">
+                          <span data-aw-help-idle hidden={blockMode !== 'idle'}>
+                            {t.block.idleHelp}
+                          </span>
+                          <span class="aw-chips" data-aw-chips hidden={blockMode === 'idle'}>
+                            <span class="aw-chip" data-aw-chip="0">
+                              <span class="aw-monogram aw-monogram-sm">{monogram(chipService)}</span>
+                              {chipService}
+                            </span>
+                            <span class="aw-chip" data-aw-chip="1">
+                              {chipDuration}
+                            </span>
+                            <span class="aw-chip" data-aw-chip="2">
+                              {chipUntil}
+                            </span>
+                          </span>
+                        </div>
+                        <div class="aw-row aw-row-4 aw-gap-before">
+                          {templates.map((tile) => (
+                            <span class:list={['aw-tile', 'aw-tile-56', { 'aw-door': tile.door }]}>
+                              {tile.icon && (
+                                <svg
+                                  class="aw-icon aw-icon-tile"
+                                  viewBox="0 0 24 24"
+                                  aria-hidden="true"
+                                  set:html={icons[tile.icon]}
+                                />
+                              )}
+                              <span class="aw-label">{tile.label}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </section>
+        )}
+
+        {show('study') && (
+          <section class="aw-section" data-aw-part="study" data-aw-mode={studyMode}>
+            {studyMode === 'active' ? (
+              <>
+                <div class="aw-header">
+                  <svg class="aw-icon" viewBox="0 0 24 24" aria-hidden="true" set:html={icons.book} />
+                  <span class="aw-header-title">{t.study.activeHeader}</span>
+                  <span class="aw-header-meta">
+                    <span class="aw-pill aw-pill-camera">
+                      <span class="aw-dot aw-dot-sm" />
+                      {t.study.cameraPill}
+                    </span>
+                  </span>
+                </div>
+                <div class="aw-meter-row">
+                  <span class="aw-bar aw-bar-meter">
+                    <span class="aw-bar-fill" style={`--aw-bar: ${METER_RATIO}`} />
+                  </span>
+                  <span class="aw-strikes">
+                    <span class="aw-strike" />
+                    <span class="aw-strike" />
+                    <span class="aw-strike" />
+                  </span>
+                </div>
+                <p class="aw-meter-label">{t.study.meter}</p>
+                <div class="aw-row aw-row-4">
+                  {studyTiles.map((tile) => (
+                    <span class="aw-tile aw-tile-56">
+                      {tile.icon && (
+                        <svg
+                          class="aw-icon aw-icon-tile"
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                          set:html={icons[tile.icon]}
+                        />
+                      )}
+                      <span class="aw-label">{tile.label}</span>
+                    </span>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <div class="aw-header">
+                  <svg class="aw-icon" viewBox="0 0 24 24" aria-hidden="true" set:html={icons.book} />
+                  <span class="aw-header-title">{t.study.readyHeader}</span>
+                  <span class="aw-header-meta">{t.study.readyMeta}</span>
+                </div>
+                {studyMode === 'ready' && (
+                  <div class="aw-row aw-row-4">
+                    {presets.map((tile) => (
+                      <span class:list={['aw-tile', 'aw-tile-56', { 'aw-door': tile.door }]}>
+                        {tile.icon && (
+                          <svg
+                            class="aw-icon aw-icon-tile"
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                            set:html={icons[tile.icon]}
+                          />
+                        )}
+                        <span class="aw-label">{tile.label}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </section>
+        )}
+
+        {show('progress') && (
+          <section class="aw-section" data-aw-part="progress">
+            <div class="aw-header">
+              <svg class="aw-icon" viewBox="0 0 24 24" aria-hidden="true" set:html={icons.sprout} />
+              <span class="aw-header-title">{t.progress.header}</span>
+              <span class="aw-header-meta">{t.progress.meta}</span>
+            </div>
+            {!progressFolded && (
+              <>
+                <div class="aw-bar aw-bar-goal">
+                  <span class="aw-bar-fill" style={`--aw-bar: ${GOAL_RATIO}`} />
+                </div>
+                <p class="aw-goal">{t.progress.goal}</p>
+                <div class="aw-row aw-row-3">
+                  {progressDoors.map((tile) => (
+                    <span class="aw-tile aw-tile-40 aw-door aw-tile-inline">
+                      {tile.icon && (
+                        <svg
+                          class="aw-icon"
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                          set:html={icons[tile.icon]}
+                        />
+                      )}
+                      <span class="aw-label">{tile.label}</span>
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
+        )}
+
+        {show('footer') && (
+          <section class="aw-section aw-footer" data-aw-part="footer">
+            <div class="aw-status">
+              <span class="aw-status-item">
+                <span class="aw-dot" />
+                {t.footer.guardian}
+              </span>
+              <span class="aw-status-item">
+                <span class="aw-dot" />
+                {t.footer.extension}
+              </span>
+              <span class="aw-version">{fill(t.footer.version, { version: SAMPLE_VERSION })}</span>
+            </div>
+            <div class="aw-row aw-row-3">
+              {footerButtons.map((tile) => (
+                <span class="aw-tile aw-tile-32 aw-door aw-tile-inline aw-tile-small">
+                  {tile.icon && (
+                    <svg
+                      class="aw-icon"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      set:html={icons[tile.icon]}
+                    />
+                  )}
+                  <span class="aw-label">{tile.label}</span>
+                </span>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+    )
+  }
+</div>
+
+<style>
+  .aw {
+    zoom: var(--aw-zoom, 1);
+    box-sizing: border-box;
+    width: var(--aw-width);
+    flex: none;
+    overflow: clip;
+    border-radius: var(--aw-radius-window);
+    background: var(--aw-bg);
+    color: var(--aw-fg);
+    font-family: var(--family-sans);
+    font-size: var(--aw-font-13);
+    font-weight: var(--weight-regular);
+    line-height: 16px;
+    letter-spacing: 0;
+    text-align: start;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    user-select: none;
+    cursor: default;
+    forced-color-adjust: none;
+  }
+
+  .aw [hidden] {
+    display: none !important;
+  }
+
+  /* Title bar: native, dark, with the X only (section 10). ------------------------------ */
+  .aw-titlebar {
+    display: flex;
+    align-items: center;
+    height: var(--aw-titlebar-h);
+    padding-inline-start: var(--aw-pad);
+    font-size: var(--aw-font-12);
+  }
+
+  .aw-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .aw-close {
+    display: grid;
+    place-items: center;
+    width: var(--aw-caption-button-w);
+    height: 100%;
+  }
+
+  .aw-close svg {
+    stroke: currentColor;
+    stroke-width: 1;
+    fill: none;
+  }
+
+  /* Sections: 12 px margins, 12 px of air between them, no separators. ------------------ */
+  .aw-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--aw-section-gap);
+    padding: var(--aw-pad);
+  }
+
+  .aw-section {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .aw-header {
+    display: flex;
+    align-items: center;
+    gap: var(--aw-header-gap);
+    height: var(--aw-header-h);
+  }
+
+  .aw-header + * {
+    margin-block-start: var(--aw-header-gap);
+  }
+
+  .aw-header-title {
+    font-weight: var(--weight-semibold);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .aw-header-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-inline-start: auto;
+    padding-inline-start: var(--aw-header-gap);
+    color: var(--aw-fg-muted);
+  }
+
+  .aw-icon {
+    flex: none;
+    width: var(--aw-icon-header);
+    height: var(--aw-icon-header);
+    fill: none;
+    stroke: currentColor;
+    stroke-width: var(--aw-icon-stroke);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .aw-icon-tile {
+    width: var(--aw-icon-tile);
+    height: var(--aw-icon-tile);
+  }
+
+  /* Field «¿Qué quieres hacer?»: 44 px, 15 px text. ------------------------------------- */
+  .aw-field {
+    display: flex;
+    align-items: center;
+    height: var(--aw-field-h);
+    padding-inline: var(--aw-pad);
+    border: 1px solid var(--aw-control);
+    border-radius: var(--aw-radius-md);
+    background: var(--aw-tile);
+    font-size: var(--aw-font-15);
+    line-height: 20px;
+    overflow: hidden;
+  }
+
+  .aw-field-32 {
+    flex: 1;
+    height: var(--aw-text-tile-h);
+    padding-inline: 10px;
+    font-size: var(--aw-font-13);
+  }
+
+  .aw-placeholder {
+    color: var(--aw-fg-muted);
+  }
+
+  /* Keeps the trailing space while the hero types, so the caret sits after it. */
+  .aw-typed {
+    white-space: pre;
+  }
+
+  .aw-caret {
+    flex: none;
+    width: 1px;
+    height: 18px;
+    margin-inline-start: 1px;
+    background: var(--aw-blue);
+  }
+
+  /* Help line: 12 px grey, its height always reserved. ---------------------------------- */
+  .aw-help {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: var(--aw-help-h);
+    color: var(--aw-fg-muted);
+    font-size: var(--aw-font-12);
+    overflow: hidden;
+  }
+
+  .aw-motive {
+    font-style: italic;
+  }
+
+  .aw-chips {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .aw-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 20px;
+    padding-inline: 8px;
+    border: 1px solid var(--aw-border);
+    border-radius: 10px;
+    background: var(--aw-tile-2);
+    color: var(--aw-fg);
+    font-size: var(--aw-font-12);
+  }
+
+  .aw-chip:has(.aw-monogram) {
+    padding-inline-start: 3px;
+  }
+
+  .aw-muted {
+    color: var(--aw-fg-muted);
+    padding-inline-start: 4px;
+  }
+
+  .aw-monogram {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: var(--aw-monogram);
+    height: var(--aw-monogram);
+    border-radius: 50%;
+    background: var(--aw-border);
+    color: var(--aw-fg);
+    font-size: 9px;
+    font-weight: var(--weight-semibold);
+    line-height: 1;
+  }
+
+  .aw-monogram-sm {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* Tiles: rows of equal buttons in a 4 (or 3) column grid with a 4 px gap. ------------- */
+  .aw-row {
+    display: grid;
+    gap: var(--aw-grid-gap);
+  }
+
+  .aw-row-1 {
+    grid-template-columns: 1fr;
+  }
+
+  .aw-row-3 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .aw-row-4 {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .aw-row-confirm {
+    grid-template-columns: 1fr 2fr;
+  }
+
+  .aw-gap-before {
+    margin-block-start: var(--aw-grid-gap);
+  }
+
+  .aw-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 0;
+    padding-inline: 6px;
+    border: 1px solid var(--aw-border);
+    border-radius: var(--aw-radius-md);
+    background: var(--aw-tile);
+    color: var(--aw-fg);
+  }
+
+  .aw-tile-56 {
+    height: var(--aw-tile-h);
+  }
+
+  .aw-tile-40 {
+    height: var(--aw-door-h);
+  }
+
+  .aw-tile-32 {
+    height: var(--aw-text-tile-h);
+  }
+
+  .aw-tile-inline {
+    flex-direction: row;
+    gap: 6px;
+    padding-inline: 4px;
+  }
+
+  .aw-tile-small {
+    font-size: var(--aw-font-12);
+  }
+
+  .aw-label {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Doors (label ends in «…»): secondary background, they open something. */
+  .aw-door {
+    background: var(--aw-tile-2);
+  }
+
+  /* Selected: 2 px accent outline, 15 % lighter on top, and a 12 % tint that fades out over
+     the first 20 % of the height. Never a solid fill; the text keeps its color. */
+  .aw-selected {
+    border: 2px solid transparent;
+    background:
+      linear-gradient(to bottom, var(--aw-selected-tint), transparent 20%) padding-box,
+      linear-gradient(var(--aw-tile), var(--aw-tile)) padding-box,
+      linear-gradient(to bottom, var(--aw-selected-top), var(--aw-blue) 45%) border-box;
+  }
+
+  /* The one filled button: the one that confirms. */
+  .aw-primary {
+    border-color: var(--aw-blue);
+    background: var(--aw-blue);
+    color: var(--aw-on-accent);
+    font-weight: var(--weight-semibold);
+  }
+
+  .aw-primary[data-pressed] {
+    background: color-mix(in srgb, var(--aw-fg) 8%, var(--aw-blue));
+  }
+
+  .aw-motive-row {
+    display: flex;
+    align-items: center;
+    gap: var(--aw-header-gap);
+  }
+
+  .aw-motive-label {
+    flex: none;
+    color: var(--aw-fg-muted);
+    font-size: var(--aw-font-12);
+  }
+
+  /* Active block: big countdown, 3 px bar, extend row. ---------------------------------- */
+  .aw-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 18px;
+    padding-inline: 6px;
+    border: 1px solid var(--aw-control);
+    border-radius: var(--aw-radius-sm);
+    color: var(--aw-fg);
+    font-size: var(--aw-font-11);
+    font-weight: var(--weight-semibold);
+  }
+
+  .aw-pill-camera {
+    border-color: var(--aw-red);
+    color: var(--aw-red-text);
+  }
+
+  /* Flex: the line break between the two spans in the markup is not a word space («42:18»,
+     never «42 :18»). */
+  .aw-countdown {
+    display: flex;
+    align-items: baseline;
+    height: 56px;
+    font-size: var(--aw-font-48);
+    font-weight: var(--weight-semibold);
+    line-height: 56px;
+    letter-spacing: var(--aw-countdown-ls);
+  }
+
+  .aw-countdown-seconds {
+    opacity: var(--aw-seconds-opacity);
+  }
+
+  .aw-bar {
+    display: block;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--aw-border);
+  }
+
+  .aw-bar-fill {
+    display: block;
+    height: 100%;
+    transform: scaleX(var(--aw-bar, 0));
+    transform-origin: left center;
+    background: var(--aw-green);
+  }
+
+  .aw-bar-countdown {
+    height: var(--aw-bar-countdown);
+    margin-block-start: 4px;
+  }
+
+  .aw-bar-countdown .aw-bar-fill {
+    background: var(--aw-blue);
+  }
+
+  .aw-emergency {
+    margin-block-start: 8px;
+    color: var(--aw-fg-muted);
+    font-size: var(--aw-font-12);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  /* Study Mode in session: 6 px meter, strike dots, tiles. ----------------------------- */
+  .aw-meter-row {
+    display: flex;
+    align-items: center;
+    gap: var(--aw-header-gap);
+  }
+
+  .aw-bar-meter {
+    flex: 1;
+    height: var(--aw-bar-meter);
+  }
+
+  .aw-strikes {
+    display: flex;
+    gap: 4px;
+  }
+
+  .aw-strike {
+    width: var(--aw-dot);
+    height: var(--aw-dot);
+    border: 1px solid var(--aw-control);
+    border-radius: 50%;
+  }
+
+  .aw-meter-label {
+    height: 16px;
+    margin-block: 4px 8px;
+    font-size: var(--aw-font-12);
+  }
+
+  /* Progress: 4 px goal bar and 40 px doors. ------------------------------------------- */
+  .aw-bar-goal {
+    height: var(--aw-bar-goal);
+  }
+
+  .aw-goal {
+    height: 16px;
+    margin-block: 4px 8px;
+    color: var(--aw-fg-muted);
+    font-size: var(--aw-font-12);
+  }
+
+  /* Footer: protection status, version, three secondary buttons. ---------------------- */
+  .aw-status {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: var(--aw-header-h);
+    margin-block-end: 8px;
+    font-size: var(--aw-font-12);
+  }
+
+  .aw-status-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .aw-version {
+    margin-inline-start: auto;
+    color: var(--aw-fg-muted);
+  }
+
+  .aw-dot {
+    flex: none;
+    width: var(--aw-dot);
+    height: var(--aw-dot);
+    border-radius: 50%;
+    background: var(--aw-green);
+  }
+
+  .aw-dot-sm {
+    width: 6px;
+    height: 6px;
+    background: var(--aw-red);
+  }
+
+  /* Blocked page of the extension: a 440 px column on the app background. -------------- */
+  .aw-blocked {
+    padding: 24px;
+    white-space: normal;
+  }
+
+  .aw-blocked .aw-header {
+    white-space: nowrap;
+  }
+
+  .aw-blocked-motive {
+    margin-block-start: 16px;
+    font-size: var(--aw-font-20);
+    font-weight: var(--weight-semibold);
+    line-height: 28px;
+  }
+
+  .aw-blocked-points {
+    margin-block-start: 8px;
+    color: var(--aw-red-text);
+    font-size: var(--aw-font-15);
+    font-weight: var(--weight-semibold);
+    line-height: 20px;
+  }
+
+  .aw-blocked-quip {
+    margin-block: 8px 16px;
+    color: var(--aw-fg-muted);
+    line-height: 18px;
+  }
+</style>

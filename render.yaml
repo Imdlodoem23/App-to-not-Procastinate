@@ -1,0 +1,185 @@
+# Render Blueprint for Céntrate: the download website as a free Static Site, plus the optional
+# cloud API (accounts, sync, friends, coach) as a free Web Service with a free Postgres.
+# Render → New → Blueprint → pick this repository. Deploys automatically on every push to main.
+services:
+  - type: web
+    runtime: static
+    name: centrate
+    repo: https://github.com/Imdlodoem23/App-to-not-Procastinate
+    branch: main
+    autoDeploy: true
+    buildCommand: npm ci && npm run build -w apps/web
+    staticPublishPath: apps/web/dist
+    pullRequestPreviewsEnabled: false
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      - key: ELECTRON_SKIP_BINARY_DOWNLOAD
+        value: '1'
+      - key: ASTRO_TELEMETRY_DISABLED
+        value: '1'
+      # No SITE_URL here: astro.config.mjs uses RENDER_EXTERNAL_URL (this service's own
+      # onrender.com address). Add SITE_URL in the dashboard only for a custom domain.
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), microphone=(), geolocation=(), interest-cohort=()
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=63072000; includeSubDomains
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' https://api.github.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+      - path: /_astro/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /fonts/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /media/*
+        name: Cache-Control
+        value: public, max-age=604800
+      - path: /*.html
+        name: Cache-Control
+        value: public, max-age=0, must-revalidate
+    # Pages live at clean URLs without a trailing slash (astro.config.mjs: trailingSlash
+    # 'never'), the same form as the canonical tags and the sitemap.
+    routes:
+      - type: rewrite
+        source: /descargar
+        destination: /descargar/index.html
+      - type: rewrite
+        source: /novedades
+        destination: /novedades/index.html
+      - type: rewrite
+        source: /privacidad
+        destination: /privacidad/index.html
+      # English pages (Spanish is the default at /).
+      - type: rewrite
+        source: /en
+        destination: /en/index.html
+      - type: rewrite
+        source: /en/download
+        destination: /en/download/index.html
+      - type: rewrite
+        source: /en/changelog
+        destination: /en/changelog/index.html
+      - type: rewrite
+        source: /en/privacy
+        destination: /en/privacy/index.html
+      - type: rewrite
+        source: /sitemap.xml
+        destination: /sitemap-index.xml
+
+  # Optional cloud API (PROMPT §14, docs/API.md §15). The desktop app works 100 % without it.
+  # Every feature stays off until its keys are filled in the dashboard: `sync: false` values are
+  # asked for when the Blueprint is applied, and an empty one keeps its feature off
+  # (GET /health lists what is on). PENDIENTE_PARA_MI.md says where each key comes from.
+  # A value the owner may need to change in an incident (the AI switch and budget) is
+  # `sync: false` with its default in apps/api/src/config.ts: a Blueprint sync (any push that
+  # touches this file) overwrites a declared `value`, silently undoing the dashboard change.
+  # Free plan: the service sleeps after 15 min idle (a cold start takes about a minute) and the
+  # free database expires; the app treats this API as optional (timeouts, offline outbox).
+  # A replaced database loses every account: users connect again and the app re-uploads.
+  - type: web
+    runtime: node
+    name: centrate-api
+    repo: https://github.com/Imdlodoem23/App-to-not-Procastinate
+    branch: main
+    plan: free
+    region: frankfurt
+    autoDeploy: true
+    pullRequestPreviewsEnabled: false
+    # NODE_ENV=production would make `npm ci` skip devDependencies, which the build needs
+    # (esbuild bundles src/server.ts into dist/server.mjs).
+    buildCommand: npm ci --include=dev && npm run build -w apps/api
+    # Migrations run at boot (the free plan has no pre-deploy command).
+    startCommand: node apps/api/dist/server.mjs
+    healthCheckPath: /health
+    # On a deploy or restart the old process gets SIGTERM and finishes its requests; a coach call
+    # can take up to about 2 minutes (deadline plus settling its quota), so Render must wait that
+    # long before killing it (its default is 30 s). It must stay at least SHUTDOWN_TIMEOUT_MS
+    # (apps/api/src/boot.ts, 115 s); a test checks it. The process exits as soon as it is done.
+    maxShutdownDelaySeconds: 120
+    buildFilter:
+      paths:
+        - apps/api/**
+        - packages/shared/**
+        - package.json
+        - package-lock.json
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      - key: NODE_ENV
+        value: production
+      - key: ELECTRON_SKIP_BINARY_DOWNLOAD
+        value: '1'
+      # Render's proxy is one hop: the rate limits see the client, not the proxy. Check it once
+      # after the first deploy (docs/API.md §12: LOG_LEVEL=debug shows xffEntries).
+      - key: TRUST_PROXY_HOPS
+        value: '1'
+      - key: DATABASE_URL
+        fromDatabase:
+          name: centrate-db
+          property: connectionString
+      # Random, at least 32 characters; changing it signs everyone out.
+      - key: BETTER_AUTH_SECRET
+        generateValue: true
+      # This service's public URL, e.g. https://centrate-api.onrender.com (accounts stay off
+      # until it is set).
+      - key: BETTER_AUTH_URL
+        sync: false
+      # CORS allow-list. Leave it empty: the desktop app does not need it.
+      - key: APP_ORIGINS
+        sync: false
+      # Sign-in with Google (optional).
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      # Sign-in codes and partner emails through Resend (optional), e.g.
+      # «Céntrate <hola@tu-dominio.com>» on a domain verified in Resend.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      # Global caps per UTC day on sign-in codes and on partner emails; together they stay
+      # below the Resend plan's daily quota (free plan: about 100).
+      - key: SIGNIN_EMAILS_PER_DAY
+        value: '50'
+      - key: PARTNER_EMAILS_PER_DAY_GLOBAL
+        value: '40'
+      # Coach (Claude API). The key lives only here, never in the app.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # The coach's kill switch: set it to false and «Save and deploy» (about 1–2 minutes) to
+      # turn every AI endpoint off. Empty = true (on once ANTHROPIC_API_KEY is set).
+      - key: AI_ENABLED
+        sync: false
+      # Global AI spend cap per UTC day in US dollars; 0 turns the coach off. Empty = 2.
+      - key: AI_GLOBAL_DAILY_BUDGET_USD
+        sync: false
+
+databases:
+  # Free Postgres: 1 GB, one per workspace, expires 30 days after creation (then a grace
+  # period). When it is recreated everything in it is lost (accounts, devices, sharing choices,
+  # stats, friends, partners): users connect again, re-confirm their sharing choices and the
+  # app re-uploads its stats from its own history (docs/API.md §7).
+  - name: centrate-db
+    plan: free
+    region: frankfurt
+    databaseName: centrate
+    user: centrate
+    # Reachable only from Render's private network (the API), never from the internet. For a
+    # one-off manual query (docs/API.md §10.2) add your own IP under the database's Access
+    # Control in the dashboard, connect with its External URL, then remove the IP again.
+    ipAllowList: []

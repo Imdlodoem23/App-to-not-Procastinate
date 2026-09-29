@@ -1,0 +1,514 @@
+---
+/**
+ * Live demo (design plan § 4.4): the «¿Qué quieres hacer?» field with the app's real parser
+ * (@centrate/shared). Chips under the field show what was understood, like the app's help
+ * line; the card beside them (under the field below 1069 px) says what Céntrate would do.
+ *
+ * - The static HTML comes prefilled with the first example, described at build time with the
+ *   sample clock of the whole site (16:42, so «hasta las 17:42»). Without JavaScript that is
+ *   what you see.
+ * - The parser loads with a deferred import(): on first focus, on an example, or when the
+ *   section gets within a screen of the viewport. Once loaded, the result is recomputed with
+ *   the real time, and then on every change (250 ms after the last key).
+ * - Nothing is sent anywhere and nothing is blocked; the note under the demo says so.
+ * - The parser reads Spanish only. On the English page the examples stay Spanish (marked
+ *   lang="es") and a line under the lead says so; the results are written in English, and a
+ *   Spanish phrase quoted in them ({es:…} in the copy) is marked lang="es" too.
+ */
+import { copyFor } from '../../content/locale';
+import { langFromPath, splitPhrases } from '../../lib/i18n';
+import { describeIntent, type DemoStrings, type DemoView } from './live-demo';
+
+const copy = copyFor(Astro.url);
+
+const { demo, ui } = copy;
+const lang = langFromPath(Astro.url.pathname);
+const strings: DemoStrings = { lang, result: demo.result, duration: ui.duration };
+/** The phrases are Spanish whatever the page's language. */
+const phraseLang = lang === 'es' ? undefined : 'es';
+
+/** Examples offered as chips: the six phrases of the brief. */
+const examples = demo.examples.slice(0, 6);
+const initialText = examples[0] ?? '';
+/** The sample moment of the whole site: the block in the mock starts at 16:42. */
+const sampleNow = new Date(2026, 8, 27, 16, 42, 0);
+const view: DemoView = describeIntent(initialText, sampleNow, strings);
+---
+
+<section
+  id={demo.id}
+  data-surface="light"
+  class="demo section-block gutter"
+  data-demo
+  data-strings={JSON.stringify(strings)}
+>
+  <div class="demo-header" data-reveal-group>
+    <h2 class="text-section" data-reveal>{demo.headline}</h2>
+    <p class="demo-lead text-lead text-secondary" data-reveal>{demo.lead}</p>
+    {
+      demo.languageNote && (
+        <p class="demo-language text-body text-secondary" data-reveal>
+          {demo.languageNote}
+        </p>
+      )
+    }
+  </div>
+
+  <div class="demo-grid">
+    <div class="demo-input">
+      <label class="text-body font-semibold" for="demo-input">{demo.label}</label>
+      <div class="demo-field">
+        <input
+          id="demo-input"
+          class="demo-control"
+          type="text"
+          value={initialText}
+          lang={phraseLang}
+          placeholder={demo.inputHint}
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+          enterkeyhint="done"
+          maxlength="140"
+          aria-describedby="demo-note"
+          data-demo-input
+        />
+        <button type="button" class="demo-clear text-small" data-demo-clear hidden>
+          {demo.clear}
+        </button>
+      </div>
+      <ul class="demo-chips" role="list" aria-hidden="true" data-demo-chips>
+        {view.chips.map((chip) => <li class="demo-chip">{chip}</li>)}
+      </ul>
+    </div>
+
+    <div class="demo-result bg-raised" data-status={view.status} data-demo-result>
+      <h3 class="text-title font-semibold">{demo.result.title}</h3>
+      <p class="demo-sentence text-body" aria-live="polite" data-demo-sentence>
+        {
+          splitPhrases(view.sentence).map((part) =>
+            part.lang ? <span lang={part.lang}>{part.text}</span> : part.text,
+          )
+        }
+      </p>
+      <dl class="demo-fields" data-demo-fields hidden={view.fields.length === 0}>
+        {
+          view.fields.map((field) => (
+            <div class="demo-pair">
+              <dt class="text-small text-secondary">{field.label}</dt>
+              <dd class="text-title font-semibold">{field.value}</dd>
+            </div>
+          ))
+        }
+      </dl>
+      <div class="demo-notes" data-demo-notes>
+        {
+          view.notes.map((note) => (
+            <p class="text-small text-secondary">
+              {splitPhrases(note).map((part) =>
+                part.lang ? <span lang={part.lang}>{part.text}</span> : part.text,
+              )}
+            </p>
+          ))
+        }
+      </div>
+    </div>
+
+    <div class="demo-try">
+      <p class="demo-examples-label text-small font-semibold" id="demo-examples-label">
+        {demo.examplesLabel}
+      </p>
+      <ul class="demo-examples" role="list" aria-labelledby="demo-examples-label">
+        {
+          examples.map((example) => (
+            <li>
+              <button
+                type="button"
+                class="demo-example text-small"
+                lang={phraseLang}
+                data-demo-example={example}
+              >
+                {example}
+              </button>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </div>
+
+  <p id="demo-note" class="demo-note text-note text-secondary">{demo.note}</p>
+</section>
+
+<style>
+  .demo-lead {
+    max-width: var(--measure-lead);
+    margin-block-start: var(--space-headline-lead);
+  }
+
+  .demo-language {
+    max-width: var(--measure-lead);
+    margin-block-start: 12px;
+  }
+
+  .demo-header {
+    margin-block-end: var(--space-header-content);
+  }
+
+  /* Large: field and examples on the left, the result on the right, both columns starting
+     on the same top line (the label's). Medium and small stack them in one column (below). */
+  .demo-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      'input result'
+      'try result';
+    align-items: start;
+    column-gap: var(--grid-gap);
+  }
+
+  .demo-input {
+    grid-area: input;
+  }
+
+  .demo-result {
+    grid-area: result;
+  }
+
+  .demo-try {
+    grid-area: try;
+  }
+
+  /* Field: 64 px tall, radius 18, 21 px text. -------------------------------------------- */
+  .demo-input label {
+    display: block;
+    margin-block-end: 12px;
+  }
+
+  .demo-field {
+    position: relative;
+  }
+
+  .demo-control {
+    display: block;
+    width: 100%;
+    height: var(--demo-field-h);
+    padding-inline: 24px 96px;
+    /* Mist, not the hairline: the edge needs 3:1 against the section (3.54:1 on white) and
+       the fill (3.25:1 on #f5f5f7) to read as a field (WCAG 1.4.11). */
+    border: 1px solid var(--palette-mist);
+    border-radius: var(--shape-tile);
+    background-color: var(--surface-raised);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--type-title-size);
+    letter-spacing: var(--type-title-ls);
+  }
+
+  .demo-control::placeholder {
+    color: var(--text-secondary);
+    opacity: 1;
+  }
+
+  .demo-control:focus-visible {
+    outline-offset: 2px;
+  }
+
+  .demo-clear {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: 12px;
+    margin-block: auto;
+    height: 32px;
+    padding-inline: 12px;
+    border: 1px solid transparent;
+    border-radius: var(--shape-pill);
+    background: none;
+    color: var(--link);
+    transition: background-color 100ms linear;
+  }
+
+  .demo-clear[hidden] {
+    display: none;
+  }
+
+  .demo-clear:hover {
+    background-color: var(--fill);
+  }
+
+  /* What was understood: outlined chips, like the app's help line. The row keeps its height
+     so the examples below never jump while typing. */
+  .demo-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 32px;
+    margin: 12px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .demo-chips :global(.demo-chip) {
+    display: inline-flex;
+    align-items: center;
+    height: 32px;
+    padding-inline: 14px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--shape-pill);
+    font-size: var(--type-small-size);
+    letter-spacing: var(--type-small-ls);
+    white-space: nowrap;
+  }
+
+  .demo-examples-label {
+    margin-block-start: 40px;
+  }
+
+  .demo-examples {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 12px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .demo-example {
+    height: var(--chip-h);
+    padding-inline: var(--chip-pad-inline);
+    border: 1px solid transparent;
+    border-radius: var(--shape-pill);
+    background-color: var(--fill);
+    color: var(--text);
+    white-space: nowrap;
+    transition: background-color 100ms linear;
+  }
+
+  .demo-example:hover {
+    background-color: var(--fill-hover);
+  }
+
+  /* Result card. ----------------------------------------------------------------------- */
+  .demo-result {
+    padding: var(--demo-result-pad);
+    border-radius: var(--shape-card);
+  }
+
+  .demo-sentence {
+    margin-block-start: 12px;
+  }
+
+  .demo-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 24px 32px;
+    margin: 32px 0 0;
+  }
+
+  .demo-fields[hidden] {
+    display: none;
+  }
+
+  .demo-fields :global(dd) {
+    margin: 4px 0 0;
+    overflow-wrap: anywhere;
+  }
+
+  .demo-notes {
+    display: grid;
+    gap: 8px;
+    margin-block-start: 24px;
+  }
+
+  .demo-notes:empty {
+    display: none;
+  }
+
+  .demo-note {
+    max-width: var(--measure-text);
+    margin-block-start: 32px;
+  }
+
+  /* Medium and small: one column as wide as a text measure. The result comes right after the
+     field, so it stays in view (and above an on-screen keyboard) while you type or pick an
+     example; the examples follow it. */
+  @media (max-width: 1068px) {
+    .demo-grid {
+      grid-template-columns: minmax(0, var(--measure-text));
+      grid-template-rows: none;
+      grid-template-areas: 'input' 'result' 'try';
+      row-gap: 40px;
+    }
+
+    .demo-examples-label {
+      margin-block-start: 0;
+    }
+  }
+
+  @media (max-width: 734px) {
+    .demo-grid {
+      row-gap: 32px;
+    }
+
+    /* The longest example does not fit a phone column on one line: the examples may wrap,
+       so they take the tile radius (a two-line pill would be a lozenge). 44 px targets. */
+    .demo-example {
+      height: auto;
+      min-height: 44px;
+      padding-block: 10px;
+      border-radius: var(--shape-tile);
+      white-space: normal;
+      text-align: start;
+    }
+
+    .demo-control {
+      padding-inline: 20px 88px;
+      font-size: var(--type-body-size);
+      letter-spacing: var(--type-body-ls);
+    }
+
+    .demo-clear {
+      height: 44px;
+    }
+  }
+</style>
+
+<script>
+  import type { DemoStrings, DemoView } from './live-demo';
+  import { splitPhrases } from '../../lib/i18n';
+
+  const DEBOUNCE_MS = 250;
+
+  /** Copy text with its {es:…} phrases as <span lang>, like the server renders it. */
+  function phrases(text: string): (string | HTMLElement)[] {
+    return splitPhrases(text).map(({ text: run, lang }) => {
+      if (!lang) return run;
+      const span = document.createElement('span');
+      span.lang = lang;
+      span.textContent = run;
+      return span;
+    });
+  }
+
+  /** What `phrases(text)` shows, without the markers. */
+  function visible(text: string): string {
+    return splitPhrases(text)
+      .map((part) => part.text)
+      .join('');
+  }
+
+  function setup(root: HTMLElement): void {
+    const input = root.querySelector<HTMLInputElement>('[data-demo-input]');
+    const clear = root.querySelector<HTMLButtonElement>('[data-demo-clear]');
+    const chips = root.querySelector<HTMLElement>('[data-demo-chips]');
+    const result = root.querySelector<HTMLElement>('[data-demo-result]');
+    const sentence = root.querySelector<HTMLElement>('[data-demo-sentence]');
+    const fields = root.querySelector<HTMLElement>('[data-demo-fields]');
+    const notes = root.querySelector<HTMLElement>('[data-demo-notes]');
+    if (!input || !clear || !chips || !result || !sentence || !fields || !notes) return;
+
+    let strings: DemoStrings;
+    try {
+      strings = JSON.parse(root.dataset.strings ?? '') as DemoStrings;
+    } catch {
+      return;
+    }
+
+    let engine: Promise<typeof import('./live-demo')> | undefined;
+    const load = (): Promise<typeof import('./live-demo')> => (engine ??= import('./live-demo'));
+
+    /** Class names of the elements built here come from the markup the server rendered. */
+    const chipClass = chips.querySelector('li')?.className || 'demo-chip';
+
+    function render(view: DemoView): void {
+      result!.dataset.status = view.status;
+      chips!.replaceChildren(
+        ...view.chips.map((text) => {
+          const li = document.createElement('li');
+          li.className = chipClass;
+          li.textContent = text;
+          return li;
+        }),
+      );
+      // Same text: leave the live region alone, so it is not announced again.
+      if (sentence!.textContent?.trim() !== visible(view.sentence)) {
+        sentence!.replaceChildren(...phrases(view.sentence));
+      }
+      fields!.hidden = view.fields.length === 0;
+      fields!.replaceChildren(
+        ...view.fields.map(({ label, value }) => {
+          const pair = document.createElement('div');
+          const dt = document.createElement('dt');
+          const dd = document.createElement('dd');
+          dt.className = 'text-small text-secondary';
+          dd.className = 'text-title font-semibold';
+          dt.textContent = label;
+          dd.textContent = value;
+          pair.append(dt, dd);
+          return pair;
+        }),
+      );
+      notes!.replaceChildren(
+        ...view.notes.map((text) => {
+          const p = document.createElement('p');
+          p.className = 'text-small text-secondary';
+          p.append(...phrases(text));
+          return p;
+        }),
+      );
+    }
+
+    let version = 0;
+    async function update(): Promise<void> {
+      const mine = ++version;
+      clear!.hidden = input!.value === '';
+      const { describeIntent } = await load();
+      // A newer keystroke won the race: its own update will render.
+      if (mine !== version) return;
+      render(describeIntent(input!.value, new Date(), strings));
+    }
+
+    let timer = 0;
+    input.addEventListener('input', () => {
+      clear.hidden = input.value === '';
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => void update(), DEBOUNCE_MS);
+    });
+    input.addEventListener('focus', () => void load(), { once: true });
+    // Enter has nothing to submit here.
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') event.preventDefault();
+    });
+
+    clear.addEventListener('click', () => {
+      input.value = '';
+      window.clearTimeout(timer);
+      void update();
+      input.focus();
+    });
+
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-demo-example]')) {
+      button.addEventListener('click', () => {
+        input.value = button.dataset.demoExample ?? '';
+        window.clearTimeout(timer);
+        void update();
+      });
+    }
+
+    // Load the parser a screen before the demo arrives, then redo the example with the real
+    // clock (the static HTML used the sample time).
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) return;
+        observer.disconnect();
+        void update();
+      },
+      { rootMargin: '100% 0px' },
+    );
+    observer.observe(root);
+    clear.hidden = input.value === '';
+  }
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-demo]')) setup(root);
+</script>

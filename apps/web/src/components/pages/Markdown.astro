@@ -1,0 +1,213 @@
+---
+/**
+ * Renders markdown-lite blocks (release notes on /novedades). No set:html anywhere: every text
+ * goes through Astro's escaping, so the notes cannot inject markup.
+ */
+import Inline from './Inline.astro';
+import type { MdBlock } from './markdown-lite';
+
+interface Props {
+  blocks: readonly MdBlock[];
+  /** Nested call (list items, quotes): a plain wrapper without the outer measure. */
+  nested?: boolean;
+}
+
+const { blocks, nested = false } = Astro.props;
+---
+
+<div class={nested ? 'md-nested' : 'md'}>
+  {
+    blocks.map((block) => {
+      switch (block.kind) {
+        case 'heading':
+          return block.level === 3 ? (
+            <h3 class="md-h3">
+              <Inline tokens={block.inline} />
+            </h3>
+          ) : (
+            <h4 class="md-h4">
+              <Inline tokens={block.inline} />
+            </h4>
+          );
+        case 'paragraph':
+          return (
+            <p>
+              <Inline tokens={block.inline} />
+            </p>
+          );
+        case 'list': {
+          const items = block.items.map((item) => (
+            <li>
+              <Inline tokens={item.inline} />
+              {item.blocks.length > 0 && <Astro.self blocks={item.blocks} nested />}
+            </li>
+          ));
+          return block.ordered ? (
+            <ol class="md-list" start={block.start === 1 ? undefined : block.start}>
+              {items}
+            </ol>
+          ) : (
+            <ul class="md-list">{items}</ul>
+          );
+        }
+        case 'quote':
+          return (
+            <blockquote class="md-quote">
+              <Astro.self blocks={block.blocks} nested />
+            </blockquote>
+          );
+        // Whitespace inside <pre> is rendered: the tags stay tight around the text.
+        case 'code':
+          return <pre class="md-pre"><code>{block.text}</code></pre>;
+        case 'table':
+          return (
+            <table class="md-table">
+              <thead>
+                <tr>
+                  {block.head.map((cell, c) => (
+                    <th
+                      scope="col"
+                      style={block.align[c] ? `text-align:${block.align[c]}` : undefined}
+                    >
+                      <Inline tokens={cell} />
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {block.rows.map((row) => (
+                  <tr>
+                    {row.map((cell, c) => (
+                      <td style={block.align[c] ? `text-align:${block.align[c]}` : undefined}>
+                        <Inline tokens={cell} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          );
+        case 'rule':
+          return <hr class="md-rule" />;
+        default:
+          return null;
+      }
+    })
+  }
+</div>
+
+<style>
+  .md {
+    max-width: var(--measure-text);
+  }
+
+  .md :where(p, ul, ol, blockquote, pre, table) + :where(p, ul, ol, blockquote, pre, table) {
+    margin-top: 16px;
+  }
+
+  .md :where(p, li) {
+    font-size: var(--type-body-size);
+    line-height: var(--type-body-lh);
+    letter-spacing: var(--type-body-ls);
+  }
+
+  .md-h3 {
+    font-size: var(--type-title-size);
+    line-height: var(--type-title-lh);
+    letter-spacing: var(--type-title-ls);
+    margin-bottom: 12px;
+  }
+
+  .md-h4 {
+    font-size: var(--type-body-size);
+    line-height: var(--type-body-lh);
+    letter-spacing: var(--type-body-ls);
+    margin-bottom: 8px;
+  }
+
+  /* A heading after content opens a new group of notes: more room above than below. */
+  .md > :not(:first-child):where(.md-h3, .md-h4) {
+    margin-top: 40px;
+  }
+
+  .md-list {
+    padding-inline-start: 1.25em;
+  }
+
+  ul.md-list {
+    list-style: disc;
+  }
+
+  ol.md-list {
+    list-style: decimal;
+  }
+
+  .md-nested {
+    margin-top: 8px;
+  }
+
+  .md-nested > * + * {
+    margin-top: 8px;
+  }
+
+  ul.md-list ul.md-list {
+    list-style: circle;
+  }
+
+  .md-list li + li {
+    margin-top: 8px;
+  }
+
+  .md-list li::marker {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .md-quote > .md-nested {
+    margin-top: 0;
+  }
+
+  .md-quote {
+    padding-inline-start: 20px;
+    border-inline-start: 2px solid var(--hairline);
+    color: var(--text-secondary);
+  }
+
+  .md-pre {
+    padding: 20px 24px;
+    border-radius: var(--shape-tile);
+    background-color: var(--surface-raised);
+    font-family: var(--family-mono);
+    font-size: var(--type-small-size);
+    line-height: var(--type-small-lh);
+    letter-spacing: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .md-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--type-small-size);
+    line-height: var(--type-small-lh);
+    letter-spacing: var(--type-small-ls);
+  }
+
+  .md-table :where(th, td) {
+    padding: 10px 16px 10px 0;
+    border-bottom: 1px solid var(--hairline);
+    text-align: start;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+
+  .md-table th {
+    font-weight: var(--weight-semibold);
+  }
+
+  .md-rule {
+    margin-block: 32px;
+    border: 0;
+    border-top: 1px solid var(--hairline);
+  }
+</style>

@@ -1,0 +1,1108 @@
+---
+/**
+ * «Ciérrala. Sigue funcionando.» — the one scroll-driven scene of the site and the page's
+ * memorable moment (PROMPT.md section 11 point 5, design plan § 4.5 and § 6.5).
+ *
+ * A 300vh track holds a 100svh sticky stage. While it is stuck, scrolling plays three beats:
+ * (1) a pointer closes the Céntrate window (AppWindow 'countdown') and the green «Guardián
+ * activo» pill stays; (2) a generic browser (no brand, no OS controls) opens and «youtube.com»
+ * is typed and starts loading; (3) instead of YouTube, Céntrate's blocked page appears, and
+ * «−10 puntos» lands last. The captions under the stage are real text (an <ol> of the three
+ * beats, all in the DOM, cross-faded), and a visually hidden summary describes the animation.
+ *
+ * Two engines, one timeline table (`timeline` below). Each moving element («tween») carries
+ * its range (`--a`, `--b`, as progress 0 → 1 of the stuck span) and its start/end poses
+ * (`--o0/--o1` opacity, `--x/--y` translate, `--r` rotate, `--sx/--sy` scale) as inline
+ * custom properties. Only transform and opacity ever animate.
+ * - CSS engine, where `animation-timeline: view()` exists: the track is a view timeline and
+ *   each tween runs one keyframes animation over `animation-range: contain a → contain b`
+ *   (contain 0–100 % is exactly the stuck span). No JavaScript runs per frame.
+ * - Fallback engine elsewhere: sticky-scene.ts writes `--progress` on the track from one
+ *   passive scroll listener (one rAF per frame) and each tween computes its pose in CSS.
+ * - Static version (reduced motion, printing, no JavaScript, a fallback engine that never
+ *   started, or a viewport under 520 px tall such as a landscape phone, where the stage cannot
+ *   fit): no extra height and nothing sticky. The three beats become a vertical sequence,
+ *   each with its own still frame — the pointer on the X, the browser loading youtube.com
+ *   (cropped to its top), the blocked page — computed from the same table at fixed progress
+ *   values.
+ *
+ * An inline script picks the engine before the track is laid out, so nothing shifts. No
+ * ancestor of the track clips with overflow: hidden (that breaks sticky); the section uses
+ * overflow-x: clip so the moving layers never widen the page on phones.
+ */
+import AppWindow from '../AppWindow.astro';
+import FootnoteRef from './FootnoteRef.astro';
+import { fill, footnoteNumber, type FootnoteId } from '../../content/copy';
+import { copyFor } from '../../content/locale';
+
+const copy = copyFor(Astro.url);
+
+const { scene, ui } = copy;
+
+// ---- Timeline ----------------------------------------------------------------------------
+// Progress p of the stuck span (0 = the stage just stuck, 1 = it is about to scroll away).
+
+type Range = readonly [start: number, end: number];
+
+const timeline = {
+  // Beat 1: a pointer closes the window; the guardian stays.
+  cursorIn: [0.02, 0.09],
+  closeHover: [0.085, 0.095],
+  windowOut: [0.1, 0.24],
+  cursorOut: [0.13, 0.19],
+  guardianIn: [0.17, 0.25],
+  segment1: [0, 0.25],
+  // Beat 1's caption stays until beat 2's takes over at 0.275 (out, then in, never both), so
+  // the guardian pill alone on black (0.24 → 0.27) is still captioned.
+  beat1Out: [0.255, 0.275],
+  // Beat 2: a browser opens youtube.com.
+  browserIn: [0.27, 0.37],
+  beat2In: [0.275, 0.295],
+  segment2: [0.27, 0.57],
+  typing: [0.37, 0.45],
+  tabLoadingIn: [0.45, 0.47],
+  spinner: [0.45, 0.6],
+  loadingBar: [0.46, 0.56],
+  beat2Out: [0.52, 0.57],
+  // Beat 3: it never loads; the blocked page and «−10 puntos» appear.
+  loadingBarOut: [0.56, 0.59],
+  tabLoadingOut: [0.57, 0.6],
+  tabBlockedIn: [0.58, 0.61],
+  blockedIn: [0.58, 0.68],
+  beat3In: [0.58, 0.63],
+  segment3: [0.58, 0.74],
+  pointsIn: [0.66, 0.74],
+  // 0.74 → 1: the final frame holds while the stage is still stuck.
+} as const satisfies Record<string, Range>;
+
+/** Progress shown by each still frame of the static version (the last one shows p = 1). */
+const staticFrame = {
+  /** The pointer on the X, just before the window goes. */
+  app: 0.097,
+  /** youtube.com typed and loading. */
+  loading: 0.56,
+} as const;
+
+interface Pose {
+  o?: number;
+  x?: string;
+  y?: string;
+  r?: string;
+  /** Uniform scale. */
+  s?: number;
+  /** Horizontal scale only (progress bars). */
+  sx?: number;
+}
+
+const round = (n: number): number => Math.round(n * 10000) / 10000;
+
+/** Inline custom properties of one tween: its range and its start and end poses. */
+function tween([start, end]: Range, from: Pose, to: Pose): string {
+  const decl = [`--a:${round(start)}`, `--b:${round(end)}`];
+  ([from, to] as const).forEach((pose, i) => {
+    if (pose.o !== undefined) decl.push(`--o${i}:${pose.o}`);
+    if (pose.x !== undefined) decl.push(`--x${i}:${pose.x}`);
+    if (pose.y !== undefined) decl.push(`--y${i}:${pose.y}`);
+    if (pose.r !== undefined) decl.push(`--r${i}:${pose.r}`);
+    const sx = pose.sx ?? pose.s;
+    if (sx !== undefined) decl.push(`--sx${i}:${sx}`);
+    if (pose.s !== undefined) decl.push(`--sy${i}:${pose.s}`);
+  });
+  return decl.join(';');
+}
+
+const fadeIn = (range: Range, y = '0px'): string => tween(range, { o: 0, y }, { o: 1, y: '0px' });
+const fadeOut = (range: Range, y = '0px'): string => tween(range, { o: 1, y: '0px' }, { o: 0, y });
+
+const motion = {
+  cursorIn: tween(timeline.cursorIn, { o: 0, x: '-160px', y: '120px' }, { o: 1 }),
+  cursorOut: fadeOut(timeline.cursorOut),
+  closeHover: fadeIn(timeline.closeHover),
+  // Down, towards the guardian pill that appears under the captions.
+  window: tween(timeline.windowOut, { o: 1 }, { o: 0, y: '16%', s: 0.8 }),
+  guardian: fadeIn(timeline.guardianIn, '8px'),
+  browser: tween(timeline.browserIn, { o: 0, y: '40px', s: 0.96 }, { o: 1 }),
+  tabLoadingIn: fadeIn(timeline.tabLoadingIn),
+  tabLoadingOut: fadeOut(timeline.tabLoadingOut),
+  spinner: tween(timeline.spinner, { r: '0deg' }, { r: '900deg' }),
+  tabBlocked: fadeIn(timeline.tabBlockedIn),
+  loadingBar: tween(timeline.loadingBar, { sx: 0 }, { sx: 0.7 }),
+  loadingBarOut: fadeOut(timeline.loadingBarOut),
+  // The «−10 puntos» line inside the blocked page gets its range from these two (scene CSS).
+  blocked: [
+    fadeIn(timeline.blockedIn, '16px'),
+    `--points-a:${timeline.pointsIn[0]}`,
+    `--points-b:${timeline.pointsIn[1]}`,
+  ].join(';'),
+  segments: [timeline.segment1, timeline.segment2, timeline.segment3].map((range) =>
+    tween(range, { sx: 0 }, { sx: 1 }),
+  ),
+};
+
+// «youtube.com» is typed one character at a time (opacity only).
+const address = Array.from(scene.browser.address);
+const [typeStart, typeEnd] = timeline.typing;
+const typeStep = (typeEnd - typeStart) / address.length;
+const typed = address.map((char, i) => {
+  const start = typeStart + i * typeStep;
+  return { char, style: fadeIn([start, start + Math.min(0.004, typeStep)]) };
+});
+
+// Each beat fades in from below and out upwards; the first starts visible and the last stays.
+const beatMotion: readonly { in?: string; out?: string }[] = [
+  { out: fadeOut(timeline.beat1Out, '-12px') },
+  { in: fadeIn(timeline.beat2In, '12px'), out: fadeOut(timeline.beat2Out, '-12px') },
+  { in: fadeIn(timeline.beat3In, '12px') },
+];
+
+// ---- Copy --------------------------------------------------------------------------------
+
+/** A beat's footnote reference. Its id (`ref-{id}-{k}`, the target of the note's «Volver al
+ *  texto») goes on a marker outside the sticky stage, not on the link: see `.scene-anchor`. */
+const noteRef = (id: FootnoteId, occurrence: number) => {
+  const n = footnoteNumber(id);
+  return {
+    n,
+    href: `#nota-${n}`,
+    id: `ref-${id}-${occurrence}`,
+    label: fill(ui.footnoteRef, { n }),
+  };
+};
+
+const beats = scene.beats.map((beat, i) => ({
+  title: beat.title,
+  text: beat.text,
+  note: 'note' in beat ? noteRef(beat.note, 1) : undefined,
+  row: 3 + i * 2,
+  motion: beatMotion[i] ?? {},
+}));
+
+// Lucide shapes (ISC), 24 × 24, stroke 1.75, like the app's icons.
+const icons = {
+  back: '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  forward: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  reload:
+    '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>',
+  globe:
+    '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
+  close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  spinner: '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
+  lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  pointer:
+    '<path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"/>',
+} as const;
+
+/** Two browsers: the live one of the animation (its final frame is the static beat 3) and a
+ *  still one, only for the static version, frozen while youtube.com loads (beat 2). */
+const browsers = [
+  { variant: 'loading', style: `--frame-p:${staticFrame.loading}` },
+  { variant: 'live', style: undefined },
+] as const;
+---
+
+<section
+  id={scene.id}
+  data-surface="dark"
+  class="scene section-block"
+  aria-labelledby="scene-title"
+>
+  <div class="scene-header gutter" data-reveal-group>
+    <h2 id="scene-title" class="scene-headline text-hero sm:sentence-lines" data-reveal>
+      <span>{scene.headline.lead}</span>{' '}
+      <span><span class="scene-gradient">{scene.headline.gradient}</span></span>
+    </h2>
+    <p class="scene-lead text-lead text-secondary" data-reveal>
+      {/* «Lo más destacado» cites the admin note first (ref-admin-1); this is the second. */}
+      {scene.lead}<FootnoteRef id={scene.leadNote} k={2} />
+    </p>
+  </div>
+
+  <div class="scene-track" data-scene-track>
+    {/* Picks the engine before the track is laid out (see the header comment). */}
+    <script is:inline>
+      (function () {
+        var track = document.currentScript && document.currentScript.parentElement;
+        if (!track) return;
+        var css = !!(window.CSS && CSS.supports && CSS.supports('animation-timeline: view()'));
+        track.setAttribute('data-scene', css ? 'css' : 'fallback');
+        if (css) return;
+        setTimeout(function () {
+          if (!track.hasAttribute('data-scene-ready')) track.removeAttribute('data-scene');
+        }, 4000);
+      })();
+    </script>
+
+    {
+      /* Targets of the notes' «Volver al texto»: a link inside the sticky stage would land
+         wherever the unstuck layout puts it, these land on the frame the beat belongs to. */
+      beats.map(
+        ({ note }) =>
+          note && <span id={note.id} class="scene-anchor" aria-hidden="true" />,
+      )
+    }
+
+    <div class="scene-stage gutter">
+      <p class="sr-only">{scene.summary}</p>
+
+      <div class="scene-visual">
+        {
+          browsers.map(({ variant, style }) => (
+            <div
+              class="scene-layer scene-browser"
+              data-variant={variant}
+              style={style}
+              aria-hidden="true"
+            >
+              <div class="tw scene-browser-window" style={motion.browser}>
+                <div class="scene-tabstrip">
+                  <div class="scene-tab">
+                    <span class="scene-tab-states">
+                      <span class="tw scene-tab-state" style={motion.tabLoadingIn}>
+                        <span class="tw scene-tab-state-inner" style={motion.tabLoadingOut}>
+                          <svg
+                            class="tw tw-linear scene-icon scene-spinner"
+                            style={motion.spinner}
+                            viewBox="0 0 24 24"
+                            set:html={icons.spinner}
+                          />
+                          <span class="scene-tab-title">{scene.browser.tabLoading}</span>
+                        </span>
+                      </span>
+                      <span class="tw scene-tab-state" style={motion.tabBlocked}>
+                        <span class="scene-tab-state-inner">
+                          <svg class="scene-icon" viewBox="0 0 24 24" set:html={icons.lock} />
+                          <span class="scene-tab-title">{scene.browser.tabBlocked}</span>
+                        </span>
+                      </span>
+                    </span>
+                    <svg
+                      class="scene-icon scene-tab-close"
+                      viewBox="0 0 24 24"
+                      set:html={icons.close}
+                    />
+                  </div>
+                </div>
+
+                <div class="scene-toolbar">
+                  <svg class="scene-icon scene-nav" viewBox="0 0 24 24" set:html={icons.back} />
+                  <svg
+                    class="scene-icon scene-nav"
+                    viewBox="0 0 24 24"
+                    set:html={icons.forward}
+                  />
+                  <svg class="scene-icon scene-nav" viewBox="0 0 24 24" set:html={icons.reload} />
+                  <div class="scene-address">
+                    <svg class="scene-icon" viewBox="0 0 24 24" set:html={icons.globe} />
+                    {/* No whitespace between the letters: each is its own span. */}
+                    <span class="scene-address-text">
+                      {typed.map(({ char, style: charStyle }) => (
+                        <span class="tw" style={charStyle}>{char}</span>
+                      ))}
+                    </span>
+                  </div>
+                </div>
+
+                <div class="scene-page">
+                  <span class="tw scene-progress" style={motion.loadingBarOut}>
+                    <span class="tw scene-progress-fill" style={motion.loadingBar} />
+                  </span>
+                  <div class="tw scene-blocked" style={motion.blocked}>
+                    <AppWindow state="blocked-page" decorative />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))
+        }
+
+        <div
+          class="scene-layer scene-app"
+          style={`--frame-p:${staticFrame.app}`}
+          aria-hidden="true"
+        >
+          <div class="scene-app-box">
+            <div class="tw scene-window" style={motion.window}>
+              <AppWindow state="countdown" decorative />
+              <span class="tw scene-close-hover" style={motion.closeHover}></span>
+            </div>
+            <span class="tw scene-cursor" style={motion.cursorIn}>
+              <span class="tw scene-cursor-inner" style={motion.cursorOut}>
+                <svg viewBox="0 0 24 24" set:html={icons.pointer} />
+              </span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="scene-foot">
+        <div class="scene-segments" aria-hidden="true">
+          {
+            motion.segments.map((segmentStyle) => (
+              <span class="scene-segment">
+                <span class="tw tw-linear scene-segment-fill" style={segmentStyle} />
+              </span>
+            ))
+          }
+        </div>
+
+        <ol class="scene-beats" role="list">
+          {
+            beats.map((beat) => (
+              <li class="scene-beat" style={`--beat-row:${beat.row}`}>
+                <div
+                  class:list={['scene-beat-motion', { 'tw-beat': beat.motion.in }]}
+                  style={beat.motion.in}
+                >
+                  <div
+                    class:list={['scene-beat-motion', { 'tw-beat': beat.motion.out }]}
+                    style={beat.motion.out}
+                  >
+                    <h3 class="scene-beat-title text-lead font-semibold">{beat.title}</h3>
+                    <p class="scene-beat-text text-body text-secondary">
+                      {beat.text}{beat.note && (
+                        <sup class="scene-ref"
+                          ><a href={beat.note.href} aria-label={beat.note.label}>{beat.note.n}</a
+                          ></sup
+                        >
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </li>
+            ))
+          }
+        </ol>
+
+        <div class="tw scene-guardian" style={motion.guardian} aria-hidden="true">
+          <span class="scene-guardian-dot"></span>
+          {copy.appWindow.footer.guardian}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  import { initStickyScene } from './sticky-scene';
+
+  initStickyScene();
+</script>
+
+<style>
+  /* ---- Section and header ------------------------------------------------------------- */
+
+  .scene {
+    /* The moving layers must never widen the page (phones); clip is not a scroll container,
+       so the sticky stage and the view timeline keep working. */
+    overflow-x: clip;
+    /* Scale of the stage picture: the token's steps for short viewports, plus the scene's
+       own below (the Céntrate window, which has a fixed size, must fit the picture's box). */
+    --scene-scale: var(--stage-scale);
+    /* Width of the stage picture and of the captions under it. */
+    --scene-w: min(calc(var(--browser-w) * var(--scene-scale)), 100%);
+    /* Space between the picture and the captions. */
+    --scene-gap: var(--space-gallery-controls);
+    /* The blocked page (blocked.html, a 440 px column) at the browser's scale: shown larger
+       than the app window so «−10 puntos», the pay-off of the scene, lands big. */
+    --scene-blocked-zoom: 1.5;
+    /* Height of the static beat-2 still: the browser cropped to its top while it loads. */
+    --scene-crop-h: 240px;
+  }
+
+  @media (max-width: 1068px) {
+    .scene {
+      --scene-blocked-zoom: 1.3;
+    }
+  }
+
+  @media (max-width: 734px) {
+    .scene {
+      --scene-w: 100%;
+      /* The browser is narrower than the column here, so the column reflows (see below); its
+         header (monogram, «YouTube: bloqueado», time left) needs 308 px at zoom 1. */
+      --scene-blocked-zoom: 0.92;
+      --scene-crop-h: 208px;
+    }
+  }
+
+  @media (max-width: 359px) {
+    .scene {
+      --scene-blocked-zoom: 0.8;
+    }
+  }
+
+  /* Short viewports, wider than a phone: steps below the token's, so the whole window and
+     the captions (about 160 px) share the stage without clipping. Under 520 px the scene is
+     static. */
+  @media (min-width: 735px) and (max-height: 659px) {
+    .scene {
+      --scene-scale: 0.6;
+    }
+  }
+
+  @media (min-width: 735px) and (max-height: 599px) {
+    .scene {
+      --scene-gap: 20px;
+    }
+  }
+
+  @media (min-width: 735px) and (max-height: 579px) {
+    .scene {
+      --scene-scale: 0.48;
+    }
+  }
+
+  /* Phones: the picture already fills the width and its height can flex (see the stage), so
+     it keeps full size while the whole window still fits above the captions (they wrap to
+     more lines under 375 px), then steps down. */
+  @media (max-width: 734px) and (min-height: 680px),
+    (min-width: 375px) and (max-width: 734px) and (min-height: 650px) {
+    .scene {
+      --scene-scale: 1;
+    }
+  }
+
+  @media (max-width: 734px) and (max-height: 599px) {
+    .scene {
+      --scene-scale: 0.64;
+      --scene-gap: 20px;
+    }
+  }
+
+  @media (max-width: 734px) and (max-height: 539px) {
+    .scene {
+      --scene-scale: 0.56;
+    }
+  }
+
+  /* Above the stage, whose empty top padding (sticky, so painted later) would otherwise cover
+     the bottom of the lead's footnote target. */
+  .scene-header {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    justify-items: center;
+    gap: var(--space-headline-lead);
+    text-align: center;
+  }
+
+  .scene-lead {
+    max-width: var(--measure-lead);
+  }
+
+  /* The only gradient text of the site (blue = information, green = guardian OK). */
+  .scene-gradient {
+    background-image: linear-gradient(
+      90deg,
+      var(--palette-blue-dark),
+      var(--palette-green-dark)
+    );
+  }
+
+  @supports (background-clip: text) or (-webkit-background-clip: text) {
+    .scene-gradient {
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .scene-gradient {
+      background: none;
+      color: CanvasText;
+    }
+  }
+
+  /* Beat 3's footnote reference: FootnoteRef.astro's look and 44 px target, but without the
+     id (it lives on .scene-anchor). */
+  .scene-ref {
+    position: relative;
+    top: -0.5em;
+    margin-inline-start: 0.08em;
+    font-size: 0.6em;
+    line-height: 0;
+    vertical-align: baseline;
+    font-feature-settings: 'tnum';
+  }
+
+  .scene-ref a {
+    position: relative;
+    color: inherit;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.18em;
+  }
+
+  .scene-ref a::after {
+    content: '';
+    position: absolute;
+    inset: -16px -12px;
+  }
+
+  .scene-ref a:hover {
+    text-decoration-line: underline;
+  }
+
+  /* ---- Tweens: one timeline, two engines ------------------------------------------------ */
+
+  /* Every tween computes its pose from a progress value: --frame-p in the static frames (1 =
+     the final frame unless a frame sets it), --progress in the fallback engine. Ease: a
+     smoothstep, close to the CSS engine's --curve-reveal. The results are custom properties;
+     applying them is conditional (the beats only move when the scene is animated). */
+  .tw,
+  .tw-beat,
+  .scene-blocked :global([data-aw-part='points']) {
+    --o0: 1;
+    --o1: 1;
+    --x0: 0px;
+    --x1: 0px;
+    --y0: 0px;
+    --y1: 0px;
+    --r0: 0deg;
+    --r1: 0deg;
+    --sx0: 1;
+    --sx1: 1;
+    --sy0: 1;
+    --sy1: 1;
+    --t: clamp(0, (var(--frame-p, 1) - var(--a)) / (var(--b) - var(--a)), 1);
+    --e: calc(var(--t) * var(--t) * (3 - 2 * var(--t)));
+    --tween-opacity: calc(var(--o0) + (var(--o1) - var(--o0)) * var(--e));
+    --tween-transform: translate(
+        calc(var(--x0) + (var(--x1) - var(--x0)) * var(--e)),
+        calc(var(--y0) + (var(--y1) - var(--y0)) * var(--e))
+      )
+      rotate(calc(var(--r0) + (var(--r1) - var(--r0)) * var(--e)))
+      scale(
+        calc(var(--sx0) + (var(--sx1) - var(--sx0)) * var(--e)),
+        calc(var(--sy0) + (var(--sy1) - var(--sy0)) * var(--e))
+      );
+  }
+
+  /* Progress bars and the spinner move linearly. */
+  .tw.tw-linear {
+    --e: var(--t);
+  }
+
+  /* «−10 puntos» inside the blocked page (AppWindow exposes data-aw-part="points"). */
+  .scene-blocked :global([data-aw-part='points']) {
+    --a: var(--points-a);
+    --b: var(--points-b);
+    --o0: 0;
+    --y0: 12px;
+  }
+
+  .tw,
+  .scene-blocked :global([data-aw-part='points']) {
+    opacity: var(--tween-opacity);
+    transform: var(--tween-transform);
+  }
+
+  @keyframes scene-tween {
+    from {
+      opacity: var(--o0);
+      transform: translate(var(--x0), var(--y0)) rotate(var(--r0)) scale(var(--sx0), var(--sy0));
+    }
+
+    to {
+      opacity: var(--o1);
+      transform: translate(var(--x1), var(--y1)) rotate(var(--r1)) scale(var(--sx1), var(--sy1));
+    }
+  }
+
+  /* ---- Static version: a vertical sequence of three stills --------------------------- */
+
+  .scene-track {
+    position: relative;
+    margin-block-start: var(--space-header-content);
+  }
+
+  /* Where «Volver al texto» of beat 3's note lands: here, the start of the blocked-page still
+     (its browser plus about the height of the caption under it). */
+  .scene-anchor {
+    position: absolute;
+    bottom: calc(var(--browser-h) + 160px);
+  }
+
+  /* Rows: 1 window · 2 guardian · 3 beat 1 · 4 loading browser · 5 beat 2 · 6 blocked
+     browser · 7 beat 3. The list keeps its semantics and DOM order; a subgrid lays its items
+     into rows 3, 5 and 7, between the stills. */
+  .scene-stage {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(7, auto);
+    justify-items: center;
+  }
+
+  .scene-visual,
+  .scene-foot {
+    display: contents;
+  }
+
+  .scene-app {
+    --aw-zoom: var(--aw-zoom-stage);
+    grid-row: 1;
+    grid-column: 1;
+  }
+
+  .scene-browser {
+    grid-column: 1;
+    width: min(var(--browser-w), 100%);
+    height: var(--browser-h);
+    margin-block-start: var(--space-block);
+  }
+
+  /* Beat 2's still is only the top of the browser (tabs, address, loading bar): the empty
+     page under it fades out instead of showing a large blank box. */
+  .scene-browser[data-variant='loading'] {
+    grid-row: 4;
+    height: var(--scene-crop-h);
+    -webkit-mask-image: linear-gradient(to bottom, #000 50%, transparent);
+    mask-image: linear-gradient(to bottom, #000 50%, transparent);
+  }
+
+  .scene-browser[data-variant='live'] {
+    grid-row: 6;
+  }
+
+  .scene-segments {
+    display: none;
+  }
+
+  .scene-guardian {
+    grid-row: 2;
+    grid-column: 1;
+    margin-block-start: var(--space-card-caption);
+  }
+
+  .scene-beats {
+    display: grid;
+    grid-row: 1 / -1;
+    grid-column: 1;
+    grid-template-rows: subgrid;
+    justify-self: stretch;
+    justify-items: center;
+  }
+
+  .scene-beat {
+    grid-row: var(--beat-row);
+    max-width: var(--measure-text);
+    margin-block-start: var(--space-card-caption);
+    text-align: center;
+  }
+
+  .scene-beat-text {
+    margin-block-start: 8px;
+  }
+
+  /* ---- Animated version: a sticky stage over a 300vh track ------------------------------ */
+
+  /* Keep the query in sync with `ANIMATED` in sticky-scene.ts. */
+  @media screen and (prefers-reduced-motion: no-preference) and (min-height: 520px) {
+    /* The stage's top padding clears the bar; together with it, the lead → picture space is
+       the page's header → content rhythm (never less than the padding alone). */
+    .scene-track[data-scene] {
+      height: var(--scene-track);
+      margin-block-start: max(
+        0px,
+        var(--space-header-content) - var(--nav-height) - var(--space-card-caption)
+      );
+    }
+
+    /* Beat 3's anchor: the held final frame (p = 0.85, «−10 puntos» in place), counting the
+       bar the browser leaves above the target (the page's scroll-padding-top). */
+    .scene-track[data-scene] .scene-anchor {
+      top: calc((100% - 100vh) * 0.85 + var(--nav-height));
+      top: calc((100% - 100svh) * 0.85 + var(--nav-height));
+      bottom: auto;
+    }
+
+    /* Anchored to the top, so the picture sits at the same distance from the lead at any
+       viewport height; extra height goes around the captions, never above the picture. */
+    .scene-track[data-scene] .scene-stage {
+      position: sticky;
+      top: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      gap: var(--scene-gap);
+      height: 100vh;
+      height: 100svh;
+      padding-block: calc(var(--nav-height) + var(--space-card-caption)) var(--space-card-caption);
+    }
+
+    /* The picture: the browser's box, scaled down on short viewports (and it may shrink
+       further so the captions always fit under it). */
+    .scene-track[data-scene] .scene-visual {
+      display: block;
+      position: relative;
+      flex: 0 1 auto;
+      width: var(--scene-w);
+      height: calc(var(--browser-h) * var(--scene-scale));
+      min-height: 0;
+    }
+
+    .scene-track[data-scene] .scene-layer {
+      position: absolute;
+      inset: 0;
+      width: auto;
+      height: auto;
+      margin: 0;
+      zoom: var(--scene-scale);
+    }
+
+    /* The window never spills onto the captions, even if the picture's box gets shorter than
+       it (only this layer clips: the browser fills the box and its rim sits on the edge). */
+    .scene-track[data-scene] .scene-app {
+      display: grid;
+      place-items: center;
+      place-items: safe center;
+      overflow: clip;
+    }
+
+    .scene-track[data-scene] .scene-browser[data-variant='loading'] {
+      display: none;
+    }
+
+    /* Captions: one centered column, like the header above and the static version — the
+       progress segments, the beats (stacked in one cell so the tallest one sets the height
+       and nothing jumps) and the guardian pill, which stays once it appears. */
+    .scene-track[data-scene] .scene-foot {
+      display: flex;
+      flex: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      width: var(--scene-w);
+      margin-block: auto;
+    }
+
+    .scene-track[data-scene] .scene-segments {
+      display: flex;
+    }
+
+    .scene-track[data-scene] .scene-guardian {
+      margin: 0;
+    }
+
+    .scene-track[data-scene] .scene-beats {
+      align-self: stretch;
+      grid-template-rows: none;
+    }
+
+    .scene-track[data-scene] .scene-beat {
+      grid-area: 1 / 1;
+      margin: 0;
+    }
+
+    .scene-track[data-scene] .tw-beat {
+      opacity: var(--tween-opacity);
+      transform: var(--tween-transform);
+    }
+
+    /* A keyboard user who tabs to the footnote of a hidden beat sees that beat, alone. */
+    .scene-track[data-scene] .scene-beats:focus-within .scene-beat .tw-beat {
+      animation: none;
+      opacity: 0;
+      transform: none;
+    }
+
+    .scene-track[data-scene] .scene-beats:focus-within .scene-beat:focus-within .tw-beat {
+      opacity: 1;
+    }
+
+    /* Fallback engine: the progress comes from sticky-scene.ts (0 until it runs). */
+    .scene-track[data-scene='fallback'] {
+      --progress: 0;
+    }
+
+    .scene-track[data-scene='fallback'] .tw,
+    .scene-track[data-scene='fallback'] .tw-beat,
+    .scene-track[data-scene='fallback'] .scene-blocked :global([data-aw-part='points']) {
+      --t: clamp(0, (var(--progress) - var(--a)) / (var(--b) - var(--a)), 1);
+    }
+
+    /* CSS engine: contain 0 % → 100 % of the track is exactly the span the stage is stuck. */
+    @supports (animation-timeline: view()) {
+      /* Inset 0: the default (auto) would subtract the page's scroll-padding-top (the bar)
+         and start the timeline 52 px before the stage sticks. */
+      .scene-track[data-scene='css'] {
+        view-timeline: --scene block;
+        view-timeline-inset: 0;
+      }
+
+      .scene-track[data-scene='css'] .tw,
+      .scene-track[data-scene='css'] .tw-beat,
+      .scene-track[data-scene='css'] .scene-blocked :global([data-aw-part='points']) {
+        animation-name: scene-tween;
+        animation-duration: auto;
+        animation-timing-function: var(--curve-reveal);
+        animation-fill-mode: both;
+        animation-timeline: --scene;
+        animation-range: contain calc(var(--a) * 100%) contain calc(var(--b) * 100%);
+      }
+
+      .scene-track[data-scene='css'] .tw.tw-linear {
+        animation-timing-function: linear;
+      }
+    }
+  }
+
+  /* ---- Guardian pill and progress segments ---------------------------------------------- */
+
+  .scene-guardian {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 32px;
+    padding-inline: 12px 14px;
+    border: 1px solid var(--palette-hairline-dark);
+    border-radius: var(--shape-pill);
+    background-color: var(--palette-graphite);
+    color: var(--palette-snow);
+    font-size: var(--type-small-size);
+    line-height: 1;
+    letter-spacing: var(--type-small-ls);
+    white-space: nowrap;
+    forced-color-adjust: none;
+  }
+
+  .scene-guardian-dot {
+    width: var(--aw-dot);
+    height: var(--aw-dot);
+    border-radius: 50%;
+    background-color: var(--aw-green);
+  }
+
+  .scene-segments {
+    gap: 8px;
+  }
+
+  .scene-segment {
+    width: 40px;
+    height: 2px;
+    overflow: clip;
+    border-radius: 1px;
+    background-color: var(--palette-hairline-dark);
+  }
+
+  .scene-segment-fill {
+    display: block;
+    height: 100%;
+    background-color: var(--palette-snow);
+    transform-origin: left center;
+  }
+
+  /* ---- The Céntrate window and the pointer ---------------------------------------------- */
+
+  .scene-app-box {
+    position: relative;
+    display: grid;
+  }
+
+  .scene-window {
+    position: relative;
+    display: grid;
+  }
+
+  /* On black, a 1 px rim instead of the page's window shadow. */
+  .scene-window :global(.aw) {
+    box-shadow: var(--rim-window-dark);
+  }
+
+  /* Hover tint of the title bar's X, over the mock's own close button. */
+  .scene-close-hover {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: calc(var(--aw-caption-button-w) * var(--aw-zoom));
+    height: calc(var(--aw-titlebar-h) * var(--aw-zoom));
+    border-start-end-radius: calc(var(--aw-radius-window) * var(--aw-zoom));
+    background-color: var(--aw-tile);
+    mix-blend-mode: lighten;
+  }
+
+  /* A generic arrow pointer whose tip rests on the X. */
+  .scene-cursor {
+    position: absolute;
+    top: calc(var(--aw-titlebar-h) * var(--aw-zoom) / 2 - 5px);
+    left: calc(100% - var(--aw-caption-button-w) * var(--aw-zoom) / 2 - 4px);
+    width: 24px;
+    height: 24px;
+  }
+
+  .scene-cursor-inner,
+  .scene-cursor svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .scene-cursor svg {
+    fill: var(--palette-snow);
+    stroke: var(--palette-black);
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+  }
+
+  /* ---- The generic browser -------------------------------------------------------------- */
+
+  .scene-browser-window {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    overflow: clip;
+    border-radius: var(--browser-radius);
+    background-color: var(--palette-browser-frame);
+    box-shadow: var(--rim-window-dark);
+    color: var(--palette-snow);
+    font-size: var(--type-small-size);
+    line-height: 1.25;
+    letter-spacing: 0;
+    white-space: nowrap;
+    user-select: none;
+    forced-color-adjust: none;
+  }
+
+  .scene-icon {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.75;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .scene-tabstrip {
+    display: flex;
+    flex: none;
+    align-items: center;
+    height: var(--browser-tabstrip-h);
+    padding-inline: 8px;
+    padding-block-start: 4px;
+  }
+
+  .scene-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: min(240px, 62%);
+    height: calc(var(--browser-tabstrip-h) - 12px);
+    padding-inline: 10px 8px;
+    border-radius: var(--aw-radius-lg);
+    background-color: var(--palette-browser-field);
+    font-size: var(--type-note-size);
+  }
+
+  .scene-tab-states {
+    display: grid;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .scene-tab-state {
+    grid-area: 1 / 1;
+    min-width: 0;
+  }
+
+  .scene-tab-state-inner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .scene-tab-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .scene-spinner {
+    color: var(--palette-blue-dark);
+    transform-origin: center;
+  }
+
+  .scene-tab-close {
+    width: 12px;
+    height: 12px;
+    color: var(--palette-mist);
+  }
+
+  .scene-toolbar {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 4px;
+    height: var(--browser-toolbar-h);
+    padding-inline: 6px 12px;
+  }
+
+  .scene-nav {
+    box-sizing: content-box;
+    width: 16px;
+    height: 16px;
+    padding: 6px;
+    color: var(--palette-mist);
+  }
+
+  .scene-address {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    height: calc(var(--browser-toolbar-h) - 12px);
+    margin-inline-start: 4px;
+    padding-inline: 12px;
+    border-radius: var(--shape-pill);
+    background-color: var(--palette-browser-field);
+    color: var(--palette-snow);
+  }
+
+  .scene-address .scene-icon {
+    color: var(--palette-mist);
+  }
+
+  .scene-address-text {
+    overflow: hidden;
+  }
+
+  .scene-page {
+    position: relative;
+    display: grid;
+    flex: 1;
+    place-items: center;
+    min-height: 0;
+    border-block-start: 1px solid var(--palette-hairline-dark);
+    background-color: var(--aw-bg);
+  }
+
+  .scene-progress {
+    position: absolute;
+    inset-block-start: -1px;
+    inset-inline: 0;
+    height: 2px;
+  }
+
+  .scene-progress-fill {
+    display: block;
+    height: 100%;
+    background-color: var(--palette-blue-dark);
+    transform-origin: left center;
+  }
+
+  /* blocked.html: the 440 px column at --scene-blocked-zoom. In a browser narrower than that
+     (phones) it reflows to the page's width, like the real page in a narrow window. */
+  .scene-page {
+    --scene-column: var(--aw-width);
+  }
+
+  .scene-blocked {
+    --aw-zoom: var(--scene-blocked-zoom);
+    --aw-width: 100%;
+    width: min(calc(100% - 24px), calc(var(--scene-column) * var(--scene-blocked-zoom)));
+  }
+</style>

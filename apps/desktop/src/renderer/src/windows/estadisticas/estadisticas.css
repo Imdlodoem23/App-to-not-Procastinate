@@ -1,0 +1,303 @@
+/*
+ * Estadísticas window (PROMPT §10 «Ventanas de detalle › Estadísticas»): stacked sections, two
+ * columns where they help, no cards, grid or separators. The chart is one green series on a
+ * `--control` baseline; the heatmap is five steps of the same green. Text never wears the data
+ * color: values and labels stay `--fg` / `--fg-muted` (green and red text only for points, as
+ * everywhere). Colors come only from tokens.css.
+ */
+
+@layer components {
+  .est {
+    display: flex;
+    flex-direction: column;
+    gap: var(--section-gap);
+    min-width: 0;
+  }
+
+  /* A refetch keeps the previous answer on screen, dimmed, until the new one arrives. */
+  .est [data-stale] {
+    opacity: 0.5;
+    transition: opacity var(--duration-fade) linear;
+  }
+
+  .est-note {
+    margin: 0;
+    color: var(--fg-muted);
+  }
+
+  .est-row-2 .c-tilegrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* Chart and its text summary ------------------------------------------------------------ */
+
+  .est-chart-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 200px;
+    gap: var(--space-4);
+    align-items: start;
+  }
+
+  .est-figure {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+    margin: 0;
+  }
+
+  .est-chart-frame {
+    position: relative;
+    min-width: 0;
+  }
+
+  .est-bars {
+    font-size: var(--font-size-12);
+  }
+
+  .est-bars .recharts-bar-rectangle .recharts-rectangle {
+    fill: var(--green);
+  }
+
+  /* Hovered or keyboard-active bar: a quiet band behind it (hover mix, like tiles). */
+  .est-bars .recharts-tooltip-cursor {
+    fill: color-mix(in srgb, var(--fg) var(--active-mix), transparent);
+    stroke: none;
+  }
+
+  .est-bars .recharts-cartesian-axis-line {
+    stroke: var(--control);
+    stroke-width: 1px;
+  }
+
+  .est-bars .est-tick,
+  .est-bar-label {
+    fill: var(--fg-muted);
+    font-size: var(--font-size-12);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .est-bar-label {
+    fill: var(--fg);
+  }
+
+  .est-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding-top: var(--space-2);
+  }
+
+  .est-summary-item {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+    min-height: 20px;
+  }
+
+  .est-summary dt {
+    flex: none;
+    color: var(--fg-muted);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+
+  .est-summary dd {
+    min-width: 0;
+    margin: 0;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+  }
+
+  /* Heatmap -------------------------------------------------------------------------------- */
+
+  .est-heat {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+    margin: 0;
+  }
+
+  .est-heat-svg {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+
+  .est-heat-label {
+    fill: var(--fg-muted);
+    font-size: var(--font-size-12);
+  }
+
+  /* Five steps of one green (ordinal ramp validated in both themes). */
+  .est-heat-cell,
+  .est-legend-cell {
+    fill: var(--border);
+    background: var(--border);
+  }
+
+  .est-heat-cell[data-level='1'],
+  .est-legend-cell[data-level='1'] {
+    fill: color-mix(in srgb, var(--green) 50%, var(--bg));
+    background: color-mix(in srgb, var(--green) 50%, var(--bg));
+  }
+
+  .est-heat-cell[data-level='2'],
+  .est-legend-cell[data-level='2'] {
+    fill: color-mix(in srgb, var(--green) 67%, var(--bg));
+    background: color-mix(in srgb, var(--green) 67%, var(--bg));
+  }
+
+  .est-heat-cell[data-level='3'],
+  .est-legend-cell[data-level='3'] {
+    fill: color-mix(in srgb, var(--green) 84%, var(--bg));
+    background: color-mix(in srgb, var(--green) 84%, var(--bg));
+  }
+
+  .est-heat-cell[data-level='4'],
+  .est-legend-cell[data-level='4'] {
+    fill: var(--green);
+    background: var(--green);
+  }
+
+  .est-heat-hover {
+    fill: none;
+    stroke: var(--fg);
+    stroke-width: 1.5px;
+    pointer-events: none;
+  }
+
+  .est-heat-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+  }
+
+  .est-heat-foot .c-help {
+    flex: 1 1 auto;
+  }
+
+  .est-legend {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 2px;
+    color: var(--fg-muted);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+  }
+
+  .est-legend > span:first-child {
+    margin-right: var(--space-1);
+  }
+
+  .est-legend > span:last-child {
+    margin-left: var(--space-1);
+  }
+
+  .est-legend-cell {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+  }
+
+  /* Ranked lists, side by side ------------------------------------------------------------- */
+
+  .est-columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+    align-items: start;
+  }
+
+  .est-rank {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .est-rank-item {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    min-height: var(--size-block-row);
+  }
+
+  .est-rank-item > .c-bar {
+    flex: none;
+  }
+
+  .est-rank-line {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .est-rank-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .est-rank-value,
+  .est-rank-points {
+    flex: none;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .est-rank-value {
+    color: var(--fg-muted);
+  }
+
+  /* Event log ------------------------------------------------------------------------------ */
+
+  .est-log {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .est-log-row {
+    display: grid;
+    grid-template-columns: 112px minmax(0, 1fr) 56px;
+    gap: var(--space-2);
+    align-items: baseline;
+    padding-block: 5px;
+  }
+
+  .est-log-when {
+    color: var(--fg-muted);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-12);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .est-log-text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .est-log-points {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* Empty state: the action on a third of the row, like any tile. */
+  .est-empty .c-tilerow {
+    align-self: stretch;
+  }
+}

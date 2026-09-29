@@ -15,7 +15,7 @@ packages/shared   TS source consumed directly (exports -> src/*.ts). Catalog, NL
 apps/desktop      Electron 44 + electron-vite 5 (Vite 7) + React 19 + Tailwind 4 + Zustand. Local DB: node:sqlite (no native modules).
 apps/extension    MV3 extension built with esbuild (Chromium + Firefox, one codebase).
 apps/web          Astro 7 + Tailwind 4 static site deployed to Render.
-guardian/         Go 1.24 system service (kardianos/service). HTTP API on 127.0.0.1 only.
+guardian/         Go 1.26 system service (kardianos/service). HTTP API on 127.0.0.1 only.
 ```
 
 ## Commands (run from repo root)
@@ -34,3 +34,9 @@ guardian/         Go 1.24 system service (kardianos/service). HTTP API on 127.0.
 - Colors in desktop and extension come only from `packages/shared/src/design/tokens.css` / `tokens.ts` (a CI lint rejects loose hex colors).
 - Guardian API is loopback-only, token-protected for writes, strictly validated, never shells out with received data, and has **no operation that ends a block early**.
 - Points values live only in `packages/shared/src/points.ts`; the guardian embeds generated data from it (never hand-edit generated files).
+
+## Browsers and screenshots
+
+- Playwright is installed (`@playwright/test` 1.63 in `apps/web`). In this cloud container the bundled browser download is blocked: launch Chromium with `executablePath: process.env.PW_CHROMIUM_PATH` and run with `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium`. In CI, `npx playwright install --with-deps chromium` provides it and the env var is unset.
+- Electron runs headless here with `xvfb-run -a` (the Electron binary is in `node_modules/electron/dist`).
+- Screenshot folders: `docs/ui/` (app) and `docs/web/` (web). Temporary captures go to the session scratchpad, not the repo.

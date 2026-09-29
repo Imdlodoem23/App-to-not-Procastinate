@@ -1,0 +1,329 @@
+/**
+ * The lists under the Bloqueos form: «Activos» (what the guardian enforces now, with the way to
+ * the emergency unlock), «Plantillas» (use one in the form, delete your own with an in-place
+ * «¿Seguro?»), «Horarios» («L–V 16:00–19:00 · Redes sociales» with «Editar» and a switch per
+ * row, then «Nuevo horario» or the editor in place) and «Modo examen» (whitelist + Hardcore,
+ * straight to the main window's confirmation, whose red line says it cannot be cancelled; then
+ * the user's whitelist extras).
+ *
+ * Results («No se ha podido borrar…») show under their list without being live regions (they
+ * mount with the text already in them); the window's polite region announces them.
+ */
+import {
+  BookOpen,
+  CalendarClock,
+  CalendarPlus,
+  GraduationCap,
+  LayoutTemplate,
+  Lock,
+  Pencil,
+  Trash,
+} from 'lucide-react';
+import { useLayoutEffect, useRef } from 'react';
+import {
+  HelpLine,
+  InPlaceConfirm,
+  Section,
+  SettingsRow,
+  StatusDot,
+  TextButton,
+  Tile,
+  TileRow,
+  Toggle,
+  settingsRowIds,
+} from '../../components';
+import { errorCopy } from '../../i18n/errors';
+import { useArmedState } from '../../store/context';
+import { BLOQUEOS } from './i18n';
+import { ScheduleEditor } from './ScheduleEditor';
+import type { BloqueosActions, Notice } from './useBloqueosWindow';
+import { WhitelistEditor } from './WhitelistEditor';
+import {
+  BLOQUEOS_IDS,
+  BLOQUEOS_KEYS,
+  type BloqueosView,
+  type ExamView,
+  type SchedulesView,
+} from './view';
+
+const E = BLOQUEOS;
+
+export function ActiveSection(props: {
+  view: BloqueosView['active'];
+  actions: BloqueosActions;
+}): React.JSX.Element {
+  const { view, actions } = props;
+  return (
+    <Section id={BLOQUEOS_IDS.active} icon={Lock} title={view.title}>
+      {view.rows.length === 0 ? (
+        <p className="blq-note">{E.active.empty}</p>
+      ) : (
+        <ul className="blq-list" aria-label={E.active.listLabel}>
+          {view.rows.map((row) => (
+            <li key={row.id} className="blq-block-row">
+              <StatusDot tone={row.tone} />
+              <span className="blq-block-label">{row.label}</span>
+              <span className="blq-block-until">{row.until}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {view.emergency ? (
+        <div>
+          <TextButton onPress={actions.openEmergency}>{E.active.emergency}</TextButton>
+        </div>
+      ) : null}
+    </Section>
+  );
+}
+
+function TemplateRow(props: {
+  row: BloqueosView['templates']['rows'][number];
+  actions: BloqueosActions;
+}): React.JSX.Element {
+  const { row, actions } = props;
+  const armId = `template-delete:${row.id}`;
+  const armed = useArmedState()?.id === armId;
+  const ids = settingsRowIds(`blq-template-${row.id}`);
+  return (
+    <SettingsRow
+      id={`blq-template-${row.id}`}
+      title={row.label}
+      description={
+        armed ? (
+          <span data-tone="red">{E.templates.removeConsequence(row.label)}</span>
+        ) : row.builtin ? (
+          `${row.description} · ${E.templates.builtin}`
+        ) : (
+          row.description
+        )
+      }
+    >
+      <div className="blq-row-actions" role="group" aria-labelledby={ids.title}>
+        <Tile
+          id={`use-${row.id}`}
+          label={E.templates.use}
+          icon={BookOpen}
+          size="text"
+          mnemonic={row.useKey}
+          help={E.templates.useHelp}
+          describedBy={ids.description}
+          onPress={() => actions.applyTemplate(row.id)}
+        />
+        {row.builtin ? null : (
+          <InPlaceConfirm
+            id={`delete-${row.id}`}
+            armId={armId}
+            label={E.templates.remove}
+            icon={Trash}
+            size="text"
+            mnemonic={row.removeKey}
+            describedBy={ids.description}
+            consequence={E.templates.removeConsequence(row.label)}
+            onConfirm={() => actions.deleteTemplate(row.id)}
+          />
+        )}
+      </div>
+    </SettingsRow>
+  );
+}
+
+export function TemplatesSection(props: {
+  view: BloqueosView['templates'];
+  notice: Notice | undefined;
+  actions: BloqueosActions;
+}): React.JSX.Element {
+  return (
+    <Section id={BLOQUEOS_IDS.templates} icon={LayoutTemplate} title={props.view.title}>
+      <div className="blq-rows">
+        {props.view.rows.map((row) => (
+          <TemplateRow key={row.id} row={row} actions={props.actions} />
+        ))}
+      </div>
+      {props.notice ? (
+        <HelpLine tone={props.notice.tone} className="blq-wrap">
+          {props.notice.text}
+        </HelpLine>
+      ) : null}
+    </Section>
+  );
+}
+
+function ScheduleRow(props: {
+  row: SchedulesView['rows'][number];
+  actions: BloqueosActions;
+}): React.JSX.Element {
+  const { row, actions } = props;
+  const id = `blq-schedule-${row.id}`;
+  const ids = settingsRowIds(id);
+  return (
+    <SettingsRow id={id} title={row.title} description={row.description}>
+      <div className="blq-row-actions" role="group" aria-labelledby={ids.title}>
+        <Tile
+          id={`edit-${row.id}`}
+          label={E.schedules.edit}
+          icon={Pencil}
+          size="text"
+          mnemonic={row.editKey}
+          help={E.schedules.editHelp}
+          describedBy={ids.description}
+          disabled={row.editLock !== null || row.editing}
+          disabledReason={row.editLock ?? undefined}
+          onPress={() => actions.editSchedule(row.id)}
+        />
+        <Toggle
+          checked={row.enabled}
+          disabled={row.locked || row.saving}
+          labelledBy={ids.title}
+          describedBy={ids.description}
+          onChange={(on) => actions.toggleSchedule(row.id, on)}
+        />
+      </div>
+    </SettingsRow>
+  );
+}
+
+export function SchedulesSection(props: {
+  view: SchedulesView;
+  notice: Notice | undefined;
+  actions: BloqueosActions;
+}): React.JSX.Element {
+  const { view, actions, notice } = props;
+  const editorOpen = view.editor !== null;
+
+  // Closing the editor gives the focus back where it was opened from (the row's «Editar», else
+  // «Nuevo horario»), never to <body>.
+  const openedFrom = useRef<string | null>(null);
+  const wasOpen = useRef(editorOpen);
+  const editorId = view.editor?.id ?? null;
+  if (editorOpen) openedFrom.current = editorId === null ? 'new' : editorId;
+  useLayoutEffect(() => {
+    const was = wasOpen.current;
+    wasOpen.current = editorOpen;
+    if (editorOpen) {
+      document
+        .querySelector<HTMLElement>(`[data-section="${BLOQUEOS_IDS.schedules}"] .blq-editor`)
+        ?.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+    if (!was) return;
+    const from = openedFrom.current;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    const target =
+      from !== null && from !== 'new'
+        ? document.querySelector<HTMLElement>(`[data-tile-id="edit-${CSS.escape(from)}"]`)
+        : null;
+    (
+      target ??
+      document.querySelector<HTMLElement>(`[data-tile-id="${BLOQUEOS_IDS.newSchedule}"]`) ??
+      document.querySelector<HTMLElement>(`[data-section="${BLOQUEOS_IDS.schedules}"]`)
+    )?.focus({ preventScroll: false });
+  }, [editorOpen]);
+
+  return (
+    <Section
+      id={BLOQUEOS_IDS.schedules}
+      icon={CalendarClock}
+      title={view.title}
+      datum={view.datum}
+      datumTone="muted"
+    >
+      {view.status === 'error' && view.error ? (
+        <div className="blq-inline">
+          <HelpLine tone="red">{errorCopy(view.error).text}</HelpLine>
+          <TextButton tone="blue" onPress={actions.retrySchedules}>
+            {E.schedules.retry}
+          </TextButton>
+        </div>
+      ) : null}
+      {view.status === 'ready' && view.rows.length === 0 && !editorOpen ? (
+        <p className="blq-note">{E.schedules.empty}</p>
+      ) : null}
+      {view.rows.length > 0 ? (
+        <div className="blq-rows" role="list" aria-label={E.schedules.listLabel}>
+          {view.rows.map((row) => (
+            <div key={row.id} role="listitem">
+              <ScheduleRow row={row} actions={actions} />
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {view.canCreate ? (
+        <TileRow
+          id={BLOQUEOS_IDS.rows.newSchedule}
+          label={E.schedules.newSchedule}
+          columns={3}
+          help={E.schedules.newScheduleHelp}
+        >
+          <Tile
+            id={BLOQUEOS_IDS.newSchedule}
+            label={E.schedules.newSchedule}
+            icon={CalendarPlus}
+            size="text"
+            mnemonic={BLOQUEOS_KEYS.newSchedule}
+            help={E.schedules.newScheduleHelp}
+            onPress={actions.newSchedule}
+          />
+        </TileRow>
+      ) : null}
+      {view.editor ? <ScheduleEditor view={view.editor} actions={actions} /> : null}
+      {notice ? (
+        <HelpLine tone={notice.tone} className="blq-wrap">
+          {notice.text}
+        </HelpLine>
+      ) : null}
+    </Section>
+  );
+}
+
+export function ExamSection(props: {
+  view: ExamView;
+  domainInput: string;
+  processInput: string;
+  notice: Notice | undefined;
+  actions: BloqueosActions;
+}): React.JSX.Element {
+  const { view, actions } = props;
+  return (
+    <Section
+      id={BLOQUEOS_IDS.exam}
+      icon={GraduationCap}
+      title={view.title}
+      datum={view.datum}
+      datumTone="red"
+    >
+      <p className="blq-text blq-muted">{view.allowed}</p>
+      <TileRow id={BLOQUEOS_IDS.rows.exam} label={E.exam.rowLabel} help={E.exam.rowHelp}>
+        {view.tiles.map((tile) => (
+          <Tile
+            key={tile.minutes}
+            id={`exam-${tile.minutes}`}
+            label={tile.label}
+            icon={GraduationCap}
+            size="door"
+            mnemonic={tile.mnemonic}
+            help={tile.help}
+            onPress={() => actions.startExam(tile.minutes)}
+          />
+        ))}
+        <Tile
+          id="exam-customize"
+          label={E.exam.customize}
+          size="door"
+          door
+          mnemonic={BLOQUEOS_KEYS.customize}
+          help={E.exam.customizeHelp}
+          onPress={actions.customizeExam}
+        />
+      </TileRow>
+      <WhitelistEditor
+        view={view.whitelist}
+        domainInput={props.domainInput}
+        processInput={props.processInput}
+        notice={props.notice}
+        actions={actions}
+      />
+    </Section>
+  );
+}

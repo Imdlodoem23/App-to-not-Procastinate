@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "epoch": "ep_ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+  "lastEventSeq": 42,
+  "lastEventMac": "q8yMIUUrI0dVAs3lqO5sG3Wd3hzmmIYQjwDjNCSn0VI",
+  "enforcement": {
+    "v": 1,
+    "clock": { "trusted": "2026-09-28T10:00:00Z", "bootNs": 3600000000000 },
+    "items": [
+      {
+        "id": "blk_7Qm2KxV9pL4sT1aZ0cHfWe",
+        "endsAtTrusted": "2026-09-28T11:00:00.000Z",
+        "domains": ["youtube.com", "www.youtube.com"],
+        "excludedDomains": [],
+        "processes": [],
+        "whitelist": false,
+        "allowDomains": []
+      }
+    ]
+  },
+  "idempotency": [],
+  "engine": { "balance": -9007199254740993, "stateVersion": 1790000000000 }
+}

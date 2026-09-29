@@ -1,0 +1,84 @@
+---
+/**
+ * Not found (design plan § 5): centered, hero-size headline, grey lead, and two actions: the
+ * blue pill back home and a link to the downloads. Render serves dist/404.html for any
+ * missing path; it stays out of search results and of the sitemap.
+ *
+ * One file for both languages: the page is Spanish, and its English version (content in the
+ * `alternate` slot, plus the English bar, footer, skip link and hint) waits in a <template> that
+ * Base.astro swaps in, with <html lang> and the title, when the missing path is under /en.
+ */
+import Base from '../layouts/Base.astro';
+import { copyFor, getCopy } from '../content/locale';
+
+const copy = copyFor(Astro.url);
+const english = getCopy('en');
+
+const { notFound } = copy.pages;
+const notFoundEn = english.pages.notFound;
+---
+
+<Base
+  title={copy.meta.notFound.title}
+  description={copy.meta.notFound.description}
+  page="not-found"
+  noindex
+  alternate={english.meta.notFound}
+>
+  <section class="not-found gutter section-block" data-surface="light">
+    <h1 class="text-hero">{notFound.headline}</h1>
+    <p class="not-found__lead text-lead text-secondary">{notFound.lead}</p>
+    <div class="not-found__actions">
+      <a class="button-pill" href={notFound.home.href}>{notFound.home.label}</a>
+      <a class="not-found__link link" href={notFound.download.href}>{notFound.download.label}</a>
+    </div>
+  </section>
+  <section class="not-found gutter section-block" data-surface="light" slot="alternate">
+    <h1 class="text-hero">{notFoundEn.headline}</h1>
+    <p class="not-found__lead text-lead text-secondary">{notFoundEn.lead}</p>
+    <div class="not-found__actions">
+      <a class="button-pill" href={notFoundEn.home.href}>{notFoundEn.home.label}</a>
+      <a class="not-found__link link" href={notFoundEn.download.href}>{notFoundEn.download.label}</a>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .not-found {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    /* Fill the first screen under the bar, so the footer does not float halfway up. */
+    min-height: calc(100vh - var(--nav-height));
+    min-height: calc(100svh - var(--nav-height));
+    text-align: center;
+  }
+
+  .not-found__lead {
+    max-width: var(--measure-text);
+    margin-top: var(--space-headline-lead);
+  }
+
+  .not-found__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 16px 32px;
+    margin-top: 40px;
+  }
+
+  /* 44 px tall touch target for a text link, level with the pill beside it. */
+  .not-found__link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  @media (max-width: 734px) {
+    .not-found__actions {
+      flex-direction: column;
+    }
+  }
+</style>

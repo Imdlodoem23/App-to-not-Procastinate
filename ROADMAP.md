@@ -5,8 +5,13 @@
 
 ## Estado actual
 
-- **En curso:** Fase 0 · Esqueleto.
-- **Siguiente paso:** abrir el PR de la Fase 0 hacia `main`, fusionarlo con el CI en verde y empezar la Fase 1 (diseño del contrato del guardián y de `packages/shared`).
+- **Hecho:** Fase 0 fusionada en `main` (PR #1). Configuración de instaladores (`electron-builder.yml`, NSIS, `.deb`) y `release.yml` preparados; el `.deb` y el AppImage se han generado en local.
+- **Hecho en Fase 1:** contrato del guardián, catálogo, parser, puntos, tokens y capa de plataforma del guardián.
+- **Hecho:** web estilo Apple (estructura completa, demo en vivo con el parser real, escena pegajosa, páginas Descargar, Novedades y Privacidad).
+- **Hecho:** motor + API HTTP del guardián (prueba de humo real: bloquea, sobrevive al reinicio, ignora cambios de hora y se quita solo), app de escritorio (bandeja, ventana de 440 px, confirmación, cuenta atrás, ampliar con deshacer, ventanas Bloqueos/Emergencia/Ajustes) y extensión del navegador.
+- **Web publicada:** <https://centrate.onrender.com> (Render, de momento desde la rama de desarrollo; pasará a `main` al fusionar la Fase 1).
+- **En curso (ola 1, en paralelo):** traducción al inglés de web, app y extensión (`english-i18n`); CI de la Fase 1 en verde en Windows y macOS (`phase1-ci-green`); motor de IA del Study Mode en `packages/study-ai` (`phase4-study-ai`); iconos, mascota, sonidos y pipeline de marketing (`brand-assets`); backend `apps/api` de la Fase 6 (`phase6-cloud-api`).
+- **Siguiente (ola 2, cuando termine el inglés):** fusionar la Fase 1 en `main` y release `v0.1.0`; integrar en la app el Study Mode (cámara, calibración, resumen), la capa de ventana activa, estadísticas, recompensas, logros, mascota, Pomodoro, horarios, sonidos, recordatorios, onboarding, mini temporizador, OSD y auto-actualización; web con capturas y vídeos reales; release `v1.0.0`; cuentas y amigos en la app; y después la Fase 7.
 
 ## Fase 0 · Esqueleto
 
@@ -16,23 +21,24 @@
 - [x] Esqueleto de Electron (electron-vite + React + Tailwind), extensión MV3 (esbuild) y web (Astro + Tailwind)
 - [x] `ci.yml` en Windows, macOS y Linux
 - [x] `README.md`, `ROADMAP.md`, `DECISIONS.md`, `PENDIENTE_PARA_MI.md`, `CHANGELOG.md`, `PRIVACY.md` y `LICENSE`
-- [ ] CI en verde en los 3 sistemas y PR fusionado en `main`
+- [x] CI en verde en los 3 sistemas y PR fusionado en `main`
 
 ## Fase 1 · Núcleo de bloqueo
 
-- [ ] Contrato de la API del guardián y tipos compartidos (`packages/shared/src/guardian-api.ts`)
-- [ ] Catálogo de servicios, categorías, apps y lista blanca (`packages/shared/src/catalog`)
-- [ ] Parser de lenguaje natural en español (≥ 60 frases de prueba)
-- [ ] Reglas de puntos (`packages/shared/src/points.ts`) como función pura sobre el registro de eventos
-- [ ] Tokens de diseño (`packages/shared/src/design/tokens.css` y `tokens.ts`) y lint de colores sueltos
-- [ ] Guardián: estado persistente, registro de eventos, API HTTP en `127.0.0.1` con token
-- [ ] Guardián: sección del hosts con marcadores, copia de seguridad, escritura atómica, vigilancia y vaciado de DNS
-- [ ] Guardián: vigilante de procesos
-- [ ] Guardián: fin automático y anti-cambio de hora (reloj que cuenta en suspensión)
-- [ ] Guardián: servicio del sistema (Windows, macOS, Linux) y tests de integración con hosts falso
-- [ ] App: ventana de 440 px desde la bandeja, campo «¿Qué quieres hacer?», tarjeta de confirmación, cuenta atrás, ampliar con deshacer
-- [ ] App: bandeja con tiempo restante, notificaciones y puntos básicos
-- [ ] App: arnés de estados (`?state=…`) y capturas con Playwright
+- [x] Contrato de la API del guardián y tipos compartidos (`docs/ARCHITECTURE.md`, `packages/shared/src/guardian-api.ts`, `domain.ts`)
+- [x] Catálogo de servicios, categorías, apps y lista blanca (`packages/shared/src/catalog`, 81 servicios)
+- [x] Parser de lenguaje natural en español (380 pruebas de frases)
+- [x] Reglas de puntos (`packages/shared/src/points.ts`) como función pura sobre el registro de eventos, con vectores compartidos para Go
+- [x] Tokens de diseño (`packages/shared/src/design/tokens.css` y `tokens.ts`) y lint de colores sueltos
+- [x] Guardián: capa de plataforma (servicio, CLI, rutas protegidas, logs, reloj que cuenta en suspensión, hosts, procesos)
+- [x] Guardián: estado persistente, registro de eventos, API HTTP en `127.0.0.1` con token
+- [x] Guardián: sección del hosts con marcadores, copia de seguridad, escritura atómica, vigilancia y vaciado de DNS
+- [x] Guardián: vigilante de procesos
+- [x] Guardián: fin automático y anti-cambio de hora (reloj que cuenta en suspensión)
+- [x] Guardián: servicio del sistema (Windows, macOS, Linux) y tests de integración con hosts falso
+- [x] App: ventana de 440 px desde la bandeja, campo «¿Qué quieres hacer?», tarjeta de confirmación, cuenta atrás, ampliar con deshacer
+- [x] App: bandeja con tiempo restante, notificaciones y puntos básicos
+- [x] App: arnés de estados (`?state=…`) y capturas con Playwright
 
 ## Fase 2 · Distribución
 
@@ -44,9 +50,9 @@
 
 ## Fase 3 · Extensión e intentos
 
-- [ ] Extensión MV3 (Chromium y Firefox) con reglas `declarativeNetRequest`
-- [ ] `blocked.html` con motivo, tiempo restante y puntos perdidos
-- [ ] Emparejamiento con código
+- [x] Extensión MV3 (Chromium y Firefox) con reglas `declarativeNetRequest`
+- [x] `blocked.html` con motivo, tiempo restante y puntos perdidos
+- [x] Emparejamiento con código
 - [ ] Intentos que restan puntos (con agrupación y duplicado)
 - [ ] Ventana activa como capa de respaldo
 - [ ] Desbloqueo de emergencia
@@ -81,3 +87,5 @@
 ## Checklist para probar en tu ordenador
 
 Se completa al terminar cada fase.
+
+- [ ] Extensión en Chrome, incógnito (Playwright no carga extensiones ahí): con «Permitir en incógnito» activado, abre YouTube en una ventana de incógnito, empieza un bloqueo de YouTube y comprueba que la pestaña pasa sola a la página de bloqueo, sin restar puntos.

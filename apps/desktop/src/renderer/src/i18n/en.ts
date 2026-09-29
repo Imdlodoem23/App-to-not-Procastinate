@@ -1,0 +1,163 @@
+/**
+ * English strings of the renderer foundation (same shape as `es.ts`, `RendererMessages`).
+ * Numbers and clock times arrive formatted by `src/shared/format.ts`.
+ */
+import type { RendererMessages } from './es';
+
+export const RENDERER_EN: RendererMessages = {
+  shell: {
+    appName: 'Céntrate',
+    detailTitles: {
+      bloqueos: 'Blocks',
+      emergencia: 'Emergency unlock',
+      ajustes: 'Settings',
+      estadisticas: 'Statistics',
+      recompensas: 'Rewards',
+      logros: 'Achievements',
+    },
+    crashed: 'Something went wrong in this window',
+    crashedHelp: 'Your blocks are still active. Reload the window to carry on.',
+    reload: 'Reload',
+    noBridge: 'This window only works inside Céntrate',
+    bloqueoTitle: 'Block',
+    bloqueoUnavailable: 'This part of the window is not available yet',
+  },
+  kit: {
+    armed: (label: string): string => `Sure? ${label}`,
+    door: (label: string): string => (label.endsWith('…') ? label : `${label}…`),
+    toggleOn: 'On',
+    toggleOff: 'Off',
+  },
+  protection: {
+    guardianStopped: 'Guardian stopped: nothing is being blocked right now',
+    guardianNotInstalled: 'Guardian not installed: nothing is being blocked right now',
+    guardianOutdated: 'Update the guardian',
+    safeMode: 'Guardian in safe mode: blocks cannot be created',
+    notApplied: 'The block is not fully applied',
+    extensionMissing: (browsers: string, plural: boolean): string =>
+      plural
+        ? `${browsers} don’t have the extension: blocks may take a while there`
+        : `${browsers} doesn’t have the extension: blocks may take a while there`,
+    browsers: {
+      chrome: 'Chrome',
+      edge: 'Edge',
+      brave: 'Brave',
+      opera: 'Opera',
+      vivaldi: 'Vivaldi',
+      chromium: 'Chromium',
+      firefox: 'Firefox',
+      other: 'Other browser',
+    },
+    and: ' and ',
+    rowLabel: 'What to do',
+    mnemonics: { repair: 'r', details: 'd', install: 'i' },
+    actions: {
+      repair: 'Repair',
+      repairing: 'Repairing…',
+      install: 'Install…',
+      details: 'Details…',
+    },
+    help: {
+      repair: 'Restarts the guardian (asks for administrator permission)',
+      installGuardian: 'Installs the guardian (asks for administrator permission once)',
+      installExtension: 'Opens the guide to install the extension in that browser',
+      details: 'Guardian and extension status, in Settings',
+    },
+  },
+  repair: {
+    started: 'Done: checking the guardian…',
+    cancelled: 'You cancelled the administrator permission',
+    unsupported: 'This cannot be repaired automatically here: see Details…',
+  },
+  progreso: {
+    title: (level: string, points: string): string => `Level ${level} · ${points}`,
+    streak: (days: number, formatted: string): string =>
+      days === 1 ? `Streak: ${formatted} day` : `Streak: ${formatted} days`,
+    negative: 'In the red',
+    goal: (focus: string, goal: string): string => `Today: ${focus} of ${goal} min`,
+    goalAria: (focus: string, goal: string): string =>
+      `Today's goal: ${focus} of ${goal} minutes focused`,
+    doorsLabel: 'Your progress',
+    doors: {
+      stats: 'Statistics…',
+      rewards: 'Rewards…',
+      achievements: 'Achievements…',
+    },
+    doorsHelp: {
+      stats: 'Focused time per day, week and month',
+      rewards: 'Trade your points for earned breaks',
+      achievements: 'What you have achieved and how to get the rest',
+    },
+    mascot: {
+      sprout: 'Your sprout',
+      plant: 'Your plant',
+      tree: 'Your tree',
+      wilted: 'Your plant, wilted',
+    },
+  },
+  footer: {
+    guardianOk: 'Guardian active',
+    guardianConnecting: 'Connecting to the guardian…',
+    guardianUnresponsive: 'Guardian not responding',
+    guardianStopped: 'Guardian stopped',
+    guardianNotInstalled: 'Guardian not installed',
+    guardianOutdated: 'Guardian out of date',
+    extensionOk: 'Extension connected',
+    extensionDisconnected: 'Extension disconnected',
+    extensionMissing: 'No extension',
+    separator: '·',
+    repair: 'Repair',
+    install: 'Install…',
+    version: (version: string): string => `v${version}`,
+    update: (version: string): string => `Update to v${version}`,
+    updateHelp: 'A new version of Céntrate is available',
+    status: 'Protection status',
+    rowLabel: 'App actions',
+    mnemonics: { miniTimer: 'm', settings: 's', quit: 'q' },
+    buttons: {
+      miniTimer: 'Mini timer',
+      settings: 'Settings…',
+      quit: 'Quit',
+    },
+    help: {
+      miniTimer: 'A small, always visible clock you can move around',
+      settings: 'Theme, language, startup, default mode, guardian, extension and data',
+      quit: 'Your blocks stay active even if you quit',
+    },
+  },
+  errors: {
+    unresponsive: 'The guardian is not responding',
+    notInstalled: 'The guardian is not installed',
+    outdated: 'Update the guardian',
+    readOnly: 'The guardian can only read right now',
+    extensionExceedsMax: 'Up to 24 h in total',
+    blockNotActive: 'The block has already finished',
+    notExtendable: 'A punishment block can’t be extended',
+    durationOutOfRange: 'Between 5 min and 24 h',
+    tooManyTargets: 'Too many active blocks at once',
+    protectedTarget: 'That cannot be blocked: the system needs it',
+    unknownId: 'Update the guardian: it does not know that service',
+    phraseMismatch: 'The phrase does not match',
+    confirmWordMismatch: 'Type DELETE',
+    emergencyNotReady: 'Not yet: wait for the countdown to finish',
+    emergencyExpired: 'Time’s up: request the emergency unlock again',
+    emergencyInProgress: 'An emergency unlock is already in progress',
+    emergencyNotAvailable: 'That block has no emergency unlock',
+    emergencyMoot: 'The blocks already ended: no points were taken',
+    dataDeleteBlocked: 'Cannot delete right now',
+    dataDeleteReasons: {
+      study_active: 'a Study Mode session is running',
+      emergency_pending: 'an emergency unlock is in progress',
+      clock_unverified: 'the guardian is still checking the time',
+    },
+    withReason: (text: string, reason: string): string => `${text}: ${reason}`,
+    rateLimited: 'Too many attempts: wait a moment',
+    generic: 'Something went wrong in the guardian',
+    actions: {
+      retry: 'Retry',
+      repair: 'Repair',
+      details: 'Details…',
+      edit: 'Edit…',
+    },
+  },
+};

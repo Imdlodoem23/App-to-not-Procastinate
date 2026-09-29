@@ -1,0 +1,136 @@
+---
+/**
+ * «Y mucho más.» (design plan § 4.9) on the `light` surface: a grid of ten features, each an
+ * 80 px line icon (72 medium, 56 small) with its name and one sentence. 5 × 2 on large
+ * screens, 2 columns on medium, and rows with the icon on the left on phones.
+ *
+ * Icons: Lucide shapes (ISC licence), drawn thin (1.25 in their 24 px box) in the text colour,
+ * with no container or colour fill. Decorative: the name says what each one is. Only the
+ * headline is revealed; the grid is not animated.
+ */
+import { copyFor } from '../../content/locale';
+
+const copy = copyFor(Astro.url);
+
+const { more } = copy;
+const headingId = `${more.id}-titulo`;
+
+/** Lucide: timer, calendar-clock, graduation-cap, chart-column, audio-lines,
+ * picture-in-picture-2, puzzle, quote, bell, trophy — in the order of copy.more.items. */
+const icons = [
+  '<line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/>',
+  '<path d="M16 14v2.2l1.6 1"/><path d="M16 2v3"/><path d="M21 7.338V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h2.338"/><path d="M3 9h5.859"/><path d="M8 2v3"/><circle cx="16" cy="16" r="6"/>',
+  '<path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>',
+  '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+  '<path d="M2 10v3"/><path d="M6 6v11"/><path d="M10 3v18"/><path d="M14 8v7"/><path d="M18 5v13"/><path d="M22 10v3"/>',
+  '<path d="M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4"/><rect width="10" height="7" x="12" y="13" rx="2"/>',
+  '<path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/>',
+  '<path d="M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/><path d="M5 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/>',
+  '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  '<path d="M10 14.66V17a1 1 0 0 1-1 1 2 2 0 0 0-2 2v2"/><path d="M14 14.66V17a1 1 0 0 0 1 1 2 2 0 0 1 2 2v2"/><path d="M17.916 10H19.5A2.5 2.5 0 0 0 22 7.5V5a1 1 0 0 0-1-1h-3"/><path d="M4 22h16"/><path d="M6 9a6 6 0 0 0 12 0V3a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1z"/><path d="M6.084 10H4.5A2.5 2.5 0 0 1 2 7.5V5a1 1 0 0 1 1-1h3"/>',
+] as const;
+
+/** Keeps hyphenated words («lo-fi», «20-20-20») on one line in the narrow columns. */
+const keepHyphens = (text: string): { text: string; nowrap: boolean }[] =>
+  text.split(/(\S+-\S+)/).map((part, i) => ({ text: part, nowrap: i % 2 === 1 }));
+
+const items = more.items.map((item, i) => ({
+  name: item.name,
+  text: keepHyphens(item.text),
+  icon: icons[i] ?? icons[0],
+}));
+---
+
+<section
+  id={more.id}
+  data-surface="light"
+  class="more section-block gutter"
+  aria-labelledby={headingId}
+>
+  <div class="more-header" data-reveal-group>
+    <h2 id={headingId} class="text-section" data-reveal>{more.headline}</h2>
+  </div>
+
+  <ul class="more-grid" role="list">
+    {
+      items.map((item) => (
+        <li class="more-item">
+          <svg class="more-icon" viewBox="0 0 24 24" aria-hidden="true" set:html={item.icon} />
+          <div class="more-copy">
+            <h3 class="text-body font-semibold">{item.name}</h3>
+            <p class="more-text text-body text-secondary">
+              {item.text.map((part) =>
+                part.nowrap ? <span class="nowrap">{part.text}</span> : part.text,
+              )}
+            </p>
+          </div>
+        </li>
+      ))
+    }
+  </ul>
+</section>
+
+<style>
+  .more-header {
+    margin-block-end: var(--space-header-content);
+  }
+
+  .more-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 64px var(--grid-gap);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .more-icon {
+    display: block;
+    width: var(--feature-icon);
+    height: var(--feature-icon);
+    margin-block-end: 20px;
+    fill: none;
+    stroke: var(--text);
+    stroke-width: 1.25;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .more-text {
+    margin-block-start: 4px;
+  }
+
+  .nowrap {
+    white-space: nowrap;
+  }
+
+  @media (max-width: 1068px) {
+    .more-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      row-gap: 56px;
+    }
+
+    .more-copy {
+      max-width: var(--measure-text);
+    }
+  }
+
+  /* Phones: rows, the icon on the left of the name and the sentence. */
+  @media (max-width: 734px) {
+    .more-grid {
+      grid-template-columns: minmax(0, 1fr);
+      row-gap: 32px;
+    }
+
+    .more-item {
+      display: grid;
+      grid-template-columns: var(--feature-icon) minmax(0, 1fr);
+      column-gap: 20px;
+      align-items: start;
+    }
+
+    .more-icon {
+      margin-block-end: 0;
+    }
+  }
+</style>

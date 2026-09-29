@@ -1,0 +1,29 @@
+/*
+ * Section 4 «Progreso» on top of the kit and the shell's goal row (styles/shell.css).
+ *
+ * Doors (PROMPT §10 «Tiles de 40 px Estadísticas… | Recompensas… | Logros…»): three 136 px
+ * tiles in the 416 px column, the 20 px icon left of the label. The kit's 8 px padding and gap
+ * leave «Recompensas…» 3 px short at 13 px, and English «Achievements…» needs 2 px more than
+ * 6 px on both left it at 125 % (95 px in 93). 4 px of padding (plus the 1 px border) and a
+ * 5 px gap still keep the icon clear of the label and the label clear of the border, with 3 px
+ * to spare for the longest label.
+ *
+ * Compact density (the regular layout does not fit: a warning, several blocks and the undo line
+ * on a small display) folds Progreso towards its header, like any section that does not star
+ * in the current state: the header keeps the level, the points, the streak and the mascot, and
+ * the 40 px doors stay, but the daily goal row and the doors' help line go (the doors' help
+ * stays their accessible description). That gives back the 44 px the doors cost, so the section
+ * column does not scroll on 1366×768 at 125 %.
+ */
+
+@layer components {
+  .progreso-doors .c-tile[data-size='door'] {
+    padding: 0 var(--space-1);
+    gap: 5px;
+  }
+
+  html[data-density='compact'] [data-section='progreso'] .progreso-goal,
+  html[data-density='compact'] .progreso-doors .c-help {
+    display: none;
+  }
+}

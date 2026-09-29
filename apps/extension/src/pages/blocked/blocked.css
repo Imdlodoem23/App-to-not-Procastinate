@@ -1,0 +1,60 @@
+/*
+ * blocked.html (PROMPT §10 «blocked.html y la ventana emergente»): the app's tokens in a
+ * 440 px column. The header «quedan 43 min» is the only time (no big countdown). Inside a
+ * blocked embed (an iframe) only the header and the humor line show.
+ */
+@import '../shared/base.css';
+
+.blocked {
+  padding-top: max(var(--space-4), 14vh);
+  padding-bottom: var(--space-4);
+}
+
+.blocked-reason {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.blocked-reason-text {
+  font-size: var(--font-size-20);
+  line-height: var(--line-height-20);
+  overflow-wrap: anywhere;
+}
+
+.blocked-points {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-height: var(--line-height-13);
+}
+
+.blocked-points-value {
+  color: var(--red-text);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.blocked-points-value[data-tone='muted'] {
+  color: var(--fg-muted);
+  font-weight: var(--font-weight-normal);
+}
+
+.blocked-humor {
+  min-height: var(--line-height-13);
+  color: var(--fg-muted);
+}
+
+.tiles--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* A blocked embed: compact, no reason, points or tile. */
+html[data-framed] .blocked {
+  width: auto;
+  padding: var(--space-3);
+}
+
+html[data-framed] .blocked-full {
+  display: none !important;
+}
