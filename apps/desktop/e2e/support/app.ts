@@ -14,7 +14,9 @@
  *   fake display (work area, frame) switches in-process with `harness.load(id, { display })`.
  * - Linux: `--no-sandbox` (CI containers and root cannot use Chromium's SUID sandbox; every
  *   renderer still runs with `sandbox: true`), and a display is required: run under
- *   `xvfb-run -a -s "-screen 0 2880x1800x24"` (the default xvfb screen is 640×480×8).
+ *   `xvfb-run -a -s "-screen 0 2880x1800x24"` (the default xvfb screen is 640×480×8). Each
+ *   worker then starts its own Xvfb of that size (`support/display.ts`): the workers' apps
+ *   must not take the keyboard focus from one another.
  * - Linux fonts: a private fontconfig file puts a family of the brief's stack (Selawik as
  *   Segoe UI, Ubuntu, or Noto Sans) behind `system-ui`, so layout checks and screenshots use
  *   the product's type, not DejaVu (`support/fonts.ts`; `CENTRATE_FONTS=system` turns it off).
@@ -38,6 +40,7 @@ import {
   type Rect,
 } from '../../src/shared/fixtures';
 import type { LanguagePreference } from '../../src/shared/i18n/locale';
+import { workerDisplay } from './display';
 import type { SurfaceKind, WindowKind } from '../../src/shared/ui-state';
 import { LAUNCH_ENV } from '../../src/main/app/launch-options';
 import {
@@ -275,6 +278,8 @@ export async function launchApp(options: LaunchOptions): Promise<LaunchedApp> {
       env[LAUNCH_ENV.fakeWorkArea] = `${x},${y},${width},${height}`;
     }
   }
+  const display = await workerDisplay();
+  if (display !== null) env['DISPLAY'] = display;
   Object.assign(env, options.env ?? {});
   args.push(...(options.args ?? []));
 

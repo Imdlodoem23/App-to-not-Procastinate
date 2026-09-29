@@ -308,12 +308,15 @@ test('exam-whitelist: removing by keyboard keeps the focus on the list, never on
 
   // A suggestion leaves the suggestions once allowed: the focus goes to the apps field.
   const apps = whitelist.getByRole('textbox', { name: 'Apps permitidas' });
-  await apps.fill('code');
-  const suggestion = whitelist.getByRole('button', { name: 'Permitir Code.exe' });
+  // Spotify.exe is offered on every platform the harness runs on (the fixture's process names
+  // are Windows'; on Windows Code.exe is Visual Studio Code, which the study list already
+  // allows, so it is rightly never offered there).
+  await apps.fill('spot');
+  const suggestion = whitelist.getByRole('button', { name: 'Permitir Spotify.exe' });
   await suggestion.focus();
   await detail.keyboard.press('Enter');
   await expect(suggestion).toHaveCount(0);
-  await expect(chip(/^Quitar Code\.exe/)).toHaveCount(1);
+  await expect(chip(/^Quitar Spotify\.exe/)).toHaveCount(1);
   await expect(apps).toBeFocused();
   expect(await bodyFocused()).toBe(false);
 });
