@@ -64,6 +64,23 @@ export interface CoreHost {
   writeClipboard(text: string): void;
 }
 
+/** The OS's input idleness (Electron `powerMonitor`); daily-limit usage counts only while present. */
+export interface IdleSource {
+  /** Seconds since the last keyboard or mouse input. */
+  idleSeconds(): number;
+  /** The screen is locked. */
+  locked(): boolean;
+}
+
+/**
+ * A daily limit's alert for the OSD («Te quedan 5 min de YouTube hoy», «Has gastado tus 30
+ * min de YouTube de hoy»), from `limit_warning` / `limit_reached` events.
+ */
+export interface LimitAlert {
+  kind: 'warning' | 'reached';
+  text: string;
+}
+
 export interface CoreOptions {
   platform: Platform;
   appVersion: string;
@@ -81,6 +98,8 @@ export interface CoreOptions {
   /** Harness mode: `FakeGuardianClient` and the frozen clock come from this fixture. */
   harness: HarnessFixture | null;
   host: CoreHost;
+  /** `powerMonitor` (daily-limit usage); absent in tests (every second counts). */
+  idle?: IdleSource;
 }
 
 /**
@@ -108,6 +127,11 @@ export interface Core {
    * OSD, Nuclear, `app.updateVersion`) in the snapshot; a new `rev` only when something changed.
    */
   patchSnapshot(patch: PlatformSnapshotPatch): void;
+  /**
+   * Daily-limit alerts from fresh events (PLATFORM shows them in the OSD when «Avisos
+   * grandes» is on); returns the unsubscribe function.
+   */
+  onLimitAlert(listener: (alert: LimitAlert) => void): () => void;
   /** «Salir»: send waiting extensions now (within `budgetMs`), stop timers, close the DB. */
   shutdown(budgetMs: number): Promise<void>;
   /** Present only in harness mode. */

@@ -17,8 +17,9 @@ import {
   useState,
   type RefObject,
 } from 'react';
-import type { BlockMode } from '@centrate/shared/domain';
-import type { CreateBlockRequest } from '@centrate/shared/guardian-api';
+import type { BlockMode, LimitMode } from '@centrate/shared/domain';
+import type { CreateBlockRequest, DailyLimitInput } from '@centrate/shared/guardian-api';
+import { LIMIT_TEXT } from '../../../../shared/limits';
 import { useFocusTarget } from '../../app/services';
 import { CHORD_WINDOW_MS, ESC_PRIORITY } from '../../hooks/keys';
 import { useChord, useEscape, useKeyBinding } from '../../hooks/useKeys';
@@ -39,6 +40,9 @@ import {
   cardWithDraft,
   cardWithMode,
   cardWithReason,
+  limitCardSeed,
+  limitCardWithMode,
+  limitCardWithReason,
   parseExtendMinutes,
 } from './draft';
 import { BLOQUEO } from './i18n';
@@ -61,11 +65,12 @@ import { BLOQUEO_SECTION_ID, deriveBloqueoView, type BloqueoView } from './view'
  * «Ampliación deshecha»…). Extend notices are also spoken by the extend row's live region.
  */
 export interface BloqueoNotice {
-  scope: 'card' | 'extend';
+  /** `composer`: under the field after the «Límite diario» card created its limit. */
+  scope: 'card' | 'extend' | 'composer';
   /** The card it belongs to (`scope: 'card'`). */
   intentId: IntentId | null;
   text: string;
-  tone: 'muted' | 'red';
+  tone: 'muted' | 'red' | 'green';
 }
 
 export interface BloqueoRefs {
@@ -91,6 +96,10 @@ export interface BloqueoActions {
   commitEdit(field: CardField, text: string): string | null;
   cancelEdit(): void;
   editInBloqueos(): void;
+  /** The «Límite diario» card: its mode, «Tu motivo», and «Editar…» (Bloqueos › límites). */
+  setLimitMode(mode: LimitMode): void;
+  setLimitReason(reason: string): void;
+  editLimitInBloqueos(): void;
   extend(minutes: number): void;
   openOther(): void;
   setOtherText(text: string): void;
@@ -132,7 +141,8 @@ export function useBloqueo(): {
   const main = useAppStore((s) => s.main);
   const visible = useAppStore((s) => s.env.visible);
 
-  const idle = main.card === null && (snapshot.state?.blocks.length ?? 0) === 0;
+  const idle =
+    main.card === null && main.limitCard === null && (snapshot.state?.blocks.length ?? 0) === 0;
   // Idle: the example rotates every 4 s. Otherwise labels move with the second (undo, locks).
   const now = useNow(idle ? 4_000 : 1_000);
   const view = useMemo(() => deriveBloqueoView({ snapshot, main }, now), [snapshot, main, now]);
@@ -197,7 +207,7 @@ export function useBloqueo(): {
   useLayoutEffect(() => {
     const was = previousKind.current;
     previousKind.current = view.body.kind;
-    if (was !== 'card' || view.body.kind === 'card') return;
+    if ((was !== 'card' && was !== 'limit-card') || view.body.kind === was) return;
     const active = document.activeElement;
     if (active && active !== document.body) return;
     (refs.field.current ?? sectionRoot())?.focus({ preventScroll: true });
@@ -259,6 +269,45 @@ export function useBloqueo(): {
     [bridge],
   );
 
+  /** `limits:create` of the «Límite diario» card; the card closes when the guardian says yes. */
+  const submitLimit = useCallback(
+    (intentId: IntentId, input: DailyLimitInput) => {
+      setNotice(null);
+      void bridge.invoke('limits:create', { intentId, input }).then(
+        (result) => {
+          const s = api.getState();
+          const card = s.main.limitCard;
+          if (!card || card.intentId !== intentId) return;
+          if (!result.ok) {
+            s.updateMain((m) =>
+              m.limitCard?.intentId === intentId
+                ? { ...m, limitCard: { ...m.limitCard, sending: false, error: result.error } }
+                : m,
+            );
+            return;
+          }
+          s.updateMain((m) => ({
+            ...m,
+            limitCard: null,
+            composer: { text: '', openWhileActive: false },
+          }));
+          setNotice({
+            scope: 'composer',
+            intentId: null,
+            text: BLOQUEO.limit.created(
+              result.value.name,
+              LIMIT_TEXT.perDay(result.value.dailyMinutes),
+            ),
+            tone: 'green',
+          });
+          requestFocus('field');
+        },
+        () => undefined,
+      );
+    },
+    [api, bridge, requestFocus],
+  );
+
   const primaryBlockId =
     view.body.kind === 'active' && view.body.extend ? view.body.extend.blockId : null;
 
@@ -299,6 +348,9 @@ export function useBloqueo(): {
         switch (out.kind) {
           case 'submit':
             submit(out.intentId, out.request);
+            break;
+          case 'limit-submit':
+            submitLimit(out.intentId, out.input);
             break;
           case 'retry':
             setNotice(null);
@@ -384,6 +436,28 @@ export function useBloqueo(): {
           focus: null,
         });
       },
+      setLimitMode(mode) {
+        const s = api.getState();
+        const card = s.main.limitCard;
+        if (!card) return;
+        const next = limitCardWithMode(card, mode, newIntentId());
+        if (next !== card) s.updateMain((m) => ({ ...m, limitCard: next }));
+      },
+      setLimitReason(reason) {
+        const s = api.getState();
+        const card = s.main.limitCard;
+        if (!card) return;
+        const next = limitCardWithReason(card, reason);
+        if (next !== card) s.updateMain((m) => ({ ...m, limitCard: next }));
+      },
+      editLimitInBloqueos() {
+        const s = api.getState();
+        const card = s.main.limitCard;
+        if (!card || card.sending) return;
+        const seed = limitCardSeed(card);
+        openDetail({ name: 'bloqueos', seed, focus: 'limits' });
+        s.updateMain((m) => ({ ...m, limitCard: null }));
+      },
       extend,
       openOther() {
         api.getState().updateMain((m) => ({ ...m, extendOther: { open: true, text: '' } }));
@@ -432,6 +506,7 @@ export function useBloqueo(): {
       bridge,
       clock,
       submit,
+      submitLimit,
       afterCreate,
       openDetail,
       extend,
@@ -454,11 +529,15 @@ export function useBloqueo(): {
     [api, apply, clock],
   );
   useEscape(ESC_STAGE_PRIORITY.extendOther, () => runEscape('extendOther'), main.extendOther.open);
-  useEscape(ESC_STAGE_PRIORITY.consequence, () => runEscape('consequence'), main.card !== null);
+  useEscape(
+    ESC_STAGE_PRIORITY.consequence,
+    () => runEscape('consequence'),
+    main.card !== null || main.limitCard !== null,
+  );
   useEscape(
     ESC_STAGE_PRIORITY.card,
     () => runEscape('card'),
-    main.card !== null || snapshot.ops.create !== null,
+    main.card !== null || main.limitCard !== null || snapshot.ops.create !== null,
   );
   useEscape(
     ESC_STAGE_PRIORITY.newField,
@@ -513,7 +592,10 @@ export function useBloqueo(): {
   // confirm button takes it (Enter confirms); hidden under a block → the section root.
   useFocusTarget('field', () => {
     const s = api.getState();
-    const target = s.main.card ? (refs.primary.current ?? refs.field.current) : refs.field.current;
+    const target =
+      s.main.card || s.main.limitCard
+        ? (refs.primary.current ?? refs.field.current)
+        : refs.field.current;
     if (!target) return false;
     target.focus({ preventScroll: true });
     return true;

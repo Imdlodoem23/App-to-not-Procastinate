@@ -471,6 +471,32 @@ test('i18n: Spanish phrases on English pages are marked lang="es"', async ({ pag
   expect(await page.locator('[data-demo-result]').innerText()).not.toContain('{es:');
 });
 
+test("demo: a daily limit reads like the app's «Límite diario» card, in both languages", async ({
+  page,
+}) => {
+  const cases = [
+    {
+      path: '/',
+      sentence: 'Céntrate te dejaría usar YouTube 30\u00a0min al día',
+      fields: ['Límite diario', 'Entre semana', 'Estricto'],
+    },
+    {
+      path: '/en',
+      sentence: 'Céntrate would let you use YouTube for 30\u00a0min a day',
+      fields: ['Daily limit', 'Weekdays', 'Strict'],
+    },
+  ];
+  for (const { path, sentence, fields } of cases) {
+    await page.goto(path);
+    await page.locator('[data-demo-input]').fill('YouTube máximo 30 minutos al día entre semana');
+    const result = page.locator('[data-demo-result]');
+    await expect(result).toHaveAttribute('data-status', 'limit');
+    await expect(result.locator('[data-demo-sentence]')).toContainText(sentence);
+    for (const text of fields)
+      await expect(result.locator('[data-demo-fields]')).toContainText(text);
+  }
+});
+
 test('i18n: the English changelog has no Spanish headings', async ({ page }) => {
   await page.goto('/en/changelog');
   const headings = await page.locator('h1, h2').allTextContents();

@@ -239,6 +239,19 @@ describe('createAttemptTracker', () => {
     });
   });
 
+  it('keeps the limit id of a daily limit block for blocked.html (reported as manual, §8.4)', async () => {
+    const limitId = 'lim_0123456789abcdefYTYT' as const;
+    const answer = attemptResponse();
+    h.respond({ ...answer, block: answer.block === null ? null : { ...answer.block, limitId } });
+    await h.redirect(7, 'https://www.youtube.com/');
+    expect((await h.store.get(7))?.block).toMatchObject({ id: BLK_YT, kind: 'manual', limitId });
+    // Other blocks carry none.
+    h.respond(attemptResponse());
+    h.advance(60_000);
+    await h.redirect(8, 'https://www.youtube.com/');
+    expect((await h.store.get(8))?.block).not.toHaveProperty('limitId');
+  });
+
   it('passes the incognito flag of the tab', async () => {
     h.tabs.set(9, { id: 9, url: 'about:blank', incognito: true });
     await h.redirect(9, 'https://instagram.com/');

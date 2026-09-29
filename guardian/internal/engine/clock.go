@@ -167,6 +167,7 @@ func (e *Engine) onCalibration(ref time.Time, ok bool) {
 		uptime := (e.bootNow - e.startBoot).Milliseconds()
 		if gap := ref.UnixMilli() - uptime - e.cal.stopT; gap > 0 {
 			e.creditVerifiedDowntime(gap)
+			e.limitsCreditVerifiedDowntime(gap)
 		}
 	}
 	e.state.Clock.Restore = nil

@@ -21,8 +21,11 @@ import { STUDY_WHITELIST, studySiteName } from '@centrate/shared/catalog';
 import type { Accent } from '@centrate/shared/design/tokens';
 import {
   BLOCK_MODES,
+  LIMIT_MODES,
   type BlockMode,
+  type DailyLimit,
   type IsoWeekday,
+  type LimitMode,
   type Schedule,
 } from '@centrate/shared/domain';
 import type { CategoryId } from '@centrate/shared/catalog';
@@ -73,6 +76,26 @@ import {
   scheduleSummary,
   type ScheduleRowView,
 } from './schedules';
+import {
+  editorMinutes,
+  limitEditWeakens,
+  limitEditorProblem,
+  limitEditorProblemText,
+  limitErrorText,
+  limitRow,
+  limitSummary,
+  mergeLimits,
+  pendingEstimate,
+  type LimitRowView,
+  type LimitsData,
+} from './limits';
+import {
+  LIMIT_TEXT,
+  limitAutoName,
+  limitNeedsConsequence,
+  limitReachedToday,
+  limitsSupported,
+} from '../../../../shared/limits';
 import { untilPhrase, whenLabel } from './time';
 import {
   whitelistLists,
@@ -93,12 +116,20 @@ export const BLOQUEOS_IDS = {
   active: 'blq-active',
   templates: 'blq-templates',
   schedules: 'blq-schedules',
+  limits: 'blq-limits',
   exam: 'blq-exam',
   search: 'blq-search',
   /** The schedule editor (a group inside «Horarios») and its name field. */
   scheduleEditor: 'blq-schedule-editor',
   scheduleName: 'blq-schedule-name',
   newSchedule: 'blq-new-schedule',
+  /** The daily-limit editor (a group inside «Límites diarios») and its fields. */
+  limitEditor: 'blq-limit-editor',
+  limitName: 'blq-limit-name',
+  limitMinutes: 'blq-limit-minutes',
+  newLimit: 'blq-new-limit',
+  /** «Límites diarios» of a guardian without them: the note that says why. */
+  limitsUnsupported: 'blq-limits-unsupported',
   whitelist: 'blq-whitelist',
   whitelistDomain: 'blq-whitelist-domain',
   rows: {
@@ -110,6 +141,9 @@ export const BLOQUEOS_IDS = {
     newSchedule: 'blq-new-schedule-row',
     scheduleModes: 'blq-schedule-modes',
     scheduleActions: 'blq-schedule-actions',
+    newLimit: 'blq-new-limit-row',
+    limitModes: 'blq-limit-modes',
+    limitActions: 'blq-limit-actions',
   },
 } as const;
 
@@ -131,6 +165,8 @@ interface BloqueosKeys {
   customize: string;
   /** «Nuevo horario» (hidden while the editor is open). */
   newSchedule: string;
+  /** «Nuevo límite» (hidden while its editor is open). */
+  newLimit: string;
   /** «Permitir» next to the whitelist's web and app fields. */
   allowDomain: string;
   allowApp: string;
@@ -149,6 +185,7 @@ export const BLOQUEOS_KEYS: BloqueosKeys = localized<BloqueosKeys>({
     cancelName: 'c',
     customize: 'p',
     newSchedule: 'o',
+    newLimit: 'l',
     allowDomain: 'i',
     allowApp: 't',
   },
@@ -163,6 +200,7 @@ export const BLOQUEOS_KEYS: BloqueosKeys = localized<BloqueosKeys>({
     cancelName: 'c',
     customize: 'u',
     newSchedule: 'w',
+    newLimit: 'i',
     allowDomain: 'l',
     allowApp: 'o',
   },
@@ -182,6 +220,7 @@ export function fixedBloqueosKeys(): string[] {
     k.cancelName,
     k.customize,
     k.newSchedule,
+    k.newLimit,
     k.allowDomain,
     k.allowApp,
   ];
@@ -216,6 +255,12 @@ export interface BloqueosData {
   scheduleSaving?: boolean;
   /** A whitelist change (`settings:put`) is waiting for the guardian. */
   whitelistSaving?: boolean;
+  /** `GET /v1/limits`, fetched with the schedules. */
+  limits?: LimitsData;
+  /** A limit write (create, update, delete, cancel a change) is waiting for the guardian. */
+  limitSaving?: boolean;
+  /** The limit whose row write is waiting («Cancelar cambio»). */
+  limitRowSaving?: string | null;
 }
 
 /** Why «Bloquear…» is disabled: the draft's own problems, or a duration nobody chose yet. */
@@ -333,6 +378,47 @@ export interface SchedulesView {
   editor: ScheduleEditorView | null;
 }
 
+export interface LimitEditorView {
+  /** `null`: a new limit. */
+  id: string | null;
+  /** «Nuevo límite: Instagram · 45 min al día», «Editar: …». */
+  title: string;
+  name: string;
+  namePlaceholder: string;
+  minutesText: string;
+  /** «45 min al día», or what is wrong with the minutes (orange). */
+  minutes: { text: string; tone: 'muted' | 'orange' };
+  days: { day: IsoWeekday; short: string; long: string; checked: boolean }[];
+  categories: { id: CategoryId; name: string; checked: boolean }[];
+  chips: ScheduleChip[];
+  fromForm: boolean;
+  mode: LimitMode;
+  modes: (Omit<OptionView<LimitMode>, 'mnemonic'> & { mnemonic: string | undefined })[];
+  reason: string;
+  /** An edit that softens it: «Esto lo suaviza: se aplicará mañana 17:00…». */
+  note: string | null;
+  /** Hardcore: «Guardar» asks «¿Seguro?» with this line in red. */
+  consequence: string | null;
+  problem: string | null;
+  error: string | null;
+  saving: boolean;
+  /** «Borrar» (existing limits): its «¿Seguro?» line. */
+  remove: { consequence: string } | null;
+  keys: { save: string | undefined; remove: string | undefined; cancel: string | undefined };
+}
+
+export interface LimitsView {
+  title: string;
+  /** «1 agotado hoy». */
+  datum: string | null;
+  /** `unsupported`: the guardian has no daily limits yet (an older version). */
+  status: LimitsData['status'] | 'unsupported';
+  error: UiError | null;
+  rows: LimitRowView[];
+  canCreate: boolean;
+  editor: LimitEditorView | null;
+}
+
 export interface ExamWhitelistView extends WhitelistView {
   /** Running programs that match the app field. */
   suggestions: string[];
@@ -358,6 +444,7 @@ export interface BloqueosView {
   active: { title: string; rows: ActiveRowView[]; emergency: boolean };
   templates: { title: string; rows: TemplateRowView[] };
   schedules: SchedulesView;
+  limits: LimitsView;
   exam: ExamView;
 }
 
@@ -488,6 +575,8 @@ function listKeys(
   state: UiState,
   schedules: readonly Schedule[],
   editorOpen: boolean,
+  limits: readonly DailyLimit[] = [],
+  limitEditorOpen = false,
 ): {
   exam: (string | undefined)[];
   use: (string | undefined)[];
@@ -495,6 +584,14 @@ function listKeys(
   edit: Map<string, string | undefined>;
   editorModes: (string | undefined)[];
   editorActions: {
+    save: string | undefined;
+    remove: string | undefined;
+    cancel: string | undefined;
+  };
+  limitEdit: Map<string, string | undefined>;
+  limitCancel: Map<string, string | undefined>;
+  limitModes: (string | undefined)[];
+  limitActions: {
     save: string | undefined;
     remove: string | undefined;
     cancel: string | undefined;
@@ -511,6 +608,15 @@ function listKeys(
         E.schedules.editor.cancel,
       ]
     : [];
+  const pendingLimits = limits.filter((l) => l.pendingChange !== null);
+  const limitEditorLabels = limitEditorOpen
+    ? [
+        ...LIMIT_MODES.map((mode) => modeLabel(mode)),
+        E.limits.editor.save,
+        E.limits.editor.remove,
+        E.limits.editor.cancel,
+      ]
+    : [];
   const keys = allocateMnemonics(
     [
       ...examLabels,
@@ -518,6 +624,9 @@ function listKeys(
       ...own.map(() => E.templates.remove),
       ...schedules.map(() => E.schedules.edit),
       ...editorLabels,
+      ...limits.map(() => E.limits.edit),
+      ...pendingLimits.map(() => E.limits.cancelChange),
+      ...limitEditorLabels,
     ],
     fixedBloqueosKeys(),
   );
@@ -533,7 +642,15 @@ function listKeys(
   const editKeys = take(schedules.length);
   const modeKeys = take(editorOpen ? BLOCK_MODES.length : 0);
   const [save, remove, cancel] = take(editorOpen ? 3 : 0);
+  const limitEditKeys = take(limits.length);
+  const limitCancelKeys = take(pendingLimits.length);
+  const limitModeKeys = take(limitEditorOpen ? LIMIT_MODES.length : 0);
+  const [limitSave, limitRemove, limitClose] = take(limitEditorOpen ? 3 : 0);
   return {
+    limitEdit: new Map(limits.map((l, i) => [l.id, limitEditKeys[i]])),
+    limitCancel: new Map(pendingLimits.map((l, i) => [l.id, limitCancelKeys[i]])),
+    limitModes: limitModeKeys,
+    limitActions: { save: limitSave, remove: limitRemove, cancel: limitClose },
     exam,
     use,
     remove: new Map(own.map((t, i) => [t.id, removeKeys[i]])),
@@ -688,6 +805,116 @@ function schedulesView(
   };
 }
 
+function limitEditorView(
+  state: UiState,
+  data: BloqueosData,
+  list: readonly DailyLimit[],
+  nowMs: number,
+  keys: ReturnType<typeof listKeys>,
+): LimitEditorView | null {
+  const editor = state.detail.bloqueos.limit;
+  if (!editor) return null;
+  const LE = E.limits.editor;
+  const before = editor.id === null ? null : (list.find((l) => l.id === editor.id) ?? null);
+  const input = editor.input;
+  const minutes = editorMinutes(editor, nowMs);
+  const problem = limitEditorProblem(editor, nowMs, list.length);
+  const summary = limitSummary(input, minutes);
+  const minutesProblem = problem === 'minutes_text' || problem === 'minutes';
+  const request = { ...input, dailyMinutes: minutes ?? input.dailyMinutes };
+  const weakens = before !== null && problem === null && limitEditWeakens(before, request);
+  const form = state.detail.bloqueos.form;
+  const formWhitelist = form.mode === 'exam' || form.whitelistOnly;
+  const when = whenLabel(pendingEstimate(nowMs), nowMs);
+  return {
+    id: editor.id,
+    title: editor.id === null ? LE.titleNew(summary) : LE.titleEdit(summary),
+    name: input.name,
+    namePlaceholder: limitAutoName(input.targets),
+    minutesText: editor.minutesText,
+    minutes: minutesProblem
+      ? { text: limitEditorProblemText(problem), tone: 'orange' }
+      : { text: LE.minutesHelp(LIMIT_TEXT.perDay(minutes ?? input.dailyMinutes)), tone: 'muted' },
+    days: ISO_WEEKDAYS.map((day) => ({
+      day,
+      short: E.schedules.days[day - 1] ?? String(day),
+      long: E.schedules.editor.dayNames[day - 1] ?? String(day),
+      checked: input.days.includes(day),
+    })),
+    categories: scheduleCategories(input.targets),
+    chips: scheduleChips(input.targets),
+    fromForm: !formWhitelist && formAddsTargets(input.targets, form.targets),
+    mode: input.mode,
+    modes: LIMIT_MODES.map((mode, i) => ({
+      value: mode,
+      label: modeLabel(mode),
+      help: E.mode.help[mode],
+      tone: modeAccent(mode),
+      mnemonic: keys.limitModes[i],
+    })),
+    reason: input.reason,
+    note: weakens ? LE.weakens(when) : null,
+    consequence: limitNeedsConsequence(input.mode) ? LE.consequence : null,
+    problem: problem ? limitEditorProblemText(problem) : null,
+    error: editor.error ? limitErrorText(editor.error) : null,
+    saving: data.limitSaving === true,
+    remove: before ? { consequence: LE.removeConsequence(before.name, when) } : null,
+    keys: keys.limitActions,
+  };
+}
+
+function limitsView(
+  state: UiState,
+  data: BloqueosData,
+  nowMs: number,
+  keys: ReturnType<typeof listKeys>,
+  list: readonly DailyLimit[],
+): LimitsView {
+  const d = data.limits ?? { status: 'loading' as const };
+  const editing = state.detail.bloqueos.limit;
+  if (!limitsSupported(state.snapshot)) {
+    return {
+      title: LIMIT_TEXT.sectionTitle,
+      datum: null,
+      status: 'unsupported',
+      error: null,
+      rows: [],
+      canCreate: false,
+      editor: null,
+    };
+  }
+  const editor = limitEditorView(state, data, list, nowMs, keys);
+  if (d.status === 'loading' || d.status === 'error') {
+    return {
+      title: d.status === 'loading' ? E.limits.loading : E.limits.unavailable,
+      datum: null,
+      status: d.status,
+      error: d.status === 'error' ? d.error : null,
+      rows: [],
+      canCreate: false,
+      editor,
+    };
+  }
+  const rows = list.map((limit) =>
+    limitRow(limit, nowMs, {
+      editing: editing?.id === limit.id,
+      saving: data.limitRowSaving === limit.id,
+      editKey: keys.limitEdit.get(limit.id),
+      cancelKey: keys.limitCancel.get(limit.id),
+    }),
+  );
+  const reached = list.filter((l) => limitReachedToday(l)).length;
+  return {
+    title: E.limits.title(list.length),
+    datum: reached > 0 ? E.limits.datum(reached) : null,
+    status: 'ready',
+    error: null,
+    rows,
+    canCreate: editing === null,
+    editor,
+  };
+}
+
 function examView(
   state: UiState,
   data: BloqueosData,
@@ -751,7 +978,17 @@ export function deriveBloqueosView(
   const open = seedLeavesDurationOpen(state) && data.durationPicked !== true;
   const problem = formProblem(form, nowMs, open);
   const scheduleList = data.schedules.status === 'ready' ? data.schedules.list : [];
-  const keys = listKeys(state, scheduleList, local.schedule !== null);
+  const limitList =
+    data.limits?.status === 'ready'
+      ? mergeLimits(data.limits.list, state.snapshot.state?.limits)
+      : [];
+  const keys = listKeys(
+    state,
+    scheduleList,
+    local.schedule !== null,
+    limitList,
+    local.limit !== null,
+  );
   return {
     seedLine: local.seedPhrase ? E.seed(local.seedPhrase) : null,
     targets: targetsView(form, state, data),
@@ -762,6 +999,7 @@ export function deriveBloqueosView(
     active: activeView(state, nowMs),
     templates: templatesView(state, keys),
     schedules: schedulesView(state, data, nowMs, keys),
+    limits: limitsView(state, data, nowMs, keys, limitList),
     exam: examView(state, data, nowMs, keys.exam),
   };
 }

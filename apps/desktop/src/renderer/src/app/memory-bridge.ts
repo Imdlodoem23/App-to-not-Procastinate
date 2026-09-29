@@ -10,7 +10,7 @@
  * fixtures).
  */
 import { DATA_DELETE_CONFIRM_WORDS, emptyAllow } from '@centrate/shared/guardian-api';
-import type { Block } from '@centrate/shared/domain';
+import type { Block, DailyLimit, LimitId } from '@centrate/shared/domain';
 import {
   DISPLAY_PRESETS,
   fixtureInLocale,
@@ -218,6 +218,38 @@ export function createMemoryBridge(route: RendererRoute): CentrateBridge {
     'schedules:set-enabled': ({ id, enabled }) => {
       const schedule = fixture.fake.schedules.find((s) => s.id === id);
       return schedule ? ok({ ...schedule, enabled }) : fail(uiError('rejected', 'not_found', 404));
+    },
+    'limits:list': () => ok(fixture.fake.limits),
+    'limits:create': ({ input }) => {
+      const now = new Date(snapshot.harness?.frozenNowMs ?? Date.now()).toISOString();
+      const limit: DailyLimit = {
+        name: input.name,
+        enabled: input.enabled,
+        targets: input.targets,
+        dailyMinutes: input.dailyMinutes,
+        days: input.days,
+        mode: input.mode,
+        reason: input.reason,
+        id: `lim_browser${Date.now()}` as LimitId,
+        createdAt: now,
+        updatedAt: now,
+        day: now.slice(0, 10),
+        appliesToday: true,
+        usedTodaySeconds: 0,
+        remainingTodaySeconds: input.dailyMinutes * 60,
+        reachedAt: null,
+        activeBlockId: null,
+        pendingChange: null,
+      };
+      return ok(limit);
+    },
+    'limits:update': ({ id }) => {
+      const limit = fixture.fake.limits.find((l) => l.id === id);
+      return limit ? ok(limit) : fail(uiError('rejected', 'not_found', 404));
+    },
+    'limits:delete': ({ id }) => {
+      const limit = fixture.fake.limits.find((l) => l.id === id);
+      return limit ? ok(limit) : fail(uiError('rejected', 'not_found', 404));
     },
     'templates:save': (input) => {
       const templates = [

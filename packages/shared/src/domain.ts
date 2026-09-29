@@ -52,6 +52,7 @@ export const ID_PREFIXES = {
   attempt: 'att',
   extension: 'ext',
   epoch: 'ep',
+  limit: 'lim',
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;
@@ -65,6 +66,7 @@ export type AllowanceId = `alw_${string}`;
 export type AttemptId = `att_${string}`;
 export type ExtensionId = `ext_${string}`;
 export type EpochId = `ep_${string}`;
+export type LimitId = `lim_${string}`;
 
 const ID_BODY_RE = /^[0-9A-Za-z]{16,40}$/;
 
@@ -93,11 +95,21 @@ export type BlockMode = (typeof BLOCK_MODES)[number];
  * - `schedule`: materialized from a schedule occurrence.
  * - `punishment`: created by the guardian when Study Mode punishes (never by a client).
  * - `recovered`: rebuilt from the hosts section after the guardian lost its state.
+ * - `limit`: materialized by the guardian when a daily limit's allowance ran out; it ends
+ *   at the next local midnight and earns nothing (ARCHITECTURE §5.10). Extension tokens
+ *   see it as `manual` with `limitId` set (§8.4: older extensions reject unknown kinds).
  */
-export const BLOCK_KINDS = ['manual', 'schedule', 'punishment', 'recovered'] as const;
+export const BLOCK_KINDS = ['manual', 'schedule', 'punishment', 'recovered', 'limit'] as const;
 export type BlockKind = (typeof BLOCK_KINDS)[number];
 
 export const BLOCK_STATUSES = ['active', 'completed', 'cancelled_emergency'] as const;
+
+/**
+ * Modes a daily limit's block may have (exam is whitelist-only, so it has no meaning for a
+ * limit). Default `strict`. Rank for «stricter»: `normal` < `strict` < `hardcore`.
+ */
+export const LIMIT_MODES = ['normal', 'strict', 'hardcore'] as const;
+export type LimitMode = (typeof LIMIT_MODES)[number];
 export type BlockStatus = (typeof BLOCK_STATUSES)[number];
 
 /** Browser families the extension reports (Brave, Opera and Vivaldi are Chromium). */
@@ -313,6 +325,11 @@ export interface Block {
   extendedMinutes: number;
   scheduleId: ScheduleId | null;
   punishmentId: PunishmentId | null;
+  /**
+   * The daily limit that materialized it (kind `limit`), else `null`. The guardian always
+   * sends it; it is absent (read it as `null`) in events written before daily limits.
+   */
+  limitId?: LimitId | null;
   /** Counted attempts (after dedupe) against this block so far. */
   attemptsCounted: number;
   /** False for hardcore, exam and blocks already covered by a pending emergency. */
@@ -343,6 +360,65 @@ export interface Schedule {
   nextOccurrence: { startsAt: IsoUtc; endsAt: IsoUtc } | null;
   /** The block of the occurrence in progress, if any. */
   activeBlockId: BlockId | null;
+}
+
+/**
+ * What the user defines for a daily limit («YouTube máximo 30 minutos al día»); the
+ * `DailyLimitInput` of `POST`/`PUT /v1/limits` without its acknowledgement.
+ */
+export interface DailyLimitDefinition {
+  /** «YouTube», «Redes sociales»: 1–60 UTF-16 units. */
+  name: string;
+  enabled: boolean;
+  /** At least one target; limits have no whitelist form. */
+  targets: TargetSpec;
+  /** Allowance of usage per local day: `limitMinMinutes`…`limitMaxMinutes` (5–720). */
+  dailyMinutes: number;
+  /**
+   * ISO weekdays on which running out of the allowance blocks (sorted, unique, non-empty;
+   * all seven by default). Usage is counted every day; `days` only gates the block.
+   */
+  days: IsoWeekday[];
+  /** Mode of the block it produces (default `strict`). */
+  mode: LimitMode;
+  /** «Tu motivo» of the block; `""` when none. */
+  reason: string;
+}
+
+/**
+ * A weakening change waiting 24 h (like `PendingSettingChange`, ARCHITECTURE §5.10): the
+ * definition the limit will have, or `null` when the limit will be deleted.
+ * `effectiveAt` is an estimate (display time) that can move later.
+ */
+export interface PendingLimitChange {
+  definition: DailyLimitDefinition | null;
+  effectiveAt: IsoUtc;
+}
+
+/**
+ * A daily usage limit (ARCHITECTURE §5.10). While today's usage is below `dailyMinutes`
+ * nothing is blocked; when it runs out on a day in `days`, the guardian materializes a
+ * block of kind `limit` with the limit's targets, mode and reason until the next local
+ * midnight (`settings.timezone`). The definition fields are the **effective** ones; a
+ * weakening edit waits in `pendingChange`.
+ */
+export interface DailyLimit extends DailyLimitDefinition {
+  id: LimitId;
+  createdAt: IsoUtc;
+  updatedAt: IsoUtc;
+  /** The local day the usage fields below refer to (the guardian's current day). */
+  day: LocalDay;
+  /** `enabled` and the ISO weekday of `day` is in `days`. */
+  appliesToday: boolean;
+  /** Usage counted today (whole seconds; quantized to whole minutes in `/v1/state`). */
+  usedTodaySeconds: number;
+  /** max(0, dailyMinutes × 60 − usedTodaySeconds). */
+  remainingTodaySeconds: number;
+  /** When today's allowance ran out on an applicable day; `null` otherwise. */
+  reachedAt: IsoUtc | null;
+  /** Today's active limit block (the latest-ending one), if any. */
+  activeBlockId: BlockId | null;
+  pendingChange: PendingLimitChange | null;
 }
 
 export interface PomodoroSpec {
@@ -597,7 +673,7 @@ export type TamperKind = (typeof TAMPER_KINDS)[number];
 export type ProcessClosedReason =
   'running_at_block_start' | 'logon_grace' | 'browser_without_extension';
 
-export type BlockCreatedSource = 'user' | 'schedule' | 'punishment';
+export type BlockCreatedSource = 'user' | 'schedule' | 'punishment' | 'limit';
 
 /**
  * `untrusted_key`: the ledger key had to be replaced (see `TamperKind`); the carry comes
@@ -623,6 +699,12 @@ export interface EpochKeptState {
    * last 8 days, so an occurrence is never created twice across an epoch change.
    */
   materializedOccurrences: string[];
+  /**
+   * Every daily limit with its pending change and today's usage (data deletion keeps them
+   * all: deleting data is never an instant way to drop or reset a limit). Absent in epochs
+   * started before daily limits (read it as `[]`).
+   */
+  limits?: DailyLimit[];
 }
 
 /**
@@ -796,6 +878,52 @@ export interface EventDataMap {
   schedule_created: { schedule: Schedule };
   schedule_updated: { schedule: Schedule };
   schedule_deleted: { scheduleId: ScheduleId };
+  /** `POST /v1/limits`: the new limit (usage fields as at creation). */
+  limit_created: { limit: DailyLimit };
+  /**
+   * - `user`: a `PUT` applied its strengthening part and/or set, replaced or cancelled the
+   *   pending change, or a `DELETE` set a pending deletion;
+   * - `pending_applied`: the pending definition became effective.
+   */
+  limit_updated: { limit: DailyLimit; cause: 'user' | 'pending_applied' };
+  /** A pending deletion became effective (its active block, if any, keeps running). */
+  limit_deleted: { limitId: LimitId; name: string };
+  /** Once per limit and applicable day, when 0 < remaining ≤ `limitWarningSeconds`. */
+  limit_warning: {
+    limitId: LimitId;
+    name: string;
+    day: LocalDay;
+    dailyMinutes: number;
+    usedSeconds: number;
+    remainingSeconds: number;
+  };
+  /**
+   * Once per limit and applicable day, when usage reached the allowance. `blockId` is the
+   * limit block created in the same batch, `null` when less than a minute was left before
+   * midnight (nothing is blocked then).
+   */
+  limit_reached: {
+    limitId: LimitId;
+    name: string;
+    day: LocalDay;
+    dailyMinutes: number;
+    usedSeconds: number;
+    blockId: BlockId | null;
+  };
+  /**
+   * A local day ended (or was found ended at startup) for a limit that had usage or was
+   * reached that day: the statistics row «minutos usados por límite y día».
+   */
+  limit_day_closed: {
+    limitId: LimitId;
+    name: string;
+    day: LocalDay;
+    dailyMinutes: number;
+    usedSeconds: number;
+    /** The limit applied that day (enabled and the weekday in `days`). */
+    applied: boolean;
+    reached: boolean;
+  };
   settings_changed: { settings: GuardianSettings; pending: PendingSettingChange[] };
   extension_paired: {
     extensionId: ExtensionId;
@@ -854,6 +982,12 @@ export const EVENT_TYPES = [
   'schedule_created',
   'schedule_updated',
   'schedule_deleted',
+  'limit_created',
+  'limit_updated',
+  'limit_deleted',
+  'limit_warning',
+  'limit_reached',
+  'limit_day_closed',
   'settings_changed',
   'extension_paired',
   'extension_revoked',

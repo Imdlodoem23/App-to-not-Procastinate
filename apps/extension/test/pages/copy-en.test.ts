@@ -113,6 +113,7 @@ describe('English copy', () => {
     expect(note).toMatch(/never sends your browsing history/);
     expect(note).toMatch(/only when you try to open something blocked, it sends the domain/i);
     expect(note).toMatch(/never the full address/);
+    expect(note).toMatch(/daily limits.*the domain and the seconds/);
   });
 
   it('«Retry» says what it is doing and what it found', () => {

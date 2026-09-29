@@ -12,7 +12,7 @@
  * page's locale: nothing here is worded in a fixed language.
  */
 import { getCategory, getService } from '@centrate/shared/catalog';
-import { parseIntent, type ParseResult } from '@centrate/shared/parser';
+import { daysLabel, parseIntent, type ParseResult } from '@centrate/shared/parser';
 import type { Copy } from '../../content/copy';
 import { formatDayMonth, formatTime, intlLocale, type Lang } from '../../lib/i18n';
 
@@ -22,7 +22,7 @@ export interface DemoStrings {
   duration: Copy['ui']['duration'];
 }
 
-export type DemoStatus = 'empty' | 'block' | 'study' | 'partial' | 'none';
+export type DemoStatus = 'empty' | 'block' | 'limit' | 'study' | 'partial' | 'none';
 
 export interface DemoView {
   status: DemoStatus;
@@ -101,6 +101,12 @@ function chipLabel(chip: ParseResult['chips'][number], now: Date, strings: DemoS
   switch (chip.kind) {
     case 'duration':
       return formatDuration(Number(chip.value), strings.duration);
+    case 'daily':
+      return fillIn(strings.result.perDay, {
+        duration: formatDuration(Number(chip.value), strings.duration),
+      });
+    case 'days':
+      return daysLabel(weekdays(chip.value), strings.lang);
     case 'category':
       return categoryName(chip.value, strings);
     case 'service':
@@ -112,6 +118,82 @@ function chipLabel(chip: ParseResult['chips'][number], now: Date, strings: DemoS
     default:
       return chip.label;
   }
+}
+
+/** «entre semana» → «Entre semana», for a field value. */
+function capitalize(text: string, lang: Lang): string {
+  return text.charAt(0).toLocaleUpperCase(intlLocale[lang]) + text.slice(1);
+}
+
+/** «1,2,3,4,5» (a `days` chip's value) as ISO weekdays; anything else is dropped. */
+function weekdays(value: string): number[] {
+  return value
+    .split(',')
+    .map(Number)
+    .filter((day) => Number.isInteger(day) && day >= 1 && day <= 7);
+}
+
+/** Services, categories and domains in the order they were typed, for the sentence and the card. */
+function targetNames(
+  result: ParseResult,
+  strings: DemoStrings,
+): { inSentence: string[]; inField: string[] } {
+  const t = strings.result;
+  const inSentence: string[] = [];
+  const inField: string[] = [];
+  for (const chip of result.chips) {
+    if (chip.kind === 'service') {
+      const name = getService(chip.value)?.name ?? chip.label;
+      inSentence.push(name);
+      inField.push(name);
+    } else if (chip.kind === 'category') {
+      const name = categoryName(chip.value, strings);
+      inSentence.push(fillIn(t.category, { category: name }));
+      inField.push(name);
+    } else if (chip.kind === 'domain') {
+      inSentence.push(chip.value);
+      inField.push(chip.value);
+    }
+  }
+  return { inSentence, inField };
+}
+
+/**
+ * A daily limit («YouTube máximo 30 minutos al día»): what the app's «Límite diario» card
+ * would create. Outside 5 min…12 h the app would not take it, so the demo says the range.
+ */
+function describeLimit(
+  result: ParseResult,
+  minutes: number,
+  chips: string[],
+  strings: DemoStrings,
+): DemoView {
+  const t = strings.result;
+  if (result.warnings.includes('limit_out_of_range')) {
+    return { status: 'partial', chips, sentence: t.limitRange, fields: [], notes: [] };
+  }
+  const { inSentence, inField } = targetNames(result, strings);
+  const duration = formatDuration(minutes, strings.duration);
+  const perDay = fillIn(t.perDay, { duration });
+  const days = daysLabel(result.days ?? [], strings.lang);
+  const everyDay =
+    result.days === undefined || result.days.length === 0 || result.days.length === 7;
+  const sentence = fillIn(t.limit, {
+    services: list(inSentence, strings.lang),
+    daily: everyDay ? perDay : fillIn(t.limitDays, { daily: perDay, days }),
+  });
+  return {
+    status: 'limit',
+    chips,
+    sentence,
+    fields: [
+      { label: t.fields.limited, value: list(inField, strings.lang) },
+      { label: t.fields.daily, value: duration },
+      { label: t.fields.days, value: capitalize(days, strings.lang) },
+      { label: t.fields.mode, value: t.limitMode },
+    ],
+    notes: [t.limitNote],
+  };
 }
 
 /** Describes a parse result the way the app would act on it. Never invents anything. */
@@ -127,6 +209,10 @@ export function describe(
   const trimmed = text.trim();
   if (trimmed === '') {
     return { status: 'empty', chips: [], sentence: t.empty, fields: [], notes: [] };
+  }
+
+  if (result.kind === 'limit' && result.complete && result.dailyMinutes !== undefined) {
+    return describeLimit(result, result.dailyMinutes, chips, strings);
   }
 
   const minutes = result.durationMinutes;
@@ -161,22 +247,7 @@ export function describe(
     }
 
     // Targets in the order they were typed: services and domains by name, categories whole.
-    const inSentence: string[] = [];
-    const inField: string[] = [];
-    for (const chip of result.chips) {
-      if (chip.kind === 'service') {
-        const name = getService(chip.value)?.name ?? chip.label;
-        inSentence.push(name);
-        inField.push(name);
-      } else if (chip.kind === 'category') {
-        const name = categoryName(chip.value, strings);
-        inSentence.push(fillIn(t.category, { category: name }));
-        inField.push(name);
-      } else if (chip.kind === 'domain') {
-        inSentence.push(chip.value);
-        inField.push(chip.value);
-      }
-    }
+    const { inSentence, inField } = targetNames(result, strings);
     const byTime = result.chips.some((chip) => chip.kind === 'until');
     const sentence = fillIn(byTime ? t.blockUntil : t.block, {
       services: list(inSentence, lang),

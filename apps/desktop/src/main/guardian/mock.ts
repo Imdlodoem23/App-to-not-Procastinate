@@ -15,11 +15,17 @@
  * engine does before each request. There is no operation that ends a block early.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { CATALOG_VERSION, getApp, getService } from '@centrate/shared/catalog';
+import {
+  CATALOG_VERSION,
+  getApp,
+  getService,
+  type CatalogPlatform,
+} from '@centrate/shared/catalog';
 import type {
   Block,
   BlockId,
   BlockMode,
+  DailyLimit,
   EmergencyId,
   EmergencyUnlock,
   EpochId,
@@ -28,6 +34,7 @@ import type {
   ExtensionId,
   GuardianEvent,
   GuardianSettings,
+  LimitId,
   PendingSettingChange,
   PointsSummary,
   Punishment,
@@ -61,6 +68,7 @@ import {
   type CreateBlockRequest,
   type CreateBlockResponse,
   type CurrentStudyResponse,
+  type DailyLimitInput,
   type DeleteDataRequest,
   type DeleteDataResponse,
   type DiagnosticsResponse,
@@ -79,6 +87,8 @@ import {
   type HealthResponse,
   type ListBlocksQuery,
   type ListBlocksResponse,
+  type LimitResponse,
+  type ListLimitsResponse,
   type ListSchedulesResponse,
   type NuclearHeartbeatRequest,
   type NuclearHeartbeatResponse,
@@ -94,6 +104,8 @@ import {
   type SettingsResponse,
   type StateResult,
   type StudySessionDetailResponse,
+  type UsageReportRequest,
+  type UsageReportResponse,
   type WriteOptions,
 } from '@centrate/shared/guardian-api';
 import {
@@ -111,6 +123,7 @@ import {
 } from '@centrate/shared/points';
 import type { Clock, TimerHandle } from '../contracts';
 import { checkRedeem, rewardsShop } from './mock-rewards';
+import { MockLimits } from './mock-limits';
 import { applyDuePending, applySettingsPut } from './mock-settings';
 import {
   currentOccurrence,
@@ -144,6 +157,8 @@ export interface MockSeed {
   emergencyPreview?: EmergencyPreviewResponse;
   /** Served for `listRewards()` while nothing changed since the seed (Phase 5). */
   rewards?: RewardsResponse;
+  /** Daily limits with exact usage (`GET /v1/limits`); default: `state.limits`. */
+  limits?: DailyLimit[];
 }
 
 export interface MockGuardianOptions {
@@ -210,7 +225,12 @@ function defaultPoints(day: string): PointsSummary {
     nextLevelXp: xpForLevel(2),
     streakDays: 0,
     bestStreakDays: 0,
-    today: { day, focusMinutes: 0, goalMinutes: DEFAULT_GUARDIAN_SETTINGS.dailyGoalMinutes, goalMet: false },
+    today: {
+      day,
+      focusMinutes: 0,
+      goalMinutes: DEFAULT_GUARDIAN_SETTINGS.dailyGoalMinutes,
+      goalMet: false,
+    },
     pendingFocusMinutes: 0,
   };
 }
@@ -266,6 +286,7 @@ export class MockGuardian implements GuardianClient {
   private readonly liveSince: number;
   /** Occurrence keys already turned into blocks (never re-created). */
   private readonly materialized = new Set<string>();
+  private readonly limitBook: MockLimits;
 
   constructor(options: MockGuardianOptions) {
     this.clock = options.clock;
@@ -297,6 +318,48 @@ export class MockGuardian implements GuardianClient {
     this.pendingSettings = clone(seed?.settings?.pending ?? state?.pendingSettings ?? []);
     this.health0 = clone(seed?.health ?? this.defaultHealth(now));
     this.base = clone(state ?? this.emptyState(now));
+    this.limitBook = new MockLimits(
+      {
+        now: () => this.clock.now(),
+        timeZone: () => this.settings.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+        newId: (prefix) => this.newId(prefix),
+        platform: mockPlatform(),
+        emit: (type, data, opts) => this.emit(type, data, opts),
+        makeLimitBlock: (limit, startsAt, endsAt) => ({
+          id: this.newId('blk') as BlockId,
+          kind: 'limit',
+          mode: limit.mode,
+          status: 'active',
+          targets: clone(limit.targets),
+          whitelistOnly: false,
+          allow: emptyAllow(),
+          reason: limit.reason,
+          createdAt: iso(startsAt),
+          startsAt: iso(startsAt),
+          endsAt: iso(endsAt),
+          originalEndsAt: iso(endsAt),
+          endedAt: null,
+          extendedMinutes: 0,
+          scheduleId: null,
+          punishmentId: null,
+          limitId: limit.id,
+          attemptsCounted: 0,
+          emergencyEligible: isEligibleMode(limit.mode),
+          pointsDelta: null,
+        }),
+        addLimitBlock: (block) => {
+          this.blocks = sortBlocks([...this.blocks, block]);
+          this.rewardsLock = this.currentLock();
+          const revokes =
+            block.mode === 'hardcore' && this.allowances.some((a) => a.status === 'active');
+          this.emit('block_created', { block, source: 'limit' }, { txEnd: !revokes });
+          if (revokes) this.revokeAllowances(block.id);
+        },
+        activeLimitBlock: (limitId) =>
+          sortBlocks(this.blocks.filter((b) => b.limitId === limitId))[0] ?? null,
+      },
+      clone(seed?.limits ?? state?.limits ?? []),
+    );
     if (!state) {
       this.emit('epoch_started', {
         reason: 'install',
@@ -371,7 +434,12 @@ export class MockGuardian implements GuardianClient {
       serverNow: iso(now),
       epoch: this.epoch,
       lastEventSeq: this.seq,
-      guardian: { version: MOCK_GUARDIAN_VERSION, apiVersion: GUARDIAN_API_VERSION, mode: 'normal', problems: [] },
+      guardian: {
+        version: MOCK_GUARDIAN_VERSION,
+        apiVersion: GUARDIAN_API_VERSION,
+        mode: 'normal',
+        problems: [],
+      },
       clock: {
         wallOffsetMs: 0,
         trust: 'verified',
@@ -508,6 +576,8 @@ export class MockGuardian implements GuardianClient {
       if (this.materializeSchedules(now)) dirty = true;
     }
     this.refreshSchedules(now);
+    // Daily limits: the local day, pending changes, allowances used up (§10.13).
+    if (this.limitBook.step()) dirty = true;
     // Emergency: counting → ready → expired; moot when its blocks are gone.
     const e = this.emergency;
     if (e) {
@@ -551,7 +621,10 @@ export class MockGuardian implements GuardianClient {
       dirty = true;
       this.settings = due.settings;
       this.pendingSettings = due.pending;
-      this.emit('settings_changed', { settings: clone(this.settings), pending: clone(due.pending) });
+      this.emit('settings_changed', {
+        settings: clone(this.settings),
+        pending: clone(due.pending),
+      });
     }
     // «Hecho» notices live 2 min.
     const keep = this.ended.filter(
@@ -566,7 +639,12 @@ export class MockGuardian implements GuardianClient {
     if (this.points.today.day !== day) {
       this.points = {
         ...this.points,
-        today: { day, focusMinutes: 0, goalMinutes: this.settings.dailyGoalMinutes, goalMet: false },
+        today: {
+          day,
+          focusMinutes: 0,
+          goalMinutes: this.settings.dailyGoalMinutes,
+          goalMet: false,
+        },
       };
       dirty = true;
     }
@@ -656,8 +734,7 @@ export class MockGuardian implements GuardianClient {
       });
     }
     const next = nextOccurrence(current.id, current, now);
-    const soon =
-      next !== null && next.start - now <= GUARDIAN_LIMITS.scheduleFreezeMinutes * MIN;
+    const soon = next !== null && next.start - now <= GUARDIAN_LIMITS.scheduleFreezeMinutes * MIN;
     if (soon && (edit === null || scheduleEditWeakens(current, edit))) {
       throw apiError('schedule_starting_soon', 'schedule starting soon', {
         startsAt: iso(next.start),
@@ -778,7 +855,8 @@ export class MockGuardian implements GuardianClient {
             ? this.base.protection.hosts
             : {
                 ...this.base.protection.hosts,
-                entries: this.blocks.length > 0 ? Math.max(1, this.base.protection.hosts.entries) : 0,
+                entries:
+                  this.blocks.length > 0 ? Math.max(1, this.base.protection.hosts.entries) : 0,
               },
       },
       blocks: sortBlocks([...this.blocks]),
@@ -794,6 +872,8 @@ export class MockGuardian implements GuardianClient {
         this.version === this.seedVersion ? this.base.pendingSettings : this.pendingSettings,
       points: this.points,
       recent: { endedBlocks: this.ended, endedStudy: null },
+      // A seeded state keeps the fixture's `limits` (or their absence) until something changes.
+      ...(this.version === this.seedVersion ? {} : { limits: this.limitBook.stateList() }),
     });
   }
 
@@ -863,7 +943,10 @@ export class MockGuardian implements GuardianClient {
     };
   }
 
-  async createBlock(body: CreateBlockRequest, options?: WriteOptions): Promise<CreateBlockResponse> {
+  async createBlock(
+    body: CreateBlockRequest,
+    options?: WriteOptions,
+  ): Promise<CreateBlockResponse> {
     this.step();
     return this.idem('POST /v1/blocks', options?.idempotencyKey, body, () => {
       this.writable();
@@ -874,7 +957,10 @@ export class MockGuardian implements GuardianClient {
           path: shape.issue.path,
           issue: shape.issue.issue,
           ...(code === 'duration_out_of_range'
-            ? { minMinutes: GUARDIAN_LIMITS.blockMinMinutes, maxMinutes: GUARDIAN_LIMITS.blockMaxMinutes }
+            ? {
+                minMinutes: GUARDIAN_LIMITS.blockMinMinutes,
+                maxMinutes: GUARDIAN_LIMITS.blockMaxMinutes,
+              }
             : {}),
         });
       }
@@ -892,23 +978,29 @@ export class MockGuardian implements GuardianClient {
         });
       }
       const needs: string[] = [];
-      if (minutes > GUARDIAN_LIMITS.longBlockConfirmMinutes && !body.acknowledgeLong) needs.push('long');
+      if (minutes > GUARDIAN_LIMITS.longBlockConfirmMinutes && !body.acknowledgeLong)
+        needs.push('long');
       if ((body.mode === 'hardcore' || body.mode === 'exam') && !body.acknowledgeNoEmergency) {
         needs.push('no_emergency');
       }
-      if (needs.length > 0) throw apiError('confirmation_required', 'confirmation required', { needs });
+      if (needs.length > 0)
+        throw apiError('confirmation_required', 'confirmation required', { needs });
       body.targets.serviceIds.forEach((id, i) => {
         if (!getService(id)) {
           throw apiError('unknown_id', 'unknown service', { path: `targets.serviceIds.${i}`, id });
         }
       });
       body.targets.appIds.forEach((id, i) => {
-        if (!getApp(id)) throw apiError('unknown_id', 'unknown app', { path: `targets.appIds.${i}`, id });
+        if (!getApp(id))
+          throw apiError('unknown_id', 'unknown app', { path: `targets.appIds.${i}`, id });
       });
       if (this.blocks.length >= GUARDIAN_LIMITS.maxActiveBlocks) {
         throw apiError('too_many_targets', 'too many active blocks');
       }
-      const endsAtMs = body.durationMinutes !== null ? now + body.durationMinutes * MIN : Date.parse(body.endsAt ?? '');
+      const endsAtMs =
+        body.durationMinutes !== null
+          ? now + body.durationMinutes * MIN
+          : Date.parse(body.endsAt ?? '');
       const block: Block = {
         id: this.newId('blk') as BlockId,
         kind: 'manual',
@@ -959,7 +1051,9 @@ export class MockGuardian implements GuardianClient {
     if (!block) throw apiError('not_found', 'no such block');
     const credited = Math.max(
       0,
-      Math.floor((Math.min(this.clock.now(), Date.parse(block.endsAt)) - Date.parse(block.startsAt)) / MIN),
+      Math.floor(
+        (Math.min(this.clock.now(), Date.parse(block.endsAt)) - Date.parse(block.startsAt)) / MIN,
+      ),
     );
     return { block: clone(block), progress: { creditedMinutes: credited, downtimeMs: 0 } };
   }
@@ -979,7 +1073,10 @@ export class MockGuardian implements GuardianClient {
         add < 1 ||
         add > GUARDIAN_LIMITS.extendMaxAddMinutes
       ) {
-        throw apiError('validation_failed', 'addMinutes out of range', { path: 'addMinutes', issue: 'range' });
+        throw apiError('validation_failed', 'addMinutes out of range', {
+          path: 'addMinutes',
+          issue: 'range',
+        });
       }
       const block = this.blocks.find((b) => b.id === id);
       if (!block) {
@@ -987,7 +1084,8 @@ export class MockGuardian implements GuardianClient {
         if (ended) throw apiError('block_not_active', 'block ended', { status: ended.status });
         throw apiError('not_found', 'no such block');
       }
-      if (block.kind === 'punishment') throw apiError('not_extendable', 'punishments cannot be extended');
+      if (block.kind === 'punishment')
+        throw apiError('not_extendable', 'punishments cannot be extended');
       const now = this.clock.now();
       const remainingMin = (Date.parse(block.endsAt) - now) / MIN;
       if (remainingMin + add > GUARDIAN_LIMITS.blockMaxMinutes) {
@@ -998,7 +1096,11 @@ export class MockGuardian implements GuardianClient {
       const endsAt = iso(Date.parse(block.endsAt) + add * MIN);
       const next: Block = { ...block, endsAt, extendedMinutes: block.extendedMinutes + add };
       this.blocks = sortBlocks(this.blocks.map((b) => (b.id === id ? next : b)));
-      this.emit('block_extended', { blockId: id, addMinutes: add, endsAt }, { key: options?.idempotencyKey ?? null });
+      this.emit(
+        'block_extended',
+        { blockId: id, addMinutes: add, endsAt },
+        { key: options?.idempotencyKey ?? null },
+      );
       this.changed();
       return { block: clone(next), stateVersion: this.version };
     });
@@ -1064,6 +1166,46 @@ export class MockGuardian implements GuardianClient {
     this.schedules = this.schedules.filter((s) => s.id !== id);
     this.emit('schedule_deleted', { scheduleId: id });
     this.changed();
+  }
+
+  // Daily limits (ARCHITECTURE §5.10, §10.13): `mock-limits.ts`.
+  async listLimits(): Promise<ListLimitsResponse> {
+    this.step();
+    return { limits: this.limitBook.list() };
+  }
+
+  async createLimit(body: DailyLimitInput, options?: WriteOptions): Promise<LimitResponse> {
+    this.step();
+    return this.idem('POST /v1/limits', options?.idempotencyKey, body, () => {
+      this.writable();
+      const limit = this.limitBook.create(body);
+      this.changed();
+      return { limit };
+    });
+  }
+
+  async updateLimit(id: LimitId, body: DailyLimitInput): Promise<LimitResponse> {
+    this.step();
+    this.writable();
+    const r = this.limitBook.update(id, body);
+    if (r.changed) this.changed();
+    return { limit: r.limit };
+  }
+
+  async deleteLimit(id: LimitId): Promise<LimitResponse> {
+    this.step();
+    this.writable();
+    const r = this.limitBook.remove(id);
+    if (r.changed) this.changed();
+    return { limit: r.limit };
+  }
+
+  /** The app's `POST /v1/usage` (accepted in safe mode, like the real guardian). */
+  async reportUsage(body: UsageReportRequest): Promise<UsageReportResponse> {
+    this.step();
+    const r = this.limitBook.report('app', body);
+    if (r.changed) this.changed();
+    return r.response;
   }
 
   async startStudy(): Promise<never> {
@@ -1232,7 +1374,8 @@ export class MockGuardian implements GuardianClient {
     const page = pending.slice(0, limit);
     // A page never splits a batch: extend to the batch end if needed.
     let end = page.length;
-    while (end > 0 && end < pending.length && !(pending[end - 1] as { txEnd: boolean }).txEnd) end += 1;
+    while (end > 0 && end < pending.length && !(pending[end - 1] as { txEnd: boolean }).txEnd)
+      end += 1;
     const events = pending.slice(0, end);
     const last = events[events.length - 1];
     return {
@@ -1246,7 +1389,11 @@ export class MockGuardian implements GuardianClient {
 
   async emergencyPreview(blockIds?: readonly BlockId[]): Promise<EmergencyPreviewResponse> {
     this.step();
-    if (this.seedPreview && this.version === this.seedVersion && (!blockIds || blockIds.length === 0)) {
+    if (
+      this.seedPreview &&
+      this.version === this.seedVersion &&
+      (!blockIds || blockIds.length === 0)
+    ) {
       return clone(this.seedPreview);
     }
     const balance = this.points.balance;
@@ -1260,9 +1407,18 @@ export class MockGuardian implements GuardianClient {
       phrases: { ...EMERGENCY_RULES.phrases },
     };
     if (this.emergency) {
-      return { ...base, eligible: false, reason: 'emergency_in_progress', blockIds: [], countdownMinutes: null };
+      return {
+        ...base,
+        eligible: false,
+        reason: 'emergency_in_progress',
+        blockIds: [],
+        countdownMinutes: null,
+      };
     }
-    const wanted = blockIds && blockIds.length > 0 ? this.blocks.filter((b) => blockIds.includes(b.id)) : this.blocks;
+    const wanted =
+      blockIds && blockIds.length > 0
+        ? this.blocks.filter((b) => blockIds.includes(b.id))
+        : this.blocks;
     const eligible = wanted.filter((b) => b.emergencyEligible);
     if (eligible.length === 0) {
       const hard = wanted.find((b) => b.mode === 'hardcore' || b.mode === 'exam');
@@ -1283,12 +1439,17 @@ export class MockGuardian implements GuardianClient {
     };
   }
 
-  async requestEmergency(body: EmergencyRequest, options?: WriteOptions): Promise<EmergencyResponse> {
+  async requestEmergency(
+    body: EmergencyRequest,
+    options?: WriteOptions,
+  ): Promise<EmergencyResponse> {
     this.step();
     return this.idem('POST /v1/emergency', options?.idempotencyKey, body, () => {
       this.writable();
-      if (!isEmergencyRequest(body)) throw apiError('validation_failed', 'invalid emergency request');
-      if (!emergencyPhraseMatches(body.phrase)) throw apiError('phrase_mismatch', 'phrase does not match');
+      if (!isEmergencyRequest(body))
+        throw apiError('validation_failed', 'invalid emergency request');
+      if (!emergencyPhraseMatches(body.phrase))
+        throw apiError('phrase_mismatch', 'phrase does not match');
       if (this.emergency) throw apiError('emergency_in_progress', 'an emergency is pending');
       const listed = body.blockIds.map((id) => this.blocks.find((b) => b.id === id) ?? null);
       const bad = body.blockIds.filter((_, i) => {
@@ -1296,10 +1457,15 @@ export class MockGuardian implements GuardianClient {
         return !b || !b.emergencyEligible;
       });
       if (bad.length > 0 || listed.length === 0) {
-        throw apiError('emergency_not_available', 'blocks not eligible', { reason: 'not_eligible', blockIds: bad });
+        throw apiError('emergency_not_available', 'blocks not eligible', {
+          reason: 'not_eligible',
+          blockIds: bad,
+        });
       }
       const blocks = listed.filter((b): b is Block => b !== null);
-      const countdown = emergencyCountdownMinutes(blocks.map(effectiveMode)) ?? EMERGENCY_RULES.countdownMinutes.normal;
+      const countdown =
+        emergencyCountdownMinutes(blocks.map(effectiveMode)) ??
+        EMERGENCY_RULES.countdownMinutes.normal;
       const now = this.clock.now();
       const emergency: EmergencyUnlock = {
         id: this.newId('emg') as EmergencyId,
@@ -1344,10 +1510,13 @@ export class MockGuardian implements GuardianClient {
     this.step();
     return this.idem(`POST /v1/emergency/${id}/confirm`, options?.idempotencyKey, body, () => {
       this.writable();
-      if (body?.acknowledge !== true) throw apiError('validation_failed', 'acknowledge must be true');
+      if (body?.acknowledge !== true)
+        throw apiError('validation_failed', 'acknowledge must be true');
       const e = this.emergency;
-      if (!e || e.id !== id) throw apiError('emergency_expired', 'no pending emergency with that id');
-      if (e.status === 'counting') throw apiError('emergency_not_ready', 'not ready yet', { readyAt: e.readyAt });
+      if (!e || e.id !== id)
+        throw apiError('emergency_expired', 'no pending emergency with that id');
+      if (e.status === 'counting')
+        throw apiError('emergency_not_ready', 'not ready yet', { readyAt: e.readyAt });
       const cancelled = this.blocks.filter((b) => e.blockIds.includes(b.id));
       if (cancelled.length === 0) {
         this.finishEmergency('cancelled', 'blocks_ended');
@@ -1367,7 +1536,12 @@ export class MockGuardian implements GuardianClient {
       this.punishments = this.punishments.filter((p) => !e.blockIds.includes(p.blockId));
       this.rewardsLock = this.currentLock();
       for (const b of cancelled) {
-        this.endedBlocks.unshift({ ...b, status: 'cancelled_emergency', endedAt: iso(now), pointsDelta: 0 });
+        this.endedBlocks.unshift({
+          ...b,
+          status: 'cancelled_emergency',
+          endedAt: iso(now),
+          pointsDelta: 0,
+        });
         this.ended.unshift({
           id: b.id,
           kind: b.kind,
@@ -1590,7 +1764,9 @@ export class MockGuardian implements GuardianClient {
         throw apiError('confirm_word_mismatch', 'type BORRAR');
       }
       if (this.emergency) {
-        throw apiError('data_delete_blocked', 'an emergency is pending', { reason: 'emergency_pending' });
+        throw apiError('data_delete_blocked', 'an emergency is pending', {
+          reason: 'emergency_pending',
+        });
       }
       const previousEpoch = this.epoch;
       const carry = Math.min(0, this.points.balance);
@@ -1606,7 +1782,10 @@ export class MockGuardian implements GuardianClient {
       this.schedules = keptSchedules;
       this.points = { ...defaultPoints(localDay(now, this.settings.timezone)), balance: carry };
       this.points.today.goalMinutes = this.settings.dailyGoalMinutes;
-      this.settings = { ...this.settings, studyWhitelist: { extraDomains: [], extraProcesses: [] } };
+      this.settings = {
+        ...this.settings,
+        studyWhitelist: { extraDomains: [], extraProcesses: [] },
+      };
       this.emit(
         'epoch_started',
         {
@@ -1615,7 +1794,9 @@ export class MockGuardian implements GuardianClient {
           carryOverBalance: carry,
           escalation: {
             lastCountedAt:
-              this.escalation.lastCountedAtMs === null ? null : iso(this.escalation.lastCountedAtMs),
+              this.escalation.lastCountedAtMs === null
+                ? null
+                : iso(this.escalation.lastCountedAtMs),
             index: this.escalation.index,
           },
           kept: {
@@ -1626,6 +1807,7 @@ export class MockGuardian implements GuardianClient {
             settings: clone(this.settings),
             pendingSettings: [],
             materializedOccurrences: [],
+            limits: this.limitBook.list(),
           },
         },
         { points: carry },
@@ -1637,9 +1819,15 @@ export class MockGuardian implements GuardianClient {
         keptBlockIds: this.blocks.map((b) => b.id),
         keptPunishmentIds: this.punishments.map((p) => p.id),
         keptScheduleIds: keptSchedules.map((s) => s.id),
+        keptLimitIds: this.limitBook.keptIds(),
       };
     });
   }
+}
+
+/** The catalog's platform for the machine the mock runs on (process names per OS). */
+function mockPlatform(): CatalogPlatform {
+  return process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : 'linux';
 }
 
 function isEligibleMode(mode: BlockMode): boolean {
@@ -1651,10 +1839,9 @@ function effectiveMode(block: Block): BlockMode {
   return block.kind === 'punishment' ? 'strict' : block.mode;
 }
 
-function scheduleFields(body: ScheduleInput): Omit<
-  Schedule,
-  'id' | 'createdAt' | 'updatedAt' | 'nextOccurrence' | 'activeBlockId'
-> {
+function scheduleFields(
+  body: ScheduleInput,
+): Omit<Schedule, 'id' | 'createdAt' | 'updatedAt' | 'nextOccurrence' | 'activeBlockId'> {
   return {
     name: body.name,
     enabled: body.enabled,

@@ -42,6 +42,12 @@ export const BLOQUEO_ES = {
     finishedNoPoints: 'Hecho',
     newPill: 'Nuevo',
     newPillLabel: 'Nuevo bloqueo: vuelve al campo',
+    /** A limit block's row: «Límite diario de YouTube». */
+    limitShort: (name: string): string => `Límite diario de ${name}`,
+    /** «Límite diario: hasta las 00:00» (when the name does not fit). */
+    limitUntil: (time: string): string => `Límite diario: hasta las ${time}`,
+    /** «Límite de YouTube: hasta las 00:00» (when the whole sentence does not fit). */
+    limitNamed: (name: string, time: string): string => `Límite de ${name}: hasta las ${time}`,
   },
 
   field: {
@@ -72,6 +78,9 @@ export const BLOQUEO_ES = {
     /** After the chips when Enter will open Bloqueos (nothing is invented). */
     missingDuration: 'falta cuánto tiempo',
     missingTargets: 'falta qué bloquear',
+    /** A daily-limit phrase without its allowance or its targets. */
+    missingDaily: 'falta cuánto al día',
+    missingLimitTargets: 'falta qué limitar',
     chipHint: 'Corrige esta parte de la frase',
     /** «+2» chip when the chips do not fit on the help line. */
     moreChips: (count: number): string => `+${count}`,
@@ -222,6 +231,41 @@ export const BLOQUEO_ES = {
       if (cause === 'three_strikes') return task ? `3 strikes en "${task}"` : '3 strikes';
       return task ? `Study Mode abandonado: "${task}"` : 'Study Mode abandonado';
     },
+  },
+
+  /** The «Límite diario» card («YouTube máximo 30 minutos al día»; ARCHITECTURE §5.10). */
+  limit: {
+    label: 'Confirmar el límite diario',
+    targetsLabel: 'Qué se limita',
+    modeHelp: {
+      normal: 'Normal: al agotarse, la emergencia tarda 10 min y cuesta puntos',
+      strict: 'Estricto: al agotarse, la emergencia tarda 30 min y cuesta puntos',
+      hardcore: 'Hardcore: al agotarse, no se puede desbloquear de ninguna forma',
+    },
+    edit: 'Editar…',
+    editHelp: 'Abre Bloqueos con este límite para cambiar más cosas',
+    /** «Crear límite: 30 min al día». */
+    confirm: (perDay: string): string => `Crear límite: ${perDay}`,
+    confirmHelp: 'Cuenta el uso de hoy en el navegador y en las apps',
+    confirmAgain: 'Sí, crear el límite',
+    confirmAgainHelp: 'Pulsa otra vez para crearlo',
+    sending: 'Creando…',
+    sendingHelp: 'Esperando al guardián',
+    /** The reminder under the actions: what happens when it runs out. */
+    reminder: (dailyMinutes: string): string =>
+      `Al gastar ${dailyMinutes} se bloquea hasta medianoche. Suavizarlo espera 24 h`,
+    consequence: 'Cuando se agote, no podrás desbloquearlo de ninguna forma hasta medianoche',
+    /** Screen readers: «Limita YouTube a 30 minutos al día, todos los días, modo Estricto». */
+    summary: (targets: string, minutes: string, days: string, mode: string): string =>
+      `Limita ${targets} a ${minutes} al día, ${days}, modo ${mode}`,
+    problem: {
+      no_targets: 'Elige qué limitar: pulsa Editar…',
+      minutes: 'Entre 5 min y 12 h al día',
+      no_days: 'Elige al menos un día',
+      name_long: 'El nombre es demasiado largo',
+    },
+    /** Under the field once created: «Límite creado: YouTube, 30 min al día». */
+    created: (name: string, perDay: string): string => `Límite creado: ${name}, ${perDay}`,
   },
 
   study: {

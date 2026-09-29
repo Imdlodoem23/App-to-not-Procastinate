@@ -44,7 +44,7 @@ type ShowFocus = 'field' | 'confirm' | 'section' | 'onboarding';
 
 /**
  * Where `showMain` must leave the focus (docs/DESKTOP.md §7.2 `ui:visibility`): the card's
- * confirm button when a card is open (Enter confirms), the field when it shows, else the
+ * confirm button when a card (or the «Límite diario» card) is open (Enter confirms), the field when it shows, else the
  * Bloqueo section root (a block hides the field). The onboarding (§15.2, in place of the
  * sections) focuses its step's first action, or the field in its last step.
  */
@@ -52,7 +52,7 @@ function expectedShowFocus(fixture: HarnessFixture): ShowFocus {
   if (onboardingActive(fixture.snapshot)) {
     return fixture.snapshot.prefs.onboarding.step === 'first-block' ? 'field' : 'onboarding';
   }
-  if (fixture.main.card) return 'confirm';
+  if (fixture.main.card || fixture.main.limitCard) return 'confirm';
   const { variant } = fixture.expect;
   if (variant === 'idle' || variant === 'finished' || fixture.main.composer.openWhileActive) {
     return 'field';

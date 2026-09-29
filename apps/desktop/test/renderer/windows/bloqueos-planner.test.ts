@@ -81,6 +81,7 @@ function readyData(id: HarnessStateId): BloqueosData {
     pendingSchedules: {},
     processNames: fixture.fake.processNames,
     settings: { status: 'ready', value: fixture.fake.settings },
+    limits: { status: 'ready', list: fixture.fake.limits },
   };
 }
 
@@ -611,6 +612,16 @@ function visibleKeys(view: BloqueosView): (string | undefined)[] {
           editor.keys.save,
           editor.remove ? editor.keys.remove : undefined,
           editor.keys.cancel,
+        ]
+      : []),
+    ...view.limits.rows.flatMap((r) => [r.editKey, r.cancelKey]),
+    view.limits.canCreate ? BLOQUEOS_KEYS.newLimit : undefined,
+    ...(view.limits.editor
+      ? [
+          ...view.limits.editor.modes.map((m) => m.mnemonic),
+          view.limits.editor.keys.save,
+          view.limits.editor.remove ? view.limits.editor.keys.remove : undefined,
+          view.limits.editor.keys.cancel,
         ]
       : []),
     ...view.exam.tiles.map((t) => t.mnemonic),

@@ -71,6 +71,7 @@ func (e *Engine) stateResponse() GuardianStateResponse {
 		Allowances:      nonNil(e.allowancesWire(W)),
 		RewardsLock:     strPtrOrNil(e.rewardsLock()),
 		NextSchedule:    e.nextScheduleInfo(W),
+		Limits:          e.limitsWire(W, false),
 		Points:          e.pointsSummary(),
 		PendingSettings: nonNil(e.pendingSettingsWire(W)),
 		Recent: RecentInfo{

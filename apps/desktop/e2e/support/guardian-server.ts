@@ -4,8 +4,8 @@
  * client, with the token from `client.json` in a temporary `CENTRATE_DATA_DIR`.
  *
  * It serves `/v1/health`, `/v1/state` (ETag `"s-<stateVersion>"`, 304 on `If-None-Match`),
- * `/v1/events` (an empty log: the first page at once, then empty long polls) and
- * `POST /v1/pairing/code`, with payloads from the harness fixture builders (they pass the
+ * `/v1/events` (an empty log: the first page at once, then empty long polls),
+ * `POST /v1/pairing/code` and daily limits (`GET`/`POST /v1/limits`, `POST /v1/usage`), with payloads from the harness fixture builders (they pass the
  * shared response validators), and records every request's method, path and headers. Like
  * the real guardian, it rejects app-token requests that carry an `Origin` (403
  * `origin_not_allowed`) and wrong tokens (401).
@@ -16,7 +16,13 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo, Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { APP_TOKEN_PREFIX, GUARDIAN_PATHS } from '@centrate/shared/guardian-api';
+import type { DailyLimit, LimitId } from '@centrate/shared/domain';
+import {
+  APP_TOKEN_PREFIX,
+  GUARDIAN_PATHS,
+  isDailyLimitInput,
+  isUsageReportRequest,
+} from '@centrate/shared/guardian-api';
 import { harnessFixture, makeGuardianState, makeHealth } from '../../src/shared/fixtures';
 
 export interface RecordedRequest {
@@ -61,6 +67,22 @@ export async function startGuardianServer(): Promise<GuardianServer> {
   const etag = `"s-${state.stateVersion}"`;
   const bootHealth = makeHealth(started);
   const pairing = harnessFixture('idle').fake.pairingCode;
+  const limits: DailyLimit[] = [];
+
+  const readJson = (req: IncomingMessage): Promise<unknown> =>
+    new Promise((resolve) => {
+      let raw = '';
+      req.on('data', (chunk: Buffer) => {
+        raw += chunk.toString('utf8');
+      });
+      req.on('end', () => {
+        try {
+          resolve(JSON.parse(raw) as unknown);
+        } catch {
+          resolve(null);
+        }
+      });
+    });
 
   const writeClientJson = (): void => {
     const file = join(dataDir, 'client.json');
@@ -125,6 +147,39 @@ export async function startGuardianServer(): Promise<GuardianServer> {
     }
     if (req.method === 'POST' && url.pathname === GUARDIAN_PATHS.pairingCode) {
       return send(res, 201, pairing);
+    }
+    if (req.method === 'GET' && url.pathname === GUARDIAN_PATHS.limits) {
+      return send(res, 200, { limits });
+    }
+    if (req.method === 'POST' && url.pathname === GUARDIAN_PATHS.limits) {
+      const body = await readJson(req);
+      if (!isDailyLimitInput(body)) return error(res, 400, 'validation_failed');
+      const now = new Date().toISOString();
+      const { acknowledgeNoEmergency: _ack, ...definition } = body;
+      const limit: DailyLimit = {
+        ...definition,
+        id: `lim_wire${String(limits.length + 1).padStart(12, '0')}` as LimitId,
+        createdAt: now,
+        updatedAt: now,
+        day: now.slice(0, 10),
+        appliesToday: true,
+        usedTodaySeconds: 0,
+        remainingTodaySeconds: body.dailyMinutes * 60,
+        reachedAt: null,
+        activeBlockId: null,
+        pendingChange: null,
+      };
+      limits.push(limit);
+      return send(res, 201, { limit });
+    }
+    if (req.method === 'POST' && url.pathname === GUARDIAN_PATHS.usage) {
+      const body = await readJson(req);
+      if (!isUsageReportRequest(body)) return error(res, 400, 'validation_failed');
+      return send(res, 200, {
+        day: state.points.today.day,
+        limits: [],
+        serverNow: new Date().toISOString(),
+      });
     }
     return error(res, 404, 'not_found');
   };

@@ -7,7 +7,11 @@
  * Pure module: no Electron import.
  */
 import { isIdOf } from '@centrate/shared/domain';
-import { GUARDIAN_LIMITS, isCreateBlockRequest } from '@centrate/shared/guardian-api';
+import {
+  GUARDIAN_LIMITS,
+  isCreateBlockRequest,
+  isDailyLimitInput,
+} from '@centrate/shared/guardian-api';
 import type { InvokeChannel, InvokeReq } from '../shared/ipc';
 import { PHASE5_INVOKE_GUARDS } from '../shared/ipc-payloads';
 import { isIntentId } from '../shared/ui-state';
@@ -89,6 +93,19 @@ export const INVOKE_GUARDS: { [C in InvokeChannel]: Guard<C> } = {
     exact(req, ['id', 'enabled']) &&
     isIdOf('schedule', req['id']) &&
     typeof req['enabled'] === 'boolean',
+
+  'limits:list': (req): req is null => isNone(req),
+
+  'limits:create': (req): req is InvokeReq<'limits:create'> =>
+    exact(req, ['intentId', 'input']) &&
+    isIntentId(req['intentId']) &&
+    isDailyLimitInput(req['input']),
+
+  'limits:update': (req): req is InvokeReq<'limits:update'> =>
+    exact(req, ['id', 'input']) && isIdOf('limit', req['id']) && isDailyLimitInput(req['input']),
+
+  'limits:delete': (req): req is InvokeReq<'limits:delete'> =>
+    exact(req, ['id']) && isIdOf('limit', req['id']),
 
   'templates:save': (req): req is InvokeReq<'templates:save'> => isTemplateInput(req),
 

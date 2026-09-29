@@ -1,6 +1,12 @@
 import { formatClock, formatDayMonth, type LanguageTags } from '../../i18n/format';
 import type { NamedTime, ParserMessages } from './es';
 
+/** «a and b», «a, b, and c» (en-US serial comma). */
+function joinEn(names: readonly string[]): string {
+  if (names.length <= 2) return names.join(' and ');
+  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1] ?? ''}`;
+}
+
 const TIME_NAMES: Readonly<Record<NamedTime, string>> = { noon: 'noon', midnight: 'midnight' };
 
 /**
@@ -23,4 +29,11 @@ export const PARSER_EN: ParserMessages = {
     tomorrow ? `until ${TIME_NAMES[time]} tomorrow` : `until ${TIME_NAMES[time]}`,
   notUnderstood: (fragments: readonly string[]): string =>
     `Not understood: ${fragments.map((fragment) => `"${fragment}"`).join(', ')}`,
+  perDay: (duration: string): string => `${duration} a day`,
+  weekdayNames: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+  everyDay: 'every day',
+  weekdays: 'weekdays',
+  weekends: 'weekends',
+  dayRange: (from: string, to: string): string => `${from} to ${to}`,
+  dayList: joinEn,
 };

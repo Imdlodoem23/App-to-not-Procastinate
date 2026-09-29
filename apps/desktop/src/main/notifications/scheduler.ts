@@ -25,6 +25,7 @@ import {
   isStale,
   nextFiveMinuteDue,
   noticesFromEvents,
+  withLimitBlockEnds,
   type Notice,
 } from './policy';
 import type { NotificationContent, Notifier } from './types';
@@ -127,7 +128,10 @@ export class NotificationScheduler {
   private flush(): void {
     const now = this.deps.clock.now();
     const state = this.deps.getState();
-    const live = this.queue.filter((n) => !isStale(n, state, now));
+    const live = withLimitBlockEnds(
+      this.queue.filter((n) => !isStale(n, state, now)),
+      state,
+    );
     this.queue = [];
     if (live.length === 0) return;
     if (this.deps.mainFocused()) return;

@@ -111,7 +111,10 @@ export class ExtendQueue {
     }
   }
 
-  extend(blockId: unknown, addMinutes: unknown): CommandResult<{ entryId: string; commitAt: number }> {
+  extend(
+    blockId: unknown,
+    addMinutes: unknown,
+  ): CommandResult<{ entryId: string; commitAt: number }> {
     if (
       !isIdOf('block', blockId) ||
       typeof addMinutes !== 'number' ||
@@ -175,7 +178,8 @@ export class ExtendQueue {
     if (!entry) return Promise.resolve(fail(uiError('rejected', 'not_found', 404)));
     const rt = this.rt(entry.id);
     if (entry.status === 'sending' && rt.sending) return rt.sending;
-    if (entry.status !== 'failed') return Promise.resolve(fail(uiError('rejected', 'not_failed', 409)));
+    if (entry.status !== 'failed')
+      return Promise.resolve(fail(uiError('rejected', 'not_failed', 409)));
     this.disarm(entry.id);
     this.setStatus(entry.id, 'sending', null);
     return this.send(entry.id);
@@ -327,7 +331,11 @@ export class ExtendQueue {
       if (!entry) return ok(null);
       try {
         const response = await withTimeout(
-          client.extendBlock(entry.blockId, { addMinutes: entry.addMinutes }, { idempotencyKey: key }),
+          client.extendBlock(
+            entry.blockId,
+            { addMinutes: entry.addMinutes },
+            { idempotencyKey: key },
+          ),
           clock,
           UI_TIMINGS.requestTimeoutMs,
         );

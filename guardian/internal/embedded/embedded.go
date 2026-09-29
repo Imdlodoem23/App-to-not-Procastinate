@@ -360,6 +360,22 @@ type Limits struct {
 	PhraseMaxLength                int `json:"phraseMaxLength"`
 	NuclearHeartbeatIntervalMs     int `json:"nuclearHeartbeatIntervalMs"`
 	NuclearLivenessMs              int `json:"nuclearLivenessMs"`
+	// Daily limits (ARCHITECTURE §5.10, §10.13).
+	MaxLimits                 int `json:"maxLimits"`
+	LimitNameMaxLength        int `json:"limitNameMaxLength"`
+	LimitMinMinutes           int `json:"limitMinMinutes"`
+	LimitMaxMinutes           int `json:"limitMaxMinutes"`
+	MaxLimitCustomHosts       int `json:"maxLimitCustomHosts"`
+	LimitWarningSeconds       int `json:"limitWarningSeconds"`
+	LimitWeakeningDelayMs     int `json:"limitWeakeningDelayMs"`
+	LimitMaxBlocksPerDay      int `json:"limitMaxBlocksPerDay"`
+	LimitMinBlockMs           int `json:"limitMinBlockMs"`
+	UsageReportIntervalMs     int `json:"usageReportIntervalMs"`
+	UsageFastReportIntervalMs int `json:"usageFastReportIntervalMs"`
+	UsageMaxIntervalMs        int `json:"usageMaxIntervalMs"`
+	UsageMaxItems             int `json:"usageMaxItems"`
+	UsageSlackMs              int `json:"usageSlackMs"`
+	UsageIdleSeconds          int `json:"usageIdleSeconds"`
 }
 
 // ResponseLimits mirrors RESPONSE_LIMITS: the size caps of the TS response validators,
@@ -372,6 +388,7 @@ type ResponseLimits struct {
 	Punishments int `json:"punishments"`
 	Allowances  int `json:"allowances"`
 	Schedules   int `json:"schedules"`
+	Limits      int `json:"limits"`
 }
 
 // EndpointSpec mirrors EndpointSpec: one route of the guardian API.

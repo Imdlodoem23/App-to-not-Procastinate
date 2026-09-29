@@ -422,18 +422,20 @@ export interface TargetScan {
  * what it consumes. `preset` are targets found by earlier passes (e.g. «20 minutos» read
  * as the newspaper). Weak aliases («x», «max», «lol», «video»…) count only where they can
  * only be a target (see `isAnchored`); having a block word somewhere else in the phrase is
- * not enough.
+ * not enough. `anchors` are words already read that anchor weak aliases like a block word
+ * («limita X a 30 min al día»).
  */
 export function scanTargets(
   tokens: readonly Token[],
   used: boolean[],
   preset: readonly TargetHit[],
   excluded: readonly boolean[] = [],
+  anchors: readonly boolean[] = [],
 ): TargetScan {
   const nonTarget = nonTargetMask(tokens);
 
   // Block words that can anchor a weak alias (see `anchorsWeakAt`).
-  const triggers: boolean[] = tokens.map(() => false);
+  const triggers: boolean[] = tokens.map((_, k) => anchors[k] === true);
   let hasTrigger = false;
   for (let k = 0; k < tokens.length; k += 1) {
     if (!used[k] && !excluded[k] && isTriggerAt(tokens, k)) {

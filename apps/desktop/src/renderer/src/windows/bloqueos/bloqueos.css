@@ -380,4 +380,55 @@
     min-width: 0;
     overflow-wrap: anywhere;
   }
+
+  /* «Límites diarios»: icon + «YouTube · 30 min al día», then today's bar and its words. */
+  .blq-limit-row {
+    align-items: flex-start;
+    padding: var(--space-2) 0;
+  }
+
+  .blq-limit-title {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .blq-limit-icon {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: var(--radius-sm);
+    background: var(--tile-2);
+    color: var(--fg);
+    font-size: var(--font-size-11);
+    line-height: var(--line-height-11);
+    font-weight: var(--font-weight-semibold);
+    object-fit: contain;
+  }
+
+  .blq-limit-desc {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding-top: var(--space-1);
+    padding-left: calc(20px + var(--space-2));
+  }
+
+  .blq-limit-bar {
+    max-width: 240px;
+  }
+
+  .blq-limit-line {
+    display: block;
+  }
+
+  /* «Cancelar cambio» is longer than «Editar». */
+  .blq-row-actions > .c-tile.blq-tile-wide {
+    width: auto;
+    min-width: 88px;
+  }
 }

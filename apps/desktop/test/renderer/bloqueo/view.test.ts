@@ -79,7 +79,10 @@ describe('deriveBloqueoView over every fixture', () => {
   });
 
   it.each(HARNESS_STATE_IDS)('%s: every header title keeps «Cosa:»', (id) => {
-    for (const title of view(id).header.titles) expect(title).toMatch(/^(Bloqueo|Castigo): \S/);
+    // A limit block's «Cosa» is its limit: «Límite diario de YouTube: bloqueado hasta las 00:00».
+    for (const title of view(id).header.titles) {
+      expect(title).toMatch(/^(Bloqueo|Castigo|Límite(?: diario)?(?: de [^:]+)?): \S/);
+    }
   });
 });
 

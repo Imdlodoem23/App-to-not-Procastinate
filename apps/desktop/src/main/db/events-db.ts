@@ -6,7 +6,9 @@
  * every page is inserted in **one** transaction together with the cursor (exactly once,
  * crash-safe); a `reset` page (new epoch: data deletion, unreadable log, or a first sync)
  * wipes the local copy first. Unknown and malformed events are stored raw and still move
- * the cursor. Statistics (Phase 1: the `daily_summary` view) are derived from `events`.
+ * the cursor. Statistics (Phase 1: the `daily_summary` view) are derived from `events`; the
+ * minutes used per daily limit and local day (`limit_days`, schema v2) are kept from the
+ * guardian's `limit_day_closed` events as they arrive (ARCHITECTURE §10.13).
  *
  * A database that cannot be opened or migrated is renamed to `.corrupt-<ts>` and recreated:
  * the guardian still holds the log, so a bad local copy never stops the app. Tests use
@@ -20,7 +22,7 @@ import { isKnownEvent } from '@centrate/shared/domain';
 import type { EventsResponse } from '@centrate/shared/guardian-api';
 
 export const EVENTS_DB_FILE = 'centrate.sqlite';
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export interface SyncCursor {
   /** `null` before the first page: the guardian answers with a `reset` from its epoch start. */
@@ -43,6 +45,8 @@ export interface EventsDb {
   eventCount(): number;
   /** Per local day: points, XP, completed blocks, attempts (for later statistics). */
   dailySummary(): DailySummaryRow[];
+  /** Minutes used per daily limit and local day (`limit_day_closed`), oldest day first. */
+  limitDays(range?: { from?: string; to?: string }): LimitDayRow[];
   close(): void;
   /** Where it lives (`:memory:` in tests and the harness). */
   readonly path: string;
@@ -56,6 +60,21 @@ export interface DailySummaryRow {
   attempts: number;
   events: number;
 }
+
+/** One closed day of a daily limit («YouTube: 34 of 30 min on 2026-09-28, used up»). */
+export interface LimitDayRow {
+  limitId: string;
+  name: string;
+  day: string;
+  dailyMinutes: number;
+  usedSeconds: number;
+  /** The limit applied that day (enabled and the weekday among its days). */
+  applied: boolean;
+  reached: boolean;
+}
+
+const LIMIT_DAY_COLUMNS =
+  'epoch, seq, limit_id, name, day, daily_minutes, used_seconds, applied, reached';
 
 const MIGRATIONS: readonly string[] = [
   // v1
@@ -89,7 +108,54 @@ const MIGRATIONS: readonly string[] = [
       FROM events
      GROUP BY day;
   `,
+  // v2: daily limits (one row per limit and local day; a later event for the same pair wins).
+  `
+  CREATE TABLE IF NOT EXISTS limit_days (
+    epoch TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    limit_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    day TEXT NOT NULL,
+    daily_minutes INTEGER NOT NULL,
+    used_seconds INTEGER NOT NULL,
+    applied INTEGER NOT NULL,
+    reached INTEGER NOT NULL,
+    PRIMARY KEY (limit_id, day)
+  ) STRICT;
+  CREATE INDEX IF NOT EXISTS limit_days_day ON limit_days(day);
+  INSERT OR REPLACE INTO limit_days (${LIMIT_DAY_COLUMNS})
+    SELECT epoch, seq,
+           json_extract(raw, '$.data.limitId'),
+           json_extract(raw, '$.data.name'),
+           json_extract(raw, '$.data.day'),
+           json_extract(raw, '$.data.dailyMinutes'),
+           json_extract(raw, '$.data.usedSeconds'),
+           CASE WHEN json_extract(raw, '$.data.applied') THEN 1 ELSE 0 END,
+           CASE WHEN json_extract(raw, '$.data.reached') THEN 1 ELSE 0 END
+      FROM events
+     WHERE type = 'limit_day_closed' AND status = 'known'
+     ORDER BY epoch, seq;
+  `,
 ];
+
+/** The `limit_days` row of a `limit_day_closed` event, or `null` for anything else. */
+export function limitDayOf(
+  event: WireEvent,
+): (LimitDayRow & { epoch: string; seq: number }) | null {
+  if (!isKnownEvent(event) || event.type !== 'limit_day_closed') return null;
+  const d = event.data;
+  return {
+    epoch: event.epoch,
+    seq: event.seq,
+    limitId: d.limitId,
+    name: d.name,
+    day: d.day,
+    dailyMinutes: Math.trunc(d.dailyMinutes),
+    usedSeconds: Math.trunc(d.usedSeconds),
+    applied: d.applied,
+    reached: d.reached,
+  };
+}
 
 export function eventStatus(event: WireEvent): 'known' | 'unknown' | 'malformed' {
   if ('malformed' in event) return 'malformed';
@@ -181,6 +247,14 @@ function wrap(db: DatabaseSync, path: string): EventsDb {
   const selectDaily = db.prepare(
     'SELECT day, points, xp, blocks_completed, attempts, events FROM daily_summary ORDER BY day',
   );
+  const upsertLimitDay = db.prepare(
+    `INSERT OR REPLACE INTO limit_days (${LIMIT_DAY_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  const deleteLimitDays = db.prepare('DELETE FROM limit_days');
+  const selectLimitDays = db.prepare(
+    'SELECT limit_id, name, day, daily_minutes, used_seconds, applied, reached FROM limit_days ' +
+      'WHERE day >= ? AND day <= ? ORDER BY day, limit_id',
+  );
 
   function transaction<T>(fn: () => T): T {
     db.exec('BEGIN IMMEDIATE');
@@ -205,6 +279,7 @@ function wrap(db: DatabaseSync, path: string): EventsDb {
       return transaction(() => {
         if (page.reset) {
           deleteEvents.run();
+          deleteLimitDays.run();
         }
         let inserted = 0;
         for (const event of page.events) {
@@ -221,6 +296,20 @@ function wrap(db: DatabaseSync, path: string): EventsDb {
             JSON.stringify(event),
           );
           inserted += Number(r.changes);
+          const row = Number(r.changes) > 0 ? limitDayOf(event) : null;
+          if (row) {
+            upsertLimitDay.run(
+              row.epoch,
+              row.seq,
+              row.limitId,
+              row.name,
+              row.day,
+              row.dailyMinutes,
+              row.usedSeconds,
+              row.applied ? 1 : 0,
+              row.reached ? 1 : 0,
+            );
+          }
         }
         upsertCursor.run(page.epoch, page.lastSeq);
         return { inserted, reset: page.reset };
@@ -229,6 +318,7 @@ function wrap(db: DatabaseSync, path: string): EventsDb {
     wipe(): void {
       transaction(() => {
         deleteEvents.run();
+        deleteLimitDays.run();
         deleteCursor.run();
       });
     },
@@ -244,6 +334,20 @@ function wrap(db: DatabaseSync, path: string): EventsDb {
         blocksCompleted: Number(r['blocks_completed'] ?? 0),
         attempts: Number(r['attempts'] ?? 0),
         events: Number(r['events'] ?? 0),
+      }));
+    },
+    limitDays(range = {}): LimitDayRow[] {
+      const rows = selectLimitDays.all(range.from ?? '', range.to ?? '9999-12-31') as Array<
+        Record<string, unknown>
+      >;
+      return rows.map((r) => ({
+        limitId: String(r['limit_id']),
+        name: String(r['name']),
+        day: String(r['day']),
+        dailyMinutes: Number(r['daily_minutes'] ?? 0),
+        usedSeconds: Number(r['used_seconds'] ?? 0),
+        applied: Number(r['applied'] ?? 0) === 1,
+        reached: Number(r['reached'] ?? 0) === 1,
       }));
     },
     close(): void {
@@ -278,6 +382,7 @@ export function createNullEventsDb(): EventsDb {
     },
     eventCount: () => count,
     dailySummary: () => [],
+    limitDays: () => [],
     close: () => undefined,
   };
 }

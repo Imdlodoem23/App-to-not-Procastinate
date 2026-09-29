@@ -19,6 +19,9 @@ const (
 	KindSchedule   = "schedule"
 	KindPunishment = "punishment"
 	KindRecovered  = "recovered"
+	// KindLimit is a block a daily limit materialized (§5.10): guardian-only, never
+	// earning. Extension tokens see it as manual with limitId set (§8.4).
+	KindLimit = "limit"
 
 	ModeNormal   = "normal"
 	ModeStrict   = "strict"
@@ -74,6 +77,7 @@ type Block struct {
 	ExtendedMinutes   int64          `json:"extendedMinutes"`
 	ScheduleID        *string        `json:"scheduleId"`
 	PunishmentID      *string        `json:"punishmentId"`
+	LimitID           *string        `json:"limitId"`
 	AttemptsCounted   int64          `json:"attemptsCounted"`
 	EmergencyEligible bool           `json:"emergencyEligible"`
 	PointsDelta       *int64         `json:"pointsDelta"`
@@ -234,6 +238,9 @@ type EpochKeptState struct {
 	Settings                GuardianSettings       `json:"settings"`
 	PendingSettings         []PendingSettingChange `json:"pendingSettings"`
 	MaterializedOccurrences []string               `json:"materializedOccurrences"`
+	// Limits is every daily limit with its pending change and today's usage (absent in
+	// epochs started before daily limits: read it as empty).
+	Limits []DailyLimit `json:"limits"`
 }
 
 // ---------------------------------------------------------------------------------------
@@ -356,6 +363,7 @@ type GuardianStateResponse struct {
 	Allowances      []RewardAllowance      `json:"allowances"`
 	RewardsLock     *string                `json:"rewardsLock"`
 	NextSchedule    *NextScheduleInfo      `json:"nextSchedule"`
+	Limits          []DailyLimit           `json:"limits"`
 	Points          PointsSummary          `json:"points"`
 	PendingSettings []PendingSettingChange `json:"pendingSettings"`
 	Recent          RecentInfo             `json:"recent"`

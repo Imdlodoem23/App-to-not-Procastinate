@@ -8,6 +8,7 @@ import {
   AppWindow,
   BookOpen,
   Bookmark,
+  CalendarDays,
   Clapperboard,
   Clock,
   ClockPlus,
@@ -16,6 +17,7 @@ import {
   Gamepad2,
   Globe,
   GraduationCap,
+  Hourglass,
   Lock,
   MessageCircle,
   Newspaper,
@@ -84,6 +86,10 @@ export function chipIcon(kind: ChipKind, categoryId: CategoryId | null): LucideI
       return Clock;
     case 'task':
       return BookOpen;
+    case 'daily':
+      return Hourglass;
+    case 'days':
+      return CalendarDays;
     case 'service':
     case 'more':
       return null;

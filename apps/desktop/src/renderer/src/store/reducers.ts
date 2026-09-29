@@ -9,6 +9,7 @@
  * (`app/commands.ts`).
  */
 import type { HarnessLoad, InitPayload } from '../../../shared/ipc';
+import { newLimitEditor } from '../../../shared/limits';
 import {
   draftFromSeed,
   initialDetailLocal,
@@ -70,6 +71,19 @@ export function detailForRequest(
   switch (request.name) {
     case 'bloqueos':
       if (!request.seed) return base;
+      // A daily-limit phrase («Editar…» on the «Límite diario» card): the limit editor, seeded;
+      // the block form keeps what it had.
+      if (request.focus === 'limits') {
+        return {
+          ...base,
+          bloqueos: {
+            ...base.bloqueos,
+            schedule: null,
+            limit: newLimitEditor({ seed: request.seed }),
+            seedPhrase: request.seed.phrase,
+          },
+        };
+      }
       return {
         ...base,
         bloqueos: {

@@ -9,7 +9,7 @@ import type { ChipView } from './chips';
 import { ChipList } from './ChipList';
 import { BLOQUEO } from './i18n';
 import { templateIcon } from './icons';
-import type { BloqueoActions, BloqueoRefs } from './useBloqueo';
+import type { BloqueoActions, BloqueoNotice, BloqueoRefs } from './useBloqueo';
 import { BLOQUEO_FIELD_ID, BLOQUEO_ROWS, type ComposerView, type FieldLine } from './view';
 
 const LINE_ID = 'bloqueo-field-line';
@@ -96,8 +96,21 @@ function ChipsLine(props: {
   );
 }
 
-function FieldLineView(props: { line: FieldLine; actions: BloqueoActions }): React.JSX.Element {
-  const { line, actions } = props;
+function FieldLineView(props: {
+  line: FieldLine;
+  actions: BloqueoActions;
+  notice: BloqueoNotice | null;
+}): React.JSX.Element {
+  const { line, actions, notice } = props;
+  if (line.kind === 'hint' && notice?.scope === 'composer') {
+    return (
+      <div id={LINE_ID} className="bq-field-line" data-fit="">
+        <span className="bq-note" data-tone={notice.tone}>
+          {notice.text}
+        </span>
+      </div>
+    );
+  }
   if (line.kind === 'hint') {
     return (
       <div id={LINE_ID} className="bq-field-line" data-fit="">
@@ -112,6 +125,8 @@ export function Composer(props: {
   composer: ComposerView;
   actions: BloqueoActions;
   refs: BloqueoRefs;
+  /** «Límite creado: …» replaces the hint for a moment. */
+  notice?: BloqueoNotice | null;
 }): React.JSX.Element {
   const { composer, actions, refs } = props;
   // The chips line only describes the field (read on focus); once typing pauses, a polite
@@ -138,7 +153,7 @@ export function Composer(props: {
           actions.enter();
         }}
       />
-      <FieldLineView line={composer.line} actions={actions} />
+      <FieldLineView line={composer.line} actions={actions} notice={props.notice ?? null} />
       <span className="sr-only" aria-live="polite" aria-atomic="true">
         {understood}
       </span>

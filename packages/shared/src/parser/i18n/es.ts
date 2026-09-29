@@ -28,6 +28,26 @@ export interface ParserMessages {
    */
   untilNamed: ((time: NamedTime, tomorrow: boolean) => string) | null;
   notUnderstood: (fragments: readonly string[]) => string;
+  /** Daily allowance of a limit: «30 min al día», «1 h 30 min al día». */
+  perDay: (duration: string) => string;
+  /** Weekday names, Monday first (index 0 = ISO weekday 1). */
+  weekdayNames: readonly [string, string, string, string, string, string, string];
+  /** The seven days: «todos los días». */
+  everyDay: string;
+  /** Monday to Friday: «entre semana». */
+  weekdays: string;
+  /** Saturday and Sunday: «fines de semana». */
+  weekends: string;
+  /** Three or more days in a row: «de lunes a jueves». */
+  dayRange: (from: string, to: string) => string;
+  /** Other sets of days: «lunes», «lunes y miércoles», «lunes, miércoles y viernes». */
+  dayList: (names: readonly string[]) => string;
+}
+
+/** «a, b y c» (Spanish, no serial comma). */
+function joinEs(names: readonly string[]): string {
+  if (names.length <= 1) return names.join('');
+  return `${names.slice(0, -1).join(', ')} y ${names[names.length - 1] ?? ''}`;
 }
 
 /** Spanish strings for parser chips and the «No he entendido» line. */
@@ -43,4 +63,11 @@ export const PARSER_ES: ParserMessages = {
   untilNamed: null,
   notUnderstood: (fragments: readonly string[]): string =>
     `No he entendido: ${fragments.map((fragment) => `"${fragment}"`).join(', ')}`,
+  perDay: (duration: string): string => `${duration} al día`,
+  weekdayNames: ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'],
+  everyDay: 'todos los días',
+  weekdays: 'entre semana',
+  weekends: 'fines de semana',
+  dayRange: (from: string, to: string): string => `de ${from} a ${to}`,
+  dayList: joinEs,
 };

@@ -47,7 +47,11 @@ export function createManualClock(startMs: number): ManualClock {
     let best: ManualTimer | null = null;
     for (const timer of timers.values()) {
       if (timer.dueAt > limit) continue;
-      if (best === null || timer.dueAt < best.dueAt || (timer.dueAt === best.dueAt && timer.id < best.id)) {
+      if (
+        best === null ||
+        timer.dueAt < best.dueAt ||
+        (timer.dueAt === best.dueAt && timer.id < best.id)
+      ) {
         best = timer;
       }
     }

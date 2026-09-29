@@ -75,6 +75,18 @@ func (e *Engine) applyEvent(ev *store.Event) error {
 		err = e.applyScheduleUpdated(ev)
 	case EvScheduleDeleted:
 		err = e.applyScheduleDeleted(ev)
+	case EvLimitCreated:
+		err = e.applyLimitCreated(ev)
+	case EvLimitUpdated:
+		err = e.applyLimitUpdated(ev)
+	case EvLimitDeleted:
+		err = e.applyLimitDeleted(ev)
+	case EvLimitWarning:
+		err = e.applyLimitWarning(ev)
+	case EvLimitReached:
+		err = e.applyLimitReached(ev)
+	case EvLimitDayClosed:
+		err = e.applyLimitDayClosed(ev)
 	case EvSettingsChanged:
 		err = e.applySettingsChanged(ev)
 	case EvExtensionPaired:
@@ -172,6 +184,7 @@ func (e *Engine) applyEpochStarted(ev *store.Event) error {
 	e.restoreKeptAllowances(k.Allowances)
 	e.restoreKeptSchedules(k.Schedules, k.MaterializedOccurrences)
 	e.restoreKeptPending(k.PendingSettings)
+	e.restoreKeptLimits(k.Limits, ev)
 	e.lastCountKey = map[string]attemptMemo{}
 	return nil
 }
@@ -236,7 +249,7 @@ func (e *Engine) recFromWire(b Block) (*blockRec, error) {
 		ID: b.ID, Kind: b.Kind, Mode: b.Mode, Status: b.Status,
 		Targets: b.Targets.normalized(), WhitelistOnly: b.WhitelistOnly, Allow: b.Allow.normalized(), Reason: b.Reason,
 		CreatedAt: times[0], StartsAt: times[1], EndsAt: times[2], OriginalEndsAt: times[3],
-		ExtendedMinutes: b.ExtendedMinutes, ScheduleID: b.ScheduleID, PunishmentID: b.PunishmentID,
+		ExtendedMinutes: b.ExtendedMinutes, ScheduleID: b.ScheduleID, PunishmentID: b.PunishmentID, LimitID: b.LimitID,
 		AttemptsCounted: b.AttemptsCounted, PointsDelta: b.PointsDelta,
 		Rank: e.state.NextRank,
 	}
@@ -279,8 +292,11 @@ func (e *Engine) applyBlockCreated(ev *store.Event) error {
 		return err
 	}
 	e.state.Blocks = append(e.state.Blocks, rec)
-	if d.Source == "schedule" {
+	switch d.Source {
+	case "schedule":
 		e.markScheduleOccurrence(rec, atMs(ev))
+	case "limit":
+		e.markLimitBlock(rec, ev)
 	}
 	return nil
 }

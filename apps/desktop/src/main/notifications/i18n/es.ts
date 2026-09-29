@@ -37,6 +37,20 @@ export const NOTIFY_ES = {
     also: (count: number, points: string): string =>
       count === 1 ? `1 intento (${points})` : `${count} intentos (${points})`,
   },
+  /**
+   * Daily limits («YouTube máximo 30 minutos al día»). The titles come from the shared words
+   * («Te quedan 5 min de YouTube hoy», «Has gastado tus 30 min de YouTube de hoy»).
+   */
+  limits: {
+    /** Under «Has gastado…»: «Bloqueado hasta las 00:00». */
+    reachedBody: (clock: string): string => `Bloqueado hasta las ${clock}`,
+    reachedTitleMany: (count: number): string => `${count} límites diarios agotados`,
+    reachedAlso: (count: number): string =>
+      count === 1 ? 'un límite diario agotado' : `${count} límites diarios agotados`,
+    warningTitleMany: (count: number): string => `${count} límites diarios a punto de agotarse`,
+    warningAlso: (count: number): string =>
+      count === 1 ? 'un límite diario a punto de agotarse' : `${count} límites a punto de agotarse`,
+  },
   /** «También: 2 intentos (−30 puntos)». */
   also: (parts: readonly string[]): string => `También: ${parts.join(', ')}`,
   closeHint: {

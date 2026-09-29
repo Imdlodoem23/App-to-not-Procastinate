@@ -308,16 +308,21 @@ describe('constants', () => {
     const L = GUARDIAN_LIMITS;
     const catalogDomains = SERVICES.reduce((n, service) => n + service.domains.length, 0);
     // The hosts section (and every domain list) holds the custom budgets plus the catalog.
-    expect(L.maxActiveCustomHosts + L.maxScheduleCustomHosts + catalogDomains).toBeLessThan(
-      L.hostsMaxDomains,
-    );
+    expect(
+      L.maxActiveCustomHosts + L.maxScheduleCustomHosts + L.maxLimitCustomHosts + catalogDomains,
+    ).toBeLessThan(L.hostsMaxDomains);
     expect(L.hostsMaxDomains).toBeLessThan(RESPONSE_LIMITS.domains);
     // One block's custom domains (each expands to at most 2 hosts) always fit the budget.
     expect(L.maxCustomDomains * 2).toBeLessThanOrEqual(L.maxActiveCustomHosts);
-    // Active blocks: user blocks + one occurrence per schedule + stacked punishments.
-    expect(L.maxActiveBlocks + L.maxSchedules + RESPONSE_LIMITS.punishments).toBeLessThanOrEqual(
-      RESPONSE_LIMITS.blocks,
-    );
+    // Active blocks: user blocks + one occurrence per schedule + the limit blocks of the
+    // day + stacked punishments.
+    expect(
+      L.maxActiveBlocks +
+        L.maxSchedules +
+        L.maxLimits * L.limitMaxBlocksPerDay +
+        RESPONSE_LIMITS.punishments,
+    ).toBeLessThanOrEqual(RESPONSE_LIMITS.blocks);
+    expect(L.maxLimits).toBeLessThanOrEqual(RESPONSE_LIMITS.limits);
     expect(L.unverifiedCompletionsMax + 1).toBeLessThanOrEqual(L.maxBatchEvents);
     expect(L.maxBatchEvents).toBeLessThanOrEqual(L.eventsPageMax);
     expect(L.allowanceMaxMinutes).toBeGreaterThanOrEqual(
@@ -372,8 +377,8 @@ describe('route table', () => {
     expect(GUARDIAN_PATHS.blockExtend('blk_a/b' as BlockId)).toBe('/v1/blocks/blk_a%2Fb/extend');
   });
 
-  it('has 40 routes; only the test clock is test-only', () => {
-    expect(GUARDIAN_ENDPOINTS).toHaveLength(40);
+  it('has 45 routes; only the test clock is test-only', () => {
+    expect(GUARDIAN_ENDPOINTS).toHaveLength(45);
     expect(GUARDIAN_ENDPOINTS.filter((e) => e.testOnly).map((e) => e.id)).toEqual(['testClock']);
     expect(GUARDIAN_ENDPOINTS.map((e) => e.id)).toEqual(
       expect.arrayContaining(['getStudySession', 'nuclearHeartbeat']),

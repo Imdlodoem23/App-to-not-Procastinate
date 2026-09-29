@@ -54,6 +54,7 @@ type DeleteDataResponse struct {
 	KeptBlockIDs      []string `json:"keptBlockIds"`
 	KeptPunishmentIDs []string `json:"keptPunishmentIds"`
 	KeptScheduleIDs   []string `json:"keptScheduleIds"`
+	KeptLimitIDs      []string `json:"keptLimitIds"`
 }
 
 // DeleteData is POST /v1/data/delete (idempotent).
@@ -106,7 +107,7 @@ func (e *Engine) deleteData(req DeleteDataRequest) (DeleteDataResponse, error) {
 
 	res := DeleteDataResponse{
 		Epoch: e.state.Epoch, CarryOverBalance: carry,
-		KeptBlockIDs: []string{}, KeptPunishmentIDs: []string{}, KeptScheduleIDs: []string{},
+		KeptBlockIDs: []string{}, KeptPunishmentIDs: []string{}, KeptScheduleIDs: []string{}, KeptLimitIDs: []string{},
 	}
 	for _, b := range kept.Blocks {
 		res.KeptBlockIDs = append(res.KeptBlockIDs, b.ID)
@@ -116,6 +117,9 @@ func (e *Engine) deleteData(req DeleteDataRequest) (DeleteDataResponse, error) {
 	}
 	for _, s := range kept.Schedules {
 		res.KeptScheduleIDs = append(res.KeptScheduleIDs, s.ID)
+	}
+	for _, l := range kept.Limits {
+		res.KeptLimitIDs = append(res.KeptLimitIDs, l.ID)
 	}
 	return res, nil
 }

@@ -18,9 +18,11 @@
  */
 import type {
   BlockId,
+  DailyLimit,
   EmergencyId,
   EmergencyUnlock,
   GuardianSettings,
+  LimitId,
   PointsSummary,
   Schedule,
   ScheduleId,
@@ -28,6 +30,7 @@ import type {
 import type {
   ConfirmEmergencyResponse,
   CreateBlockRequest,
+  DailyLimitInput,
   DeleteDataResponse,
   EmergencyPreviewResponse,
   PairingCodeResponse,
@@ -168,6 +171,24 @@ export interface InvokeContract {
     req: { id: ScheduleId; enabled: boolean };
     res: CommandResult<Schedule>;
   };
+
+  /** Bloqueos «Límites diarios»: GET /v1/limits (exact usage, creation order). */
+  'limits:list': { req: null; res: CommandResult<DailyLimit[]> };
+  /**
+   * The main window's «Límite diario» card and Bloqueos «Nuevo límite» (POST /v1/limits,
+   * `Idempotency-Key: intentId`). Applies at once.
+   */
+  'limits:create': {
+    req: { intentId: IntentId; input: DailyLimitInput };
+    res: CommandResult<DailyLimit>;
+  };
+  /**
+   * Full replace (PUT): stricter parts apply at once, weaker ones wait 24 h in
+   * `pendingChange`; re-sending the effective definition cancels a pending change.
+   */
+  'limits:update': { req: { id: LimitId; input: DailyLimitInput }; res: CommandResult<DailyLimit> };
+  /** DELETE: never at once, a pending deletion (`pendingChange.definition: null`). */
+  'limits:delete': { req: { id: LimitId }; res: CommandResult<DailyLimit> };
 
   'templates:save': { req: TemplateInput; res: CommandResult<BlockTemplate[]> };
   'templates:delete': { req: { id: string }; res: CommandResult<BlockTemplate[]> };
@@ -381,6 +402,10 @@ const INVOKE_RECORD = {
   'emergency:confirm': true,
   'schedules:list': true,
   'schedules:set-enabled': true,
+  'limits:list': true,
+  'limits:create': true,
+  'limits:update': true,
+  'limits:delete': true,
   'templates:save': true,
   'templates:delete': true,
   'prefs:set': true,

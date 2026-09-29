@@ -30,6 +30,15 @@ export const NOTIFY_EN: NotifyMessages = {
     also: (count: number, points: string): string =>
       count === 1 ? `1 attempt (${points})` : `${count} attempts (${points})`,
   },
+  limits: {
+    reachedBody: (clock: string): string => `Blocked until ${clock}`,
+    reachedTitleMany: (count: number): string => `${count} daily limits used up`,
+    reachedAlso: (count: number): string =>
+      count === 1 ? 'one daily limit used up' : `${count} daily limits used up`,
+    warningTitleMany: (count: number): string => `${count} daily limits almost used up`,
+    warningAlso: (count: number): string =>
+      count === 1 ? 'one daily limit almost used up' : `${count} limits almost used up`,
+  },
   also: (parts: readonly string[]): string => `Also: ${parts.join(', ')}`,
   closeHint: {
     title: 'Céntrate is still in the tray',

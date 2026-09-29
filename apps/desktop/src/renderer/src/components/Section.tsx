@@ -59,6 +59,8 @@ export function SectionHeader(props: SectionHeaderProps): React.JSX.Element {
 export interface SectionProps extends SectionHeaderProps {
   children?: ReactNode;
   className?: string;
+  /** `aria-describedby` of the section root (read when a door focuses it). */
+  describedBy?: string;
 }
 
 /**
@@ -66,10 +68,11 @@ export interface SectionProps extends SectionHeaderProps {
  * hides «¿Qué quieres hacer?».
  */
 export function Section(props: SectionProps): React.JSX.Element {
-  const { children, className, ...header } = props;
+  const { children, className, describedBy, ...header } = props;
   return (
     <section
       aria-labelledby={`${header.id}-title`}
+      aria-describedby={describedBy}
       data-section={header.id}
       tabIndex={-1}
       className={className ? `c-section ${className}` : 'c-section'}

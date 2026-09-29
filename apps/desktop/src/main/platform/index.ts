@@ -757,6 +757,7 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
   }
 
   let unsubscribe: (() => void) | null = null;
+  let offLimitAlert: (() => void) | null = null;
 
   async function openSurface(kind: SurfaceKind): Promise<void> {
     forced.add(kind);
@@ -777,6 +778,14 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
     start(): void {
       if (unsubscribe) return;
       unsubscribe = core.subscribe(onSnapshot);
+      // Daily limits: «Te quedan 5 min de YouTube hoy» / «Has gastado tus 30 min…» (big notice).
+      offLimitAlert = core.onLimitAlert((alert) => {
+        showOsd({
+          text: alert.text,
+          icon: alert.kind === 'reached' ? 'block' : 'timer',
+          tone: alert.kind === 'reached' ? 'red' : 'orange',
+        });
+      });
       onSnapshot(core.getSnapshot());
       updater?.start();
     },
@@ -807,6 +816,8 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
       disposed = true;
       unsubscribe?.();
       unsubscribe = null;
+      offLimitAlert?.();
+      offLimitAlert = null;
       if (osdTimer) clearTimeout(osdTimer);
       if (progressTimer) clearTimeout(progressTimer);
       if (nuclearTimer) clearTimeout(nuclearTimer);

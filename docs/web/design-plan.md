@@ -451,16 +451,17 @@ Sin titular visible (`aria-label` = `numbers.ariaLabel`). Tres bloques apilados,
 ```text
 1440: 5 columnas × 2 filas, 24 entre columnas, 64 entre filas
 | [ 80 ]        [ 80 ]        [ 80 ]        [ 80 ]        [ 80 ]
-| Pomodoro      Horarios      Modo examen   Estadísticas  Sonidos        17/600
-| 25/5, 50/10   Bloqueos que  Solo tus webs Tu tiempo     Lluvia, ruido  17, secundario
-| o a tu medida se repiten…   de estudio…   concentrado…  blanco o lo-fi…
-| [ 80 ]  Mini temporizador · Extensión del navegador · Tu motivo · Recordatorios · Logros
+| Pomodoro      Horarios      Límites       Modo examen   Estadísticas   17/600
+|                             diarios
+| 25/5, 50/10   Bloqueos que  Como YouTube  Solo tus webs Tu tiempo      17, secundario
+| o a tu medida se repiten…   30 minutos…   de estudio…   concentrado…
+| [ 80 ]  Sonidos · Extensión del navegador · Tu motivo · Recordatorios · Logros
 
 1068–735: 2 columnas, icono de 72.
 375: 1 columna, filas con el icono (56) a la izquierda y nombre + frase a la derecha, 32 entre filas.
 ```
 
-Iconos: formas de Lucide (licencia ISC, apuntar en `ASSET-LICENSES.json`) dibujadas a 80 px, `stroke-width: 1.25` en su viewBox de 24, `currentColor` = `--text`. Sin contenedor, sin fondo de color. Propuesta: `timer`, `calendar-clock`, `graduation-cap`, `chart-column`, `audio-lines`, `picture-in-picture-2`, `puzzle`, `quote`, `bell`, `trophy`.
+Iconos: formas de Lucide (licencia ISC, apuntar en `ASSET-LICENSES.json`) dibujadas a 80 px, `stroke-width: 1.25` en su viewBox de 24, `currentColor` = `--text`. Sin contenedor, sin fondo de color. Propuesta: `timer`, `calendar-clock`, `hourglass`, `graduation-cap`, `chart-column`, `audio-lines`, `puzzle`, `quote`, `bell`, `trophy` (el mini temporizador, con `picture-in-picture-2`, pasó a la reserva al llegar los límites diarios).
 
 ### 4.10 Preguntas frecuentes (SECTIONS) · `alt`
 

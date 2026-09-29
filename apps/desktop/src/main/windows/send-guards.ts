@@ -113,10 +113,22 @@ export function isBlockDraft(value: unknown): value is BlockDraft {
   );
 }
 
+/** 1–7 distinct ISO weekdays. */
+function isWeekdayList(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length >= 1 &&
+    value.length <= 7 &&
+    new Set(value).size === value.length &&
+    value.every((d) => Number.isInteger(d) && (d as number) >= 1 && (d as number) <= 7)
+  );
+}
+
 export function isDraftSeed(value: unknown): value is DraftSeed {
   return (
     isRecord(value) &&
-    hasOnlyKeys(value, ['phrase', 'targets', 'end', 'mode', 'reason']) &&
+    hasOnlyKeys(value, ['phrase', 'targets', 'end', 'mode', 'reason', 'days']) &&
+    (value['days'] === undefined || isWeekdayList(value['days'])) &&
     (value['phrase'] === null || isShortString(value['phrase'], MAX_TEXT)) &&
     (value['targets'] === null || isTargetSpecShape(value['targets'])) &&
     (value['end'] === null || isDraftEnd(value['end'])) &&

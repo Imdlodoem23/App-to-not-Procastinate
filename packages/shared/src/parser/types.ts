@@ -1,14 +1,22 @@
 import type { CategoryId } from '../catalog';
+import type { IsoWeekday } from '../domain';
 import type { LanguageTags } from '../i18n/format';
 import type { Locale } from '../i18n/locale';
 
 /**
- * What the phrase asks for: create a block, propose a Study Mode session, or nothing we
- * can act on (the UI opens the advanced form with whatever was understood).
+ * What the phrase asks for: create a block, create a daily limit («YouTube máximo 30
+ * minutos al día», card «Límite diario»), propose a Study Mode session, or nothing we can
+ * act on (the UI opens the advanced form with whatever was understood).
  */
-export type ParseKind = 'block' | 'study' | 'unknown';
+export type ParseKind = 'block' | 'limit' | 'study' | 'unknown';
 
-export type ParseChipKind = 'service' | 'category' | 'domain' | 'duration' | 'until' | 'task';
+/**
+ * `daily`: the daily allowance of a limit («30 min al día», value = minutes as a string);
+ * `days`: the days a limit applies («entre semana», value = ISO weekdays joined with `,`,
+ * e.g. `1,2,3,4,5`).
+ */
+export type ParseChipKind =
+  'service' | 'category' | 'domain' | 'duration' | 'until' | 'task' | 'daily' | 'days';
 
 /** One piece of the phrase that was understood, for the chips under the input field. */
 export interface ParseChip {
@@ -35,8 +43,11 @@ export interface ParseChip {
  * - `ambiguous_time`: an hour from 1 to 12 without «de la tarde», «am», «pm», «in the
  *   evening»… was read as its next occurrence («hasta las 8», «until 8» at 16:42 → 20:00);
  *   the UI should show the chosen time.
+ * - `limit_out_of_range`: a daily allowance outside `GUARDIAN_LIMITS.limitMinMinutes`…
+ *   `limitMaxMinutes` (5 min … 12 h), kept as typed (the UI enforces the range).
  */
-export type ParseWarning = 'over_24h' | 'too_short' | 'past_time' | 'ambiguous_time';
+export type ParseWarning =
+  'over_24h' | 'too_short' | 'past_time' | 'ambiguous_time' | 'limit_out_of_range';
 
 export interface ParseOptions {
   /** Reference time for «hasta las 18:00» and for `endsAt`. */
@@ -68,6 +79,16 @@ export interface ParseResult {
   endsAt?: string;
   /** Study task typed with the study verb («estudiar mates» → «mates», «study math» → «math»). */
   task?: string;
+  /**
+   * `limit` only: the daily allowance in minutes («máximo 30 minutos al día» → 30,
+   * «1 h al día» → 60). `durationMinutes`/`endsAt` stay unset for a limit.
+   */
+  dailyMinutes?: number;
+  /**
+   * `limit` only: ISO weekdays the limit applies, sorted («entre semana» → 1–5, «los fines
+   * de semana» → 6, 7); unset when the phrase names no days (the UI defaults to all 7).
+   */
+  days?: IsoWeekday[];
   /** Sorted by `start`. */
   chips: ParseChip[];
   /** Meaningful fragments that were not understood, for «No he entendido: …». */
@@ -75,8 +96,9 @@ export interface ParseResult {
   warnings: ParseWarning[];
   /**
    * True when the phrase can go straight to the confirmation card: a block with at least
-   * one target and a duration or end time, or a study session with a duration, and
-   * nothing left unparsed. Nothing is ever invented to make a result complete.
+   * one target and a duration or end time, a limit with at least one target and
+   * `dailyMinutes`, or a study session with a duration, and nothing left unparsed.
+   * Nothing is ever invented to make a result complete.
    */
   complete: boolean;
 }

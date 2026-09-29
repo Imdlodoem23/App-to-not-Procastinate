@@ -10,7 +10,9 @@ import { getCategory, getService } from '@centrate/shared/catalog';
 import { durationLabel, type ParseResult } from '@centrate/shared/parser';
 import { appLabel, categoryName } from '../../../../shared/format';
 import { SHARED } from '../../../../shared/i18n';
-import type { BlockDraft, CardField } from '../../../../shared/ui-state';
+import type { BlockDraft, CardField, LimitDraft } from '../../../../shared/ui-state';
+import type { IsoWeekday } from '@centrate/shared/domain';
+import { LIMIT_TEXT } from '../../../../shared/limits';
 import { draftEndLabels } from './draft';
 import { BLOQUEO } from './i18n';
 import { untilShort } from './time';
@@ -25,6 +27,10 @@ export type ChipKind =
   | 'duration'
   | 'until'
   | 'task'
+  /** A daily limit's allowance: «30 min al día». */
+  | 'daily'
+  /** The days a daily limit applies: «entre semana». */
+  | 'days'
   | 'more';
 
 export interface ChipView {
@@ -53,6 +59,7 @@ export function typingChips(parse: ParseResult, nowMs: number): ChipView[] {
   const targets: ChipView[] = [];
   const times: ChipView[] = [];
   let task: ChipView | null = null;
+  const limit: ChipView[] = [];
   let durationSpan: ChipView['span'] = null;
   let untilSpan: ChipView['span'] = null;
   for (const c of parse.chips) {
@@ -92,6 +99,21 @@ export function typingChips(parse: ParseResult, nowMs: number): ChipView[] {
       case 'until':
         untilSpan = span;
         break;
+      case 'daily':
+        limit.push(
+          chip({ key: 'daily', kind: 'daily', label: LIMIT_TEXT.perDay(Number(c.value)), span }),
+        );
+        break;
+      case 'days':
+        limit.push(
+          chip({
+            key: 'days',
+            kind: 'days',
+            label: LIMIT_TEXT.days(c.value.split(',').map(Number)),
+            span,
+          }),
+        );
+        break;
     }
   }
   if (parse.durationMinutes !== undefined && (durationSpan || untilSpan)) {
@@ -114,7 +136,45 @@ export function typingChips(parse: ParseResult, nowMs: number): ChipView[] {
       }),
     );
   }
-  return [...targets, ...(task ? [task] : []), ...times];
+  return [...targets, ...(task ? [task] : []), ...limit, ...times];
+}
+
+/** Chips of the «Límite diario» card: what is limited, the allowance and the days. */
+export function limitChips(draft: LimitDraft): ChipView[] {
+  const out: ChipView[] = [];
+  const t = draft.targets;
+  for (const id of t.serviceIds) {
+    const service = getService(id);
+    out.push(
+      chip({
+        key: `service:${id}`,
+        kind: 'service',
+        label: service?.name ?? id,
+        monogram: service?.monogram ?? null,
+      }),
+    );
+  }
+  for (const id of t.categoryIds) {
+    out.push(
+      chip({ key: `category:${id}`, kind: 'category', label: categoryName(id), categoryId: id }),
+    );
+  }
+  for (const id of t.appIds) out.push(chip({ key: `app:${id}`, kind: 'app', label: appLabel(id) }));
+  for (const domain of t.customDomains) {
+    out.push(chip({ key: `domain:${domain}`, kind: 'domain', label: domain }));
+  }
+  for (const name of t.customProcesses) {
+    out.push(chip({ key: `process:${name}`, kind: 'process', label: name }));
+  }
+  out.push(chip({ key: 'daily', kind: 'daily', label: LIMIT_TEXT.perDay(draft.dailyMinutes) }));
+  out.push(
+    chip({
+      key: 'days',
+      kind: 'days',
+      label: LIMIT_TEXT.days(draft.days as readonly IsoWeekday[]),
+    }),
+  );
+  return out;
 }
 
 /** Chips of the card: what is blocked, then duration and end (each editable). */
@@ -199,7 +259,13 @@ export function estimateTextWidth(text: string, fontPx: number, semibold = false
 }
 
 function isFixed(c: ChipView): boolean {
-  return c.kind === 'duration' || c.kind === 'until' || c.kind === 'task';
+  return (
+    c.kind === 'duration' ||
+    c.kind === 'until' ||
+    c.kind === 'task' ||
+    c.kind === 'daily' ||
+    c.kind === 'days'
+  );
 }
 
 /** «+2» next to targets still shown; «3 webs» when every target hides behind it. */

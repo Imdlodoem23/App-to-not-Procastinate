@@ -40,6 +40,7 @@ const WRITE_OPTION_INDEX: Partial<Record<keyof GuardianClient, number>> = {
   createBlock: 1,
   extendBlock: 2,
   createSchedule: 1,
+  createLimit: 1,
   startStudy: 1,
   studyStrike: 2,
   endStudy: 2,
@@ -49,8 +50,16 @@ const WRITE_OPTION_INDEX: Partial<Record<keyof GuardianClient, number>> = {
   deleteData: 1,
 };
 
-function behaviourError(code: GuardianErrorCode, details?: Record<string, unknown>): GuardianApiError {
-  return new GuardianApiError(GUARDIAN_ERROR_STATUS[code], code, `scripted ${code}`, details ?? null);
+function behaviourError(
+  code: GuardianErrorCode,
+  details?: Record<string, unknown>,
+): GuardianApiError {
+  return new GuardianApiError(
+    GUARDIAN_ERROR_STATUS[code],
+    code,
+    `scripted ${code}`,
+    details ?? null,
+  );
 }
 
 export function createFakeGuardian(fixture: HarnessFixture, clock: Clock): FakeGuardian {
@@ -63,6 +72,7 @@ export function createFakeGuardian(fixture: HarnessFixture, clock: Clock): FakeG
       health: fake.health,
       settings: fake.settings,
       schedules: fake.schedules,
+      limits: fake.limits,
       pairingCode: fake.pairingCode,
       extensions: fake.extensions,
       emergencyPreview: fake.emergencyPreview,
@@ -99,7 +109,9 @@ export function createFakeGuardian(fixture: HarnessFixture, clock: Clock): FakeG
       return (...args: unknown[]): Promise<unknown> => {
         const optIndex = WRITE_OPTION_INDEX[method];
         const options =
-          optIndex !== undefined ? (args[optIndex] as { idempotencyKey?: string } | undefined) : undefined;
+          optIndex !== undefined
+            ? (args[optIndex] as { idempotencyKey?: string } | undefined)
+            : undefined;
         const bodyArgs = optIndex !== undefined ? args.slice(0, optIndex) : args;
         recorded.push({
           at: clock.now(),

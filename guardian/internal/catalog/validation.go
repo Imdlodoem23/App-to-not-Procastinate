@@ -155,12 +155,14 @@ func (c *Catalog) ProcessTargetKey(name string, platform Platform) string {
 type TextField string
 
 // Text fields and their limits (embedded GUARDIAN_LIMITS): reason (block and schedule
-// reason), task (Study Mode task), scheduleName and phrase (emergency phrase).
+// reason), task (Study Mode task), scheduleName, limitName and phrase (emergency phrase).
 const (
 	FieldReason       TextField = "reason"
 	FieldTask         TextField = "task"
 	FieldScheduleName TextField = "scheduleName"
 	FieldPhrase       TextField = "phrase"
+	// FieldLimitName is a daily limit's name (limitNameText: 1–limitNameMaxLength).
+	FieldLimitName TextField = "limitName"
 )
 
 // Validation issue kinds (TS ValidationIssueKind) reported by TextFieldIssue.
@@ -187,6 +189,8 @@ func TextFieldIssue(field TextField, value string) string {
 		maxLen = limits.TaskMaxLength
 	case FieldScheduleName:
 		minLen, maxLen = 1, limits.ScheduleNameMaxLength
+	case FieldLimitName:
+		minLen, maxLen = 1, limits.LimitNameMaxLength
 	case FieldPhrase:
 		minLen, maxLen, text = 1, limits.PhraseMaxLength, false
 	default:

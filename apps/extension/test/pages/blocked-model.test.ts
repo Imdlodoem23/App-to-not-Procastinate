@@ -7,12 +7,14 @@ import {
   blockedView,
   humorLine,
   isCurrentInfo,
+  limitLine,
   pointsLine,
   reopenUrl,
   shownBlock,
   stillEnforced,
 } from '../../src/pages/blocked/model';
 import { PAGES_ES } from '../../src/pages/i18n/es';
+import { withPagesLocale } from '../../src/pages/i18n';
 import { popupTimes, blockSection } from '../../src/pages/popup/model';
 import { createEndAnnouncer } from '../../src/pages/shared/phase';
 import { MIN, NOW, iso, ruleBlock, snapshot, tabInfo } from './fixtures';
@@ -126,6 +128,7 @@ describe('shownBlock', () => {
       reason: null,
       mode: 'hardcore',
       kind: 'punishment',
+      limitId: null,
     });
   });
 
@@ -540,5 +543,76 @@ describe('blockedView: the live region', () => {
     expect(popup.until).toBe(page.headerValue);
     expect(popup.countdownMs).toBeNull();
     expect([page.announce.kind, popup.announce.kind]).toEqual(['checking', 'checking']);
+  });
+});
+
+describe('daily limit blocks', () => {
+  const LIM = 'lim_0123456789abcdefYTYT' as const;
+  const limit = {
+    id: LIM,
+    name: 'YouTube',
+    serviceIds: ['youtube'],
+    domains: ['youtube.com', 'www.youtube.com'],
+    excludedDomains: [],
+    dailyMinutes: 30,
+    appliesToday: true,
+  };
+  // The guardian ends a limit block at the next local midnight; extension tokens get `manual`.
+  const midnight = iso(NOW + 9 * 60 * MIN);
+  const limitBlock = ruleBlock({ id: 'blk_limit', endsAt: midnight, reason: '', limitId: LIM });
+  const info = tabInfo({
+    block: {
+      id: 'blk_limit',
+      kind: 'manual',
+      mode: 'strict',
+      endsAt: midnight,
+      reason: '',
+      limitId: LIM,
+    },
+  });
+  const input = {
+    params: YT,
+    info,
+    snapshot: snapshot({ blocks: [limitBlock], limits: [limit] }),
+    now: NOW,
+    humorIndex: 0,
+    ready: true,
+  };
+
+  it('says the allowance is used up instead of a humor line', () => {
+    const view = blockedView(input);
+    expect(view.humor).toBe('Has usado tus 30 min de YouTube de hoy. Vuelve mañana.');
+    expect(view.title).toBe('YouTube: bloqueado');
+    expect(view.headerValue).toBe('quedan 9 h');
+    withPagesLocale('en', () => {
+      expect(blockedView(input).humor).toBe(
+        'You’ve used your 30 min of YouTube for today. Come back tomorrow.',
+      );
+    });
+  });
+
+  it('uses the limit’s own name and minutes, from the live rules', () => {
+    const social = { ...limit, name: 'Redes sociales', dailyMinutes: 60 };
+    const view = blockedView({
+      ...input,
+      snapshot: snapshot({ blocks: [limitBlock], limits: [social] }),
+    });
+    expect(view.humor).toBe('Has usado tus 60 min de Redes sociales de hoy. Vuelve mañana.');
+  });
+
+  it('still says it when the limit is gone from the rules (or before the snapshot)', () => {
+    const view = blockedView({ ...input, snapshot: snapshot({ blocks: [limitBlock] }) });
+    expect(view.humor).toBe('Has llegado a tu límite diario de YouTube. Vuelve mañana.');
+    expect(blockedView({ ...input, snapshot: null }).humor).toBe(
+      'Has llegado a tu límite diario de YouTube. Vuelve mañana.',
+    );
+  });
+
+  it('a manual block that ends later wins, with its usual lines', () => {
+    const later = ruleBlock({ id: 'blk_manual', endsAt: iso(NOW + 10 * 60 * MIN) });
+    const snap = snapshot({ blocks: [limitBlock, later], limits: [limit] });
+    const shown = shownBlock(YT, info, snap);
+    expect(shown?.limitId).toBeNull();
+    expect(limitLine(shown, snap, blockedSubject(YT, info))).toBeNull();
   });
 });

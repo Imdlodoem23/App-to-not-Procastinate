@@ -23,6 +23,9 @@ import type {
   BlockId,
   BlockMode,
   IsoUtc,
+  IsoWeekday,
+  LimitId,
+  LimitMode,
   Punishment,
   ScheduleId,
   TargetSpec,
@@ -30,6 +33,7 @@ import type {
 import type {
   ConfirmEmergencyResponse,
   CreateBlockRequest,
+  DailyLimitInput,
   GuardianStateResponse,
   HealthResponse,
   PairingCodeResponse,
@@ -304,6 +308,8 @@ export interface DraftSeed {
   end: DraftEnd | null;
   mode: BlockMode | null;
   reason: string | null;
+  /** A limit phrase's days («entre semana»), for the Bloqueos limit editor; absent: every day. */
+  days?: IsoWeekday[];
 }
 
 export interface BlockTemplate {
@@ -649,9 +655,46 @@ export interface OnboardingLocalState {
   installing: boolean;
 }
 
+/**
+ * A daily limit before `limits:create` («YouTube máximo 30 minutos al día»; ARCHITECTURE
+ * §5.10): what the main window's «Límite diario» card edits.
+ */
+export interface LimitDraft {
+  /** «YouTube», «Redes sociales» (1–60 characters; filled from the targets). */
+  name: string;
+  targets: TargetSpec;
+  /** 5–720. */
+  dailyMinutes: number;
+  /** ISO weekdays, sorted (all seven by default). */
+  days: IsoWeekday[];
+  mode: LimitMode;
+  /** «Tu motivo» of the block it produces (`''` when none). */
+  reason: string;
+}
+
+/**
+ * The «Límite diario» card (section 2), opened by a phrase the parser read as a daily limit.
+ * Enter creates it (`limits:create` with `Idempotency-Key: intentId`); Hardcore first shows
+ * the red line and a 2 s lock like a block card.
+ */
+export interface LimitCardState {
+  /** New per card and per changed draft; a retry of the same draft reuses it. */
+  intentId: IntentId;
+  phrase: string | null;
+  draft: LimitDraft;
+  step: 'edit' | 'consequence';
+  consequenceAt: number | null;
+  /** `limits:create` is waiting for the guardian. */
+  sending: boolean;
+  /** The last failure (the card stays open and editable). */
+  error: UiError | null;
+}
+
 export interface MainLocalState {
   composer: ComposerState;
   card: ConfirmCardState | null;
+  /** The «Límite diario» card (never together with `card`). */
+  limitCard: LimitCardState | null;
   /** «Otro…» on the extend row: an inline minutes field. */
   extendOther: { open: boolean; text: string };
   armed: ArmedState | null;
@@ -672,6 +715,8 @@ export interface BloqueosLocalState {
   templateName: string | null;
   /** The schedule being created or edited (`null`: the list only). */
   schedule: ScheduleEditorState | null;
+  /** The daily limit being created or edited (`null`: the list only). */
+  limit: LimitEditorState | null;
   /** Exam mode's whitelist editor (the extras live in the guardian's `studyWhitelist`). */
   exam: { domainInput: string; processInput: string };
 }
@@ -682,6 +727,17 @@ export interface ScheduleEditorState {
   id: ScheduleId | null;
   input: ScheduleInput;
   /** The last rejection (`schedule_in_progress`, `schedule_starting_soon`…), for the help line. */
+  error: UiError | null;
+}
+
+/** «Nuevo límite» / a limit row's «Editar»: the form before `limits:create|update`. */
+export interface LimitEditorState {
+  /** `null`: a new limit. */
+  id: LimitId | null;
+  input: DailyLimitInput;
+  /** «Minutos al día» as typed («30», «1 h», «1h30»); read on save. */
+  minutesText: string;
+  /** The last rejection, for the help line. */
   error: UiError | null;
 }
 
@@ -733,7 +789,14 @@ export interface DetailLocalState {
 
 /** Bloqueos is opened with: an optional seed and a section to scroll to. */
 /** Where Bloqueos scrolls to when opened (`exam`: Modo examen and its whitelist). */
-export const BLOQUEOS_FOCUS = ['form', 'active', 'templates', 'schedules', 'exam'] as const;
+export const BLOQUEOS_FOCUS = [
+  'form',
+  'active',
+  'templates',
+  'schedules',
+  'limits',
+  'exam',
+] as const;
 export type BloqueosFocus = (typeof BLOQUEOS_FOCUS)[number];
 
 export type DetailRequest =
@@ -772,6 +835,7 @@ export function initialMainLocal(): MainLocalState {
   return {
     composer: { text: '', openWhileActive: false },
     card: null,
+    limitCard: null,
     extendOther: { open: false, text: '' },
     armed: null,
     help: null,
@@ -789,6 +853,7 @@ export function initialDetailLocal(prefs: UiPrefs = DEFAULT_PREFS): DetailLocalS
       processInput: '',
       templateName: null,
       schedule: null,
+      limit: null,
       exam: { domainInput: '', processInput: '' },
     },
     emergencia: { blockIds: null, phrase: '', result: null },
@@ -943,7 +1008,9 @@ export type BloqueoVariant =
   /** «Bloqueo: terminado» · «Hecho. +80 puntos» for 1 min. */
   | 'finished'
   /** «Comprobando la hora…» instead of 0:00. */
-  | 'boot-hold';
+  | 'boot-hold'
+  /** The «Límite diario» card of a phrase read as a daily limit. */
+  | 'limit';
 
 export function bloqueoVariant(
   snapshot: UiSnapshot,
@@ -955,6 +1022,7 @@ export function bloqueoVariant(
     return create.status === 'sending' ? 'pending' : 'failed';
   }
   if (main.card) return 'confirm';
+  if (main.limitCard) return 'limit';
   const state = snapshot.state;
   if (state && state.blocks.length > 0) {
     if (isBootHold(state, nowMs)) return 'boot-hold';

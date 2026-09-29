@@ -214,6 +214,8 @@ func (e *Engine) startup() error {
 		e.log.Error("guardian_started not logged", "err", err)
 	}
 	e.closeDays(e.now)
+	// The daily-limit rollover for records of a past day (limit_day_closed, §10.13).
+	e.limitsRollover(e.now)
 
 	// Step 11: enforcement before the API opens.
 	e.reconcile()
@@ -248,6 +250,9 @@ func (s *engineState) normalize() {
 	}
 	if s.Clock.Trust == "" {
 		s.Clock.Trust = TrustUnverified
+	}
+	if s.Limits.List == nil {
+		s.Limits.List = []*limitRec{}
 	}
 }
 
@@ -397,6 +402,7 @@ func (e *Engine) emptyKept() EpochKeptState {
 	return EpochKeptState{
 		Blocks: []Block{}, Punishments: []Punishment{}, Allowances: []RewardAllowance{}, Schedules: []Schedule{},
 		Settings: embeddedDefaultSettings(), PendingSettings: []PendingSettingChange{}, MaterializedOccurrences: []string{},
+		Limits: []DailyLimit{},
 	}
 }
 
@@ -419,6 +425,7 @@ func (e *Engine) keptNow(dataDeletion bool) EpochKeptState {
 	k.MaterializedOccurrences = nonNil(e.materializedOccurrences())
 	k.Settings = e.state.Settings.Clone()
 	k.PendingSettings = nonNil(e.keptPending(dataDeletion))
+	k.Limits = e.keptLimits() // every limit, also for a data deletion (§10.11)
 	return k
 }
 

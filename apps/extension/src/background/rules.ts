@@ -44,6 +44,7 @@
  */
 
 import { findServiceByDomain, isValidDomain } from '@centrate/shared/catalog';
+import { isIdOf } from '@centrate/shared/domain';
 import type {
   AttemptResponse,
   ExtRuleBlock,
@@ -198,8 +199,15 @@ export type BlockedTabStatus =
   /** The tab was already open when the block started: not an attempt. */
   | 'enforced';
 
-/** The covering block the page shows (its reason, «tu motivo», and when it ends). */
-export type BlockedTabBlock = Pick<ExtRuleBlock, 'id' | 'kind' | 'mode' | 'endsAt' | 'reason'>;
+/**
+ * The covering block the page shows (its reason, «tu motivo», and when it ends). `limitId`
+ * is set for the block a daily limit materialized (the guardian reports it to the extension
+ * as `kind: "manual"`, docs/ARCHITECTURE.md §8.4): the page then says the allowance is used up.
+ */
+export type BlockedTabBlock = Pick<
+  ExtRuleBlock,
+  'id' | 'kind' | 'mode' | 'endsAt' | 'reason' | 'limitId'
+>;
 
 /**
  * What the background tells blocked.html about the attempt in its tab. Kept in
@@ -288,6 +296,8 @@ export function parseBlockedTabInfo(value: unknown): BlockedTabInfo | null {
       if (typeof block[key] !== 'string' || (block[key] as string).length > 64) return null;
     }
     if (typeof block['reason'] !== 'string' || block['reason'].length > 400) return null;
+    const limitId = block['limitId'];
+    if (limitId !== undefined && limitId !== null && !isIdOf('limit', limitId)) return null;
   }
   return value as unknown as BlockedTabInfo;
 }

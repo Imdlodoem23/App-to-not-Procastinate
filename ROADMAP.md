@@ -67,6 +67,7 @@
 ## Fase 5 · Extras y v1.0.0
 
 - [ ] Pomodoro, horarios, modo examen, estadísticas, recompensas, logros, mascota, sonidos, tareas, recordatorios
+- [x] Límites diarios («YouTube máximo 30 minutos al día»): entidad del guardián, uso informado por la extensión y la app, bloqueo hasta las 0:00, parser en español e inglés, sección en Bloqueos, avisos, estadísticas y web (`docs/ARCHITECTURE.md` §5.10 y §10.13)
 - [ ] Ajustes completos, mini temporizador, OSD, auto-actualización, onboarding
 - [ ] Web estilo Apple terminada con capturas y vídeos reales
 - [ ] Release `v1.0.0`

@@ -31,7 +31,7 @@ var ErrMalformedEvent = errors.New("points: malformed event")
 
 // Enumerations this package reads from event data (domain.ts).
 var (
-	blockKinds    = []string{"manual", "schedule", "punishment", "recovered"}
+	blockKinds    = []string{"manual", "schedule", "punishment", "recovered", "limit"}
 	studyOutcomes = []string{"completed", "ended_early", "abandoned", "punished", "interrupted"}
 	rewardReasons = []string{"expired", "revoked"}
 )

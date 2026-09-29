@@ -447,6 +447,8 @@ function pickBlock(block: HostMatch['block'] | AttemptResponse['block']): Blocke
     mode: block.mode,
     endsAt: block.endsAt,
     reason: block.reason,
+    // A daily limit's block (reported as `manual`, §8.4): blocked.html words it differently.
+    ...(typeof block.limitId === 'string' ? { limitId: block.limitId } : {}),
   };
 }
 

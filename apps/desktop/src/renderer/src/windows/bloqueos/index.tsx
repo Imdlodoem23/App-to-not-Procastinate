@@ -20,9 +20,11 @@ import { useLayoutEffect, useRef } from 'react';
 import { useAppStore } from '../../store/context';
 import { DurationSection, FormActions, ModeSection, ReasonSection } from './FormSections';
 import { ActiveSection, ExamSection, SchedulesSection, TemplatesSection } from './ListSections';
+import { LimitsSection } from './LimitsSection';
 import { TargetsSection } from './TargetsSection';
 import { Announcer } from './announcer';
 import { scrollToSection, useBloqueosWindow } from './useBloqueosWindow';
+import { BLOQUEOS } from './i18n';
 import { BLOQUEOS_IDS } from './view';
 import './bloqueos.css';
 
@@ -31,6 +33,7 @@ const FOCUS_SECTIONS = {
   active: BLOQUEOS_IDS.active,
   templates: BLOQUEOS_IDS.templates,
   schedules: BLOQUEOS_IDS.schedules,
+  limits: BLOQUEOS_IDS.limits,
   exam: BLOQUEOS_IDS.exam,
 } as const;
 
@@ -43,20 +46,36 @@ function presetTabStop(): HTMLElement | null {
 }
 
 export default function BloqueosWindow(): React.JSX.Element {
-  const { view, local, notices, announcement, actions } = useBloqueosWindow();
-  const loading = view.schedules.status === 'loading' || view.exam.whitelist.status === 'loading';
+  const { view, local, notices, announcement, announce, actions } = useBloqueosWindow();
+  const loading =
+    view.schedules.status === 'loading' ||
+    view.limits.status === 'loading' ||
+    view.exam.whitelist.status === 'loading';
   const request = useAppStore((s) => (s.env.detail?.name === 'bloqueos' ? s.env.detail : null));
 
   // Read by the door effect below, which must run once per door (not when the user picks).
   const missing = useRef<'duration' | 'targets'>('targets');
   missing.current = view.duration.open && view.problem === 'no_duration' ? 'duration' : 'targets';
+  const limitsUnsupported = useRef(false);
+  limitsUnsupported.current = view.limits.status === 'unsupported';
 
   // A door retargets the window: scroll to what it asked for; a seeded form focuses what is
   // missing (the duration row, else the search).
   useLayoutEffect(() => {
     if (!request) return;
     if (request.focus) scrollToSection(FOCUS_SECTIONS[request.focus]);
-    if (request.seed && missing.current === 'duration') {
+    const limits = request.focus === 'limits';
+    if (limits && limitsUnsupported.current) {
+      // A limit phrase sent here while the guardian has no daily limits: the section root
+      // (described by the note) and the polite region say why nothing was created.
+      document
+        .querySelector<HTMLElement>(`[data-section="${BLOQUEOS_IDS.limits}"]`)
+        ?.focus({ preventScroll: true });
+      announce(BLOQUEOS.limits.unsupported);
+    } else if (limits && request.seed) {
+      // From the main window's «Límite diario»: the new limit's editor, seeded.
+      document.getElementById(BLOQUEOS_IDS.limitName)?.focus({ preventScroll: true });
+    } else if (request.seed && missing.current === 'duration') {
       presetTabStop()?.focus({ preventScroll: true });
     } else if (request.seed || !request.focus || request.focus === 'form') {
       // A plain door (footer, tray) also lands on the search, never on <body>.
@@ -67,7 +86,7 @@ export default function BloqueosWindow(): React.JSX.Element {
         .querySelector<HTMLElement>(`[data-section="${FOCUS_SECTIONS[request.focus]}"]`)
         ?.focus({ preventScroll: true });
     }
-  }, [request]);
+  }, [request, announce]);
 
   return (
     <div className="blq" data-loading={loading ? '' : undefined}>
@@ -102,6 +121,7 @@ export default function BloqueosWindow(): React.JSX.Element {
       <ActiveSection view={view.active} actions={actions} />
       <TemplatesSection view={view.templates} notice={notices.templates} actions={actions} />
       <SchedulesSection view={view.schedules} notice={notices.lists} actions={actions} />
+      <LimitsSection view={view.limits} notice={notices.limits} actions={actions} />
       <ExamSection
         view={view.exam}
         domainInput={local.exam.domainInput}

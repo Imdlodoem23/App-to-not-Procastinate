@@ -15,6 +15,10 @@
  * - `POST /v1/ext/heartbeat`: records it; the family must match the pairing.
  * - `POST /v1/attempts`: ext scope (`extension` + `domain`), coverage like §10.8, 30 s
  *   merge window and 5 min escalation through `applyLedgerInput` (−10, −20, −40, −80).
+ * - `POST /v1/usage`: ext scope (`domain` items), clamped to the time since that
+ *   extension's previous report (+ slack) and credited once per limit with the shared
+ *   `limitUsageCredit`; an allowance used up creates a block with `limitId` (served to the
+ *   extension as `kind: "manual"`, §8.4) until the next UTC midnight (the mock's «local day»).
  * - `GET /v1/health` and `POST /v1/pairing/code` (app token), so tests can act as the app.
  *
  * Request pipeline as in §8.3: `Host` must be `127.0.0.1:<port>` / `localhost:<port>`,
@@ -23,8 +27,9 @@
  *
  * Test controls (in-process; the real guardian has no way to end a block early):
  * `addBlock`, `removeBlock`, `clearBlocks`, `addAllowance`, `removeAllowance`,
- * `setPunishment`, `setPenaltiesEnabled`, `revokeExtensions`, `stop`/`start` (guardian down
- * and back on the same port) and waiters for attempts, heartbeats and applied versions.
+ * `setPunishment`, `setPenaltiesEnabled`, `addLimit`, `setLimitUsage`, `revokeExtensions`,
+ * `stop`/`start` (guardian down and back on the same port) and waiters for attempts, usage
+ * reports, heartbeats and applied versions.
  *
  * Not modelled: rate limits other than the long-poll cap, idempotency, the loopback peer
  * process check, events and the app routes the extension never calls.
@@ -49,6 +54,7 @@ import {
 import type {
   AttemptId,
   BlockId,
+  LimitId,
   BlockKind,
   BlockMode,
   BrowserFamily,
@@ -57,10 +63,12 @@ import type {
   PunishmentLevel,
 } from '@centrate/shared/domain';
 import type {
+  CreditSpan,
   AttemptRequest,
   AttemptResponse,
   ExtHeartbeatRequest,
   ExtRuleBlock,
+  ExtRuleLimit,
   ExtRulesResponse,
   GuardianErrorCode,
   HealthResponse,
@@ -68,6 +76,8 @@ import type {
   PairingClaimResponse,
   PairingCodeResponse,
   Schema,
+  UsageReportRequest,
+  UsageReportResponse,
 } from '@centrate/shared/guardian-api';
 import {
   APP_TOKEN_PREFIX,
@@ -85,7 +95,9 @@ import {
   computeRulesSignature,
   extHeartbeatRequestSchema,
   generateRulesKeyPair,
+  limitUsageCredit,
   pairingClaimRequestSchema,
+  usageReportRequestSchema,
   validateRequest,
   validationErrorCode,
 } from '@centrate/shared/guardian-api';
@@ -148,9 +160,48 @@ export interface MockBlockInput {
   kind?: BlockKind;
 }
 
+export interface MockLimitInput {
+  /** Default: the first service's name, else «Límite». */
+  name?: string;
+  services?: readonly string[];
+  domains?: readonly string[];
+  dailyMinutes: number;
+  /** Default true (the weekday is in `days`). */
+  appliesToday?: boolean;
+  mode?: BlockMode;
+  reason?: string;
+}
+
+/** A daily limit as the mock stores it (usage of the current UTC day). */
+export interface MockLimit {
+  id: LimitId;
+  name: string;
+  serviceIds: string[];
+  domains: string[];
+  excludedDomains: string[];
+  dailyMinutes: number;
+  appliesToday: boolean;
+  mode: BlockMode;
+  reason: string;
+  usedMs: number;
+  creditedUntil: number;
+  credited: CreditSpan[];
+  /** The block created when the allowance ran out today, if any. */
+  blockId: BlockId | null;
+}
+
+export interface RecordedUsage {
+  at: number;
+  extensionId: ExtensionId;
+  request: UsageReportRequest;
+  response: UsageReportResponse;
+}
+
 /** A block as the mock stores it. */
 export interface MockBlock {
   id: BlockId;
+  /** Set for a limit block (served as `kind: "manual"` to the extension). */
+  limitId?: LimitId;
   kind: BlockKind;
   mode: BlockMode;
   reason: string;
@@ -238,18 +289,28 @@ export interface MockGuardian {
   removeAllowance(serviceId: string): boolean;
   setPunishment(value: { level: PunishmentLevel; minutes: number } | null): void;
   setPenaltiesEnabled(enabled: boolean): void;
+  /** A daily limit (§5.10), enabled; it appears in `rules().limits`. */
+  addLimit(input: MockLimitInput): MockLimit;
+  /** Test-only: sets today's usage of a limit (and blocks at once when it is used up). */
+  setLimitUsage(id: LimitId, seconds: number): MockLimit;
+  limits(): MockLimit[];
 
   /** The rules body as it would be served now (with an empty nonce). */
   rules(): ExtRulesResponse;
   requests(): RecordedRequest[];
   heartbeats(): RecordedHeartbeat[];
   attempts(): RecordedAttempt[];
+  usageReports(): RecordedUsage[];
 
   /** Resolves with the first attempt (from now or already recorded) matching `predicate`. */
   waitForAttempt(
     predicate?: (attempt: RecordedAttempt) => boolean,
     timeoutMs?: number,
   ): Promise<RecordedAttempt>;
+  waitForUsage(
+    predicate?: (report: RecordedUsage) => boolean,
+    timeoutMs?: number,
+  ): Promise<RecordedUsage>;
   waitForHeartbeat(
     predicate?: (heartbeat: RecordedHeartbeat) => boolean,
     timeoutMs?: number,
@@ -378,6 +439,9 @@ export async function startMockGuardian(options: MockGuardianOptions = {}): Prom
   let code: { value: string; expiresAt: number; failures: number } | null = null;
   const extensions = new Map<string, MockExtension>();
   const blocks = new Map<BlockId, MockBlock>();
+  const limits = new Map<LimitId, MockLimit>();
+  /** When each extension's previous usage report was accepted (§10.13 per-client clamp). */
+  const lastUsageAt = new Map<ExtensionId, number>();
   const allowances = new Map<string, MockAllowance>();
   let punishment: { endsAt: number; level: PunishmentLevel } | null = null;
   let ledger: LedgerState = initialLedgerState();
@@ -394,6 +458,8 @@ export async function startMockGuardian(options: MockGuardianOptions = {}): Prom
   const recorded: RecordedRequest[] = [];
   const heartbeatLog: RecordedHeartbeat[] = [];
   const attemptLog: RecordedAttempt[] = [];
+  const usageLog: RecordedUsage[] = [];
+  const usageWaiters = new Set<Waiter<RecordedUsage>>();
   const heartbeatWaiters = new Set<Waiter<RecordedHeartbeat>>();
   const attemptWaiters = new Set<Waiter<RecordedAttempt>>();
 
@@ -456,6 +522,7 @@ export async function startMockGuardian(options: MockGuardianOptions = {}): Prom
         serviceIds: b.serviceIds,
         domains: b.whitelistOnly ? [] : b.domains,
         whitelistOnly: b.whitelistOnly,
+        ...(b.limitId === undefined ? {} : { limitId: b.limitId }),
       })),
       allowances: liveAllowances(at).map((a) => ({
         serviceId: a.serviceId,
@@ -467,6 +534,15 @@ export async function startMockGuardian(options: MockGuardianOptions = {}): Prom
           : { endsAt: isoAt(livePunishment.endsAt), level: livePunishment.level },
       nextChangeAt: ends.length > 0 ? isoAt(Math.min(...ends)) : null,
       penaltiesEnabled,
+      limits: [...limits.values()].map((l): ExtRuleLimit => ({
+        id: l.id,
+        name: l.name,
+        serviceIds: l.serviceIds,
+        domains: l.domains,
+        excludedDomains: l.excludedDomains,
+        dailyMinutes: l.dailyMinutes,
+        appliesToday: l.appliesToday,
+      })),
     };
   }
 
@@ -596,8 +672,91 @@ export async function startMockGuardian(options: MockGuardianOptions = {}): Prom
         mode: shown.mode,
         endsAt: isoAt(shown.endsAt),
         reason: shown.reason,
+        ...(shown.limitId === undefined ? {} : { limitId: shown.limitId }),
       },
       reason: null,
+    };
+  }
+
+  // --- Daily limits --------------------------------------------------------------------
+
+  const DAY_MS = 86_400_000;
+  /** The mock's «local day» is the UTC day. */
+  const dayStart = (at: number): number => Math.floor(at / DAY_MS) * DAY_MS;
+
+  /** Blocks a limit whose allowance ran out today (once per day, §10.13). */
+  function evaluateLimit(limit: MockLimit, at: number): void {
+    if (!limit.appliesToday || limit.blockId !== null) return;
+    if (limit.usedMs < limit.dailyMinutes * 60_000) return;
+    const block: MockBlock = {
+      id: newId('blk'),
+      limitId: limit.id,
+      // The extension token never sees kind `limit` (§8.4).
+      kind: 'manual',
+      mode: limit.mode,
+      reason: limit.reason,
+      createdAt: at,
+      endsAt: dayStart(at) + DAY_MS,
+      serviceIds: limit.serviceIds,
+      domains: limit.domains,
+      excludedDomains: limit.excludedDomains,
+      whitelistOnly: false,
+      allowDomains: [],
+      allowHostPatterns: [],
+    };
+    blocks.set(block.id, block);
+    limit.blockId = block.id;
+    refresh();
+  }
+
+  function handleUsage(ext: MockExtension, request: UsageReportRequest): UsageReportResponse {
+    const at = now();
+    const previous = lastUsageAt.get(ext.id);
+    lastUsageAt.set(ext.id, at);
+    const slack = GUARDIAN_LIMITS.usageSlackMs;
+    const interval =
+      previous === undefined
+        ? request.intervalMs
+        : Math.min(request.intervalMs, Math.max(0, at - previous) + slack);
+    const credited = new Map<LimitId, number>();
+    for (const limit of limits.values()) {
+      let reported = 0;
+      for (const item of request.items) {
+        const host = normalizeDomain(item.value);
+        if (host === null) continue;
+        if (underAny(host, limit.domains) && !underAny(host, limit.excludedDomains)) {
+          reported += item.seconds * 1_000;
+        }
+      }
+      const credit = limitUsageCredit({
+        nowMs: at,
+        dayStartMs: dayStart(at),
+        intervalMs: interval,
+        reportedMs: Math.min(reported, interval),
+        creditedUntilMs: limit.creditedUntil,
+        credited: limit.credited,
+        slackMs: slack,
+      });
+      limit.usedMs += credit.creditMs;
+      limit.credited = credit.credited;
+      credited.set(limit.id, Math.floor(credit.creditMs / 1_000));
+      evaluateLimit(limit, at);
+    }
+    return {
+      day: isoAt(at).slice(0, 10),
+      limits: [...limits.values()].map((l) => {
+        const used = Math.floor(l.usedMs / 1_000);
+        const block = l.blockId === null ? undefined : blocks.get(l.blockId);
+        return {
+          limitId: l.id,
+          usedTodaySeconds: used,
+          remainingTodaySeconds: Math.max(0, l.dailyMinutes * 60 - used),
+          appliesToday: l.appliesToday,
+          creditedSeconds: credited.get(l.id) ?? 0,
+          blockedUntil: block !== undefined && block.endsAt > at ? isoAt(block.endsAt) : null,
+        };
+      }),
+      serverNow: isoAt(at),
     };
   }
 
@@ -835,6 +994,21 @@ export async function startMockGuardian(options: MockGuardianOptions = {}): Prom
         for (const waiter of [...heartbeatWaiters]) if (waiter.match(beat)) waiter.resolve(beat);
         refresh();
         sendJson(ctx, 200, { extRulesVersion: version, serverNow: isoAt(now()) });
+        return;
+      }
+      case P.usage: {
+        if (method !== 'POST') allow('POST');
+        const ext = requireExtension(ctx);
+        const body = validated(usageReportRequestSchema, await readBody(req));
+        if (body.items.some((item) => item.type !== 'domain')) {
+          throw fail('insufficient_scope', 'the extension reports domains only');
+        }
+        refresh();
+        const response = handleUsage(ext, body);
+        const report: RecordedUsage = { at: now(), extensionId: ext.id, request: body, response };
+        usageLog.push(report);
+        for (const waiter of [...usageWaiters]) if (waiter.match(report)) waiter.resolve(report);
+        sendJson(ctx, 200, response);
         return;
       }
       case P.attempts: {
@@ -1104,6 +1278,42 @@ export async function startMockGuardian(options: MockGuardianOptions = {}): Prom
       penaltiesEnabled = enabled;
       refresh();
     },
+    addLimit(input) {
+      const resolved = resolveTargets(
+        { serviceIds: input.services ?? [], categoryIds: [], domains: input.domains ?? [] },
+        'linux',
+      );
+      if (resolved.domains.length === 0) {
+        throw new Error('mock guardian: a limit needs at least one valid target');
+      }
+      const serviceIds = unique((input.services ?? []).filter((id) => getService(id)));
+      const limit: MockLimit = {
+        id: newId('lim'),
+        name: input.name ?? getService(serviceIds[0] ?? '')?.name ?? 'Límite',
+        serviceIds,
+        domains: resolved.domains,
+        excludedDomains: resolved.excludedDomains,
+        dailyMinutes: input.dailyMinutes,
+        appliesToday: input.appliesToday ?? true,
+        mode: input.mode ?? 'strict',
+        reason: input.reason ?? '',
+        usedMs: 0,
+        creditedUntil: 0,
+        credited: [],
+        blockId: null,
+      };
+      limits.set(limit.id, limit);
+      refresh();
+      return { ...limit };
+    },
+    setLimitUsage(id, seconds) {
+      const limit = limits.get(id);
+      if (limit === undefined) throw new Error(`mock guardian: unknown limit ${id}`);
+      limit.usedMs = seconds * 1_000;
+      evaluateLimit(limit, now());
+      return { ...limit };
+    },
+    limits: () => [...limits.values()].map((l) => ({ ...l })),
 
     rules: () => {
       refresh();
@@ -1112,9 +1322,12 @@ export async function startMockGuardian(options: MockGuardianOptions = {}): Prom
     requests: () => recorded.map((r) => ({ ...r })),
     heartbeats: () => [...heartbeatLog],
     attempts: () => [...attemptLog],
+    usageReports: () => [...usageLog],
 
     waitForAttempt: (predicate = () => true, timeoutMs = 10_000) =>
       waitFor(attemptLog, attemptWaiters, predicate, timeoutMs, 'attempt'),
+    waitForUsage: (predicate = () => true, timeoutMs = 10_000) =>
+      waitFor(usageLog, usageWaiters, predicate, timeoutMs, 'usage report'),
     waitForHeartbeat: (predicate = () => true, timeoutMs = 10_000) =>
       waitFor(heartbeatLog, heartbeatWaiters, predicate, timeoutMs, 'heartbeat'),
     waitForApplied(target, timeoutMs = 15_000) {

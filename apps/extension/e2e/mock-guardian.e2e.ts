@@ -248,6 +248,49 @@ test.describe('mock guardian', () => {
     });
   });
 
+  test('usage: credited once and never beyond real time; a used-up limit blocks as manual', async () => {
+    let clock = Date.parse('2026-09-28T10:00:00.000Z');
+    const guardian = await startMockGuardian({ now: () => clock });
+    try {
+      const client = await paired(guardian);
+      const limit = guardian.addLimit({ services: ['youtube'], dailyMinutes: 5 });
+      const rules = await client.getExtRules({});
+      expect(rules.notModified ? null : rules.rules.limits).toEqual([
+        expect.objectContaining({ id: limit.id, name: 'YouTube', dailyMinutes: 5 }),
+      ]);
+      const report = (seconds: number, intervalMs = 30_000, value = 'www.youtube.com') =>
+        client.reportUsage({ intervalMs, items: [{ type: 'domain', value, seconds }] });
+
+      const first = await report(30);
+      expect(first.limits[0]).toMatchObject({ usedTodaySeconds: 30, creditedSeconds: 30 });
+      // The same seconds sent again at once (an answer lost): only the 2 s of slack.
+      const again = await report(30);
+      expect(again.limits[0]).toMatchObject({ usedTodaySeconds: 32, creditedSeconds: 2 });
+      // Unlimited sites count nothing.
+      clock += 30_000;
+      expect((await report(30, 30_000, 'example.com')).limits[0]?.creditedSeconds).toBe(0);
+      // More than the time since the previous report is clamped to it (+ slack).
+      clock += 10_000;
+      expect((await report(30)).limits[0]?.creditedSeconds).toBe(12);
+
+      guardian.setLimitUsage(limit.id, 5 * 60);
+      const blocked = await client.getExtRules({});
+      const block = blocked.notModified ? undefined : blocked.rules.blocks[0];
+      expect(block).toMatchObject({ kind: 'manual', limitId: limit.id });
+      expect((await report(5, 5_000)).limits[0]?.blockedUntil).toBe('2026-09-29T00:00:00.000Z');
+
+      const scope = await rejection(
+        client.reportUsage({
+          intervalMs: 5_000,
+          items: [{ type: 'process', value: 'chrome.exe', seconds: 5 }],
+        }),
+      );
+      expect(scope).toMatchObject({ status: 403, code: 'insufficient_scope' });
+    } finally {
+      await guardian.close();
+    }
+  });
+
   test('attempts: the whitelist covers every site but the allowed ones', async () => {
     await withGuardian(async (g) => {
       const client = await paired(g);

@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import type { EpochId, WireEvent } from '@centrate/shared/domain';
 import type { EventsResponse } from '@centrate/shared/guardian-api';
 import { afterEach, describe, expect, it } from 'vitest';
-import { eventStatus, openEventsDb } from '../../../src/main/db/events-db';
+import { DatabaseSync } from 'node:sqlite';
+import { SCHEMA_VERSION, eventStatus, openEventsDb } from '../../../src/main/db/events-db';
 
 const EPOCH = 'ep_testepoch0000000001' as EpochId;
 const OTHER = 'ep_testepoch0000000002' as EpochId;
@@ -117,6 +118,84 @@ describe('events database', () => {
       { day: '2026-09-28', points: 70, xp: 0, blocksCompleted: 1, attempts: 1, events: 2 },
       { day: '2026-09-29', points: -20, xp: 0, blocksCompleted: 0, attempts: 1, events: 1 },
     ]);
+    db.close();
+  });
+
+  it('keeps the minutes used per daily limit and day (limit_day_closed)', () => {
+    const db = openEventsDb(':memory:');
+    const closed = (seq: number, day: string, used: number, reached: boolean): WireEvent =>
+      event(seq, 'limit_day_closed', {
+        limitId: 'lim_fixture0000000001',
+        name: 'YouTube',
+        day,
+        dailyMinutes: 30,
+        usedSeconds: used,
+        applied: true,
+        reached,
+      });
+    db.applyPage(page([closed(1, '2026-09-26', 1200, false), closed(2, '2026-09-27', 1800, true)]));
+    expect(db.limitDays()).toEqual([
+      {
+        limitId: 'lim_fixture0000000001',
+        name: 'YouTube',
+        day: '2026-09-26',
+        dailyMinutes: 30,
+        usedSeconds: 1200,
+        applied: true,
+        reached: false,
+      },
+      expect.objectContaining({ day: '2026-09-27', usedSeconds: 1800, reached: true }),
+    ]);
+    expect(db.limitDays({ from: '2026-09-27' })).toHaveLength(1);
+    // A re-delivered event changes nothing; a new epoch (data deletion) wipes them.
+    db.applyPage(page([closed(2, '2026-09-27', 1800, true)]));
+    expect(db.limitDays()).toHaveLength(2);
+    db.applyPage(page([], { epoch: OTHER, reset: true }));
+    expect(db.limitDays()).toEqual([]);
+    db.applyPage(page([closed(3, '2026-09-28', 60, false)], { epoch: OTHER }));
+    db.wipe();
+    expect(db.limitDays()).toEqual([]);
+    db.close();
+  });
+
+  it('migrates a v1 file, filling limit_days from the events it already has', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'centrate-db-'));
+    dirs.push(dir);
+    const path = join(dir, 'centrate.sqlite');
+    const first = openEventsDb(path);
+    first.applyPage(
+      page([
+        event(1, 'limit_day_closed', {
+          limitId: 'lim_fixture0000000002',
+          name: 'Redes sociales',
+          day: '2026-09-27',
+          dailyMinutes: 60,
+          usedSeconds: 3600,
+          applied: true,
+          reached: true,
+        }),
+      ]),
+    );
+    first.close();
+    // Back to v1: the table gone, as a file written by an older app.
+    const raw = new DatabaseSync(path);
+    raw.exec('DROP TABLE limit_days; PRAGMA user_version = 1;');
+    raw.close();
+    const db = openEventsDb(path);
+    expect(db.limitDays()).toEqual([
+      {
+        limitId: 'lim_fixture0000000002',
+        name: 'Redes sociales',
+        day: '2026-09-27',
+        dailyMinutes: 60,
+        usedSeconds: 3600,
+        applied: true,
+        reached: true,
+      },
+    ]);
+    const version = new DatabaseSync(path);
+    expect(version.prepare('PRAGMA user_version').get()).toEqual({ user_version: SCHEMA_VERSION });
+    version.close();
     db.close();
   });
 

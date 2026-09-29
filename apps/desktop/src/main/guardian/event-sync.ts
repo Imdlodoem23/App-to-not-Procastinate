@@ -144,8 +144,7 @@ export class EventSync {
   }
 
   private async backoff(): Promise<void> {
-    const delay =
-      EVENT_BACKOFF_MS[Math.min(this.failures, EVENT_BACKOFF_MS.length - 1)] ?? 30_000;
+    const delay = EVENT_BACKOFF_MS[Math.min(this.failures, EVENT_BACKOFF_MS.length - 1)] ?? 30_000;
     this.failures += 1;
     await this.pause(delay);
   }

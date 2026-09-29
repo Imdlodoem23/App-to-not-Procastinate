@@ -188,6 +188,7 @@ export const en: Copy = {
       'sin insta media hora',
       'nada de Discord hasta mañana a las 8',
       'no veo series 1h30',
+      'YouTube máximo 30 minutos al día',
     ],
     result: {
       title: 'What Céntrate would do',
@@ -199,6 +200,14 @@ export const en: Copy = {
       studyNoTask: 'Céntrate would suggest a {duration} Study Mode session.',
       over4h: 'That’s more than 4\u00a0hours: the app would ask you to confirm twice.',
       over24h: 'A block can last 24\u00a0hours at most.',
+      limit:
+        'Céntrate would let you use {services} for {daily} and, once that time is used up, cut off access until midnight.',
+      perDay: '{duration} a day',
+      limitDays: '{daily} ({days})',
+      limitRange: 'A daily limit can be anywhere from 5\u00a0min to 12\u00a0hours.',
+      limitNote:
+        'Only the time you actually spend counts. Lowering the limit is instant; raising or removing it takes 24\u00a0hours.',
+      limitMode: 'Strict',
       partial:
         'I understood {understood}, but not “{rest}”. The app would open the advanced form with that already filled in.',
       none: 'I didn’t understand “{text}”. The app wouldn’t make anything up: it would open the advanced form so you can choose.',
@@ -225,6 +234,9 @@ export const en: Copy = {
         duration: 'Duration',
         ends: 'Ends at',
         mode: 'Mode',
+        limited: 'Limited',
+        daily: 'Daily limit',
+        days: 'Days',
       },
       defaultMode: 'Normal',
     },
@@ -415,6 +427,10 @@ export const en: Copy = {
         text: 'Blocks that repeat on their own, like social media Monday to Friday from 4:00 to 7:00\u00a0PM.',
       },
       {
+        name: 'Daily limits',
+        text: 'Like YouTube for 30\u00a0minutes a day: once they’re used up, it stays blocked until midnight.',
+      },
+      {
         name: 'Exam mode',
         text: 'Only your study sites, with no way to cancel until the time you choose.',
       },
@@ -425,10 +441,6 @@ export const en: Copy = {
       {
         name: 'Sounds',
         text: 'Rain, white noise or lo-fi, built into the app and without internet.',
-      },
-      {
-        name: 'Mini timer',
-        text: 'A small, always-visible countdown you can place wherever you like.',
       },
       {
         name: 'Browser extension',
@@ -448,6 +460,10 @@ export const en: Copy = {
       },
     ],
     spare: [
+      {
+        name: 'Mini timer',
+        text: 'A small, always-visible countdown you can place wherever you like.',
+      },
       {
         name: 'Quick templates',
         text: 'Homework 1\u00a0h, Exam 3\u00a0h or Read 30\u00a0min: one click and Enter.',
@@ -914,7 +930,7 @@ export const en: Copy = {
     privacidad: {
       headline: 'Privacy policy.',
       updated:
-        'Last updated: September 27, 2026. This is a translation: if it differs from the Spanish version, the Spanish one prevails.',
+        'Last updated: September 29, 2026. This is a translation: if it differs from the Spanish version, the Spanish one prevails.',
       lead: 'Céntrate works without an account, without internet and without sending us anything. Here is what data is processed, where it is stored and what rights you have, under the General Data Protection Regulation (GDPR) and the Spanish data protection law (LOPDGDD).',
       summary: {
         title: 'In short',
@@ -940,10 +956,11 @@ export const en: Copy = {
             'All of this is stored only on your computer:',
             {
               list: [
-                'your blocks, schedules, templates, settings and your reason;',
+                'your blocks, schedules, daily limits, templates, settings and your reason;',
                 'the tasks of your Study Mode sessions;',
                 'your points, XP, streak and achievements, and the event log they come from: attempts, strikes, punishments, completed blocks and emergency unlocks;',
                 'your statistics, like focused minutes and the number of warnings;',
+                'how much of each daily limit you used each day: only the seconds that count toward that limit, never which pages you saw or your window titles;',
                 'the Study Mode calibration, which is only numbers, never photos;',
                 'rotating technical logs, with no personal data, to diagnose failures.',
               ],
@@ -974,6 +991,7 @@ export const en: Copy = {
           blocks: [
             'The extension compares, inside your browser, every site you open with your list of active blocks. It needs permission for all websites because that is the only way to redirect the ones you block.',
             'It only talks to the guardian on your own computer (`127.0.0.1`): it receives the list of what is blocked and reports attempts to it. It doesn’t store your history or send it anywhere.',
+            'If you have daily limits, the extension tells the guardian how many seconds you spent on those sites, with only the site name (like `www.youtube.com`), never the full address. For app limits, the desktop app tells it which program is in front, without the window title. All of it stays on your computer.',
           ],
         },
         {
@@ -1041,7 +1059,7 @@ export const en: Copy = {
             {
               list: [
                 '**Access and portability:** Settings → Data → **Export**, as CSV.',
-                '**Erasure:** Settings → Data → **Delete all my data**, which asks you to type a confirmation word. Running blocks are not deleted: they end on time.',
+                '**Erasure:** Settings → Data → **Delete all my data**, which asks you to type a confirmation word. Running blocks are not deleted: they end on time. Neither are your daily limits or what you have used today, so deleting can’t be used to get around a limit.',
                 '**Rectification:** change your settings, schedules and templates whenever you want. Points can’t be edited, so nobody can cheat, but they can be deleted.',
               ],
             },

@@ -44,6 +44,26 @@ func handlerTable() map[string]handlerSpec {
 			return c.s.eng.DeleteSchedule(c.ctx, c.request(), c.id)
 		})},
 
+		// Daily limits (§5.10, §8.8). DELETE never deletes at once: it answers 200 with the
+		// limit and its pending deletion.
+		"listLimits": {serve: readCmd(func(c *call) (engine.ListLimitsResponse, error) {
+			return c.s.eng.ListLimits(c.ctx)
+		})},
+		"createLimit": {write: true, serve: bodyCmd(http.StatusCreated, func(c *call, in engine.DailyLimitInput) (engine.LimitResponse, error) {
+			return c.s.eng.CreateLimit(c.ctx, c.request(), in)
+		})},
+		"updateLimit": {write: true, serve: bodyCmd(http.StatusOK, func(c *call, in engine.DailyLimitInput) (engine.LimitResponse, error) {
+			return c.s.eng.UpdateLimit(c.ctx, c.request(), c.id, in)
+		})},
+		"deleteLimit": {write: true, serve: readCmd(func(c *call) (engine.LimitResponse, error) {
+			return c.s.eng.DeleteLimit(c.ctx, c.request(), c.id)
+		})},
+		// A usage report is not a user-initiated write: accepted in safe mode (§8.3 step
+		// 6), refused by the engine in frozen mode.
+		"reportUsage": {serve: bodyCmd(http.StatusOK, func(c *call, req engine.UsageReportRequest) (engine.UsageReportResponse, error) {
+			return c.s.eng.ReportUsage(c.ctx, c.request(), req)
+		})},
+
 		"startStudy": {write: true, serve: bodyCmd(http.StatusCreated, func(c *call, req engine.StartStudyRequest) (engine.StudySessionResponse, error) {
 			return c.s.eng.StartStudy(c.ctx, c.request(), req)
 		})},

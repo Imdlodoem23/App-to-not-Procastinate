@@ -26,6 +26,13 @@ export type ForegroundRead =
 
 export interface ForegroundReader {
   read(): Promise<ForegroundRead>;
+  /**
+   * The foreground window's process name only (daily-limit usage, ARCHITECTURE §10.13):
+   * readable without a title and, on macOS, without Screen Recording (the owner name is
+   * always readable). `null` when nothing is in front or it is unknown; `unsupported` where
+   * the layer cannot read at all (Wayland, no display, no FFI).
+   */
+  readProcess?(): Promise<string | null | 'unsupported'>;
   /** Asks for what the layer needs (macOS Screen Recording); elsewhere nothing is needed. */
   requestPermission(): Promise<PermissionOutcome>;
 }
@@ -102,6 +109,32 @@ export function createForegroundReader(options: ReaderOptions): ForegroundReader
         }
       } catch {
         return { kind: 'error' };
+      }
+    },
+
+    async readProcess(): Promise<string | null | 'unsupported'> {
+      try {
+        switch (options.platform) {
+          case 'win32': {
+            const reader = await winReader();
+            return reader ? (reader.read()?.process ?? null) : 'unsupported';
+          }
+          case 'darwin': {
+            const reader = await macReader();
+            return reader ? (reader.read()?.process ?? null) : 'unsupported';
+          }
+          case 'linux': {
+            if (!x11Available(options.env)) return 'unsupported';
+            const r = await readX11Foreground(options.exec);
+            return r.kind === 'window'
+              ? r.window.process
+              : r.kind === 'unsupported'
+                ? r.kind
+                : null;
+          }
+        }
+      } catch {
+        return null;
       }
     },
 
