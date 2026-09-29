@@ -25,7 +25,10 @@ import type { BrowserFamily, ExtensionId, IsoUtc } from '@centrate/shared/domain
 import type {
   AttemptResponse,
   ExtRuleBlock,
+  ExtRuleLimit,
   ExtRulesResponse,
+  UsageReportRequest,
+  UsageReportResponse,
 } from '@centrate/shared/guardian-api';
 import type { RulesRecord, StatusError, StatusRecord, PairingRecord } from './storage';
 
@@ -422,6 +425,11 @@ export interface ExtensionStateSnapshot {
     penaltiesEnabled: boolean;
     nextChangeAt: IsoUtc | null;
     blockedHostCount: number;
+    /**
+     * Enabled daily limits (`ExtRulesResponse.limits`, `[]` from guardians without
+     * `daily_limits`): blocked.html names a limit block's allowance with them.
+     */
+    limits: ExtRuleLimit[];
     /** `Date.now()` when these rules were verified. */
     receivedAt: number;
   } | null;
@@ -515,6 +523,7 @@ export function buildSnapshot(input: SnapshotInput): ExtensionStateSnapshot {
             penaltiesEnabled: effective.penaltiesEnabled,
             nextChangeAt: effective.nextChangeAt,
             blockedHostCount: effective.blockDomains.length,
+            limits: effective.limits ?? [],
             receivedAt: record.receivedAt,
           },
     lastRulesAt: status.lastRulesAt,
@@ -678,6 +687,12 @@ export interface BackgroundApi {
    * did not answer.
    */
   reportAttempt(input: { host: string; incognito: boolean }): Promise<AttemptResponse | null>;
+  /**
+   * `POST /v1/usage` with the extension token (domain items only, §10.13). `null` when
+   * unpaired, unauthorized, or the guardian did not answer: never retried (usage.ts adds the
+   * seconds to the next report).
+   */
+  reportUsage(body: UsageReportRequest): Promise<UsageReportResponse | null>;
   getSnapshot(): Promise<ExtensionStateSnapshot>;
   browser(): Promise<BrowserInfo>;
 }

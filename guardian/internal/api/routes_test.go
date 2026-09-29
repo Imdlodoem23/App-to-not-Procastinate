@@ -39,8 +39,8 @@ func TestRoutesEqualTheEmbeddedTable(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("routes differ from api.json:\n got %v\nwant %v", got, want)
 	}
-	if len(embedded.API().Endpoints) != 40 {
-		t.Fatalf("api.json has %d endpoints, the contract 40", len(embedded.API().Endpoints))
+	if len(embedded.API().Endpoints) != 45 {
+		t.Fatalf("api.json has %d endpoints, the contract 45", len(embedded.API().Endpoints))
 	}
 	// Every route matches its own template with a sample id, and the method is served.
 	for _, r := range rt.routes {

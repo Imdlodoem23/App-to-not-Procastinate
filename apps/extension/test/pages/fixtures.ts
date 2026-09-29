@@ -1,5 +1,5 @@
 /** Fixtures for the page tests: background snapshots, live blocks and blocked-tab info. */
-import type { ExtRuleBlock } from '@centrate/shared/guardian-api';
+import type { ExtRuleBlock, ExtRuleLimit } from '@centrate/shared/guardian-api';
 import type { BlockedTabInfo } from '../../src/background/rules';
 import type { ExtensionStateSnapshot } from '../../src/background/state';
 
@@ -25,11 +25,12 @@ type SnapshotOverrides = Partial<Omit<ExtensionStateSnapshot, 'rules'>> & {
   blocks?: ExtRuleBlock[];
   allowances?: Array<{ serviceId: string; endsAt: string }>;
   punishment?: NonNullable<ExtensionStateSnapshot['rules']>['punishment'];
+  limits?: ExtRuleLimit[];
   rules?: null;
 };
 
 export function snapshot(over: SnapshotOverrides = {}): ExtensionStateSnapshot {
-  const { blocks, allowances, punishment, rules, ...top } = over;
+  const { blocks, allowances, punishment, limits, rules, ...top } = over;
   return {
     v: 1,
     now: NOW,
@@ -60,6 +61,7 @@ export function snapshot(over: SnapshotOverrides = {}): ExtensionStateSnapshot {
             penaltiesEnabled: true,
             nextChangeAt: null,
             blockedHostCount: 4,
+            limits: limits ?? [],
             receivedAt: NOW - 1_000,
           },
     lastRulesAt: NOW - 1_000,

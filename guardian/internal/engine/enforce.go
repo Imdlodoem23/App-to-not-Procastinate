@@ -366,8 +366,10 @@ func (e *Engine) extRulesFingerprint() string {
 		Allowances      []RewardAllowance
 		Penalties       bool
 		Nuclear         bool
+		Limits          []ExtRuleLimit
 	}{Block: e.enf.BlockDomains, Excluded: e.enf.ExcludedDomains, WL: e.enf.Whitelist,
-		Allowances: e.allowancesWire(e.wallOffsetMs()), Penalties: e.state.Settings.AttemptPenalties, Nuclear: e.nuclearActive()}
+		Allowances: e.allowancesWire(e.wallOffsetMs()), Penalties: e.state.Settings.AttemptPenalties, Nuclear: e.nuclearActive(),
+		Limits: e.extRuleLimits()}
 	for _, b := range e.sortedActive() {
 		v.Blocks = append(v.Blocks, blk{b.ID, b.Kind, b.Mode, e.display(b.EndsAt), b.Resolved.Domains, b.WhitelistOnly})
 	}

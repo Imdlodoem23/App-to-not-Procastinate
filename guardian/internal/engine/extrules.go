@@ -72,6 +72,7 @@ type ExtRuleBlock struct {
 	ServiceIDs    []string `json:"serviceIds"`
 	Domains       []string `json:"domains"`
 	WhitelistOnly bool     `json:"whitelistOnly"`
+	LimitID       *string  `json:"limitId"`
 }
 
 // ExtWhitelistRules mirrors ExtWhitelistRules.
@@ -105,6 +106,7 @@ type ExtRulesResponse struct {
 	Punishment       *ExtPunishmentSummary `json:"punishment"`
 	NextChangeAt     *string               `json:"nextChangeAt"`
 	PenaltiesEnabled bool                  `json:"penaltiesEnabled"`
+	Limits           []ExtRuleLimit        `json:"limits"`
 }
 
 // ExtRulesQuery is GET /v1/ext/rules?nonce=&waitVersion=&waitMs=.
@@ -212,6 +214,7 @@ func (e *Engine) extRulesPayload(nonce string) ExtRulesResponse {
 		Blocks:           []ExtRuleBlock{},
 		Allowances:       []ExtAllowance{},
 		PenaltiesEnabled: e.state.Settings.AttemptPenalties,
+		Limits:           e.extRuleLimits(),
 	}
 	if wl := e.enf.Whitelist; wl != nil {
 		p.Whitelist = &ExtWhitelistRules{
@@ -227,9 +230,10 @@ func (e *Engine) extRulesPayload(nonce string) ExtRulesResponse {
 	}
 	for _, b := range e.sortedActive() {
 		p.Blocks = append(p.Blocks, ExtRuleBlock{
-			ID: b.ID, Kind: b.Kind, Mode: b.Mode, EndsAt: e.display(b.EndsAt), Reason: b.Reason,
+			// A limit block is manual with limitId for extension tokens (§8.4).
+			ID: b.ID, Kind: extBlockKind(b.Kind), Mode: b.Mode, EndsAt: e.display(b.EndsAt), Reason: b.Reason,
 			ServiceIDs: nonNil(slices.Clone(b.Resolved.ServiceIDs)), Domains: nonNil(slices.Clone(b.Resolved.Domains)),
-			WhitelistOnly: b.WhitelistOnly,
+			WhitelistOnly: b.WhitelistOnly, LimitID: b.LimitID,
 		})
 		earliest(b.EndsAt)
 	}

@@ -14,7 +14,8 @@
       "events_longpoll",
       "data_delete",
       "study_history",
-      "nuclear_heartbeat"
+      "nuclear_heartbeat",
+      "daily_limits"
     ],
     "chromiumExtensionId": "dlabilkpafinafimngfclcfmeghilcah",
     "dataDeleteConfirmWords": [
@@ -135,6 +136,51 @@
         "longPoll": false,
         "method": "DELETE",
         "path": "/v1/schedules/{id}",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "listLimits",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "GET",
+        "path": "/v1/limits",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "createLimit",
+        "idempotencyKey": true,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/limits",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "updateLimit",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "PUT",
+        "path": "/v1/limits/{id}",
+        "testOnly": false
+      },
+      {
+        "auth": "app",
+        "id": "deleteLimit",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "DELETE",
+        "path": "/v1/limits/{id}",
+        "testOnly": false
+      },
+      {
+        "auth": "app_or_ext",
+        "id": "reportUsage",
+        "idempotencyKey": false,
+        "longPoll": false,
+        "method": "POST",
+        "path": "/v1/usage",
         "testOnly": false
       },
       {
@@ -472,6 +518,13 @@
       "idempotencyKeyMaxLength": 128,
       "idempotencyMaxEntries": 256,
       "idempotencyTtlMs": 600000,
+      "limitMaxBlocksPerDay": 4,
+      "limitMaxMinutes": 720,
+      "limitMinBlockMs": 60000,
+      "limitMinMinutes": 5,
+      "limitNameMaxLength": 60,
+      "limitWarningSeconds": 300,
+      "limitWeakeningDelayMs": 86400000,
       "longBlockConfirmMinutes": 240,
       "longPollMaxMs": 25000,
       "maxActiveBlocks": 32,
@@ -481,6 +534,8 @@
       "maxCustomDomains": 200,
       "maxCustomProcesses": 50,
       "maxIdsPerList": 64,
+      "maxLimitCustomHosts": 1000,
+      "maxLimits": 50,
       "maxScheduleCustomHosts": 1000,
       "maxSchedules": 50,
       "maxWhitelistExtraDomains": 100,
@@ -502,7 +557,13 @@
       "statePollIntervalMs": 2000,
       "studyHistoryMs": 604800000,
       "taskMaxLength": 80,
-      "unverifiedCompletionsMax": 200
+      "unverifiedCompletionsMax": 200,
+      "usageFastReportIntervalMs": 5000,
+      "usageIdleSeconds": 60,
+      "usageMaxIntervalMs": 120000,
+      "usageMaxItems": 32,
+      "usageReportIntervalMs": 30000,
+      "usageSlackMs": 2000
     },
     "problems": [
       "hosts_write_failed",
@@ -523,11 +584,12 @@
       "blocks": 10000,
       "domains": 100000,
       "ids": 10000,
+      "limits": 1000,
       "processes": 10000,
       "punishments": 1000,
       "schedules": 1000
     }
   },
   "generatedBy": "scripts/gen-guardian-data.mjs",
-  "sourceSha256": "6118382af642ee109c6b4501b6f596aee85b8ce83577767ce83313f263f49216"
+  "sourceSha256": "a647e4349f11f35f353072aa02879c692ac311d53275c9556186e4b90d04abd0"
 }

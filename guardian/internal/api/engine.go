@@ -30,6 +30,12 @@ type Engine interface {
 	UpdateSchedule(ctx context.Context, r engine.Request, id string, in engine.ScheduleInput) (engine.ScheduleResponse, error)
 	DeleteSchedule(ctx context.Context, r engine.Request, id string) error
 
+	ListLimits(ctx context.Context) (engine.ListLimitsResponse, error)
+	CreateLimit(ctx context.Context, r engine.Request, in engine.DailyLimitInput) (engine.LimitResponse, error)
+	UpdateLimit(ctx context.Context, r engine.Request, id string, in engine.DailyLimitInput) (engine.LimitResponse, error)
+	DeleteLimit(ctx context.Context, r engine.Request, id string) (engine.LimitResponse, error)
+	ReportUsage(ctx context.Context, r engine.Request, req engine.UsageReportRequest) (engine.UsageReportResponse, error)
+
 	StartStudy(ctx context.Context, r engine.Request, req engine.StartStudyRequest) (engine.StudySessionResponse, error)
 	CurrentStudy(ctx context.Context) (engine.CurrentStudyResponse, error)
 	GetStudySession(ctx context.Context, id string) (engine.StudySessionDetail, error)

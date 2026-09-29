@@ -30,7 +30,12 @@
  */
 
 import { normalizeDomain } from '@centrate/shared/catalog';
-import type { AttemptResponse, ExtRulesResponse } from '@centrate/shared/guardian-api';
+import type {
+  AttemptResponse,
+  ExtRulesResponse,
+  UsageReportRequest,
+  UsageReportResponse,
+} from '@centrate/shared/guardian-api';
 import type { BackgroundContext, RulesLoop, RulesLoopOptions } from './client';
 import {
   createExtensionClient,
@@ -76,6 +81,7 @@ import { STORAGE_KEYS, chromeLocalArea, createBackgroundStore } from './storage'
 // order: the declarativeNetRequest rules, then attempt reporting (which follows DNR changes).
 import './dnr';
 import './attempts';
+import './usage';
 
 export const ALARMS = Object.freeze({
   tick: 'centrate.tick',
@@ -360,10 +366,25 @@ export function createBackground(options: BackgroundOptions): Background {
     }
   }
 
+  async function reportUsage(body: UsageReportRequest): Promise<UsageReportResponse | null> {
+    // Only the main instance reports (one client per token for the guardian's clamps).
+    if (follower) return null;
+    const pairing = await store.getPairing();
+    if (pairing === null || pairing.unauthorizedAt !== null) return null;
+    try {
+      return await createExtensionClient(pairing, ctx.fetch).reportUsage(body);
+    } catch (error) {
+      const failure = describeError(error, now());
+      if (failure.status === 401) await markUnauthorized(ctx, pairing, failure.at);
+      return null;
+    }
+  }
+
   const api: BackgroundApi = {
     getEffectiveRules,
     matchHost: async (host) => matchHost(await getEffectiveRules(), host.toLowerCase()),
     reportAttempt,
+    reportUsage,
     getSnapshot,
     browser: () => platform.browser(),
   };

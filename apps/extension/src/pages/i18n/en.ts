@@ -236,6 +236,19 @@ export const PAGES_EN: PagesMessages = {
         `No one has ever passed an exam thanks to ${c.inlineName}. As far as we know.`,
     ],
     framedLabel: 'Content blocked by Céntrate',
+    limitLine: (minutes: number, name: string): string =>
+      `You’ve used your ${minutes} min of ${name} for today. Come back tomorrow.`,
+    limitLineUnknown: (inlineName: string): string =>
+      `You’ve reached your daily limit for ${inlineName}. Come back tomorrow.`,
+  },
+
+  usage: {
+    /** «12m», «2h». */
+    badgeText: (minutes: number): string =>
+      minutes >= 100 ? `${Math.round(minutes / 60)}h` : `${minutes}m`,
+    /** «12 min of YouTube left today». */
+    badgeTitle: (minutes: number, name: string): string =>
+      minutes <= 0 ? `No minutes of ${name} left today` : `${minutes} min of ${name} left today`,
   },
 
   popup: {

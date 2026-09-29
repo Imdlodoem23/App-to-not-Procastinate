@@ -44,6 +44,8 @@ import type {
   EmergencyCancelReason,
   EmergencyId,
   EmergencyUnlock,
+  DailyLimit,
+  DailyLimitDefinition,
   EpochId,
   EpochKeptState,
   EscalationState,
@@ -57,7 +59,10 @@ import type {
   IdKind,
   IsoUtc,
   IsoWeekday,
+  LimitId,
+  LimitMode,
   MalformedGuardianEvent,
+  PendingLimitChange,
   PendingSettingChange,
   PendingSettingPath,
   PendingSettingValues,
@@ -95,6 +100,7 @@ import {
   GUARDIAN_MODES,
   HEARTBEAT_STATES,
   ID_PREFIXES,
+  LIMIT_MODES,
   PUNISHMENT_CAUSES,
   PUNISHMENT_LEVELS,
   PUNISHMENT_STATUSES,
@@ -250,6 +256,50 @@ export const GUARDIAN_LIMITS = Object.freeze({
   nuclearHeartbeatIntervalMs: 3_000,
   /** Without a Nuclear heartbeat for this long, the guardian relaunches the app. */
   nuclearLivenessMs: 10_000,
+  /** Daily limits (§5.10): at most this many exist at once (422 `validation_failed`). */
+  maxLimits: 50,
+  limitNameMaxLength: 60,
+  /** `dailyMinutes` of a limit: 5 min … 12 h. */
+  limitMinMinutes: 5,
+  limitMaxMinutes: 720,
+  /**
+   * Hosts entries from custom domains (after `www.`/apex expansion) across **enabled**
+   * limits, checked on limit create and update (422 `too_many_targets`, `details.kind:
+   * "limit_custom_hosts"`).
+   */
+  maxLimitCustomHosts: 1_000,
+  /** `limit_warning` once per limit and day when 0 < remaining ≤ this (5 min). */
+  limitWarningSeconds: 300,
+  /** Weakening limit changes (and deletions) wait this long, like settings. */
+  limitWeakeningDelayMs: 24 * 3_600_000,
+  /**
+   * Limit blocks one limit may materialize per local day (the first one plus the ones a
+   * later strengthening edit adds); beyond it an edit applies from the next day.
+   */
+  limitMaxBlocksPerDay: 4,
+  /** A limit block is not created when less than this is left before local midnight. */
+  limitMinBlockMs: 60_000,
+  /** Clients send `POST /v1/usage` this often while they have unreported seconds. */
+  usageReportIntervalMs: 30_000,
+  /**
+   * …and this often while a limit they count toward applies today and has less than
+   * `usageReportIntervalMs` of allowance left (from their last usage response), so the
+   * block arrives within seconds of the allowance running out.
+   */
+  usageFastReportIntervalMs: 5_000,
+  /**
+   * Largest `intervalMs` of one usage report; a client that could not report for longer
+   * drops the older seconds.
+   */
+  usageMaxIntervalMs: 120_000,
+  usageMaxItems: 32,
+  /**
+   * Tolerance of the guardian's usage clamps (the per-client elapsed-time clamp and the
+   * per-limit watermark), so network and timer jitter never lose seconds.
+   */
+  usageSlackMs: 2_000,
+  /** Clients stop counting usage after this long without keyboard or mouse input. */
+  usageIdleSeconds: 60,
 });
 
 /**
@@ -265,6 +315,7 @@ export const RESPONSE_LIMITS = Object.freeze({
   punishments: 1_000,
   allowances: 1_000,
   schedules: 1_000,
+  limits: 1_000,
 });
 
 /** Features a guardian build supports; clients gate optional request fields on them. */
@@ -282,6 +333,7 @@ export const GUARDIAN_CAPABILITIES = [
   'data_delete',
   'study_history',
   'nuclear_heartbeat',
+  'daily_limits',
 ] as const;
 export type GuardianCapability = (typeof GUARDIAN_CAPABILITIES)[number];
 
@@ -326,6 +378,9 @@ export const GUARDIAN_PATHS = {
   blockExtend: (id: BlockId) => `/v1/blocks/${seg(id)}/extend`,
   schedules: '/v1/schedules',
   schedule: (id: ScheduleId) => `/v1/schedules/${seg(id)}`,
+  limits: '/v1/limits',
+  limit: (id: LimitId) => `/v1/limits/${seg(id)}`,
+  usage: '/v1/usage',
   studySessions: '/v1/study/sessions',
   studyCurrent: '/v1/study/sessions/current',
   studySession: (id: StudySessionId) => `/v1/study/sessions/${seg(id)}`,
@@ -415,6 +470,11 @@ export const GUARDIAN_ENDPOINTS: readonly EndpointSpec[] = Object.freeze([
   ep('createSchedule', 'POST', '/v1/schedules', 'app', { idem: true }),
   ep('updateSchedule', 'PUT', '/v1/schedules/{id}', 'app'),
   ep('deleteSchedule', 'DELETE', '/v1/schedules/{id}', 'app'),
+  ep('listLimits', 'GET', '/v1/limits', 'app'),
+  ep('createLimit', 'POST', '/v1/limits', 'app', { idem: true }),
+  ep('updateLimit', 'PUT', '/v1/limits/{id}', 'app'),
+  ep('deleteLimit', 'DELETE', '/v1/limits/{id}', 'app'),
+  ep('reportUsage', 'POST', '/v1/usage', 'app_or_ext'),
   ep('startStudy', 'POST', '/v1/study/sessions', 'app', { idem: true }),
   ep('currentStudy', 'GET', '/v1/study/sessions/current', 'app'),
   ep('getStudySession', 'GET', '/v1/study/sessions/{id}', 'app'),
@@ -667,6 +727,13 @@ export interface GuardianStateResponse {
   allowances: RewardAllowance[];
   rewardsLock: RewardsLockReason | null;
   nextSchedule: NextScheduleInfo | null;
+  /**
+   * Every daily limit, in creation order, with `usedTodaySeconds` floored to whole minutes
+   * (and `remainingTodaySeconds` derived from it) so the ETag changes at most once a minute
+   * per limit; `GET /v1/limits` and `POST /v1/usage` carry exact seconds. Guardians
+   * without the `daily_limits` capability omit it (read it as `[]`).
+   */
+  limits?: DailyLimit[];
   points: PointsSummary;
   pendingSettings: PendingSettingChange[];
   recent: {
@@ -816,6 +883,72 @@ export interface ListSchedulesResponse {
   schedules: Schedule[];
 }
 
+/**
+ * `POST /v1/limits` and `PUT /v1/limits/{id}` (full replace). On `PUT` the guardian applies
+ * the strengthening part at once and turns the rest into `pendingChange` (§5.10,
+ * `splitLimitChange`).
+ */
+export interface DailyLimitInput extends DailyLimitDefinition {
+  /** Required `true` for mode `hardcore` (422 `confirmation_required` otherwise). */
+  acknowledgeNoEmergency: boolean;
+}
+
+export interface LimitResponse {
+  limit: DailyLimit;
+}
+
+export interface ListLimitsResponse {
+  limits: DailyLimit[];
+}
+
+/**
+ * One usage figure: seconds the target was in use during the report's interval.
+ * - `domain`: extension tokens only; a canonical host of the focused window's active tab
+ *   that matches some `ExtRulesResponse.limits[].domains` entry (never any other host).
+ * - `process`: app token only; the foreground executable's base name (any valid name).
+ */
+export interface UsageItem {
+  type: 'domain' | 'process';
+  value: string;
+  /** 1 … ceil(intervalMs / 1000). */
+  seconds: number;
+}
+
+/**
+ * `POST /v1/usage` (ext or app token). The guardian never trusts it beyond real time: it
+ * clamps the interval to the elapsed time since that client's previous accepted report
+ * and credits each trusted millisecond at most once per limit (`limitUsageCredit`).
+ */
+export interface UsageReportRequest {
+  /**
+   * Length of the interval the items cover, measured with the client's monotonic clock:
+   * 1 000 … `usageMaxIntervalMs`.
+   */
+  intervalMs: number;
+  /** Unique (`type`, `value`) pairs, at most `usageMaxItems`; may be empty. */
+  items: UsageItem[];
+}
+
+/** Today's usage of one enabled limit, exact to the second. */
+export interface LimitUsageStatus {
+  limitId: LimitId;
+  usedTodaySeconds: number;
+  remainingTodaySeconds: number;
+  appliesToday: boolean;
+  /** Seconds this report added to the limit (after every clamp). */
+  creditedSeconds: number;
+  /** End of today's active limit block (display time), `null` when none is active. */
+  blockedUntil: IsoUtc | null;
+}
+
+export interface UsageReportResponse {
+  /** The guardian's current local day. */
+  day: string;
+  /** Every enabled limit, in creation order. */
+  limits: LimitUsageStatus[];
+  serverNow: IsoUtc;
+}
+
 export interface StartStudyRequest {
   task: string;
   plannedMinutes: number;
@@ -960,7 +1093,16 @@ export interface AttemptResponse {
    * The covering block with the latest `endsAt` (ties: the most recently created), since
    * that is when access actually returns; blocked.html shows its `endsAt` and `reason`.
    */
-  block: { id: BlockId; kind: BlockKind; mode: BlockMode; endsAt: IsoUtc; reason: string } | null;
+  block: {
+    id: BlockId;
+    /** Extension tokens get `manual` for a limit block (§8.4) and read `limitId`. */
+    kind: BlockKind;
+    mode: BlockMode;
+    endsAt: IsoUtc;
+    reason: string;
+    /** Set for a limit block; absent from guardians without `daily_limits`. */
+    limitId?: LimitId | null;
+  } | null;
   reason: 'not_blocked' | 'allowance_active' | null;
 }
 
@@ -1114,6 +1256,7 @@ export interface PairedExtensionsResponse {
 
 export interface ExtRuleBlock {
   id: BlockId;
+  /** A limit block is reported as `manual` with `limitId` set (§8.4). */
   kind: BlockKind;
   mode: BlockMode;
   endsAt: IsoUtc;
@@ -1123,6 +1266,31 @@ export interface ExtRuleBlock {
   /** Resolved hosts; `[]` for whitelist-only blocks. */
   domains: string[];
   whitelistOnly: boolean;
+  /** The daily limit behind a limit block; absent from guardians without `daily_limits`. */
+  limitId?: LimitId | null;
+}
+
+/**
+ * An enabled daily limit as the extension needs it: which hosts count as usage (the
+ * badge, `POST /v1/usage`) and the copy of blocked.html («Has usado tus 30 min de YouTube
+ * de hoy»). Usage itself is not here (it would change the ETag every report): it comes
+ * back from `POST /v1/usage`.
+ */
+export interface ExtRuleLimit {
+  id: LimitId;
+  name: string;
+  /** Catalog services it covers (categories expanded). */
+  serviceIds: string[];
+  /**
+   * Resolved hosts (custom domains with their `www.`/apex variants, minus always-allowed
+   * hosts): a tab counts when its host equals or is under one of them and is not equal to
+   * or under an `excludedDomains` entry.
+   */
+  domains: string[];
+  /** Catalog `excludedSubdomains` of its services and always-allowed hosts under `domains`. */
+  excludedDomains: string[];
+  dailyMinutes: number;
+  appliesToday: boolean;
 }
 
 /**
@@ -1176,6 +1344,12 @@ export interface ExtRulesResponse {
   /** Earliest end among blocks and allowances (the extension sets an alarm). */
   nextChangeAt: IsoUtc | null;
   penaltiesEnabled: boolean;
+  /**
+   * Enabled daily limits (creation order). Their changes, and a new local day, bump
+   * `extRulesVersion`. Absent from guardians without `daily_limits`: then the extension
+   * reports no usage.
+   */
+  limits?: ExtRuleLimit[];
 }
 
 export interface ExtHeartbeatRequest {
@@ -1223,6 +1397,8 @@ export interface DeleteDataResponse {
   keptBlockIds: BlockId[];
   keptPunishmentIds: PunishmentId[];
   keptScheduleIds: ScheduleId[];
+  /** Every limit is kept (§10.11); absent from guardians without `daily_limits`. */
+  keptLimitIds?: LimitId[];
 }
 
 /** Test builds only: drive the fake clock. Exactly one action per call. */
@@ -1370,6 +1546,14 @@ function nullable<T>(s: Schema<T>): Schema<T | null> {
   return make((v, p, ctx) => (v === null ? null : s.check(v, p, ctx)));
 }
 
+/**
+ * A response field an older guardian may omit (§8.4): absent is accepted, a present value
+ * must match. Only for fields added after v0.1 (their TS property is optional).
+ */
+function optional<T>(s: Schema<T>): Schema<T> {
+  return make((v, p, ctx) => (v === undefined ? null : s.check(v, p, ctx)));
+}
+
 function arr<T>(
   item: Schema<T>,
   opts: { min?: number; max: number; unique?: boolean },
@@ -1448,6 +1632,7 @@ interface IdTypes {
   attempt: AttemptId;
   extension: ExtensionId;
   epoch: EpochId;
+  limit: LimitId;
 }
 
 function idOf<K extends IdKind>(kind: K): Schema<IdTypes[K]> {
@@ -1509,6 +1694,7 @@ const L = GUARDIAN_LIMITS;
 const reasonText = str({ max: L.reasonMaxLength, text: true });
 const taskText = str({ max: L.taskMaxLength, text: true });
 const scheduleNameText = str({ min: 1, max: L.scheduleNameMaxLength, text: true });
+const limitNameText = str({ min: 1, max: L.limitNameMaxLength, text: true });
 
 function validateWith<T>(schema: Schema<T>, value: unknown, strict: boolean): ValidationResult<T> {
   const r = schema.check(value, '', { strict });
@@ -1604,6 +1790,7 @@ export const blockSchema: Schema<Block> = obj<Block>({
   extendedMinutes: count,
   scheduleId: nullable(idOf('schedule')),
   punishmentId: nullable(idOf('punishment')),
+  limitId: optional(nullable(idOf('limit'))),
   attemptsCounted: count,
   emergencyEligible: bool,
   pointsDelta: nullable(signed),
@@ -1629,6 +1816,61 @@ export const scheduleSchema: Schema<Schedule> = obj<Schedule>({
   ),
   activeBlockId: nullable(idOf('block')),
 });
+
+const limitMode = oneOf(LIMIT_MODES);
+const limitNameOut = str({ min: 1, max: L.limitNameMaxLength });
+const limitDays = arr(isoWeekday, { min: 1, max: 7, unique: true });
+const limitMinutes = int(L.limitMinMinutes, L.limitMaxMinutes);
+
+function limitDefinitionShape(
+  targets: Schema<TargetSpec>,
+  name: Schema<string>,
+  reason: Schema<string>,
+): Shape<DailyLimitDefinition> {
+  return {
+    name,
+    enabled: bool,
+    targets,
+    dailyMinutes: limitMinutes,
+    days: limitDays,
+    mode: limitMode,
+    reason,
+  };
+}
+
+/** Limits always block something: at least one target. */
+function limitTargetRule(r: { targets: TargetSpec }): { path: string; message: string } | null {
+  return targetCount(r.targets) === 0 ? { path: 'targets', message: 'at least one target' } : null;
+}
+
+const limitDefinitionOut: Schema<DailyLimitDefinition> = refine(
+  obj<DailyLimitDefinition>(
+    limitDefinitionShape(targetSpecOut, limitNameOut, str({ max: L.reasonMaxLength })),
+  ),
+  limitTargetRule,
+);
+
+export const pendingLimitChangeSchema: Schema<PendingLimitChange> = obj<PendingLimitChange>({
+  definition: nullable(limitDefinitionOut),
+  effectiveAt: iso,
+});
+
+export const limitSchema: Schema<DailyLimit> = refine(
+  obj<DailyLimit>({
+    ...limitDefinitionShape(targetSpecOut, limitNameOut, str({ max: L.reasonMaxLength })),
+    id: idOf('limit'),
+    createdAt: iso,
+    updatedAt: iso,
+    day: localDay,
+    appliesToday: bool,
+    usedTodaySeconds: count,
+    remainingTodaySeconds: int(0, L.limitMaxMinutes * 60),
+    reachedAt: nullable(iso),
+    activeBlockId: nullable(idOf('block')),
+    pendingChange: nullable(pendingLimitChangeSchema),
+  }),
+  limitTargetRule,
+);
 
 const pomodoroSchema: Schema<PomodoroSpec> = obj<PomodoroSpec>({
   workMinutes: int(STUDY_RULES.pomodoroWorkMinutes.min, STUDY_RULES.pomodoroWorkMinutes.max),
@@ -1841,6 +2083,7 @@ const eventDataSchemas: DataSchemas = {
       settings: settingsOut,
       pendingSettings: pendingList,
       materializedOccurrences: arr(str({ min: 1, max: 128 }), { max: RESPONSE_LIMITS.ids }),
+      limits: optional(arr(limitSchema, { max: RESPONSE_LIMITS.limits })),
     }),
   }),
   clock_jump: obj<Data<'clock_jump'>>({
@@ -1855,7 +2098,7 @@ const eventDataSchemas: DataSchemas = {
   day_closed: obj<Data<'day_closed'>>({ day: localDay, goalMinutes: dailyGoal }),
   block_created: obj<Data<'block_created'>>({
     block: blockSchema,
-    source: oneOf(['user', 'schedule', 'punishment'] as const),
+    source: oneOf(['user', 'schedule', 'punishment', 'limit'] as const),
   }),
   block_extended: obj<Data<'block_extended'>>({
     blockId: idOf('block'),
@@ -1973,6 +2216,37 @@ const eventDataSchemas: DataSchemas = {
   schedule_created: obj<Data<'schedule_created'>>({ schedule: scheduleSchema }),
   schedule_updated: obj<Data<'schedule_updated'>>({ schedule: scheduleSchema }),
   schedule_deleted: obj<Data<'schedule_deleted'>>({ scheduleId: idOf('schedule') }),
+  limit_created: obj<Data<'limit_created'>>({ limit: limitSchema }),
+  limit_updated: obj<Data<'limit_updated'>>({
+    limit: limitSchema,
+    cause: oneOf(['user', 'pending_applied'] as const),
+  }),
+  limit_deleted: obj<Data<'limit_deleted'>>({ limitId: idOf('limit'), name: limitNameOut }),
+  limit_warning: obj<Data<'limit_warning'>>({
+    limitId: idOf('limit'),
+    name: limitNameOut,
+    day: localDay,
+    dailyMinutes: limitMinutes,
+    usedSeconds: count,
+    remainingSeconds: int(1, L.limitWarningSeconds),
+  }),
+  limit_reached: obj<Data<'limit_reached'>>({
+    limitId: idOf('limit'),
+    name: limitNameOut,
+    day: localDay,
+    dailyMinutes: limitMinutes,
+    usedSeconds: count,
+    blockId: nullable(idOf('block')),
+  }),
+  limit_day_closed: obj<Data<'limit_day_closed'>>({
+    limitId: idOf('limit'),
+    name: limitNameOut,
+    day: localDay,
+    dailyMinutes: limitMinutes,
+    usedSeconds: count,
+    applied: bool,
+    reached: bool,
+  }),
   settings_changed: obj<Data<'settings_changed'>>({
     settings: settingsOut,
     pending: pendingList,
@@ -2151,6 +2425,50 @@ export const scheduleInputSchema: Schema<ScheduleInput> = refine(
       : scheduleWindowMinutes(r.start, r.end) < L.blockMinMinutes
         ? { path: 'end', message: `window shorter than ${L.blockMinMinutes} min` }
         : targetRules(r),
+);
+
+/** `POST /v1/limits`, `PUT /v1/limits/{id}`. */
+export const dailyLimitInputSchema: Schema<DailyLimitInput> = refine(
+  obj<DailyLimitInput>({
+    ...limitDefinitionShape(targetSpecIn, limitNameText, reasonText),
+    acknowledgeNoEmergency: bool,
+  }),
+  limitTargetRule,
+);
+
+const usageItemSchema: Schema<UsageItem> = tagged('type', {
+  domain: obj<UsageItem>({
+    type: literal('domain'),
+    value: domain,
+    seconds: int(1, L.usageMaxIntervalMs / 1000),
+  }),
+  process: obj<UsageItem>({
+    type: literal('process'),
+    value: anyProcessName,
+    seconds: int(1, L.usageMaxIntervalMs / 1000),
+  }),
+}) as Schema<UsageItem>;
+
+/** `POST /v1/usage`. Scope (§8.8): ext tokens send only `domain` items, the app `process`. */
+export const usageReportRequestSchema: Schema<UsageReportRequest> = refine(
+  obj<UsageReportRequest>({
+    intervalMs: int(1_000, L.usageMaxIntervalMs),
+    items: arr(usageItemSchema, { max: L.usageMaxItems }),
+  }),
+  (r) => {
+    const maxSeconds = Math.ceil(r.intervalMs / 1000);
+    const seen = new Set<string>();
+    for (let i = 0; i < r.items.length; i += 1) {
+      const item = r.items[i] as UsageItem;
+      if (item.seconds > maxSeconds) {
+        return { path: `items[${i}].seconds`, message: 'more seconds than the interval' };
+      }
+      const key = `${item.type}:${item.value}`;
+      if (seen.has(key)) return { path: `items[${i}]`, message: 'duplicate item' };
+      seen.add(key);
+    }
+    return null;
+  },
 );
 
 export const startStudyRequestSchema: Schema<StartStudyRequest> = obj<StartStudyRequest>({
@@ -2397,6 +2715,7 @@ export const stateResponseSchema: Schema<GuardianStateResponse> = obj<GuardianSt
       endsAt: iso,
     }),
   ),
+  limits: optional(arr(limitSchema, { max: RESPONSE_LIMITS.limits })),
   points: pointsSummarySchema,
   pendingSettings: pendingList,
   recent: obj<GuardianStateResponse['recent']>({
@@ -2509,6 +2828,30 @@ export const listSchedulesResponseSchema: Schema<ListSchedulesResponse> =
     schedules: arr(scheduleSchema, { max: RESPONSE_LIMITS.schedules }),
   });
 
+export const limitResponseSchema: Schema<LimitResponse> = obj<LimitResponse>({
+  limit: limitSchema,
+});
+
+export const listLimitsResponseSchema: Schema<ListLimitsResponse> = obj<ListLimitsResponse>({
+  limits: arr(limitSchema, { max: RESPONSE_LIMITS.limits }),
+});
+
+export const usageReportResponseSchema: Schema<UsageReportResponse> = obj<UsageReportResponse>({
+  day: localDay,
+  limits: arr(
+    obj<LimitUsageStatus>({
+      limitId: idOf('limit'),
+      usedTodaySeconds: count,
+      remainingTodaySeconds: int(0, L.limitMaxMinutes * 60),
+      appliesToday: bool,
+      creditedSeconds: int(0, L.usageMaxIntervalMs / 1000),
+      blockedUntil: nullable(iso),
+    }),
+    { max: RESPONSE_LIMITS.limits },
+  ),
+  serverNow: iso,
+});
+
 export const studySessionResponseSchema: Schema<StudySessionResponse> = obj<StudySessionResponse>({
   session: studySessionSchema,
 });
@@ -2561,6 +2904,7 @@ export const attemptResponseSchema: Schema<AttemptResponse> = obj<AttemptRespons
       mode: blockMode,
       endsAt: iso,
       reason: str({ max: L.reasonMaxLength }),
+      limitId: optional(nullable(idOf('limit'))),
     }),
   ),
   reason: nullable(oneOf(['not_blocked', 'allowance_active'] as const)),
@@ -2697,6 +3041,7 @@ export const extRulesResponseSchema: Schema<ExtRulesResponse> = obj<ExtRulesResp
       serviceIds: arr(catalogId, { max: RESPONSE_LIMITS.ids }),
       domains: arr(domain, { max: RESPONSE_LIMITS.domains }),
       whitelistOnly: bool,
+      limitId: optional(nullable(idOf('limit'))),
     }),
     { max: RESPONSE_LIMITS.blocks },
   ),
@@ -2709,6 +3054,20 @@ export const extRulesResponseSchema: Schema<ExtRulesResponse> = obj<ExtRulesResp
   ),
   nextChangeAt: nullable(iso),
   penaltiesEnabled: bool,
+  limits: optional(
+    arr(
+      obj<ExtRuleLimit>({
+        id: idOf('limit'),
+        name: limitNameOut,
+        serviceIds: arr(catalogId, { max: RESPONSE_LIMITS.ids }),
+        domains: arr(domain, { max: RESPONSE_LIMITS.domains }),
+        excludedDomains: arr(domain, { max: RESPONSE_LIMITS.domains }),
+        dailyMinutes: limitMinutes,
+        appliesToday: bool,
+      }),
+      { max: RESPONSE_LIMITS.limits },
+    ),
+  ),
 });
 
 export const extHeartbeatResponseSchema: Schema<ExtHeartbeatResponse> = obj<ExtHeartbeatResponse>({
@@ -2729,6 +3088,7 @@ export const deleteDataResponseSchema: Schema<DeleteDataResponse> = obj<DeleteDa
   keptBlockIds: blockIdList,
   keptPunishmentIds: arr(idOf('punishment'), { max: RESPONSE_LIMITS.ids, unique: true }),
   keptScheduleIds: arr(idOf('schedule'), { max: RESPONSE_LIMITS.ids, unique: true }),
+  keptLimitIds: optional(arr(idOf('limit'), { max: RESPONSE_LIMITS.ids, unique: true })),
 });
 
 export const testClockResponseSchema: Schema<TestClockResponse> = obj<TestClockResponse>({
@@ -2743,6 +3103,8 @@ export const testClockResponseSchema: Schema<TestClockResponse> = obj<TestClockR
 export const isCreateBlockRequest = requestGuard(createBlockRequestSchema);
 export const isExtendBlockRequest = requestGuard(extendBlockRequestSchema);
 export const isScheduleInput = requestGuard(scheduleInputSchema);
+export const isDailyLimitInput = requestGuard(dailyLimitInputSchema);
+export const isUsageReportRequest = requestGuard(usageReportRequestSchema);
 export const isStartStudyRequest = requestGuard(startStudyRequestSchema);
 export const isHeartbeatRequest = requestGuard(heartbeatRequestSchema);
 export const isStrikeRequest = requestGuard(strikeRequestSchema);
@@ -2766,6 +3128,7 @@ export const isStateResponse = responseGuard(stateResponseSchema);
 export const isDiagnosticsResponse = responseGuard(diagnosticsResponseSchema);
 export const isBlock = responseGuard(blockSchema);
 export const isSchedule = responseGuard(scheduleSchema);
+export const isDailyLimit = responseGuard(limitSchema);
 export const isStudySession = responseGuard(studySessionSchema);
 export const isPunishment = responseGuard(punishmentSchema);
 export const isEmergencyUnlock = responseGuard(emergencySchema);
@@ -2778,6 +3141,9 @@ export const isGetBlockResponse = responseGuard(getBlockResponseSchema);
 export const isExtendBlockResponse = responseGuard(extendBlockResponseSchema);
 export const isScheduleResponse = responseGuard(scheduleResponseSchema);
 export const isListSchedulesResponse = responseGuard(listSchedulesResponseSchema);
+export const isLimitResponse = responseGuard(limitResponseSchema);
+export const isListLimitsResponse = responseGuard(listLimitsResponseSchema);
+export const isUsageReportResponse = responseGuard(usageReportResponseSchema);
 export const isStudySessionResponse = responseGuard(studySessionResponseSchema);
 export const isCurrentStudyResponse = responseGuard(currentStudyResponseSchema);
 export const isStudySessionDetailResponse = responseGuard(studySessionDetailResponseSchema);
@@ -2944,6 +3310,14 @@ export interface GuardianClient {
   createSchedule(body: ScheduleInput, options?: WriteOptions): Promise<ScheduleResponse>;
   updateSchedule(id: ScheduleId, body: ScheduleInput): Promise<ScheduleResponse>;
   deleteSchedule(id: ScheduleId): Promise<void>;
+  listLimits(): Promise<ListLimitsResponse>;
+  createLimit(body: DailyLimitInput, options?: WriteOptions): Promise<LimitResponse>;
+  /** Strengthening parts apply at once; the rest waits in `pendingChange` (§5.10). */
+  updateLimit(id: LimitId, body: DailyLimitInput): Promise<LimitResponse>;
+  /** Never deletes at once: sets a pending deletion (`pendingChange.definition: null`). */
+  deleteLimit(id: LimitId): Promise<LimitResponse>;
+  /** App: foreground processes; extension: limited hosts (§8.8 «Usage»). */
+  reportUsage(body: UsageReportRequest): Promise<UsageReportResponse>;
   startStudy(body: StartStudyRequest, options?: WriteOptions): Promise<StudySessionResponse>;
   currentStudy(): Promise<CurrentStudyResponse>;
   getStudySession(id: StudySessionId): Promise<StudySessionDetailResponse>;
@@ -3196,6 +3570,26 @@ export function createGuardianClient(options: GuardianClientOptions = {}): Guard
       value({ method: 'PUT', path: P.schedule(id), body, schema: scheduleResponseSchema }),
 
     deleteSchedule: (id) => noContent({ method: 'DELETE', path: P.schedule(id), schema: null }),
+
+    listLimits: () => value({ method: 'GET', path: P.limits, schema: listLimitsResponseSchema }),
+
+    createLimit: (body, o) =>
+      value({
+        method: 'POST',
+        path: P.limits,
+        body,
+        schema: limitResponseSchema,
+        idempotencyKey: key(o),
+      }),
+
+    updateLimit: (id, body) =>
+      value({ method: 'PUT', path: P.limit(id), body, schema: limitResponseSchema }),
+
+    deleteLimit: (id) =>
+      value({ method: 'DELETE', path: P.limit(id), schema: limitResponseSchema }),
+
+    reportUsage: (body) =>
+      value({ method: 'POST', path: P.usage, body, schema: usageReportResponseSchema }),
 
     startStudy: (body, o) =>
       value({
@@ -3583,6 +3977,178 @@ export function findAllowDistraction(
     if (found) return found;
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------------------
+// Daily limits (§5.10): pure rules shared by the app and the guardian (Go ports them;
+// vectors in test/fixtures/limits-vectors.json)
+// ---------------------------------------------------------------------------------------
+
+/** Every ISO weekday: the default `days` of a new limit. */
+export const ALL_WEEKDAYS: readonly IsoWeekday[] = Object.freeze([1, 2, 3, 4, 5, 6, 7]);
+
+/** Rank for «stricter»: `normal` 0 < `strict` 1 < `hardcore` 2. */
+export function limitModeRank(mode: LimitMode): number {
+  return LIMIT_MODES.indexOf(mode);
+}
+
+const TARGET_LISTS = [
+  'serviceIds',
+  'categoryIds',
+  'appIds',
+  'customDomains',
+  'customProcesses',
+] as const satisfies readonly (keyof TargetSpec)[];
+
+function unionList<T>(first: readonly T[], second: readonly T[]): T[] {
+  const out = [...first];
+  for (const item of second) if (!out.includes(item)) out.push(item);
+  return out;
+}
+
+function sortedDays(days: readonly IsoWeekday[]): IsoWeekday[] {
+  return [...new Set(days)].sort((a, b) => a - b);
+}
+
+/**
+ * True when `next` weakens `prev`: a higher `dailyMinutes`, a target entry or a day of
+ * `prev` missing from `next`, a lower mode rank, or `enabled` true → false. `name` and
+ * `reason` are neutral.
+ */
+export function limitDefinitionWeakens(
+  next: DailyLimitDefinition,
+  prev: DailyLimitDefinition,
+): boolean {
+  if (next.dailyMinutes > prev.dailyMinutes) return true;
+  if (prev.enabled && !next.enabled) return true;
+  if (limitModeRank(next.mode) < limitModeRank(prev.mode)) return true;
+  if (prev.days.some((d) => !next.days.includes(d))) return true;
+  return TARGET_LISTS.some((list) =>
+    (prev.targets[list] as readonly string[]).some(
+      (entry) => !(next.targets[list] as readonly string[]).includes(entry),
+    ),
+  );
+}
+
+/**
+ * How a `PUT /v1/limits/{id}` splits (§5.10). `applied` becomes effective at once: the
+ * requested `name` and `reason`, the lower `dailyMinutes`, the union of targets (effective
+ * entries first, then the new ones in request order) and of days (sorted), the stricter
+ * mode, and `enabled` if either is. `pending` is the requested definition (days sorted)
+ * when it still weakens `applied`, else `null` (which also cancels an older pending change).
+ */
+export function splitLimitChange(
+  effective: DailyLimitDefinition,
+  requested: DailyLimitDefinition,
+): { applied: DailyLimitDefinition; pending: DailyLimitDefinition | null } {
+  const targets: TargetSpec = {
+    serviceIds: unionList(effective.targets.serviceIds, requested.targets.serviceIds),
+    categoryIds: unionList(effective.targets.categoryIds, requested.targets.categoryIds),
+    appIds: unionList(effective.targets.appIds, requested.targets.appIds),
+    customDomains: unionList(effective.targets.customDomains, requested.targets.customDomains),
+    customProcesses: unionList(
+      effective.targets.customProcesses,
+      requested.targets.customProcesses,
+    ),
+  };
+  const applied: DailyLimitDefinition = {
+    name: requested.name,
+    enabled: effective.enabled || requested.enabled,
+    targets,
+    dailyMinutes: Math.min(effective.dailyMinutes, requested.dailyMinutes),
+    days: sortedDays([...effective.days, ...requested.days]),
+    mode:
+      limitModeRank(requested.mode) > limitModeRank(effective.mode)
+        ? requested.mode
+        : effective.mode,
+    reason: requested.reason,
+  };
+  const normalized: DailyLimitDefinition = { ...requested, days: sortedDays(requested.days) };
+  return {
+    applied,
+    pending: limitDefinitionWeakens(normalized, applied) ? normalized : null,
+  };
+}
+
+/**
+ * Whether replacing the pending change `prev` by `next` keeps the delay already run (else
+ * it restarts at `limitWeakeningDelayMs`). `null` is a pending deletion, the weakest of all.
+ * The delay is kept when `next` weakens nothing relative to `prev`, so a retried or
+ * stricter request never postpones a change.
+ */
+export function pendingLimitDelayKept(
+  prev: DailyLimitDefinition | null,
+  next: DailyLimitDefinition | null,
+): boolean {
+  if (next === null) return prev === null;
+  if (prev === null) return true;
+  return !limitDefinitionWeakens(next, prev);
+}
+
+/**
+ * The per-client clamp of a usage report (§10.13): the interval it may cover is at most
+ * the boot-clock time since that client's previous accepted report plus `usageSlackMs`
+ * (`sinceLastMs` is `null` for its first report since the guardian started).
+ */
+export function clampUsageInterval(
+  intervalMs: number,
+  sinceLastMs: number | null,
+  slackMs: number = GUARDIAN_LIMITS.usageSlackMs,
+): number {
+  const bound = sinceLastMs === null ? intervalMs : Math.max(0, sinceLastMs) + slackMs;
+  return Math.max(0, Math.min(intervalMs, bound));
+}
+
+/**
+ * Milliseconds one report adds to one limit (§10.13), all in trusted Unix ms. The report
+ * covers `[nowMs − intervalMs, nowMs]` (the interval already clamped per client), cut at
+ * the start of the current local day. Only time after the limit's watermark
+ * `creditedUntilMs` (minus `slackMs` of jitter tolerance) can be credited, so each trusted
+ * millisecond counts at most once per limit whichever clients report it. `reportedMs` is
+ * the sum of the report's matching items for this limit (seconds × 1000). The watermark
+ * moves to `nowMs` whenever something was credited.
+ */
+export function limitUsageCredit(input: {
+  nowMs: number;
+  dayStartMs: number;
+  intervalMs: number;
+  reportedMs: number;
+  creditedUntilMs: number;
+  slackMs?: number;
+}): { creditMs: number; creditedUntilMs: number } {
+  const slack = input.slackMs ?? GUARDIAN_LIMITS.usageSlackMs;
+  const windowStart = Math.max(input.nowMs - input.intervalMs, input.dayStartMs);
+  const from = Math.max(windowStart, input.creditedUntilMs - slack);
+  const free = Math.max(0, input.nowMs - from);
+  const creditMs = Math.max(0, Math.min(input.reportedMs, free, input.intervalMs));
+  return {
+    creditMs,
+    creditedUntilMs:
+      creditMs > 0 ? Math.max(input.creditedUntilMs, input.nowMs) : input.creditedUntilMs,
+  };
+}
+
+/** The `DailyLimitInput` that re-sends a limit's effective definition (cancels a pending change). */
+export function limitInputFromLimit(
+  limit: DailyLimitDefinition,
+  acknowledgeNoEmergency: boolean = limit.mode === 'hardcore',
+): DailyLimitInput {
+  return {
+    name: limit.name,
+    enabled: limit.enabled,
+    targets: {
+      serviceIds: [...limit.targets.serviceIds],
+      categoryIds: [...limit.targets.categoryIds],
+      appIds: [...limit.targets.appIds],
+      customDomains: [...limit.targets.customDomains],
+      customProcesses: [...limit.targets.customProcesses],
+    },
+    dailyMinutes: limit.dailyMinutes,
+    days: [...limit.days],
+    mode: limit.mode,
+    reason: limit.reason,
+    acknowledgeNoEmergency,
+  };
 }
 
 /** Dedupe key of an extension detection (`attempt.targetKey`). */

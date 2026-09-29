@@ -62,6 +62,7 @@ func (e *Engine) blockWire(b *blockRec, offsetMs int64) Block {
 		ExtendedMinutes: b.ExtendedMinutes,
 		ScheduleID:      b.ScheduleID,
 		PunishmentID:    b.PunishmentID,
+		LimitID:         b.LimitID,
 		AttemptsCounted: b.AttemptsCounted,
 		PointsDelta:     b.PointsDelta,
 	}
@@ -87,6 +88,7 @@ type blockSpec struct {
 	EndsAt        int64
 	ScheduleID    *string
 	PunishmentID  *string
+	LimitID       *string
 }
 
 // newBlockSnapshot builds the trusted-time Block of block_created with a new id.
@@ -106,11 +108,12 @@ func (e *Engine) newBlockSnapshot(s blockSpec) Block {
 		OriginalEndsAt:    fmtMs(s.EndsAt),
 		ScheduleID:        s.ScheduleID,
 		PunishmentID:      s.PunishmentID,
+		LimitID:           s.LimitID,
 		EmergencyEligible: points.IsEmergencyEligibleMode(s.Mode),
 	}
 }
 
-// addBlockCreated adds block_created (source user, schedule or punishment) and, for a
+// addBlockCreated adds block_created (source user, schedule, punishment or limit) and, for a
 // hardcore or exam block, the revocation of every active allowance (§10.7). Guardian
 // sources are never refused for budgets (§5.2).
 func (e *Engine) addBlockCreated(b *batch, blk Block, source string) {
@@ -177,6 +180,14 @@ func (e *Engine) resolveBlock(rec *blockRec) {
 		rec.WL = nil
 		return
 	}
+	rec.Resolved = e.resolveTargets(t)
+	rec.WL = nil
+}
+
+// resolveTargets is the catalog resolution of a target spec on this OS (§5.2): domains
+// (custom ones with their www./apex variants, minus always-allowed hosts), excluded
+// hosts, processes and the services it covers (categories expanded).
+func (e *Engine) resolveTargets(t TargetSpec) resolvedTargets {
 	r := e.cat.ResolveTargets(catalog.Selection{
 		ServiceIDs:   t.ServiceIDs,
 		CategoryIDs:  t.CategoryIDs,
@@ -191,13 +202,12 @@ func (e *Engine) resolveBlock(rec *blockRec) {
 		}
 	}
 	slices.Sort(svc)
-	rec.Resolved = resolvedTargets{
-		Domains:         r.Domains,
-		ExcludedDomains: r.ExcludedDomains,
-		Processes:       r.Processes,
-		ServiceIDs:      slices.Compact(svc),
+	return resolvedTargets{
+		Domains:         nonNil(r.Domains),
+		ExcludedDomains: nonNil(r.ExcludedDomains),
+		Processes:       nonNil(r.Processes),
+		ServiceIDs:      nonNil(slices.Compact(svc)),
 	}
-	rec.WL = nil
 }
 
 // whitelistSnapshot is the allow set of a new whitelist-only block (§5.2): the catalog

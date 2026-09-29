@@ -38,6 +38,12 @@ const (
 	EvScheduleCreated    = "schedule_created"
 	EvScheduleUpdated    = "schedule_updated"
 	EvScheduleDeleted    = "schedule_deleted"
+	EvLimitCreated       = "limit_created"
+	EvLimitUpdated       = "limit_updated"
+	EvLimitDeleted       = "limit_deleted"
+	EvLimitWarning       = "limit_warning"
+	EvLimitReached       = "limit_reached"
+	EvLimitDayClosed     = "limit_day_closed"
 	EvSettingsChanged    = "settings_changed"
 	EvExtensionPaired    = "extension_paired"
 	EvExtensionRevoked   = "extension_revoked"
@@ -269,6 +275,54 @@ type ScheduleData struct {
 // ScheduleDeletedData is schedule_deleted.
 type ScheduleDeletedData struct {
 	ScheduleID string `json:"scheduleId"`
+}
+
+// LimitCreatedData is limit_created.
+type LimitCreatedData struct {
+	Limit DailyLimit `json:"limit"`
+}
+
+// LimitUpdatedData is limit_updated (cause "user" or "pending_applied").
+type LimitUpdatedData struct {
+	Limit DailyLimit `json:"limit"`
+	Cause string     `json:"cause"`
+}
+
+// LimitDeletedData is limit_deleted.
+type LimitDeletedData struct {
+	LimitID string `json:"limitId"`
+	Name    string `json:"name"`
+}
+
+// LimitWarningData is limit_warning.
+type LimitWarningData struct {
+	LimitID          string `json:"limitId"`
+	Name             string `json:"name"`
+	Day              string `json:"day"`
+	DailyMinutes     int64  `json:"dailyMinutes"`
+	UsedSeconds      int64  `json:"usedSeconds"`
+	RemainingSeconds int64  `json:"remainingSeconds"`
+}
+
+// LimitReachedData is limit_reached.
+type LimitReachedData struct {
+	LimitID      string  `json:"limitId"`
+	Name         string  `json:"name"`
+	Day          string  `json:"day"`
+	DailyMinutes int64   `json:"dailyMinutes"`
+	UsedSeconds  int64   `json:"usedSeconds"`
+	BlockID      *string `json:"blockId"`
+}
+
+// LimitDayClosedData is limit_day_closed.
+type LimitDayClosedData struct {
+	LimitID      string `json:"limitId"`
+	Name         string `json:"name"`
+	Day          string `json:"day"`
+	DailyMinutes int64  `json:"dailyMinutes"`
+	UsedSeconds  int64  `json:"usedSeconds"`
+	Applied      bool   `json:"applied"`
+	Reached      bool   `json:"reached"`
 }
 
 // SettingsChangedData is settings_changed.

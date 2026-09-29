@@ -1,0 +1,1689 @@
+{
+  "$comment": "Daily-limit parity vectors (docs/ARCHITECTURE.md §5.10, §10.13), written by hand from the rules. Run by packages/shared/test/limits.test.ts and, in place, by the guardian's Go port (go test reads ../../../packages/shared/test/fixtures/limits-vectors.json relative to its package). Each vector calls `fn` with `args` and compares the JSON of the result with `expect`: splitLimitChange(effective, requested) -> {applied, pending|null}; limitDefinitionWeakens(next, prev) -> bool; pendingLimitDelayKept(prev|null, next|null) -> bool (null = pending deletion); clampUsageInterval(intervalMs, sinceLastMs|null, slackMs) -> ms; limitUsageCredit({nowMs, dayStartMs, intervalMs, reportedMs, creditedUntilMs, slackMs?}) -> {creditMs, creditedUntilMs}.",
+  "formatVersion": 1,
+  "vectors": [
+    {
+      "name": "split: identical request changes nothing",
+      "fn": "splitLimitChange",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": {
+        "applied": {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        "pending": null
+      }
+    },
+    {
+      "name": "split: lowering dailyMinutes applies at once",
+      "fn": "splitLimitChange",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 20,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": {
+        "applied": {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 20,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        "pending": null
+      }
+    },
+    {
+      "name": "split: raising dailyMinutes waits",
+      "fn": "splitLimitChange",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 60,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": {
+        "applied": {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        "pending": {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 60,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      }
+    },
+    {
+      "name": "split: adding a target applies at once, effective entries first",
+      "fn": "splitLimitChange",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": ["example.org"],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["tiktok", "youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": ["example.org"],
+            "customProcesses": ["game.exe"]
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": {
+        "applied": {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube", "tiktok"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": ["example.org"],
+            "customProcesses": ["game.exe"]
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        "pending": null
+      }
+    },
+    {
+      "name": "split: replacing a target adds the new one now and removes the old one later",
+      "fn": "splitLimitChange",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["tiktok"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": {
+        "applied": {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube", "tiktok"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        "pending": {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["tiktok"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      }
+    },
+    {
+      "name": "split: removing a category waits",
+      "fn": "splitLimitChange",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": [],
+            "categoryIds": ["social", "video"],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": [],
+            "categoryIds": ["social"],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": {
+        "applied": {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": [],
+            "categoryIds": ["social", "video"],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        "pending": {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": [],
+            "categoryIds": ["social"],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      }
+    },
+    {
+      "name": "split: a stricter mode applies at once",
+      "fn": "splitLimitChange",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "hardcore",
+          "reason": ""
+        }
+      ],
+      "expect": {
+        "applied": {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "hardcore",
+          "reason": ""
+        },
+        "pending": null
+      }
+    },
+    {
+      "name": "split: a less strict mode waits",
+      "fn": "splitLimitChange",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "hardcore",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "normal",
+          "reason": ""
+        }
+      ],
+      "expect": {
+        "applied": {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "hardcore",
+          "reason": ""
+        },
+        "pending": {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "normal",
+          "reason": ""
+        }
+      }
+    },
+    {
+      "name": "split: enabling applies at once",
+      "fn": "splitLimitChange",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": false,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": {
+        "applied": {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        "pending": null
+      }
+    },
+    {
+      "name": "split: disabling waits",
+      "fn": "splitLimitChange",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": false,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": {
+        "applied": {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        "pending": {
+          "name": "YouTube",
+          "enabled": false,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      }
+    },
+    {
+      "name": "split: adding days applies at once, sorted",
+      "fn": "splitLimitChange",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [7, 6, 1],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": {
+        "applied": {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        "pending": null
+      }
+    },
+    {
+      "name": "split: removing days waits; the pending days are sorted",
+      "fn": "splitLimitChange",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [2],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [5, 1, 3],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": {
+        "applied": {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 5],
+          "mode": "strict",
+          "reason": ""
+        },
+        "pending": {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 3, 5],
+          "mode": "strict",
+          "reason": ""
+        }
+      }
+    },
+    {
+      "name": "split: name and reason are neutral and apply at once",
+      "fn": "splitLimitChange",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "Vídeos",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": "Quiero aprobar mates"
+        }
+      ],
+      "expect": {
+        "applied": {
+          "name": "Vídeos",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": "Quiero aprobar mates"
+        },
+        "pending": null
+      }
+    },
+    {
+      "name": "split: a rename together with a raise renames now and raises later",
+      "fn": "splitLimitChange",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "Vídeos",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 60,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": {
+        "applied": {
+          "name": "Vídeos",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        "pending": {
+          "name": "Vídeos",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 60,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      }
+    },
+    {
+      "name": "split: mixed request applies the stricter part and delays the whole request",
+      "fn": "splitLimitChange",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 20,
+          "days": [1, 2, 3, 4, 5, 6],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": {
+        "applied": {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 20,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        "pending": {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 20,
+          "days": [1, 2, 3, 4, 5, 6],
+          "mode": "strict",
+          "reason": ""
+        }
+      }
+    },
+    {
+      "name": "weakens: equal definitions",
+      "fn": "limitDefinitionWeakens",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "weakens: rename and new reason",
+      "fn": "limitDefinitionWeakens",
+      "args": [
+        {
+          "name": "Otro",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": "x"
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "weakens: more minutes",
+      "fn": "limitDefinitionWeakens",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 31,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "weakens: fewer minutes",
+      "fn": "limitDefinitionWeakens",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 29,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "weakens: a missing custom process",
+      "fn": "limitDefinitionWeakens",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": ["game.exe"]
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "weakens: an extra app",
+      "fn": "limitDefinitionWeakens",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": ["popular-pc-games"],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "weakens: a missing day",
+      "fn": "limitDefinitionWeakens",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "weakens: strict to normal",
+      "fn": "limitDefinitionWeakens",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "normal",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "weakens: strict to hardcore",
+      "fn": "limitDefinitionWeakens",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "hardcore",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "weakens: disabling",
+      "fn": "limitDefinitionWeakens",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": false,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "weakens: enabling",
+      "fn": "limitDefinitionWeakens",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": false,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 30,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "delay kept: the same pending definition again",
+      "fn": "pendingLimitDelayKept",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 60,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 60,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "delay kept: a pending raise replaced by a smaller raise",
+      "fn": "pendingLimitDelayKept",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 60,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 45,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "delay restarts: a pending raise replaced by a larger raise",
+      "fn": "pendingLimitDelayKept",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 45,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 60,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "delay restarts: a pending edit replaced by a deletion",
+      "fn": "pendingLimitDelayKept",
+      "args": [
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 60,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        },
+        null
+      ],
+      "expect": false
+    },
+    {
+      "name": "delay kept: a pending deletion replaced by an edit",
+      "fn": "pendingLimitDelayKept",
+      "args": [
+        null,
+        {
+          "name": "YouTube",
+          "enabled": true,
+          "targets": {
+            "serviceIds": ["youtube"],
+            "categoryIds": [],
+            "appIds": [],
+            "customDomains": [],
+            "customProcesses": []
+          },
+          "dailyMinutes": 60,
+          "days": [1, 2, 3, 4, 5, 6, 7],
+          "mode": "strict",
+          "reason": ""
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "delay kept: a pending deletion requested again",
+      "fn": "pendingLimitDelayKept",
+      "args": [null, null],
+      "expect": true
+    },
+    {
+      "name": "clamp: first report since start keeps its interval",
+      "fn": "clampUsageInterval",
+      "args": [30000, null, 2000],
+      "expect": 30000
+    },
+    {
+      "name": "clamp: at most the elapsed time plus slack",
+      "fn": "clampUsageInterval",
+      "args": [30000, 10000, 2000],
+      "expect": 12000
+    },
+    {
+      "name": "clamp: a shorter interval than the elapsed time stays",
+      "fn": "clampUsageInterval",
+      "args": [30000, 40000, 2000],
+      "expect": 30000
+    },
+    {
+      "name": "clamp: an immediate repeat gets only the slack",
+      "fn": "clampUsageInterval",
+      "args": [30000, 0, 2000],
+      "expect": 2000
+    },
+    {
+      "name": "clamp: a negative elapsed time counts as zero",
+      "fn": "clampUsageInterval",
+      "args": [120000, -5, 2000],
+      "expect": 2000
+    },
+    {
+      "name": "credit: one client every 30 s gets everything",
+      "fn": "limitUsageCredit",
+      "args": [
+        {
+          "nowMs": 100000,
+          "dayStartMs": 0,
+          "intervalMs": 30000,
+          "reportedMs": 30000,
+          "creditedUntilMs": 70000,
+          "slackMs": 2000
+        }
+      ],
+      "expect": {
+        "creditMs": 30000,
+        "creditedUntilMs": 100000
+      }
+    },
+    {
+      "name": "credit: jitter within the slack loses nothing",
+      "fn": "limitUsageCredit",
+      "args": [
+        {
+          "nowMs": 100000,
+          "dayStartMs": 0,
+          "intervalMs": 30000,
+          "reportedMs": 30000,
+          "creditedUntilMs": 71000,
+          "slackMs": 2000
+        }
+      ],
+      "expect": {
+        "creditMs": 30000,
+        "creditedUntilMs": 100000
+      }
+    },
+    {
+      "name": "credit: a second client reporting the same window gets only new time",
+      "fn": "limitUsageCredit",
+      "args": [
+        {
+          "nowMs": 101000,
+          "dayStartMs": 0,
+          "intervalMs": 30000,
+          "reportedMs": 30000,
+          "creditedUntilMs": 100000,
+          "slackMs": 2000
+        }
+      ],
+      "expect": {
+        "creditMs": 3000,
+        "creditedUntilMs": 101000
+      }
+    },
+    {
+      "name": "credit: the part before the local day start is dropped",
+      "fn": "limitUsageCredit",
+      "args": [
+        {
+          "nowMs": 100000,
+          "dayStartMs": 90000,
+          "intervalMs": 30000,
+          "reportedMs": 30000,
+          "creditedUntilMs": 0,
+          "slackMs": 2000
+        }
+      ],
+      "expect": {
+        "creditMs": 10000,
+        "creditedUntilMs": 100000
+      }
+    },
+    {
+      "name": "credit: nothing reported moves nothing",
+      "fn": "limitUsageCredit",
+      "args": [
+        {
+          "nowMs": 100000,
+          "dayStartMs": 0,
+          "intervalMs": 30000,
+          "reportedMs": 0,
+          "creditedUntilMs": 70000,
+          "slackMs": 2000
+        }
+      ],
+      "expect": {
+        "creditMs": 0,
+        "creditedUntilMs": 70000
+      }
+    },
+    {
+      "name": "credit: a watermark ahead of now (clock moved back) credits nothing",
+      "fn": "limitUsageCredit",
+      "args": [
+        {
+          "nowMs": 100000,
+          "dayStartMs": 0,
+          "intervalMs": 30000,
+          "reportedMs": 30000,
+          "creditedUntilMs": 150000,
+          "slackMs": 2000
+        }
+      ],
+      "expect": {
+        "creditMs": 0,
+        "creditedUntilMs": 150000
+      }
+    },
+    {
+      "name": "credit: never more than the clamped interval",
+      "fn": "limitUsageCredit",
+      "args": [
+        {
+          "nowMs": 100000,
+          "dayStartMs": 0,
+          "intervalMs": 12000,
+          "reportedMs": 30000,
+          "creditedUntilMs": 0,
+          "slackMs": 2000
+        }
+      ],
+      "expect": {
+        "creditMs": 12000,
+        "creditedUntilMs": 100000
+      }
+    },
+    {
+      "name": "credit: partial usage of a window",
+      "fn": "limitUsageCredit",
+      "args": [
+        {
+          "nowMs": 100000,
+          "dayStartMs": 0,
+          "intervalMs": 30000,
+          "reportedMs": 7000,
+          "creditedUntilMs": 70000,
+          "slackMs": 2000
+        }
+      ],
+      "expect": {
+        "creditMs": 7000,
+        "creditedUntilMs": 100000
+      }
+    },
+    {
+      "name": "credit: default slack when omitted",
+      "fn": "limitUsageCredit",
+      "args": [
+        {
+          "nowMs": 100000,
+          "dayStartMs": 0,
+          "intervalMs": 30000,
+          "reportedMs": 30000,
+          "creditedUntilMs": 100500
+        }
+      ],
+      "expect": {
+        "creditMs": 1500,
+        "creditedUntilMs": 100500
+      }
+    }
+  ]
+}

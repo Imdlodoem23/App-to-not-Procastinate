@@ -180,6 +180,10 @@ const BLOCK_NOUN_SKIP: ReadonlySet<string> = new Set([
   'all',
   'these',
   'those',
+  // «quita el límite diario», «remove the daily limit».
+  'diario',
+  'diaria',
+  'daily',
 ]);
 /**
  * Negations before a block verb. «t» is the end of «don't», «won't», «can't»; «stop» and

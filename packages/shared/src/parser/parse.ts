@@ -1,10 +1,14 @@
 import { categoryName, findServiceByAlias, type CategoryId } from '../catalog';
-import { toLocale } from '../i18n/locale';
+import type { IsoWeekday } from '../domain';
+import { GUARDIAN_LIMITS } from '../guardian-api';
+import type { LanguageTags } from '../i18n/format';
+import { toLocale, type Locale } from '../i18n/locale';
 import { findExcluded, markQualifiers } from './clauses';
 import { matchUntil } from './clock';
 import { matchDuration } from './duration';
-import { durationLabel, untilLabel } from './format';
+import { dailyLabel, daysLabel, durationLabel, untilLabel } from './format';
 import { hasPositiveDesire, hasUnblockIntent } from './intent';
+import { markLimitWords, matchDaily, scanDays, type DailyMatch } from './limit';
 import { scanStudy } from './study';
 import {
   aliasEndsAt,
@@ -26,15 +30,32 @@ export const PARSER_LIMITS = Object.freeze({
   maxMinutes: 24 * 60,
   /** Longer input is cut before parsing (the field holds one phrase). */
   maxInputLength: 500,
+  /** Range of a daily allowance (`GUARDIAN_LIMITS.limitMinMinutes`…`limitMaxMinutes`). */
+  minDailyMinutes: GUARDIAN_LIMITS.limitMinMinutes,
+  maxDailyMinutes: GUARDIAN_LIMITS.limitMaxMinutes,
 });
 
 type TimeMatch =
   | { kind: 'duration'; start: number; end: number; minutes: number }
+  | ({ kind: 'daily' } & DailyMatch)
   | { kind: 'until'; start: number; end: number; endsAt: Date; warnings: readonly ParseWarning[] };
 
-function findTimes(tokens: readonly Token[], now: Date): TimeMatch[] {
+/** Time expressions in text order. `input` (the phrase) also enables daily allowances. */
+function findTimes(tokens: readonly Token[], now: Date, input: string | null): TimeMatch[] {
   const times: TimeMatch[] = [];
   for (let i = 0; i < tokens.length;) {
+    // The «per day» of «30 min de YouTube al día» is not read again («a day» is a duration).
+    const marker = times.find((time) => time.kind === 'daily' && time.marker?.start === i);
+    if (marker?.kind === 'daily' && marker.marker) {
+      i = marker.marker.end;
+      continue;
+    }
+    const daily = input === null ? null : matchDaily(input, tokens, i);
+    if (daily) {
+      times.push({ kind: 'daily', ...daily });
+      i = daily.end;
+      continue;
+    }
     const until = matchUntil(tokens, i, now);
     if (until) {
       times.push({ kind: 'until', ...until });
@@ -143,8 +164,31 @@ export function parseIntent(text: string, opts: ParseOptions): ParseResult {
   if (!(now instanceof Date) || Number.isNaN(now.getTime())) {
     throw new TypeError('parseIntent: opts.now must be a valid Date');
   }
-  const locale = toLocale(opts.locale);
-  const input = typeof text === 'string' ? text.slice(0, PARSER_LIMITS.maxInputLength) : '';
+  const context: Context = {
+    input: typeof text === 'string' ? text.slice(0, PARSER_LIMITS.maxInputLength) : '',
+    now,
+    locale: toLocale(opts.locale),
+    languages: opts.languages,
+  };
+  // A phrase with «al día» that is not a daily limit («estudiar 1 hora al día») reads
+  // exactly as it did before daily limits existed.
+  return parsePhrase(context, true) ?? (parsePhrase(context, false) as ParseResult);
+}
+
+interface Context {
+  readonly input: string;
+  readonly now: Date;
+  readonly locale: Locale;
+  readonly languages: LanguageTags | undefined;
+}
+
+/**
+ * One reading of the phrase. With `limits`, a duration «per day» is a daily allowance
+ * (`matchDaily`); when there is one but the phrase is not a daily limit, the result is
+ * null and the caller reads it again without `limits`.
+ */
+function parsePhrase(context: Context, limits: boolean): ParseResult | null {
+  const { input, now, locale } = context;
   const tokens = tokenize(input);
   const used: boolean[] = tokens.map(() => false);
   const extraSpans: Array<[number, number]> = [];
@@ -152,7 +196,8 @@ export function parseIntent(text: string, opts: ParseOptions): ParseResult {
   // 1. Durations and end times. «20 minutos» is also a newspaper: while there is another
   //    time expression, a duration that is exactly a service alias and sits where a target
   //    goes («nada de 20 minutos ni marca 1h») is that service.
-  const times = findTimes(tokens, now);
+  const times = findTimes(tokens, now, limits ? input : null);
+  const sawDaily = times.some((time) => time.kind === 'daily');
   const preset: TargetHit[] = [];
   for (let index = 0; index < times.length && times.length > 1;) {
     const time = times[index];
@@ -171,6 +216,10 @@ export function parseIntent(text: string, opts: ParseOptions): ParseResult {
     }
   }
   for (const time of times) for (let k = time.start; k < time.end; k += 1) used[k] = true;
+  const markers = times.flatMap((time) =>
+    time.kind === 'daily' && time.marker ? [time.marker] : [],
+  );
+  for (const marker of markers) for (let k = marker.start; k < marker.end; k += 1) used[k] = true;
   for (const hit of preset) for (let k = hit.start; k < hit.end; k += 1) used[k] = true;
   const [time, ...extraTimes] = times;
   for (const extra of extraTimes) {
@@ -182,14 +231,20 @@ export function parseIntent(text: string, opts: ParseOptions): ParseResult {
   // 1b. Words that only qualify a time («2h máx», «una hora entera») or stand for «por»
   //     («tiktok x 1 hora»), then clauses that must not be read as targets («menos
   //     WhatsApp», «y después YouTube»).
-  markQualifiers(tokens, used, times);
+  markQualifiers(tokens, used, [...times, ...markers]);
+  // «entre semana», «on weekends»: only for a daily allowance.
+  const daily = time?.kind === 'daily' ? time : undefined;
+  const dayMatches = daily ? scanDays(input, tokens, used) : [];
   const excluded = findExcluded(tokens, used);
 
   // 2. Study intent and its task, before targets («estudiar redes de computadores»).
   const study = scanStudy(tokens, used, excluded);
 
-  // 3. Block words and targets.
-  const scan = scanTargets(tokens, used, preset, excluded);
+  // 3. Block words and targets. «limita», «límite», «limit», «cap»… only for a daily
+  //    allowance, and those that are also aliases («max») only once targets are read.
+  const anchors = daily ? markLimitWords(tokens, used, excluded, true) : [];
+  const scan = scanTargets(tokens, used, preset, excluded, anchors);
+  if (daily) markLimitWords(tokens, used, excluded, false);
   const { hasTrigger } = scan;
   let hits = scan.hits;
   if (study && !hasTrigger && hits.length > 0) {
@@ -244,7 +299,27 @@ export function parseIntent(text: string, opts: ParseOptions): ParseResult {
   let durationMinutes: number | undefined;
   let endsAt: Date | undefined;
   const warnings = new Set<ParseWarning>();
-  if (time) {
+  let dailyMinutes: number | undefined;
+  if (time?.kind === 'daily') {
+    const first = tokens[time.start];
+    const last = tokens[time.end - 1];
+    dailyMinutes = time.minutes;
+    if (first && last) {
+      chips.push({
+        kind: 'daily',
+        label: dailyLabel(dailyMinutes, locale),
+        value: String(dailyMinutes),
+        start: first.start,
+        end: last.end,
+      });
+    }
+    if (
+      dailyMinutes < PARSER_LIMITS.minDailyMinutes ||
+      dailyMinutes > PARSER_LIMITS.maxDailyMinutes
+    ) {
+      warnings.add('limit_out_of_range');
+    }
+  } else if (time) {
     const first = tokens[time.start];
     const last = tokens[time.end - 1];
     if (time.kind === 'duration') {
@@ -267,7 +342,7 @@ export function parseIntent(text: string, opts: ParseOptions): ParseResult {
             }
           : {
               kind: 'until',
-              label: untilLabel(endsAt, now, locale, opts.languages),
+              label: untilLabel(endsAt, now, locale, context.languages),
               value: endsAt.toISOString(),
               start: first.start,
               end: last.end,
@@ -277,6 +352,23 @@ export function parseIntent(text: string, opts: ParseOptions): ParseResult {
     if (durationMinutes > PARSER_LIMITS.maxMinutes) warnings.add('over_24h');
     if (durationMinutes < PARSER_LIMITS.minMinutes) warnings.add('too_short');
   }
+
+  const daySet = new Set<IsoWeekday>();
+  for (const match of dayMatches) {
+    const first = tokens[match.start];
+    const last = tokens[match.end - 1];
+    for (const day of match.days) daySet.add(day);
+    if (first && last) {
+      chips.push({
+        kind: 'days',
+        label: daysLabel(match.days, locale),
+        value: match.days.join(','),
+        start: first.start,
+        end: last.end,
+      });
+    }
+  }
+  const days = [...daySet].sort((a, b) => a - b);
 
   let task: string | undefined;
   if (study?.task) {
@@ -297,11 +389,15 @@ export function parseIntent(text: string, opts: ParseOptions): ParseResult {
   let kind: ParseKind = 'unknown';
   if (!hasUnblockIntent(tokens)) {
     if (study) kind = 'study';
+    // A daily allowance may be phrased as a wish: «quiero ver YouTube máximo 30 min al día».
+    else if (daily) kind = hasTarget ? 'limit' : 'unknown';
     else if (hasTarget && !wantsToUse) kind = 'block';
   }
+  if (sawDaily && kind !== 'limit') return null;
   const hasTime = durationMinutes !== undefined;
   const complete =
-    unparsed.length === 0 && (kind === 'study' ? hasTime : kind === 'block' && hasTime);
+    unparsed.length === 0 &&
+    (kind === 'limit' || (kind === 'study' ? hasTime : kind === 'block' && hasTime));
 
   chips.sort((a, b) => a.start - b.start);
   return {
@@ -312,6 +408,8 @@ export function parseIntent(text: string, opts: ParseOptions): ParseResult {
     ...(durationMinutes !== undefined ? { durationMinutes } : {}),
     ...(endsAt ? { endsAt: endsAt.toISOString() } : {}),
     ...(task !== undefined ? { task } : {}),
+    ...(dailyMinutes !== undefined ? { dailyMinutes } : {}),
+    ...(days.length > 0 ? { days } : {}),
     chips,
     unparsed,
     warnings: [...warnings],

@@ -283,6 +283,29 @@ export const PAGES_ES = {
     ],
     /** Accessible name of the region shown inside a blocked embed. */
     framedLabel: 'Contenido bloqueado por Céntrate',
+    /**
+     * Grey line of a daily limit's block, instead of the humor: «Has usado tus 30 min de
+     * YouTube de hoy. Vuelve mañana.» `name` is the limit's name, as the user wrote it.
+     */
+    limitLine: (minutes: number, name: string): string =>
+      `Has usado tus ${minutes} min de ${name} de hoy. Vuelve mañana.`,
+    /** The same when the limit is not in the rules any more (deleted meanwhile). */
+    limitLineUnknown: (inlineName: string): string =>
+      `Has llegado a tu límite diario de ${inlineName}. Vuelve mañana.`,
+  },
+
+  /** Daily limits: the toolbar badge on a limited site (background/usage.ts). */
+  usage: {
+    /** Badge text (4 characters at most): «12m», «2h». */
+    badgeText: (minutes: number): string =>
+      minutes >= 100 ? `${Math.round(minutes / 60)}h` : `${minutes}m`,
+    /** Its tooltip: «Te quedan 12 min de YouTube hoy». */
+    badgeTitle: (minutes: number, name: string): string => {
+      if (minutes <= 0) return `No te quedan minutos de ${name} hoy`;
+      return minutes === 1
+        ? `Te queda 1 min de ${name} hoy`
+        : `Te quedan ${minutes} min de ${name} hoy`;
+    },
   },
 
   popup: {

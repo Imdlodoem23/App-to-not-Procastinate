@@ -10,7 +10,7 @@ import (
 // Trusted times are Unix milliseconds (int64): exact, and what the ledger uses.
 //
 // Each feature file owns one sub-struct (Study, Emergency, Rewards, Schedules,
-// SettingsExt, Attempts, Pairing, ExtRules) and may add fields to it freely; the core
+// SettingsExt, Attempts, Pairing, ExtRules, Limits) and may add fields to it freely; the core
 // never reads their fields directly, only through the hooks the files define.
 type engineState struct {
 	// LastEventSeq is the last event of the current epoch applied to this state.
@@ -48,6 +48,7 @@ type engineState struct {
 	Attempts    attemptsState  `json:"attempts"`
 	Pairing     pairingState   `json:"pairing"`
 	ExtRules    extRulesState  `json:"extRules"`
+	Limits      limitsState    `json:"limits"`
 }
 
 // versions are the ETag counters (§8.5): persisted and strictly increasing across
@@ -76,6 +77,7 @@ type blockRec struct {
 	ExtendedMinutes int64          `json:"extendedMinutes"`
 	ScheduleID      *string        `json:"scheduleId"`
 	PunishmentID    *string        `json:"punishmentId"`
+	LimitID         *string        `json:"limitId,omitempty"`
 	AttemptsCounted int64          `json:"attemptsCounted"`
 	PointsDelta     *int64         `json:"pointsDelta"`
 

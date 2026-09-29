@@ -71,6 +71,8 @@ type AttemptBlock struct {
 	Mode   string `json:"mode"`
 	EndsAt string `json:"endsAt"`
 	Reason string `json:"reason"`
+	// LimitID is set for a limit block (extension tokens see its kind as manual, §8.4).
+	LimitID *string `json:"limitId"`
 }
 
 // AttemptResponse mirrors AttemptResponse.
@@ -145,7 +147,7 @@ func (e *Engine) reportAttempt(r Request, req AttemptRequest) (AttemptResponse, 
 	if err != nil {
 		return AttemptResponse{}, err
 	}
-	return e.attemptResponse(d, out), nil
+	return e.attemptResponse(r.Scope, d, out), nil
 }
 
 // validateAttempt checks the scope rules and the request shape (§8.8, attemptRequestSchema):
@@ -342,7 +344,8 @@ func (e *Engine) nextAttemptPenalty() int64 {
 }
 
 // attemptResponse builds AttemptResponse after the pipeline (and its commit).
-func (e *Engine) attemptResponse(d attemptDetection, out attemptOutcome) AttemptResponse {
+// An extension token sees a limit block as manual with limitId set (§8.4).
+func (e *Engine) attemptResponse(scope string, d attemptDetection, out attemptOutcome) AttemptResponse {
 	res := AttemptResponse{
 		ServiceID:   strPtrOrNil(d.ServiceID),
 		NextPenalty: e.nextAttemptPenalty(),
@@ -355,7 +358,11 @@ func (e *Engine) attemptResponse(d attemptDetection, out attemptOutcome) Attempt
 	res.AttemptID = strPtrOrNil(out.AttemptID)
 	res.PointsDelta, res.EpisodePointsDelta, res.EscalationIndex = out.Points, out.Episode, out.Index
 	if b := latestEndingBlock(d.Blocks); b != nil {
-		res.Block = &AttemptBlock{ID: b.ID, Kind: b.Kind, Mode: b.Mode, EndsAt: e.display(b.EndsAt), Reason: b.Reason}
+		kind := b.Kind
+		if scope != scopeApp {
+			kind = extBlockKind(kind)
+		}
+		res.Block = &AttemptBlock{ID: b.ID, Kind: kind, Mode: b.Mode, EndsAt: e.display(b.EndsAt), Reason: b.Reason, LimitID: b.LimitID}
 	}
 	return res
 }

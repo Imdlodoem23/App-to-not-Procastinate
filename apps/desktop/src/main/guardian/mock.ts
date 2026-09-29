@@ -28,6 +28,7 @@ import type {
   ExtensionId,
   GuardianEvent,
   GuardianSettings,
+  LimitId,
   PendingSettingChange,
   PointsSummary,
   Punishment,
@@ -61,6 +62,7 @@ import {
   type CreateBlockRequest,
   type CreateBlockResponse,
   type CurrentStudyResponse,
+  type DailyLimitInput,
   type DeleteDataRequest,
   type DeleteDataResponse,
   type DiagnosticsResponse,
@@ -79,6 +81,7 @@ import {
   type HealthResponse,
   type ListBlocksQuery,
   type ListBlocksResponse,
+  type ListLimitsResponse,
   type ListSchedulesResponse,
   type NuclearHeartbeatRequest,
   type NuclearHeartbeatResponse,
@@ -94,6 +97,8 @@ import {
   type SettingsResponse,
   type StateResult,
   type StudySessionDetailResponse,
+  type UsageReportRequest,
+  type UsageReportResponse,
   type WriteOptions,
 } from '@centrate/shared/guardian-api';
 import {
@@ -1064,6 +1069,31 @@ export class MockGuardian implements GuardianClient {
     this.schedules = this.schedules.filter((s) => s.id !== id);
     this.emit('schedule_deleted', { scheduleId: id });
     this.changed();
+  }
+
+  // Daily limits (ARCHITECTURE §5.10): stubs added with the shared contract; the desktop
+  // implementer replaces them with a simulation.
+  async listLimits(): Promise<ListLimitsResponse> {
+    this.step();
+    return { limits: [] };
+  }
+
+  async createLimit(_body: DailyLimitInput, _options?: WriteOptions): Promise<never> {
+    throw apiError('not_found', 'daily limits are not simulated');
+  }
+
+  async updateLimit(_id: LimitId, _body: DailyLimitInput): Promise<never> {
+    throw apiError('not_found', 'daily limits are not simulated');
+  }
+
+  async deleteLimit(_id: LimitId): Promise<never> {
+    throw apiError('not_found', 'daily limits are not simulated');
+  }
+
+  async reportUsage(_body: UsageReportRequest): Promise<UsageReportResponse> {
+    this.step();
+    const now = this.clock.now();
+    return { day: localDay(now, this.settings.timezone), limits: [], serverNow: iso(now) };
   }
 
   async startStudy(): Promise<never> {

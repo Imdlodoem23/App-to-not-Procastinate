@@ -715,6 +715,7 @@ func (e *Engine) timeStep() {
 	e.creditBlocks(e.prevT, e.now, dAwake.Milliseconds())
 	e.completeBlocks(e.now)
 	e.activateSchedules(e.now)
+	e.limitsStep(e.now, dBoot.Milliseconds())
 	e.studyStep(dAwake.Milliseconds(), e.now)
 	e.emergencyStep()
 	e.pruneHistory(e.now)

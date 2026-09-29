@@ -13,7 +13,8 @@ API handler ──▶ e.CreateBlock(ctx, Request, body)
                        exec: on the loop goroutine (after Start) or inline, serialized
                        ├─ timeStep()                  §10.1: clock, days, pending settings,
                        │                              allowances, credit, completion,
-                       │                              schedules, study, emergency
+                       │                              schedules, daily limits, study,
+                       │                              emergency
                        ├─ writable()                  frozen/safe → 503 read_only
                        ├─ idemLookup()                replay (*ReplayedResponse) / 409
                        ├─ fn(): validate → batch → commit
@@ -55,6 +56,7 @@ events and never touch enforcement.
 | `emergency.go` (+ test) | emergency | §5.6, §10.6 |
 | `rewards.go` (+ test) | rewards | §5.7, §10.7 |
 | `schedules.go` (+ test) | schedules | §5.3, §10.3 |
+| `limits.go`, `limitrules.go` (+ `limits_test.go`, `limits_vectors_test.go`) | daily limits | §5.10, §10.13: entity, usage reports and their clamps, day rollover, limit blocks until local midnight, 24 h pending changes; `limitrules.go` is the Go port of the pure rules, run against `limits-vectors.json` |
 | `settings.go` (+ test) | settings | §5.8, the OS time zone (`detectOSZone`) |
 | `datadelete.go` (+ test) | data deletion | §10.11 |
 | `attempts.go` (+ test) | attempts | §10.8 |
@@ -67,7 +69,8 @@ Feature owners edit **only their files**. Each feature file already contains:
 - its exported command methods with their final signatures, wired to the dispatcher, and
   unexported handler bodies returning `errNotImplemented`;
 - its persisted state struct (`studyState`, `emergencyState`, `rewardsState`,
-  `schedulesState`, `settingsState`, `attemptsState`, `pairingState`, `extRulesState`),
+  `schedulesState`, `settingsState`, `attemptsState`, `pairingState`, `extRulesState`,
+  `limitsState`),
   already part of `state.json` (add fields freely);
 - the **hooks the core already calls** (no-ops until filled in), and the reducers of its
   events (`applyStudyStarted`…).
@@ -87,6 +90,8 @@ editing a core file.
 | `GetBlock` | `GET /v1/blocks/{id}` | blocks.go | |
 | `ExtendBlock` | `POST /v1/blocks/{id}/extend` | blocks.go | yes |
 | `ListSchedules`, `CreateSchedule`, `UpdateSchedule`, `DeleteSchedule` | `/v1/schedules…` | schedules.go | create |
+| `ListLimits`, `CreateLimit`, `UpdateLimit`, `DeleteLimit` | `/v1/limits…` | limits.go | create |
+| `ReportUsage` | `POST /v1/usage` (app or ext; a report: accepted in safe mode) | limits.go | |
 | `StartStudy`, `CurrentStudy`, `GetStudySession`, `StudyHeartbeat`, `StudyStrike`, `PauseStudy`, `ResumeStudy`, `EndStudy`, `SetStudyOutcome` | `/v1/study/sessions…` | study.go | start, strike, end |
 | `ReportAttempt` | `POST /v1/attempts` | attempts.go | |
 | `Points` | `GET /v1/points` | queries.go | |
@@ -135,7 +140,7 @@ details}}` with `APIError.Status()`, write `*ReplayedResponse` verbatim with
 4. Change state only in the reducer of your event (`applyXxx(ev *storeEvent) error`),
    never in the handler: replay must rebuild the same state.
 5. Time-driven work goes in your step hook (`studyStep`, `emergencyStep`,
-   `expireAllowances`, `activateSchedules`, `applyPendingSettings`), using `e.now`
+   `expireAllowances`, `activateSchedules`, `limitsStep`, `applyPendingSettings`), using `e.now`
    (trusted ms), `e.bootNow`/`e.awakeNow` and `e.commitNow(b, "what")`.
 6. Never use `time.Now()` for rules, never literals for values that exist in
    `internal/embedded`, never shell out with request data.

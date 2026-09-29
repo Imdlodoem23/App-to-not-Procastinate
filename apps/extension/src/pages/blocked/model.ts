@@ -18,7 +18,7 @@
  * the page shows the result («−10 puntos») when it has one; if unknown, nothing.
  */
 import { getService } from '@centrate/shared/catalog';
-import type { BlockKind, BlockMode } from '@centrate/shared/domain';
+import type { BlockKind, BlockMode, LimitId } from '@centrate/shared/domain';
 import type { ExtRuleBlock } from '@centrate/shared/guardian-api';
 import type { BlockedPageParams, BlockedTabBlock, BlockedTabInfo } from '../../background/rules';
 import type { ExtensionStateSnapshot } from '../../background/state';
@@ -101,6 +101,8 @@ export interface ShownBlock {
   reason: string | null;
   mode: BlockMode;
   kind: BlockKind;
+  /** The daily limit behind the block (reported as `kind: "manual"`, §8.4), else `null`. */
+  limitId: LimitId | null;
 }
 
 type BlockLike = BlockedTabBlock | ExtRuleBlock;
@@ -121,6 +123,7 @@ function toShown(block: BlockLike): ShownBlock {
     reason: reason.length > 0 ? reason : null,
     mode: block.mode,
     kind: block.kind,
+    limitId: block.limitId ?? null,
   };
 }
 
@@ -162,6 +165,7 @@ export function shownBlock(
       reason: null,
       mode: 'hardcore',
       kind: 'punishment',
+      limitId: null,
     };
   }
   return null;
@@ -268,6 +272,25 @@ export function humorLine(
   };
   const lines = b.humor.map((line) => line(context)).filter((l): l is string => l !== null);
   return pick(lines);
+}
+
+/**
+ * The grey line of a daily limit's block («Has usado tus 30 min de YouTube de hoy. Vuelve
+ * mañana.»), from the limit in the rules; `null` for any other block. A limit that is no
+ * longer in the rules (deleted, or a snapshot not known yet) still gets a line, with the
+ * site's name.
+ */
+export function limitLine(
+  block: ShownBlock | null,
+  snapshot: ExtensionStateSnapshot | null,
+  subject: BlockedSubject,
+): string | null {
+  if (block === null || block.limitId === null) return null;
+  const b = PAGES.blocked;
+  const limit = (snapshot?.rules?.limits ?? []).find((l) => l.id === block.limitId);
+  return limit === undefined
+    ? b.limitLineUnknown(subject.inlineName)
+    : b.limitLine(limit.dailyMinutes, limit.name);
 }
 
 export type BackAction = 'history' | 'newtab';
@@ -377,12 +400,14 @@ export function blockedView(input: BlockedViewInput): BlockedView {
     if (phase === 'checking') humor = b.checkingLine(subject.inlineName);
     else if (phase === 'ended') humor = b.endedLine;
     else {
-      humor = humorLine(input.humorIndex, {
-        subject,
-        remainingMs,
-        cause: info?.cause ?? params.cause,
-        mode: block?.mode ?? null,
-      });
+      humor =
+        limitLine(block, snapshot, subject) ??
+        humorLine(input.humorIndex, {
+          subject,
+          remainingMs,
+          cause: info?.cause ?? params.cause,
+          mode: block?.mode ?? null,
+        });
     }
   }
 

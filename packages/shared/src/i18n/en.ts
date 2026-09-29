@@ -1,6 +1,6 @@
-import { durationLabel } from '../parser/format';
+import { dailyLabel, daysLabel, durationLabel } from '../parser/format';
 import type { AchievementMetric } from '../points';
-import type { SharedMessages } from './es';
+import { usedOfLabel, type SharedMessages } from './es';
 import { formatInteger } from './format';
 
 /** English shared strings (same shape as `es.ts`). Conventions: en-US spelling, sentence case. */
@@ -37,5 +37,22 @@ export const SHARED_EN: SharedMessages = {
             : `Spend ${n} days in a row with activity and no attempts`;
       }
     },
+  },
+  dailyLimits: {
+    title: 'Daily limit',
+    sectionTitle: 'Daily limits',
+    perDay: (dailyMinutes: number): string => dailyLabel(dailyMinutes, 'en'),
+    days: (days: readonly number[]): string => daysLabel(days, 'en'),
+    usedToday: (usedMinutes: number, dailyMinutes: number): string =>
+      `${usedOfLabel(usedMinutes, dailyMinutes, 'en', 'of')} today`,
+    blockedUntilTomorrow: 'Blocked until tomorrow',
+    warning: (name: string, minutesLeft: number): string =>
+      `You have ${durationLabel(minutesLeft, 'en')} of ${name} left today`,
+    reached: (name: string, dailyMinutes: number): string =>
+      `You've used up your ${durationLabel(dailyMinutes, 'en')} of ${name} for today`,
+    blockedPage: (name: string, dailyMinutes: number): string =>
+      `You've used your ${durationLabel(dailyMinutes, 'en')} of ${name} for today. Come back tomorrow.`,
+    blockCard: (name: string, time: string): string =>
+      `Daily limit for ${name}: blocked until ${time}`,
   },
 };

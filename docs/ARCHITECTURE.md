@@ -14,6 +14,7 @@ wins and this document gets fixed.
 | Point values, rules and the pure ledger                        | `packages/shared/src/points.ts`                      |
 | Points parity vectors (TS and Go)                              | `packages/shared/test/fixtures/points-vectors.json`  |
 | Catalog-helper and validation vectors (TS and Go)              | `packages/shared/test/fixtures/catalog-vectors.json` |
+| Daily-limit rule vectors (TS and Go)                           | `packages/shared/test/fixtures/limits-vectors.json`  |
 | Catalog (services, domains, apps, whitelist)                   | `packages/shared/src/catalog/`                       |
 | Trusted clock                                                  | `guardian/internal/clock` (existing `Detector`)      |
 | Hosts section                                                  | `guardian/internal/hosts` (existing `Manager`)       |
@@ -50,20 +51,22 @@ Section 17 lists the follow-up work this contract requires outside `packages/sha
   in this contract depends on the minor version). A system service through
   `kardianos/service`: Windows service `CentrateGuardian` (LocalSystem), macOS LaunchDaemon,
   Linux systemd unit. It is the **single source of truth and authority** for blocks,
-  schedules, study sessions, punishments, emergency unlocks, reward allowances, settings
+  schedules, daily limits, study sessions, punishments, emergency unlocks, reward allowances, settings
   that affect enforcement or points, and the **points ledger**. It stores state and an
   append-only event log in the system directory (§11), applies the hosts section, kills
   blocked processes and relaunches the app during a Nuclear punishment.
 - **Desktop app** (`apps/desktop`). The **main process** is the only guardian client in the
   app: it holds the app token, polls `/v1/state` every 2 s while the window is visible,
   long-polls `/v1/events` for tray notifications while hidden, sends Study Mode heartbeats
-  (and Nuclear heartbeats while the overlay runs, §10.5), reports window-title attempts,
+  (and Nuclear heartbeats while the overlay runs, §10.5), reports window-title attempts and
+  foreground-app usage for daily limits (§10.13),
   evaluates achievements and the mascot (§6.5) and syncs the event log into its local `node:sqlite`
   statistics database through a cursor. Renderers talk to the main process over typed IPC
   and never see the token.
 - **Extension** (`apps/extension`, MV3, Chromium and Firefox). Paired with a 6-digit code
   (§9.3). The background service worker fetches rules signed with the guardian's ECDSA key, maps them to
-  `declarativeNetRequest` rules, reports `main_frame` attempts and sends heartbeats.
+  `declarativeNetRequest` rules, reports `main_frame` attempts, reports usage of limited
+  sites (§10.13) and sends heartbeats.
   `blocked.html` only displays data it receives from the background.
 - **Web** (`apps/web`): static; not part of this contract.
 
@@ -188,13 +191,13 @@ complete entity back.
 `<prefix>_<16–40 characters [0-9A-Za-z]>`, generated from `crypto/rand` (the guardian uses
 22 base62 characters, ~131 bits). Prefixes: `blk` block, `sch` schedule, `stu` study
 session, `pun` punishment, `emg` emergency, `alw` allowance, `att` attempt, `ext` paired
-extension, `ep` epoch. Ids are opaque; `isIdOf(kind, value)` validates them.
+extension, `ep` epoch, `lim` daily limit. Ids are opaque; `isIdOf(kind, value)` validates them.
 
 ### 5.2 Blocks
 
 | Field                                             | Notes                                                                                                                |
 | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `kind`                                            | `manual`, `schedule`, `punishment` (guardian-only), `recovered` (§10.8)                                              |
+| `kind`                                            | `manual`, `schedule`, `punishment` (guardian-only), `recovered` (§10.8), `limit` (guardian-only, §5.10)              |
 | `mode`                                            | `normal` (emergency 10 min), `strict` (30 min), `hardcore` (none), `exam` (whitelist + none)                         |
 | `status`                                          | `active`, `completed`, `cancelled_emergency`                                                                         |
 | `targets`                                         | `TargetSpec`: `serviceIds`, `categoryIds`, `appIds`, `customDomains`, `customProcesses`; all `[]` for whitelist-only |
@@ -202,7 +205,7 @@ extension, `ep` epoch. Ids are opaque; `isIdOf(kind, value)` validates them.
 | `reason`                                          | «Tu motivo», ≤ 140 characters, `""` when none                                                                        |
 | `startsAt`, `endsAt`, `originalEndsAt`, `endedAt` | Display time in responses, trusted in events; a display `endsAt` may move earlier with the wall clock (§4)           |
 | `extendedMinutes`                                 | Sum of extensions                                                                                                    |
-| `scheduleId`, `punishmentId`                      | Origin links                                                                                                         |
+| `scheduleId`, `punishmentId`, `limitId`           | Origin links (`limitId` may be absent in events written before daily limits: read it as `null`)                      |
 | `attemptsCounted`                                 | Counted attempts against this block                                                                                  |
 | `emergencyEligible`                               | `normal`/`strict` and not already in a pending emergency                                                             |
 | `pointsDelta`                                     | Points granted at completion (0 when cancelled), `null` while active                                                 |
@@ -227,9 +230,11 @@ requested, kind: "blocks" | "custom_hosts"}`). A client create is refused when i
   make more than `maxActiveBlocks` (32) active blocks of any kind, or more than
   `maxActiveCustomHosts` (1 000) hosts entries from custom domains across active `manual`
   blocks (after variant expansion). Enabled schedules share their own budget of
-  `maxScheduleCustomHosts` (1 000), checked on schedule create and update. Extending never
-  adds targets, so it is never refused for budgets. Guardian-created blocks (punishments,
-  schedule occurrences, recovered blocks) are never refused. With these budgets the hosts
+  `maxScheduleCustomHosts` (1 000), checked on schedule create and update, and enabled daily
+  limits another one, `maxLimitCustomHosts` (1 000, `kind: "limit_custom_hosts"`), checked
+  on limit create and update. Extending never adds targets, so it is never refused for
+  budgets. Guardian-created blocks (punishments, schedule occurrences, limit blocks,
+  recovered blocks) are never refused. With these budgets the hosts
   section stays far below its cap (§10.10), so padding blocks can never push real targets
   out of it, and every response stays below the validators' `RESPONSE_LIMITS` (a test
   checks it).
@@ -245,7 +250,9 @@ appId}`): a domain that is a multi-label public suffix (`co.uk`), equals or is u
   block that «allows» YouTube would still earn points. At snapshot time the guardian
   re-checks the whole allow set against its embedded catalog and drops offending entries
   (a catalog update can add services). Exam mode requires `whitelistOnly: true`.
-- **Earning.** Only `manual` and `schedule` blocks earn points (`POINT_RULES.earningBlockKinds`).
+- **Earning.** Only `manual` and `schedule` blocks earn points (`POINT_RULES.earningBlockKinds`);
+  `limit` blocks, like punishments and recovered blocks, earn nothing and are never credited
+  (§10.9). Attempts against them count and cost like against any block (§10.8).
 
 ### 5.3 Schedules
 
@@ -356,6 +363,99 @@ study whitelist at creation, so no settings change touches something already run
 yet as `pendingFocusMinutes` (display only; every other field already includes them), so
 «Hoy: 42 de 60 min», the balance and the streak never lag a running session by the 5-min
 flush chunk.
+
+### 5.10 Daily limits
+
+«YouTube máximo 30 minutos al día». Instead of blocking for a fixed time, a `DailyLimit`
+gives targets a daily allowance of usage minutes. While today's usage is below it, nothing
+is blocked; when it runs out on an applicable day, the guardian materializes a block of kind
+`limit` until the next local midnight (§4 «Local days», `settings.timezone`).
+
+| Field (`DailyLimitDefinition`) | Notes                                                                                                   |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `name`                         | 1–60 UTF-16 units (`limitNameMaxLength`), user text («YouTube», «Redes sociales»)                       |
+| `enabled`                      | A disabled limit counts no usage and blocks nothing                                                     |
+| `targets`                      | `TargetSpec`, at least one entry; no whitelist form, no `allow`                                         |
+| `dailyMinutes`                 | `limitMinMinutes`…`limitMaxMinutes` (5–720)                                                             |
+| `days`                         | ISO weekdays on which running out blocks (sorted, unique, 1–7 items; the UI defaults to all seven)      |
+| `mode`                         | `LIMIT_MODES`: `normal`, `strict` (UI default), `hardcore` (needs `acknowledgeNoEmergency`); never exam |
+| `reason`                       | ≤ 140, the block's «Tu motivo»                                                                          |
+
+`DailyLimit` adds `id` (`lim_…`), `createdAt`, `updatedAt` and derived fields: `day` (the
+guardian's current local day), `appliesToday` (`enabled` and the weekday of `day` in
+`days`), `usedTodaySeconds` (`floor(usedMs / 1000)`), `remainingTodaySeconds`
+(`max(0, dailyMinutes × 60 − usedTodaySeconds)`), `reachedAt` (when the allowance ran out
+today on an applicable day, else `null`), `activeBlockId` (today's latest-ending active limit
+block, else `null`) and `pendingChange` (`PendingLimitChange`: `{definition, effectiveAt}`,
+`definition: null` for a pending deletion). At most `maxLimits` (50).
+
+Rules:
+
+- **Resolution** as for blocks (§5.2): at create, at every update that changes the effective
+  targets and when a pending change applies, the guardian resolves the effective targets with
+  its embedded catalog for its OS and stores the domain, excluded-domain and process lists
+  with the limit. Usage matching (§10.13) and the limit blocks it materializes use them.
+  Custom entries follow §5.2 (`protected_target`, `unknown_id`).
+- **Usage is counted every day** for every enabled limit, whatever `days` says (statistics,
+  and a day added later applies at once with the real usage); `days` only gates warnings and
+  blocks. Usage comes from client reports only (§10.13) and is never trusted beyond real
+  time.
+- **Reaching the allowance** (`usedMs ≥ dailyMinutes × 60 000` on an applicable day) writes
+  `limit_reached` and a block of kind `limit`: the limit's effective targets, mode and reason,
+  `whitelistOnly: false`, `startsAt = T`, `endsAt` = the next local midnight (the first
+  instant whose local date is the next day, in trusted time), `limitId` set. It is an ordinary
+  block for everything else: hosts, process watcher, extension rules, attempts (counted and
+  penalized like any other), emergency unlock (normal and strict only; its penalty as always),
+  rewards (`hardcore` locks the shop; a hardcore limit block revokes allowances like any
+  hardcore block) and `has-active`. Nothing ever ends it early: no limit edit, pending change
+  or deletion touches it.
+- **Once per day.** Each (limit, local day) is materialized once: an emergency that cancels
+  the block does not bring it back that day. A strengthening edit made after the allowance ran
+  out (new targets or a stricter mode) blocks at once: when the effective targets or mode are
+  not covered by what was materialized today, a further limit block with the full effective
+  targets and mode is created, at most `limitMaxBlocksPerDay` (4) per limit and day (§10.13).
+  Lowering `dailyMinutes` below today's usage, or adding today's weekday, simply reaches the
+  allowance now.
+- **Warnings.** `limit_warning` once per limit and applicable day when
+  `0 < remaining ≤ limitWarningSeconds` (5 min), also right at creation or after an edit if
+  less is left; a report that jumps straight to 0 writes only `limit_reached`. Less than
+  `limitMinBlockMs` (1 min) before midnight, `limit_reached` has `blockId: null` and nothing is
+  blocked.
+- **Budgets.** `maxLimits` (422 `validation_failed`, issue `length`, `details.limit`) and the
+  custom-host budget of enabled limits (§5.2). Limit blocks are guardian-created: never
+  refused.
+
+**Changes (anti-cheat, fixed decision §2.1).** `PUT /v1/limits/{id}` sends the full
+`DailyLimitInput`; the guardian splits it with `splitLimitChange(effective, requested)`:
+
+| Field           | Applies at once                             | Waits `limitWeakeningDelayMs` (24 h) as `pendingChange` |
+| --------------- | ------------------------------------------- | ------------------------------------------------------- |
+| `dailyMinutes`  | lowering                                    | raising                                                 |
+| `targets`       | additions (union, effective first)          | removals                                                |
+| `days`          | additions                                   | removals                                                |
+| `mode`          | stricter (`normal` < `strict` < `hardcore`) | less strict                                             |
+| `enabled`       | `false` → `true`                            | `true` → `false`                                        |
+| `name`,`reason` | always (neutral)                            | —                                                       |
+| delete          | —                                           | always (`DELETE /v1/limits/{id}`)                       |
+
+- `applied` (the stricter value of every field) becomes effective at once; `pending` is the
+  whole requested definition (days sorted) when it still weakens `applied`
+  (`limitDefinitionWeakens`), else `null`, which also cancels an older pending change. So
+  re-sending the effective definition (`limitInputFromLimit`) is how the UI cancels a pending
+  change or a pending deletion.
+- At most one pending change per limit. A new one replaces the old; the delay already run is
+  kept when the new one weakens nothing relative to the old (`pendingLimitDelayKept`: a retry,
+  a smaller raise, an edit replacing a pending deletion), else it restarts. A deletion is the
+  weakest change.
+- The delay runs exactly like a settings delay (§5.8): `remainingMs` decremented by the
+  boot-clock delta while the guardian runs, verified downtime credited, never unverified
+  downtime. It also never applies on the local day it was requested (`requestedDay`; this
+  only matters on a 25-hour DST day), so a pending change applies from the next day at the
+  earliest. `effectiveAt` = max(now + `remainingMs`, start of the day after `requestedDay`),
+  display time, an estimate.
+- Applying writes `limit_updated{cause: "pending_applied"}` (targets re-resolved) or
+  `limit_deleted`. It never touches a limit block already materialized (independent, like
+  schedule occurrences), and today's usage keeps counting against the new definition.
 
 ---
 
@@ -523,39 +623,45 @@ diagnostics: one bad event never blocks the sync of the epoch. Only a broken env
 
 Δ is the recorded balance delta.
 
-| Type                                     | Emitted when                                                                                                         | `data`                                                                                                                                                                                                                  | Δ                  |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| `epoch_started`                          | First event of every epoch (install, data deletion, unreadable log, untrusted key)                                   | `reason`, `previousEpoch`, `carryOverBalance` (≤ 0), `escalation`, `kept` (`EpochKeptState`, with `materializedOccurrences`)                                                                                            | carry              |
-| `guardian_started`                       | Every start, after recovery                                                                                          | `version`, `schemaVersion`, `catalogVersion`, `rulesVersion`, `mode`, `sameBoot`, `downtimeMs`, `uncleanShutdown`, `recovery`                                                                                           | 0                  |
-| `clock_jump`                             | Detector reported a jump, restore jump, reboot clamp or calibration                                                  | `source` (`tick`/`restore`/`reboot`/`calibrate`), `deltaMs`, `wallOffsetMs`, `trust`, `reactivatedBlockIds`, `shiftedBlockIds`, `shiftedAllowanceIds`                                                                   | 0                  |
-| `day_closed`                             | A local day ended                                                                                                    | `day`, `goalMinutes`                                                                                                                                                                                                    | 0                  |
-| `block_created`                          | User block, schedule occurrence, punishment                                                                          | `block` (snapshot), `source` (`user`/`schedule`/`punishment`)                                                                                                                                                           | 0                  |
-| `block_extended`                         | `POST …/extend`                                                                                                      | `blockId`, `addMinutes`, `endsAt` (trusted)                                                                                                                                                                             | 0                  |
-| `block_completed`                        | `T ≥ endsAt` (after the boot hold, §10.2)                                                                            | `blockId`, `kind`, `mode`, `creditedMinutes`, `attemptsCounted`, `downtimeMs`, `clockTrust`                                                                                                                             | minutes + bonus    |
-| `block_cancelled`                        | Emergency confirmed                                                                                                  | `blockId`, `emergencyId`, `forfeitedMinutes`                                                                                                                                                                            | 0                  |
-| `block_reactivated`                      | Calibration showed a completion happened early                                                                       | `blockId`, `revertsSeq`, `revertPoints`, `endsAt`, `reason: clock_correction`                                                                                                                                           | −revertPoints      |
-| `attempt`                                | A detection counted (§10.8)                                                                                          | `attemptId`, `layer`, `targetKey`, `targetType`, `serviceId`, `blockIds`, `browser`, `incognito`, `escalationIndex`, `penalized`                                                                                        | −penalty           |
-| `process_closed`                         | A blocked process was closed without counting an attempt                                                             | `reason` (`running_at_block_start`/`logon_grace`/`browser_without_extension`), `serviceId`, `appId`, `browser`, `blockIds`                                                                                              | 0                  |
-| `study_started`                          | `POST /v1/study/sessions`                                                                                            | `session`                                                                                                                                                                                                               | 0                  |
-| `study_paused`                           | Pause                                                                                                                | `sessionId`, `pauseEndsAt`                                                                                                                                                                                              | 0                  |
-| `study_resumed`                          | Resume or 5-min auto-resume                                                                                          | `sessionId`, `auto`                                                                                                                                                                                                     | 0                  |
-| `focus_minutes`                          | ≥ 5 accepted whole minutes pending, at the end, at local midnight                                                    | `sessionId`, `minutes`                                                                                                                                                                                                  | +2/min (XP +1/min) |
-| `strike`                                 | Counted strike                                                                                                       | `sessionId`, `strikeNumber`, `cause`                                                                                                                                                                                    | −15                |
-| `study_ended`                            | Completion, early end, abandonment, punishment, interruption                                                         | `sessionId`, `outcome`, `plannedMinutes`, `activeMinutes`, `workMinutes`, `focusedMinutes`, `focusPct`, `strikes`, `warnings`, `attempts`, `pointsTotal`, `cleanBonus`                                                  | bonus              |
-| `study_outcome`                          | «¿Lo has conseguido?» answered                                                                                       | `sessionId`, `achieved`                                                                                                                                                                                                 | 0                  |
-| `punishment_started`                     | Third strike or abandonment                                                                                          | `punishment`                                                                                                                                                                                                            | −100               |
-| `punishment_ended`                       | Its block completed or was cancelled by an emergency                                                                 | `punishmentId`, `blockId`, `outcome` (`completed`/`emergency`)                                                                                                                                                          | 0                  |
-| `emergency_requested`                    | `POST /v1/emergency`                                                                                                 | `emergency`                                                                                                                                                                                                             | 0                  |
-| `emergency_cancelled`                    | User, expiry, all blocks ended, reboot                                                                               | `emergencyId`, `reason`                                                                                                                                                                                                 | 0                  |
-| `emergency_confirmed`                    | Confirmed while ready                                                                                                | `emergencyId`, `blockIds`, `balanceBefore`, `allowanceValue`, `penalty`, `streakDaysLost`, `goalMinutes`                                                                                                                | −penalty           |
-| `reward_redeemed`                        | Redemption                                                                                                           | `allowanceId`, `offerId`, `serviceId`, `offerMinutes`, `offerCost` (this redemption), `allowanceMinutes`, `allowanceCost`, `endsAt` (totals after it), `extendedExisting`                                               | −offerCost         |
-| `reward_ended`                           | Expiry or revocation                                                                                                 | `allowanceId`, `serviceId`, `reason`, `revokedByBlockId`, `cost` (total of all redemptions), `totalMs`, `remainingMs`, `refund`                                                                                         | +refund            |
-| `schedule_created` / `schedule_updated`  | Schedule writes                                                                                                      | `schedule`                                                                                                                                                                                                              | 0                  |
-| `schedule_deleted`                       | Schedule delete                                                                                                      | `scheduleId`                                                                                                                                                                                                            | 0                  |
-| `settings_changed`                       | Settings write or a pending change becoming effective                                                                | `settings` (effective), `pending`                                                                                                                                                                                       | 0                  |
-| `extension_paired` / `extension_revoked` | Pairing                                                                                                              | `extensionId`, `browser`, `boundOrigin` / `extensionId`                                                                                                                                                                 | 0                  |
-| `tamper_detected`                        | Hosts edited/locked/path moved, bad state MAC, rollback, guardian stopped, hosts edited while stopped, untrusted key | `kind` (`TAMPER_KINDS`), `balanceCorrection` (≤ 0: `ledger_rollback` min(0, anchor − balance); `service_stopped` and `hosts_changed_while_stopped` −`emergencyPenalty(balance + allowanceValue)`; else 0), `voidStreak` | correction         |
-| `ledger_repaired`                        | A complete line failed MAC verification                                                                              | `droppedFromSeq`, `droppedCount`, `archivedAs`, `balanceCorrection`                                                                                                                                                     | correction         |
+| Type                                     | Emitted when                                                                                                          | `data`                                                                                                                                                                                                                  | Δ                  |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| `epoch_started`                          | First event of every epoch (install, data deletion, unreadable log, untrusted key)                                    | `reason`, `previousEpoch`, `carryOverBalance` (≤ 0), `escalation`, `kept` (`EpochKeptState`, with `materializedOccurrences`)                                                                                            | carry              |
+| `guardian_started`                       | Every start, after recovery                                                                                           | `version`, `schemaVersion`, `catalogVersion`, `rulesVersion`, `mode`, `sameBoot`, `downtimeMs`, `uncleanShutdown`, `recovery`                                                                                           | 0                  |
+| `clock_jump`                             | Detector reported a jump, restore jump, reboot clamp or calibration                                                   | `source` (`tick`/`restore`/`reboot`/`calibrate`), `deltaMs`, `wallOffsetMs`, `trust`, `reactivatedBlockIds`, `shiftedBlockIds`, `shiftedAllowanceIds`                                                                   | 0                  |
+| `day_closed`                             | A local day ended                                                                                                     | `day`, `goalMinutes`                                                                                                                                                                                                    | 0                  |
+| `block_created`                          | User block, schedule occurrence, punishment, limit block                                                              | `block` (snapshot), `source` (`user`/`schedule`/`punishment`/`limit`)                                                                                                                                                   | 0                  |
+| `block_extended`                         | `POST …/extend`                                                                                                       | `blockId`, `addMinutes`, `endsAt` (trusted)                                                                                                                                                                             | 0                  |
+| `block_completed`                        | `T ≥ endsAt` (after the boot hold, §10.2)                                                                             | `blockId`, `kind`, `mode`, `creditedMinutes`, `attemptsCounted`, `downtimeMs`, `clockTrust`                                                                                                                             | minutes + bonus    |
+| `block_cancelled`                        | Emergency confirmed                                                                                                   | `blockId`, `emergencyId`, `forfeitedMinutes`                                                                                                                                                                            | 0                  |
+| `block_reactivated`                      | Calibration showed a completion happened early                                                                        | `blockId`, `revertsSeq`, `revertPoints`, `endsAt`, `reason: clock_correction`                                                                                                                                           | −revertPoints      |
+| `attempt`                                | A detection counted (§10.8)                                                                                           | `attemptId`, `layer`, `targetKey`, `targetType`, `serviceId`, `blockIds`, `browser`, `incognito`, `escalationIndex`, `penalized`                                                                                        | −penalty           |
+| `process_closed`                         | A blocked process was closed without counting an attempt                                                              | `reason` (`running_at_block_start`/`logon_grace`/`browser_without_extension`), `serviceId`, `appId`, `browser`, `blockIds`                                                                                              | 0                  |
+| `study_started`                          | `POST /v1/study/sessions`                                                                                             | `session`                                                                                                                                                                                                               | 0                  |
+| `study_paused`                           | Pause                                                                                                                 | `sessionId`, `pauseEndsAt`                                                                                                                                                                                              | 0                  |
+| `study_resumed`                          | Resume or 5-min auto-resume                                                                                           | `sessionId`, `auto`                                                                                                                                                                                                     | 0                  |
+| `focus_minutes`                          | ≥ 5 accepted whole minutes pending, at the end, at local midnight                                                     | `sessionId`, `minutes`                                                                                                                                                                                                  | +2/min (XP +1/min) |
+| `strike`                                 | Counted strike                                                                                                        | `sessionId`, `strikeNumber`, `cause`                                                                                                                                                                                    | −15                |
+| `study_ended`                            | Completion, early end, abandonment, punishment, interruption                                                          | `sessionId`, `outcome`, `plannedMinutes`, `activeMinutes`, `workMinutes`, `focusedMinutes`, `focusPct`, `strikes`, `warnings`, `attempts`, `pointsTotal`, `cleanBonus`                                                  | bonus              |
+| `study_outcome`                          | «¿Lo has conseguido?» answered                                                                                        | `sessionId`, `achieved`                                                                                                                                                                                                 | 0                  |
+| `punishment_started`                     | Third strike or abandonment                                                                                           | `punishment`                                                                                                                                                                                                            | −100               |
+| `punishment_ended`                       | Its block completed or was cancelled by an emergency                                                                  | `punishmentId`, `blockId`, `outcome` (`completed`/`emergency`)                                                                                                                                                          | 0                  |
+| `emergency_requested`                    | `POST /v1/emergency`                                                                                                  | `emergency`                                                                                                                                                                                                             | 0                  |
+| `emergency_cancelled`                    | User, expiry, all blocks ended, reboot                                                                                | `emergencyId`, `reason`                                                                                                                                                                                                 | 0                  |
+| `emergency_confirmed`                    | Confirmed while ready                                                                                                 | `emergencyId`, `blockIds`, `balanceBefore`, `allowanceValue`, `penalty`, `streakDaysLost`, `goalMinutes`                                                                                                                | −penalty           |
+| `reward_redeemed`                        | Redemption                                                                                                            | `allowanceId`, `offerId`, `serviceId`, `offerMinutes`, `offerCost` (this redemption), `allowanceMinutes`, `allowanceCost`, `endsAt` (totals after it), `extendedExisting`                                               | −offerCost         |
+| `reward_ended`                           | Expiry or revocation                                                                                                  | `allowanceId`, `serviceId`, `reason`, `revokedByBlockId`, `cost` (total of all redemptions), `totalMs`, `remainingMs`, `refund`                                                                                         | +refund            |
+| `schedule_created` / `schedule_updated`  | Schedule writes                                                                                                       | `schedule`                                                                                                                                                                                                              | 0                  |
+| `schedule_deleted`                       | Schedule delete                                                                                                       | `scheduleId`                                                                                                                                                                                                            | 0                  |
+| `limit_created`                          | `POST /v1/limits`                                                                                                     | `limit` (snapshot, trusted times)                                                                                                                                                                                       | 0                  |
+| `limit_updated`                          | `PUT`/`DELETE /v1/limits/{id}` that changed something (`cause: "user"`), a pending change applied (`pending_applied`) | `limit` (snapshot with `pendingChange`), `cause`                                                                                                                                                                        | 0                  |
+| `limit_deleted`                          | A pending deletion applied                                                                                            | `limitId`, `name`                                                                                                                                                                                                       | 0                  |
+| `limit_warning`                          | Once per limit and applicable day, `0 < remaining ≤ 300 s`                                                            | `limitId`, `name`, `day`, `dailyMinutes`, `usedSeconds`, `remainingSeconds` (1–300)                                                                                                                                     | 0                  |
+| `limit_reached`                          | Once per limit and applicable day, the allowance ran out                                                              | `limitId`, `name`, `day`, `dailyMinutes`, `usedSeconds`, `blockId` (`null` < 1 min before midnight)                                                                                                                     | 0                  |
+| `limit_day_closed`                       | A local day ended (or was found ended at startup) for a limit with usage or reached that day                          | `limitId`, `name`, `day`, `dailyMinutes`, `usedSeconds`, `applied`, `reached`                                                                                                                                           | 0                  |
+| `settings_changed`                       | Settings write or a pending change becoming effective                                                                 | `settings` (effective), `pending`                                                                                                                                                                                       | 0                  |
+| `extension_paired` / `extension_revoked` | Pairing                                                                                                               | `extensionId`, `browser`, `boundOrigin` / `extensionId`                                                                                                                                                                 | 0                  |
+| `tamper_detected`                        | Hosts edited/locked/path moved, bad state MAC, rollback, guardian stopped, hosts edited while stopped, untrusted key  | `kind` (`TAMPER_KINDS`), `balanceCorrection` (≤ 0: `ledger_rollback` min(0, anchor − balance); `service_stopped` and `hosts_changed_while_stopped` −`emergencyPenalty(balance + allowanceValue)`; else 0), `voidStreak` | correction         |
+| `ledger_repaired`                        | A complete line failed MAC verification                                                                               | `droppedFromSeq`, `droppedCount`, `archivedAs`, `balanceCorrection`                                                                                                                                                     | correction         |
 
 Multi-event batches (`txEnd` only on the last line; «…» = zero or more, «[…]» = only when
 pending):
@@ -568,6 +674,10 @@ pending):
   `punishment_started`, `reward_ended{revoked}`…
 - emergency confirm: `emergency_confirmed`, `block_cancelled`…, `punishment_ended{emergency}`…
 - hardcore or exam block (user or schedule): `block_created`, `reward_ended{revoked}`…
+- limit reached: `limit_reached`, [`block_created{limit}`], `reward_ended{revoked}`… (hardcore
+  only); a further limit block after a strengthening edit: `block_created{limit}`,
+  `reward_ended{revoked}`…
+- limit day rollover: `limit_day_closed`… (one per limit with usage, ≤ `maxLimits`)
 - punishment block completion: `block_completed`, `punishment_ended{completed}`
 - calibration correction: `block_reactivated`…, `clock_jump{calibrate}` (the shifts of
   §4 are part of it)
@@ -651,9 +761,10 @@ Missing or unknown token: 401 `unauthorized` (`WWW-Authenticate: Bearer`). Wrong
 5. Rate limit → 429 `rate_limited` with `Retry-After` (§9.6).
 6. Mode: in `frozen` mode every write returns 503 `read_only` with `details.reason`
    `schema_too_new`. In `safe` mode the writes the user initiates (blocks, schedules,
-   settings, rewards, emergencies, pairing, data delete) return 503 `read_only`
-   `safe_mode`, but reports that can only cost points or record progress (attempts,
-   study heartbeat/strike/pause/resume/end) are still accepted and study silence keeps
+   daily limits, settings, rewards, emergencies, pairing, data delete) return 503
+   `read_only` `safe_mode`, but reports that can only cost points, record progress or
+   tighten a limit (attempts, usage, study heartbeat/strike/pause/resume/end) are still
+   accepted and study silence keeps
    counting: safe mode is reachable by killing the guardian three times, so it must
    never suspend a penalty (§16.2 #41). Reads keep working.
 7. Body: media type, size, JSON, strict shape, semantics.
@@ -668,11 +779,29 @@ enum values are breaking unless gated by a capability. A breaking change becomes
 served next to `/v1` for at least one minor release. The app compares `health.apiVersion`
 and `version` with what it bundles and offers «Actualizar el guardián».
 
+Daily limits (capability `daily_limits`) follow these rules:
+
+- **New response fields are optional in the validators** (`optional()` in
+  `guardian-api.ts`: absent is accepted, present must be valid): `Block.limitId`,
+  `GuardianStateResponse.limits`, `ExtRulesResponse.limits`, `ExtRuleBlock.limitId`,
+  `AttemptResponse.block.limitId`, `DeleteDataResponse.keptLimitIds` and
+  `EpochKeptState.limits`, so a newer app or extension still reads an older guardian and
+  events logged before them. A guardian with the capability always sends them.
+- **Block kind `limit` never reaches an extension token.** The extension updates on its own
+  schedule and older builds reject unknown enum values, so in `GET /v1/ext/rules`
+  (`blocks[].kind`) and in the ext-token answer of `POST /v1/attempts` (`block.kind`) a limit
+  block is reported as `kind: "manual"` with `limitId` set; new extensions read `limitId`.
+  The app token (the app bundles its guardian) always sees `kind: "limit"`.
+- New clients call `/v1/limits` and `/v1/usage` only when `health.capabilities` lists
+  `daily_limits` (the app) or `rules.limits` is present (the extension; it reports no usage
+  otherwise).
+
 ### 8.5 Conditional and long-poll requests
 
 - `GET /v1/state`: `ETag: "s-<stateVersion>"`; `If-None-Match` → 304 with no body.
   `stateVersion` increases on any change visible in the payload (per-tick counters
-  included only at whole-minute granularity).
+  included only at whole-minute granularity: `limits[].usedTodaySeconds` is floored to whole
+  minutes in `/v1/state`, so a usage report bumps it at most once a minute per limit).
 - `GET /v1/ext/rules`: `ETag: "r-<extRulesVersion>"`; `waitVersion=<n>&waitMs≤25000` returns
   as soon as `extRulesVersion ≠ n`. `extRulesVersion` is the enforcement counter; the points
   rules version is `rulesVersion` (`health`, `guardian_started`, `diagnostics`).
@@ -704,7 +833,7 @@ key, a repeated request is a new intention (another extension, another charge).
 
 ### 8.7 Endpoint summary
 
-`GUARDIAN_ENDPOINTS` (40 entries; `testClock` only in `testhooks` builds):
+`GUARDIAN_ENDPOINTS` (45 entries; `testClock` only in `testhooks` builds):
 
 | #   | Method | Path                                | Auth       | I   | Purpose                                    |
 | --- | ------ | ----------------------------------- | ---------- | --- | ------------------------------------------ |
@@ -719,35 +848,40 @@ key, a repeated request is a new intention (another extension, another charge).
 | 9   | POST   | `/v1/schedules`                     | app        | I   | Create a schedule                          |
 | 10  | PUT    | `/v1/schedules/{id}`                | app        |     | Replace a schedule (guards)                |
 | 11  | DELETE | `/v1/schedules/{id}`                | app        |     | Delete a schedule (guards)                 |
-| 12  | POST   | `/v1/study/sessions`                | app        | I   | Start Study Mode                           |
-| 13  | GET    | `/v1/study/sessions/current`        | app        |     | Current session or `null`                  |
-| 14  | GET    | `/v1/study/sessions/{id}`           | app        |     | A session and its summary (≤ 7 days)       |
-| 15  | POST   | `/v1/study/sessions/{id}/heartbeat` | app        |     | Heartbeat + focused minutes                |
-| 16  | POST   | `/v1/study/sessions/{id}/strike`    | app        | I   | Report a strike                            |
-| 17  | POST   | `/v1/study/sessions/{id}/pause`     | app        |     | Pause (2 per hour, 5 min)                  |
-| 18  | POST   | `/v1/study/sessions/{id}/resume`    | app        |     | Resume                                     |
-| 19  | POST   | `/v1/study/sessions/{id}/end`       | app        | I   | End (guardian decides the outcome)         |
-| 20  | POST   | `/v1/study/sessions/{id}/outcome`   | app        |     | «¿Lo has conseguido?»                      |
-| 21  | POST   | `/v1/attempts`                      | app or ext |     | Report an attempt                          |
-| 22  | GET    | `/v1/points`                        | app        |     | Points summary                             |
-| 23  | GET    | `/v1/events`                        | app        |     | Event log sync (cursor, long poll)         |
-| 24  | GET    | `/v1/emergency/preview`             | app        |     | What an emergency would cost               |
-| 25  | POST   | `/v1/emergency`                     | app        | I   | Request an emergency unlock                |
-| 26  | POST   | `/v1/emergency/{id}/cancel`         | app        |     | Cancel it (free)                           |
-| 27  | POST   | `/v1/emergency/{id}/confirm`        | app        | I   | Confirm it when ready                      |
-| 28  | GET    | `/v1/rewards`                       | app        |     | Shop                                       |
-| 29  | POST   | `/v1/rewards/redeem`                | app        | I   | Redeem an offer                            |
-| 30  | GET    | `/v1/settings`                      | app        |     | Effective settings + pending changes       |
-| 31  | PUT    | `/v1/settings`                      | app        |     | Replace settings (weakening delayed)       |
-| 32  | POST   | `/v1/pairing/code`                  | app        |     | New 6-digit pairing code                   |
-| 33  | POST   | `/v1/pairing/claim`                 | none       |     | Extension claims a token                   |
-| 34  | GET    | `/v1/pairing/extensions`            | app        |     | Paired extensions                          |
-| 35  | DELETE | `/v1/pairing/extensions/{id}`       | app        |     | Revoke an extension                        |
-| 36  | GET    | `/v1/ext/rules`                     | ext        |     | Signed blocking rules (ETag, long poll)    |
-| 37  | POST   | `/v1/ext/heartbeat`                 | ext        |     | Extension heartbeat                        |
-| 38  | POST   | `/v1/nuclear/heartbeat`             | app        |     | Nuclear overlay liveness (§10.5)           |
-| 39  | POST   | `/v1/data/delete`                   | app        | I   | «Borrar todos mis datos»                   |
-| 40  | POST   | `/v1/_test/clock`                   | app        |     | Test builds only: drive the fake clock     |
+| 12  | GET    | `/v1/limits`                        | app        |     | List daily limits (exact usage)            |
+| 13  | POST   | `/v1/limits`                        | app        | I   | Create a daily limit                       |
+| 14  | PUT    | `/v1/limits/{id}`                   | app        |     | Replace a limit (weakening waits 24 h)     |
+| 15  | DELETE | `/v1/limits/{id}`                   | app        |     | Schedule its deletion (after 24 h)         |
+| 16  | POST   | `/v1/study/sessions`                | app        | I   | Start Study Mode                           |
+| 17  | GET    | `/v1/study/sessions/current`        | app        |     | Current session or `null`                  |
+| 18  | GET    | `/v1/study/sessions/{id}`           | app        |     | A session and its summary (≤ 7 days)       |
+| 19  | POST   | `/v1/study/sessions/{id}/heartbeat` | app        |     | Heartbeat + focused minutes                |
+| 20  | POST   | `/v1/study/sessions/{id}/strike`    | app        | I   | Report a strike                            |
+| 21  | POST   | `/v1/study/sessions/{id}/pause`     | app        |     | Pause (2 per hour, 5 min)                  |
+| 22  | POST   | `/v1/study/sessions/{id}/resume`    | app        |     | Resume                                     |
+| 23  | POST   | `/v1/study/sessions/{id}/end`       | app        | I   | End (guardian decides the outcome)         |
+| 24  | POST   | `/v1/study/sessions/{id}/outcome`   | app        |     | «¿Lo has conseguido?»                      |
+| 25  | POST   | `/v1/attempts`                      | app or ext |     | Report an attempt                          |
+| 26  | POST   | `/v1/usage`                         | app or ext |     | Report usage for daily limits              |
+| 27  | GET    | `/v1/points`                        | app        |     | Points summary                             |
+| 28  | GET    | `/v1/events`                        | app        |     | Event log sync (cursor, long poll)         |
+| 29  | GET    | `/v1/emergency/preview`             | app        |     | What an emergency would cost               |
+| 30  | POST   | `/v1/emergency`                     | app        | I   | Request an emergency unlock                |
+| 31  | POST   | `/v1/emergency/{id}/cancel`         | app        |     | Cancel it (free)                           |
+| 32  | POST   | `/v1/emergency/{id}/confirm`        | app        | I   | Confirm it when ready                      |
+| 33  | GET    | `/v1/rewards`                       | app        |     | Shop                                       |
+| 34  | POST   | `/v1/rewards/redeem`                | app        | I   | Redeem an offer                            |
+| 35  | GET    | `/v1/settings`                      | app        |     | Effective settings + pending changes       |
+| 36  | PUT    | `/v1/settings`                      | app        |     | Replace settings (weakening delayed)       |
+| 37  | POST   | `/v1/pairing/code`                  | app        |     | New 6-digit pairing code                   |
+| 38  | POST   | `/v1/pairing/claim`                 | none       |     | Extension claims a token                   |
+| 39  | GET    | `/v1/pairing/extensions`            | app        |     | Paired extensions                          |
+| 40  | DELETE | `/v1/pairing/extensions/{id}`       | app        |     | Revoke an extension                        |
+| 41  | GET    | `/v1/ext/rules`                     | ext        |     | Signed blocking rules (ETag, long poll)    |
+| 42  | POST   | `/v1/ext/heartbeat`                 | ext        |     | Extension heartbeat                        |
+| 43  | POST   | `/v1/nuclear/heartbeat`             | app        |     | Nuclear overlay liveness (§10.5)           |
+| 44  | POST   | `/v1/data/delete`                   | app        | I   | «Borrar todos mis datos»                   |
+| 45  | POST   | `/v1/_test/clock`                   | app        |     | Test builds only: drive the fake clock     |
 
 ### 8.8 Endpoint reference
 
@@ -774,7 +908,8 @@ Request and response shapes are the TypeScript interfaces named here; examples a
     "events_longpoll",
     "data_delete",
     "study_history",
-    "nuclear_heartbeat"
+    "nuclear_heartbeat",
+    "daily_limits"
   ],
   "schemaVersion": 1,
   "catalogVersion": 2,
@@ -805,7 +940,8 @@ watcher, paired extensions with `connected`, `incognitoAllowed`, `hostPermission
 `appliedExtRulesVersion`, `protecting`; `browsersWithoutExtension`), `blocks` (active,
 `endsAt` descending: `blocks[0]` drives the big countdown), `punishments` (active),
 `nuclearActive`, `study`, `emergency` (`counting`/`ready` only), `allowances` (active),
-`rewardsLock`, `nextSchedule` («Próximo horario: 16:00»), `points` (with
+`rewardsLock`, `nextSchedule` («Próximo horario: 16:00»), `limits` (every daily limit, usage
+floored to whole minutes, §8.5; optional for older guardians, §8.4), `points` (with
 `pendingFocusMinutes`), `pendingSettings`, `recent.endedBlocks` (ended in the last 2 min, for
 «Hecho. +80 puntos») and `recent.endedStudy` (the last session and its summary for 2 min
 after it ended, whoever ended it, so «Resumen» opens even when the guardian ended it).
@@ -922,6 +1058,55 @@ Guards for PUT and DELETE, evaluated in trusted time (§10.3):
 
 A materialized occurrence is an independent block and never changes with its schedule.
 
+#### Daily limits
+
+`GET /v1/limits` → `ListLimitsResponse` (`{ limits }`, creation order, exact usage).
+`POST /v1/limits` (I) with `DailyLimitInput` → 201 `LimitResponse` (`{ limit }`).
+`PUT /v1/limits/{id}` with `DailyLimitInput` (full replace) → 200 `{ limit }`.
+`DELETE /v1/limits/{id}` → 200 `{ limit }` with `pendingChange: {definition: null, …}`: a
+deletion always waits (§5.10); nothing is deleted at once.
+
+```json
+{
+  "name": "YouTube",
+  "enabled": true,
+  "targets": {
+    "serviceIds": ["youtube"],
+    "categoryIds": [],
+    "appIds": [],
+    "customDomains": [],
+    "customProcesses": []
+  },
+  "dailyMinutes": 30,
+  "days": [1, 2, 3, 4, 5, 6, 7],
+  "mode": "strict",
+  "reason": "",
+  "acknowledgeNoEmergency": false
+}
+```
+
+Validation (in order, codes per §8.1): shape (`dailyLimitInputSchema`: name 1–60, at least
+one target, `dailyMinutes` 5–720, `days` unique 1–7 items, mode `normal`/`strict`/`hardcore`,
+reason ≤ 140; unknown fields such as `whitelistOnly` → 400); unknown catalog ids → 422
+`unknown_id`; protected custom domain or process → 422 `protected_target`; `maxLimits` on
+create → 422 `validation_failed` (`details: {path: "$", issue: "length", limit}`); custom-host
+budget of enabled limits counted with the **applied** definition → 422 `too_many_targets`
+(`details.kind: "limit_custom_hosts"`); `mode: "hardcore"` without `acknowledgeNoEmergency`
+→ 422 `confirmation_required` (`details.needs: ["no_emergency"]`). PUT and DELETE on an
+unknown id → 404 `not_found`. There is no 409: an active limit block never prevents an edit,
+because no edit touches it.
+
+Effects. POST: batch `limit_created`, then (same engine turn) the limit is evaluated
+(§10.13: a 5-min limit warns at once). PUT: `splitLimitChange(effective, requested)`; if
+neither the effective definition nor the pending change changed it is a no-op (200, no
+event); otherwise `limit_updated{cause: "user"}`, targets re-resolved when the effective
+targets grew, then the limit is evaluated (a lower allowance or a new day may reach it now;
+new targets or a stricter mode after reaching it add a limit block). DELETE: sets or keeps a
+pending deletion (`pendingLimitDelayKept`) and writes `limit_updated{cause: "user"}` unless
+it was already pending. Every write that changes the effective definition or its
+`appliesToday` bumps `stateVersion` and `extRulesVersion` (`ExtRulesResponse.limits`).
+PUT and DELETE are idempotent by state; POST takes an `Idempotency-Key`.
+
 #### Study Mode
 
 - `POST /v1/study/sessions` (I) — `StartStudyRequest` (`task` ≤ 80, `plannedMinutes` 5–480,
@@ -1013,7 +1198,34 @@ A merged detection returns `counted: false, merged: true, pointsDelta: 0` and th
 show «−20 puntos» for a reload. A target that is not blocked returns `blocked: false` with
 `reason` `not_blocked` or `allowance_active`. When several blocks cover the target, `block`
 is the one with the latest `endsAt` (ties: the most recently created), since that is when
-access actually returns («tiempo restante» on blocked.html).
+access actually returns («tiempo restante» on blocked.html). `block.limitId` is set for a limit
+block; the ext token gets such a block as `kind: "manual"` (§8.4), the app token as `limit`.
+
+#### `POST /v1/usage` — `UsageReportRequest` → `UsageReportResponse`
+
+```json
+{ "intervalMs": 30000, "items": [{ "type": "domain", "value": "www.youtube.com", "seconds": 27 }] }
+```
+
+- `intervalMs` 1 000–`usageMaxIntervalMs` (120 000): the span the report covers on the
+  client's monotonic clock since its previous successful report. `items`: at most
+  `usageMaxItems` (32) unique (`type`, `value`) pairs, each with `seconds` 1…`ceil(intervalMs /
+1000)` (422 `validation_failed`, issue `rule`, otherwise). An empty `items` is valid.
+- Scope: the ext token may only send `domain` items (canonical hosts of limited sites, §10.13),
+  the app token only `process` items (any valid executable base name, protected ones
+  included: a file manager in front is usage of nothing). Anything else → 403
+  `insufficient_scope`. No peer check: a forged report can only make the user's own limits
+  arrive sooner.
+- **Never a retry.** A failed report's seconds are added to the next report (up to
+  `usageMaxIntervalMs`, older seconds dropped). A report whose answer was lost and is
+  resent anyway is harmless: the per-client and per-limit clamps of §10.13 credit only real
+  elapsed time.
+- Accepted in safe mode (§8.3); 503 in frozen mode. Rate limits as for their token (§9.6).
+- Response: `{ day, limits: LimitUsageStatus[], serverNow }`: every enabled limit, in creation
+  order, with exact `usedTodaySeconds`, `remainingTodaySeconds`, `appliesToday`,
+  `creditedSeconds` (what this report added) and `blockedUntil` (end of today's active limit
+  block, display time, or `null`). The extension uses it for the badge and to know when to
+  report faster.
 
 #### `GET /v1/points` → `{ points: PointsSummary }`
 
@@ -1115,7 +1327,18 @@ guardianVersion, boundOrigin, rulesPublicKey }`. The `browser` family is bound t
   "allowances": [{ "serviceId": "tiktok", "endsAt": "…" }],
   "punishment": null,
   "nextChangeAt": "…",
-  "penaltiesEnabled": true
+  "penaltiesEnabled": true,
+  "limits": [
+    {
+      "id": "lim_…",
+      "name": "YouTube",
+      "serviceIds": ["youtube"],
+      "domains": ["youtube.com", "youtu.be", "…"],
+      "excludedDomains": ["accounts.youtube.com"],
+      "dailyMinutes": 30,
+      "appliesToday": true
+    }
+  ]
 }
 ```
 
@@ -1128,6 +1351,13 @@ guardianVersion, boundOrigin, rulesPublicKey }`. The `browser` family is bound t
 - `punishment`: summary of the active punishments (they stack): the latest `endsAt` and the
   highest `level`; `null` without punishments.
 - `nextChangeAt`: earliest end among blocks and allowances; the extension sets an alarm.
+- `blocks[]` carries `limitId` for a limit block, reported with `kind: "manual"` (§8.4).
+- `limits` (`ExtRuleLimit[]`, capability `daily_limits`): every **enabled** limit with its
+  resolved `domains` and `excludedDomains` (what counts as usage), `name`, `serviceIds`,
+  `dailyMinutes` and `appliesToday`. Usage is not in the body (it would change the ETag every
+  report); it comes back from `POST /v1/usage`. Limit changes and the local day rollover bump
+  `extRulesVersion`. A limit being counted never changes `blockDomains`; only its limit block
+  does.
 - **Signature.** The request carries a random `nonce` query parameter (16 bytes base64url)
   that the guardian echoes inside the body. Every 200 carries `X-Centrate-Signature:
 v1=<base64url(ECDSA P-256 / SHA-256 signature of the exact body bytes, raw r‖s, 64
@@ -1171,7 +1401,7 @@ Accepts `DATA_DELETE_CONFIRM_WORDS` (trimmed, case-insensitive) else 422
 `confirm_word_mismatch`. 409 `data_delete_blocked` (`details.reason`: `study_active`,
 `emergency_pending`, `clock_unverified` while completions still await a time check,
 §10.2). Response `{ epoch, carryOverBalance, keptBlockIds, keptPunishmentIds,
-keptScheduleIds }`. Algorithm §10.11.
+keptScheduleIds, keptLimitIds }` (`keptLimitIds`: every limit, §10.11). Algorithm §10.11.
 
 #### `POST /v1/_test/clock` — `TestClockRequest` → `{ serverNow, trustedNow }`
 
@@ -1336,6 +1566,7 @@ func (e *Engine) timeStep() {
     e.creditBlocks(e.prevT, T, dAwake)        // §10.9: credit up to endsAt BEFORE completing
     e.completeBlocks(T)                       // §10.9 (honours the boot hold)
     e.activateSchedules(T)                    // §10.3
+    e.limitsStep(T, dBoot)                    // §10.13 (day rollover, pending changes, reach)
     e.studyStep(dAwake, T)                    // §10.4 (completion, abandonment, grace)
     e.emergencyStep()                         // §10.6 (boot clock)
     e.prevT = T
@@ -1393,7 +1624,11 @@ send detections and change notices to the engine.
 - **Correction.** When a calibration moves `T` back by `Δ`, the same batch moves by `−Δ`
   every trusted deadline created at or after `restoredT` (§4): active blocks and their
   punishments, active allowances; materialized occurrences stamped after `restoredT` whose
-  start is after the corrected `T` are forgotten.
+  start is after the corrected `T` are forgotten. Limit blocks are shifted like every other
+  block (so one created while `T` ran ahead can end up to `Δ` before local midnight; its
+  (limit, day) stays materialized). Daily-limit usage is not rewritten: a limit's
+  `creditedUntil` watermark ahead of the corrected `T` only means reports credit nothing until
+  `T` passes it (under-counting by at most `Δ`, never over-counting).
 - **Resurrection.** Only completions the restore jump crossed are candidates: blocks or
   punishments completed with `clockTrust != "verified"` whose trusted `endsAt` lies in
   `(savedT, restoredT]` (a block created after the jump ran its full time in the shifted
@@ -1710,8 +1945,8 @@ rule (§10.8).
 
 **Cap.** With the budgets of §5.2 the section never reaches `hostsMaxDomains` (20 000; a
 test checks the arithmetic). If it ever did, entries are kept by priority, never
-alphabetically: punishment > exam > hardcore > strict > normal blocks, catalog before custom
-domains, older blocks first.
+alphabetically: punishment > exam > hardcore > strict > normal blocks (limit blocks rank by
+their mode), catalog before custom domains, older blocks first.
 
 **Hosts section** (existing `hosts.Manager`: markers, byte-for-byte preservation of user
 lines, EOL/BOM handling, atomic replace with ACL/owner/SELinux copy, retries, in-place
@@ -1760,7 +1995,11 @@ resurrection needs):
 
 1. `carry = min(0, balance)`; escalation state kept.
 2. Kept: active blocks, active punishments, active allowances, schedules in progress or
-   within the 10-min pre-start freeze, materialized occurrence keys, the anti-cheat settings
+   within the 10-min pre-start freeze, materialized occurrence keys, **every daily limit**
+   with its pending change and today's usage record (`kept.limits`: deleting data must be
+   neither an instant way to drop a limit nor a reset of today's minutes; a kept limit with
+   `reachedAt` today counts as materialized with its current targets and mode, and its
+   `creditedUntil` restarts at the epoch start), the anti-cheat settings
    and their pending changes unchanged (`attemptPenalties`, `punishment`, `serverTimeCheck`,
    `closeBrowsersWithoutExtension`, `dailyGoalMinutes`, `timezone`: no instant weakening),
    paired extensions. `studyWhitelist` is reset to empty and its pending changes are
@@ -1814,7 +2053,13 @@ SCM 30 s timeout risk):
    once, as `hosts_changed_while_stopped` when the section found differs from the SHA-256
    of the last section written (persisted in `state.json`). Crash restarts (≤ 30 s by the
    service manager) never reach the threshold.
-10. `guardian_started{…, recovery}`; `day_closed` catch-up.
+10. `guardian_started{…, recovery}`; `day_closed` catch-up, then the daily-limit rollover
+    (`limit_day_closed` for records of a past day, §10.13). When `state.json` was lost and
+    limits were rebuilt from the log, today's usage of a limit is the largest `usedSeconds`
+    of its `limit_warning`/`limit_reached` events of today (else 0), its `reachedAt` and
+    covered set come from today's `limit_reached` and limit `block_created` events, and a
+    pending change's `remainingMs` is its `effectiveAt − at` of the event that carried it,
+    with `requestedDay` = that event's `day`.
 11. **Reconcile enforcement before opening the API.**
 12. Rotate `client.json`, bind the listener, start loops. If the bind fails (the port is
     taken), retry every 2 s, log it once per minute and keep enforcing; `centrate-guardian
@@ -1831,6 +2076,119 @@ in the future, start a new epoch (`log_unreadable`) whose `kept.blocks` holds on
 empty and remove the section. The hosts file is never left broken: if it is unparseable,
 restore `hosts.original`.
 
+### 10.13 Daily limits and usage accounting
+
+**Client side (what is measured).** Seconds are counted locally and reported with
+`POST /v1/usage` every `usageReportIntervalMs` (30 s) while there are unreported seconds,
+every `usageFastReportIntervalMs` (5 s) while a limit the client counts toward applies today
+and has less than 30 s left (from its last usage response), and never retried (§8.8).
+
+- **Extension** (background, only while the last signed rules carry a non-empty `limits`):
+  each second counts for the **active tab of the focused window** when the window has focus
+  (`windows.onFocusChanged` is not `WINDOW_ID_NONE`), the tab is an `http(s)` page, and
+  either `chrome.idle` reports `active` (threshold `usageIdleSeconds`, 60 s) or the tab is
+  `audible`; `locked` never counts. It counts only a host that equals or is under some
+  `limits[].domains` entry and is not equal to or under that limit's `excludedDomains`, and
+  reports the tab's canonical host (`www.youtube.com`), never a URL or any other host. The
+  count survives service-worker restarts in `chrome.storage.session`. Incognito tabs count
+  when the extension runs there.
+- **Desktop main process** (only while `/v1/state.limits` has an enabled limit): once a
+  second it reads the foreground window's process (the existing active-window reader) and
+  counts the second for that process name when `powerMonitor.getSystemIdleTime() <
+usageIdleSeconds` and the screen is not locked. It reports every valid process name
+  (`isValidProcessName`), whatever it is; the guardian matches them. Window titles are never
+  sent.
+
+**Guardian side (what is credited).** Per report, in one engine turn after the time step:
+
+```go
+func (e *Engine) reportUsage(client string, r UsageReportRequest) UsageReportResponse {
+    // client: "app" or the extension id. lastUsageBoot is in memory (lost on restart).
+    I := clampUsageInterval(r.IntervalMs, e.sinceLastUsage(client), limits.UsageSlackMs) // boot clock
+    e.lastUsageBoot[client] = bootNow
+    dayStart := startOfLocalDay(T)                    // settings.timezone; first instant of today
+    for _, L := range e.enabledLimits() {             // creation order
+        rep := 0
+        for _, it := range r.Items {                  // each item counts once per limit
+            if L.matches(it) { rep += it.Seconds * 1000 }
+        }
+        rep = min(rep, I)
+        c := limitUsageCredit(T, dayStart, I, rep, L.Usage.CreditedUntil, limits.UsageSlackMs)
+        L.Usage.UsedMs += c.CreditMs; L.Usage.CreditedUntil = c.CreditedUntilMs
+    }
+    e.evaluateLimits(T)                               // may commit warning/reached batches
+    // stateVersion++ only if some floor(usedMs / 60 000) changed; state.json debounced
+}
+```
+
+- **Matching** uses the limit's stored resolution: a `domain` item matches when the host
+  equals or is under one of its resolved domains and is not equal to or under one of its
+  excluded domains; a `process` item when `processNameKey(value, os)` equals the key of one
+  of its resolved or custom processes. Items that match nothing are ignored (no error).
+- **Never more than wall time.** `clampUsageInterval` bounds a report by the boot-clock
+  time since that client's previous accepted report (+ `usageSlackMs`); `limitUsageCredit`
+  credits only the part of `[T − I, T]` after the start of the local day and after the
+  limit's watermark `creditedUntil` (− slack), so each trusted millisecond counts at most once
+  per limit even when the app and two extensions report it. Reports never create usage for a
+  disabled limit. Usage is kept in `state.json` only (no event per report); a crash loses at
+  most the last debounce window.
+
+**Time step** (`limitsStep(T, dBoot)`, after `activateSchedules`):
+
+1. **Rollover.** For each limit whose usage record's `day` ≠ `localDate(T)`: if it had usage
+   or was reached, queue `limit_day_closed{day, usedSeconds, applied, reached, …}`; start a
+   fresh record `{day: today, usedMs: 0, warnedAt: 0, reachedAt: 0, covered: ∅,
+blocksToday: 0}` (`creditedUntil` is kept; the day cut makes it harmless). Commit the queued
+   events as one batch; bump `stateVersion` and `extRulesVersion` (`appliesToday` may change).
+   A time-zone change that takes effect (§5.8) can start a new local day early; that is the
+   whole effect (the 24-h delay bounds it to once a day).
+2. **Pending changes** (§5.10): `remainingMs −= dBoot`; when `≤ 0` and `localDate(T) >
+requestedDay`, apply it (`limit_updated{pending_applied}` with re-resolved targets, or
+   `limit_deleted`), bump both versions.
+3. `evaluateLimits(T)`.
+
+`evaluateLimits(T)` (also run after every usage report and every limit write), per limit in
+creation order, skipping disabled limits and days not in `days`:
+
+```go
+allowance := L.DailyMinutes * 60_000
+if used := L.Usage.UsedMs; used < allowance {
+    if allowance-used <= limits.LimitWarningSeconds*1000 && L.Usage.WarnedAt == 0 {
+        commit(limitWarning(L))                           // remainingSeconds = dailyMinutes·60 − floor(used/1000)
+        L.Usage.WarnedAt = T
+    }
+    continue
+}
+end := nextLocalMidnight(T)                               // first instant of the next local date
+first := L.Usage.ReachedAt == 0
+grow := !first && (!L.Usage.Covered.Contains(L.Targets) || rank(L.Mode) > L.Usage.Covered.Rank)
+if !first && (!grow || L.Usage.BlocksToday >= limits.LimitMaxBlocksPerDay) { continue }
+var batch []Event
+var blk *Block
+if end-T >= limits.LimitMinBlockMs {
+    blk = limitBlock(L, T, end)                           // kind limit, L's targets/mode/reason, limitId
+    L.Usage.BlocksToday++
+}
+if first { L.Usage.ReachedAt = T; batch = append(batch, limitReached(L, blk)) }  // blockId or null
+if blk != nil {
+    batch = append(batch, blockCreated(blk, "limit"))
+    if blk.Mode == "hardcore" { batch = append(batch, e.revokeAllowances(blk.ID)...) }
+}
+L.Usage.Covered = L.Usage.Covered.Union(L.Targets, rank(L.Mode))
+e.commit(batch...)                                        // versions++, enforcement re-rendered
+```
+
+`Covered` is what was materialized for (limit, today) whether or not those blocks are still
+active, so an emergency never re-triggers a block that day. Limit blocks are guardian-created
+(never refused, never credited, §10.9) and independent of their limit.
+
+**Honest limits.** Usage is only as good as its reporters: with the extension disabled,
+unpaired, not protecting (the existing «extensión sin proteger» warning,
+`protection.browsersWithoutExtension`), in a browser without it, or with the app closed, time
+goes uncounted (under-reporting). The guardian never infers usage on its own; once a limit
+block exists, enforcement is as strong as any block's. Reports carry domains of limited sites
+and process names only, stay on the machine and are never logged (§7.2 «Privacy»).
+
 ---
 
 ## 11. Storage
@@ -1845,7 +2203,7 @@ restore `hosts.original`.
 <sys>/                            admin rw, users r+x
   config.json                     installer-written, admin-only: {schemaVersion, port, appPath, extraExtensionIds[], logLevel}
   client.json                     {v, port, token, guardianVersion, pid, issuedAt} (rotated each start), users r
-  state.json, state.prev.json     snapshot + previous generation (incl. versions, idempotency records, hosts hash), users r
+  state.json, state.prev.json     snapshot + previous generation (incl. versions, idempotency records, hosts hash, daily-limit usage), users r
   events/current                  current epoch id
   events/<epoch>/00000001.jsonl   append-only segments named by first seq; roll at 8 MiB; MAC chain spans segments
   quarantine/                     torn tails, partial batches, corrupt snapshots, bad events
@@ -1980,7 +2338,11 @@ packages/shared/src/guardian-api.ts ─ apiContractSnapshot() ┘   (esbuild bun
 - CI: `node scripts/gen-guardian-data.mjs && git diff --exit-code guardian/internal/embedded`.
 - Parity: `go test ./internal/points` runs `packages/shared/test/fixtures/points-vectors.json`
   in place (functions, sequences and event sequences); the catalog and validation ports run
-  `packages/shared/test/fixtures/catalog-vectors.json` in place.
+  `packages/shared/test/fixtures/catalog-vectors.json` in place, and the daily-limit port runs
+  `packages/shared/test/fixtures/limits-vectors.json` (`splitLimitChange`,
+  `limitDefinitionWeakens`, `pendingLimitDelayKept`, `clampUsageInterval`,
+  `limitUsageCredit`). The limit constants (`maxLimits`, `limitMinMinutes`,
+  `usageSlackMs`, …) reach the guardian through `api.json` `limits`.
 - API drift (follow-up, §17): golden request/response pairs in
   `packages/shared/test/fixtures/api/<endpoint>.<case>.json`, type-checked by vitest and
   decoded by Go with `DisallowUnknownFields`, re-encoded and compared. The directory does not
@@ -2066,7 +2428,15 @@ timeout 3 s («si no responde en 3 s»), long polls add their `waitMs`.
   a hardcore custom-domain block stays blocked under a normal whitelist block that allows
   it; `FakeClock.Reboot` + `JumpWall` never applies a pending weakening setting early nor
   lets an allowance created while `T` ran ahead outlive its purchase after calibration;
-  resurrection only reactivates completions the restore jump crossed; a same-boot stop
+  resurrection only reactivates completions the restore jump crossed; daily limits: a limit
+  reached at 18:00 blocks until local midnight and resets at 00:00 (`limit_day_closed`), two
+  clients reporting the same 30 s credit 30 s (+ at most the slack), a report longer than the
+  elapsed time is clamped, a 5-min limit warns at creation, raising, removing, disabling and
+  deleting wait 24 h of running or verified time (`FakeClock.Reboot` + `JumpWall` never
+  applies them early) and never touch the active limit block, a strengthening edit after
+  reaching adds a block, an emergency is never re-triggered the same day, data deletion keeps
+  limits and today's usage, and extension tokens see limit blocks as `manual` with `limitId`;
+  a same-boot stop
   > 60 s during a block writes `tamper_detected{service_stopped}` and a planned stop does
   > not.
 - `testhooks` build tag: `POST /v1/_test/clock` for Playwright end-to-end runs against the
@@ -2088,7 +2458,8 @@ timeout 3 s («si no responde en 3 s»), long polls add their `waitMs`.
 - Shared contract tests (this package): `points.test.ts` (vectors + rules, achievements,
   mascot), `catalog-vectors.test.ts` (catalog and validation vectors), `guardian-api.test.ts`
   (validators, output caps vs guardian limits, route table, client with a fake `fetch`,
-  malformed-event tolerance, ECDSA signatures and nonces).
+  malformed-event tolerance, ECDSA signatures and nonces), `limits.test.ts` (daily-limit
+  validators, optional fields for older guardians, limit events and `limits-vectors.json`).
 
 ---
 
@@ -2149,6 +2520,10 @@ timeout 3 s («si no responde en 3 s»), long polls add their `waitMs`.
 | 39  | Keep the Nuclear overlay from appearing (renamed copy, look-alike bundle, `ELECTRON_RUN_AS_NODE`)                              | Liveness = the exact `appPath` process **and** its authenticated overlay heartbeat; relaunch by absolute path; Electron fuses                                                                                                                                                                                                             |
 | 40  | Pre-create the data folder and plant a known ledger key                                                                        | Untrusted trees are renamed and never adopted; a key not owned by SYSTEM/root starts a new epoch with `tamper_detected{untrusted_key}`                                                                                                                                                                                                    |
 | 41  | Kill the guardian three times within 5 min to reach safe mode                                                                  | Safe mode refuses only user-initiated writes; attempts and study reports are accepted and study silence keeps counting (§8.3 step 6)                                                                                                                                                                                                      |
+| 42  | Raise, empty, disable or delete a daily limit once it bites                                                                    | Weakening limit changes and deletions wait 24 h of running or verified time (§5.10) and never touch today's limit block; strengthening applies at once                                                                                                                                                                                    |
+| 43  | Escape today's limit block (emergency, clock change, data deletion, time-zone change)                                          | Emergency as for any block (normal/strict), then not re-created that day; trusted time ignores clock changes; data deletion keeps limits and today's usage; a time-zone change waits 24 h and moves the day at most once                                                                                                                  |
+| 44  | Hide usage (disable or unpair the extension, another browser, close the app)                                                   | Residual: usage is only what clients report (§10.13 «Honest limits»); the «extensión sin proteger» warning and optional closing of browsers without a protecting extension apply                                                                                                                                                          |
+| 45  | Report fake usage to grief the user, or replay reports                                                                         | Only shortens the user's own allowance; clamped to real elapsed time per client and credited once per limit per trusted millisecond                                                                                                                                                                                                       |
 
 ### 16.3 Honest limits
 
@@ -2162,7 +2537,8 @@ uninstall (allowed by design) or booting another OS that edits the hosts file an
 returns. In whitelist mode the extension redirects only top-level http(s) documents
 and never sub-frames (§8.8): it moves typed `data:`, `file:` and non-allowed `blob:`
 documents to `blocked.html`, but an allowed page used as a frame host (a `javascript:` URL
-or devtools on it) can still show another site inside it. The camera AI and window-title layer run in a user process and can be patched. On
+or devtools on it) can still show another site inside it. The camera AI and window-title layer run in a user process and can be patched, and daily
+limits count only the usage the extension and the app report (§10.13). On
 shared PCs the ledger is machine-wide and `client.json` is readable by every local account
 (another account could start sessions or report window attempts); v1 assumes one person per
 machine (future hardening: peer PID/exe checks for app-token requests too, as already done
@@ -2222,7 +2598,9 @@ identifiers) and must be disclosed in PRIVACY.md.
     `documentLifecycle`/`frameType` filter prerenders; Windows Defender and hosts edits;
     suspend clock semantics on real hardware (S3, S4, Modern Standby, Fast Startup);
     distinguishing an OS-shutdown stop from a manual stop on each service manager.
-13. **PRIVACY.md**: exactly what survives «Borrar todos mis datos» (§10.11); the time-check
+13. **PRIVACY.md**: exactly what survives «Borrar todos mis datos» (§10.11, daily limits and
+    today's usage included); that the extension and the app report usage of limited sites and
+    foreground apps to the local guardian only; the time-check
     hosts (HTTPS and DoH); that a reinstall resets the ledger.
 14. **DECISIONS.md entries** (Spanish, one line each): XP/streak only from Study focus; awake-
     only, one-block-per-minute block credit and no credit while an allowance opens the block;
@@ -2243,3 +2621,16 @@ identifiers) and must be disclosed in PRIVACY.md.
     120 s after a reboot («Comprobando la hora…»); stopping the guardian during a block costs
     like an emergency; budgets of active blocks and custom hosts; recovered blocks are
     strict and earn nothing; `has-active` exit codes; no port fallback; Go 1.26.
+15. **Daily limits** (§5.10, §10.13; the shared contract, validators and vectors are done):
+    - _Guardian_: `limit` block kind (`limitId`, never earning), `limits.go` (entity,
+      resolution, `POST`/`PUT`/`DELETE`/`GET /v1/limits`, pending changes, usage records,
+      `limitsStep`, `evaluateLimits`), `POST /v1/usage` (scope, clamps), the six events and
+      their reducers, `kept.limits` and `keptLimitIds`, `/v1/state.limits` (floored),
+      `ExtRulesResponse.limits` and the `manual` + `limitId` mapping for extension tokens, the
+      Go port of `limits-vectors.json`, and replacing the `hNotImplemented` route stubs.
+    - _Extension_: usage counting and reporting, `limitId` copy on blocked.html («Has usado
+      tus 30 min de YouTube de hoy. Vuelve mañana.»), optional badge with minutes left.
+    - _Desktop_: foreground-app usage reporting, «Límites diarios» in the Bloqueos window,
+      the limit block card, `limit_warning`/`limit_reached` notifications, statistics from
+      `limit_day_closed`, replacing the `MockGuardian` stubs.
+    - _Parser_: the `limit` intent (`ParseResult.dailyMinutes`, `days`).

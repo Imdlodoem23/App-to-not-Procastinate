@@ -1,6 +1,6 @@
 // Package engine is the guardian's core (docs/ARCHITECTURE.md §10): the single
 // goroutine that owns every entity (blocks, punishments, study sessions, emergencies,
-// allowances, schedules, settings) and the points ledger, runs the time-driven step
+// allowances, schedules, daily limits, settings) and the points ledger, runs the time-driven step
 // every 2 s and before every command, commits mutations in the contract's order
 // (event log first, then memory, enforcement, anchor, response, state.json, §11.3),
 // renders enforcement (hosts section, process watcher, extension rules, §10.10), keeps
