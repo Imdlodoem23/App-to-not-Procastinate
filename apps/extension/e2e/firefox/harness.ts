@@ -281,9 +281,11 @@ function createHarness(session: FirefoxSession, control: string, geckoId: string
         .poll(
           () =>
             inChrome<boolean>(
-              `const { SessionStore } = ChromeUtils.importESModule(
-                 'resource:///modules/sessionstore/SessionStore.sys.mjs');
-               return Boolean(SessionStore.undoCloseTab(window, 0));`,
+              // The browser window's own SessionStore (a lazy module getter of browser.js):
+              // recent Firefox refuses to load browser modules from the WebDriver sandbox.
+              `const store = window.SessionStore ?? ChromeUtils.importESModule(
+                 'resource:///modules/sessionstore/SessionStore.sys.mjs').SessionStore;
+               return Boolean(store.undoCloseTab(window, 0));`,
             ),
           { message: 'SessionStore restored no tab' },
         )
@@ -383,7 +385,14 @@ export const test = base.extend<Fixtures & Options>({
       });
       await session.setTimeouts({ script: 30_000, pageLoad: 30_000, implicit: 5_000 });
       testInfo.annotations.push({ type: 'firefox', description: session.browserVersion });
-      await session.installAddon(zip);
+      try {
+        await session.installAddon(zip);
+      } catch (error) {
+        // Firefox says why an add-on was refused only in its own output.
+        const tail = log.filter((l) => /addon|extension|manifest|error/i.test(l)).slice(-20);
+        if (error instanceof Error) error.message += `\n${tail.join('\n')}`;
+        throw error;
+      }
 
       // The control tab: an extension page to message the background from.
       const control = await session.windowHandle();

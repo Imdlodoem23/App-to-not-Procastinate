@@ -10,8 +10,9 @@
  */
 import type { ChildProcess } from 'node:child_process';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 
 /** An error answer (`{ value: { error, message } }`). */
@@ -210,11 +211,17 @@ export class FirefoxSession {
   }
 
   /** Installs a zip/xpi (bytes) as a temporary add-on; returns its id. */
+  /**
+   * Installs `zip` as a temporary add-on from a file (`path`), which every geckodriver and
+   * Firefox take (the base64 `addon` field is newer). Firefox keeps reading a temporary
+   * add-on from that file, so it stays until this process exits.
+   */
   installAddon(zip: Uint8Array): Promise<string> {
-    return this.command<string>('POST', '/moz/addon/install', {
-      addon: Buffer.from(zip).toString('base64'),
-      temporary: true,
-    });
+    const dir = mkdtempSync(join(tmpdir(), 'centrate-addon-'));
+    process.once('exit', () => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'addon.xpi');
+    writeFileSync(path, zip);
+    return this.command<string>('POST', '/moz/addon/install', { path, temporary: true });
   }
 
   setTimeouts(timeouts: { script?: number; pageLoad?: number; implicit?: number }) {
