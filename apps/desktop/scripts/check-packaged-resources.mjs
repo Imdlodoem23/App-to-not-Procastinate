@@ -151,7 +151,7 @@ function expectedFiles() {
 
 /** @param {string} root @param {ReturnType<typeof expectedFiles>} files */
 function checkRoot(root, files) {
-  const label = relative(releaseDir, root) || root;
+  const label = relative(releaseDir, root).split(sep).join('/') || root;
   let ok = 0;
   for (const { source, target, sized } of files) {
     const packaged = join(root, ...target.split('/'));

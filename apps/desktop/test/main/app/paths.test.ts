@@ -19,6 +19,8 @@ describe('guardian system directory', () => {
 });
 
 describe('app paths', () => {
+  // resolveAppPaths joins with the host's separators (the host is the platform in the app);
+  // the expectations do the same so the suite runs on Windows too.
   const base = {
     env: {},
     mainDir: '/repo/apps/desktop/out/main',
@@ -30,16 +32,22 @@ describe('app paths', () => {
   it('resolves resources next to the build when unpackaged', () => {
     const paths = resolveAppPaths({ ...base, platform: 'linux', packaged: false });
     expect(paths.trayIconsDir).toBe(join('/repo/apps/desktop/resources', 'assets', 'tray'));
-    expect(paths.guardianBinary).toBe('/repo/apps/desktop/resources/guardian/centrate-guardian');
-    expect(paths.preload).toBe('/repo/apps/desktop/out/preload/index.js');
-    expect(paths.rendererHtml).toBe('/repo/apps/desktop/out/renderer/index.html');
+    expect(paths.guardianBinary).toBe(
+      join('/repo', 'apps', 'desktop', 'resources', 'guardian', 'centrate-guardian'),
+    );
+    expect(paths.preload).toBe(join('/repo', 'apps', 'desktop', 'out', 'preload', 'index.js'));
+    expect(paths.rendererHtml).toBe(
+      join('/repo', 'apps', 'desktop', 'out', 'renderer', 'index.html'),
+    );
     expect(paths.sysDir).toBe('/var/lib/centrate');
   });
 
   it('resolves resources from process.resourcesPath when packaged', () => {
     const paths = resolveAppPaths({ ...base, platform: 'linux', packaged: true });
-    expect(paths.trayIconsDir).toBe('/opt/Céntrate/resources/assets/tray');
-    expect(paths.guardianBinary).toBe('/opt/Céntrate/resources/guardian/centrate-guardian');
+    expect(paths.trayIconsDir).toBe(join('/opt', 'Céntrate', 'resources', 'assets', 'tray'));
+    expect(paths.guardianBinary).toBe(
+      join('/opt', 'Céntrate', 'resources', 'guardian', 'centrate-guardian'),
+    );
   });
 
   it('adds .exe on Windows and honours the sys dir override', () => {

@@ -5,11 +5,21 @@ import {
   rendererUrl,
   type RendererSource,
 } from '../../../src/main/windows/window-urls';
+import type { Platform } from '../../../src/shared/ui-state';
 
+// pathToFileURL resolves against the host: a POSIX path becomes `file:///D:/…` on Windows,
+// so the packaged renderer path is the host's own kind of absolute path.
+const WINDOWS_HOST = process.platform === 'win32';
+const HOST: Platform = WINDOWS_HOST ? 'win32' : 'linux';
 const FILE: RendererSource = {
   kind: 'file',
-  path: '/opt/Céntrate/resources/app.asar/out/renderer/index.html',
+  path: WINDOWS_HOST
+    ? 'C:\\Céntrate\\resources\\app.asar\\out\\renderer\\index.html'
+    : '/opt/Céntrate/resources/app.asar/out/renderer/index.html',
 };
+const FILE_URL = WINDOWS_HOST
+  ? 'file:///C:/C%C3%A9ntrate/resources/app.asar/out/renderer/index.html'
+  : 'file:///opt/C%C3%A9ntrate/resources/app.asar/out/renderer/index.html';
 const DEV: RendererSource = { kind: 'dev', url: 'http://localhost:5173/' };
 
 describe('renderer URLs', () => {
@@ -24,17 +34,13 @@ describe('renderer URLs', () => {
     expect(rendererUrl(DEV, { window: 'main', state: 'idle' })).toBe(
       'http://localhost:5173/?window=main&state=idle',
     );
-    expect(rendererUrl(FILE, { window: 'main' })).toBe(
-      'file:///opt/C%C3%A9ntrate/resources/app.asar/out/renderer/index.html?window=main',
-    );
+    expect(rendererUrl(FILE, { window: 'main' })).toBe(`${FILE_URL}?window=main`);
   });
 });
 
 describe('trusted sender frames', () => {
   it('accepts our document whatever the query', () => {
-    const url =
-      'file:///opt/C%C3%A9ntrate/resources/app.asar/out/renderer/index.html?window=detail#x';
-    expect(isTrustedFrameUrl(url, FILE, 'linux')).toBe(true);
+    expect(isTrustedFrameUrl(`${FILE_URL}?window=detail#x`, FILE, HOST)).toBe(true);
   });
 
   it('refuses other files, other schemes and garbage', () => {

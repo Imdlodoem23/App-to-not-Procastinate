@@ -2,7 +2,8 @@
  * Pure half of «Arranque automático» (docs/DESKTOP.md §6.7): the Linux autostart entry and
  * where it goes. The Electron half is `autostart.ts`.
  */
-import { join } from 'node:path';
+// Linux-only paths: POSIX separators whatever the host running the code (tests on Windows).
+import { posix } from 'node:path';
 import { HIDDEN_ARG } from './launch-options';
 
 export const LINUX_AUTOSTART_FILE = 'centrate.desktop';
@@ -12,8 +13,8 @@ export function linuxAutostartPath(
   env: Readonly<Record<string, string | undefined>>,
   home: string,
 ): string {
-  const config = env['XDG_CONFIG_HOME']?.trim() || join(home, '.config');
-  return join(config, 'autostart', LINUX_AUTOSTART_FILE);
+  const config = env['XDG_CONFIG_HOME']?.trim() || posix.join(home, '.config');
+  return posix.join(config, 'autostart', LINUX_AUTOSTART_FILE);
 }
 
 /** Quotes an `Exec=` argument (Desktop Entry spec: `"`, `` ` ``, `$` and `\` escaped). */
