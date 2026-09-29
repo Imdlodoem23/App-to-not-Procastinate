@@ -491,11 +491,17 @@ describe('sessions', () => {
     const { cookie } = await signIn('ana@example.com');
     // Change the signature's first character (6 bits of the HMAC), always to a different one.
     // The last character before the padding only carries 2 bits (A, Q, g or w), so writing
-    // «A» there left one signature in four untouched.
-    const tampered = cookie.replace(
-      /\.([A-Za-z0-9+/_-])([^.]*)$/,
-      (_all, first: string, rest: string) => `.${first === 'A' ? 'B' : 'A'}${rest}`,
-    );
+    // «A» there left one signature in four untouched. The value is URL-encoded standard
+    // base64: a signature starting with «+» or «/» arrives as «%2B» / «%2F», so decode first
+    // (matching the encoded text missed those, one sign-in in 32).
+    const [name, value = ''] = cookie.split(/=(.*)/s);
+    const decoded = decodeURIComponent(value);
+    const dot = decoded.lastIndexOf('.');
+    const first = decoded.charAt(dot + 1);
+    const tampered = `${name}=${encodeURIComponent(
+      `${decoded.slice(0, dot + 1)}${first === 'A' ? 'B' : 'A'}${decoded.slice(dot + 2)}`,
+    )}`;
+    expect(dot).toBeGreaterThan(0);
     expect(tampered).not.toBe(cookie);
     for (const headers of [
       { cookie: tampered },
