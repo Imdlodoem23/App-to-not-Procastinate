@@ -46,6 +46,8 @@ export const TRAY_ES = {
     quick: 'Bloqueo rápido',
     miniTimer: 'Mini temporizador',
     open: 'Abrir Céntrate',
+    /** In place of «Salir» while a Nuclear punishment lasts. */
+    emergency: 'Salida de emergencia…',
     quit: 'Salir (los bloqueos siguen activos)',
   },
 } as const;

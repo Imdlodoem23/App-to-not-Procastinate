@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-28T21:00:30.825Z",
+  "generatedAt": "2026-09-29T06:05:20.951Z",
   "fonts": [
     {
       "family": "Ubuntu",
@@ -9377,7 +9377,7 @@
           "file": "onboarding-4-light-1366x768@125.png",
           "window": "main",
           "width": 550,
-          "height": 315
+          "height": 140
         }
       ],
       "settled": true,
@@ -10733,7 +10733,7 @@
           "file": "onboarding-4-light-1920x1080@150.png",
           "window": "main",
           "width": 660,
-          "height": 378
+          "height": 168
         }
       ],
       "settled": true,
@@ -12089,7 +12089,7 @@
           "file": "onboarding-4-light-1366x768@100.png",
           "window": "main",
           "width": 440,
-          "height": 252
+          "height": 112
         }
       ],
       "settled": true,

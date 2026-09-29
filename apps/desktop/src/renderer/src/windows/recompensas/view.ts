@@ -57,6 +57,11 @@ export function redeemArmId(offerId: string): string {
   return `redeem:${offerId}`;
 }
 
+/** DOM id of an offer's name: its row's group is labelled by it («15 min de YouTube»). */
+export function offerLabelId(offerId: string): string {
+  return `rwd-offer-${offerId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+}
+
 /** The large mascot's side, in CSS px (PROMPT: 96–160). */
 export const MASCOT_SIZE = 128;
 

@@ -8,6 +8,9 @@
  * with its gap (shape as well as color). The help line under the grid says how to get the one
  * under the mouse or with the focus, and how far you are («… · 12 de 30»).
  *
+ * The tiles are plain focusable buttons, not toggles: reached ones only look selected (no
+ * `aria-pressed`), and the description says when they were reached.
+ *
  * Keyboard: every tile has its Alt + key (a letter or digit of its name), the arrow keys move
  * between them, and a door puts the focus on the requested or new achievement (else the first).
  */
@@ -35,10 +38,29 @@ function badgeIcon(id: AchievementId, achieved: boolean): ReturnType<typeof mask
   );
 }
 
+/**
+ * A reached achievement keeps the kit's selected look (green outline and tint) but is not a
+ * toggle: pressing it does nothing, and its state is already in its description («Conseguido el
+ * 24 de septiembre»). `Tile` turns `selected` into `aria-pressed`, which would announce a
+ * toggle button that never changes (WCAG 4.1.2), so the attribute is taken off right after
+ * every commit that sets it (before paint, so assistive technology never reads it).
+ * TODO(RENDERER-CORE): replace with a `Tile` option that draws the selected look without
+ * toggle semantics.
+ */
+function useStaticSelected(achieved: boolean): React.RefObject<HTMLButtonElement | null> {
+  const ref = useRef<HTMLButtonElement | null>(null);
+  useLayoutEffect(() => {
+    ref.current?.removeAttribute('aria-pressed');
+  }, [achieved]);
+  return ref;
+}
+
 function AchievementTile(props: { tile: AchievementTileView }): React.JSX.Element {
   const { tile } = props;
+  const ref = useStaticSelected(tile.achieved);
   return (
     <Tile
+      ref={ref}
       id={tile.id}
       label={tile.title}
       icon={badgeIcon(tile.id, tile.achieved)}

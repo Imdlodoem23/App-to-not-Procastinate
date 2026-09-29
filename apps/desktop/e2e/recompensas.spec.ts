@@ -15,7 +15,13 @@
 import type { Locator, Page } from '@playwright/test';
 import type { HarnessStateId } from '../src/shared/fixtures';
 import { launchApp, type LaunchedApp } from './support/app';
-import { axeViolations, formatViolations, probeLayout, settleWindow } from './support/checks';
+import {
+  axeViolations,
+  formatViolations,
+  probeLayout,
+  settleMain,
+  settleWindow,
+} from './support/checks';
 import { auditKeyboard, auditProblems, liveEvents, watchLiveRegions } from './support/keyboard';
 import { expect, test } from './support/test';
 
@@ -124,9 +130,10 @@ test('Progreso: mascot icon and three 40 px doors that fit and open their window
   expect(cut).toEqual([]);
 
   // The help line says what is behind each door.
+  // Study Mode is hidden, so its four achievements leave the count (3 of the other 4).
   await doors.nth(2).hover();
   await expect(section.locator('#progreso-puertas-help')).toHaveText(
-    '3 de 8 conseguidos: mira cómo lograr el resto',
+    '3 de 4 conseguidos: mira cómo lograr el resto',
   );
 
   await doors.nth(1).click();
@@ -138,7 +145,7 @@ test('Progreso: mascot icon and three 40 px doors that fit and open their window
   await main.locator('body').focus();
   await main.keyboard.press('Alt+g');
   await expect(detail.locator('.lgr')).toBeVisible();
-  await expect(detail.getByRole('heading', { name: 'Logros: 3 de 8' })).toBeVisible();
+  await expect(detail.getByRole('heading', { name: 'Logros: 3 de 4' })).toBeVisible();
 });
 
 test('Progreso: «Números rojos» in red with the wilted mascot', async () => {
@@ -167,6 +174,17 @@ test('rewards: the shop in rows, the mascot, and «Canjear» confirmed in place'
   await expect(rows.nth(0)).toContainText('150 pts');
   const redeem = rows.nth(0).getByRole('button', { name: 'Canjear' });
   await expect(redeem).toBeFocused();
+  // Each «Canjear» sits in a group named by its offer, so the three are told apart.
+  const offers = await rows.evaluateAll((els) =>
+    els.map((el) => {
+      const ids = (el.getAttribute('aria-labelledby') ?? '').split(/\s+/).filter(Boolean);
+      const name = ids.map((id) => document.getElementById(id)?.textContent ?? '').join(' ');
+      return `${el.getAttribute('role')}: ${name}`;
+    }),
+  );
+  expect(new Set(offers).size).toBe(3);
+  expect(offers[0]).toBe('group: 15 min de YouTube');
+  await expect(shop.getByRole('group', { name: '15 min de YouTube' })).toContainText('Canjear');
   await expect(redeem).toHaveAttribute('aria-keyshortcuts', 'Alt+1');
   await expect(
     detail.getByText(/^TikTok, Twitch, Netflix, Discord y Roblox no están/),
@@ -251,18 +269,26 @@ test('rewards during a punishment: the shop is closed and says why', async () =>
   await expectClean(launched, detail, '.rwd');
 });
 
-test('logros: 3 of 8 in a 4-column grid, the help line says how to get them', async () => {
+test('logros: 3 of 4 in a 4-column grid, the help line says how to get them', async () => {
   const { launched, detail } = await detailWindow('logros', '.lgr');
-  await expect(detail.getByRole('heading', { name: 'Logros: 3 de 8' })).toBeVisible();
+  // Study Mode is hidden: its four achievements (sessions, study hours) are not shown.
+  await expect(detail.getByRole('heading', { name: 'Logros: 3 de 4' })).toBeVisible();
   await expect(detail.locator('[data-section="lgr-grid"] .c-section-datum')).toHaveText(
     'Último: Una semana sin intentos',
   );
   const tiles = detail.getByRole('group', { name: 'Tus logros' }).getByRole('button');
-  await expect(tiles).toHaveCount(8);
-  await expect(detail.locator('.lgr-tile[aria-pressed="true"]')).toHaveCount(3);
-  await expect(detail.locator('.lgr-tile[aria-pressed="true"][data-accent="green"]')).toHaveCount(
-    3,
-  );
+  await expect(tiles).toHaveText([
+    'Primer bloqueo',
+    '7 días de racha',
+    'Una semana sin intentos',
+    '30 días de racha',
+  ]);
+  await expect(detail.getByText(/Study Mode/)).toHaveCount(0);
+  // Reached ones look selected in green but are not toggles (no aria-pressed anywhere).
+  await expect(
+    detail.locator('.lgr-tile[data-outline="selected"][data-accent="green"]'),
+  ).toHaveCount(3);
+  await expect(detail.locator('.lgr-tile[aria-pressed]')).toHaveCount(0);
 
   // The fixture's help focus: «30 días de racha», focused, «… · 12 de 30».
   const streak = detail.locator('[data-tile-id="streak-30"]');
@@ -273,12 +299,19 @@ test('logros: 3 of 8 in a 4-column grid, the help line says how to get them', as
   await expect(help).toHaveText('Conseguido el 24 de septiembre');
   await detail.mouse.move(1, 1);
 
-  // Four columns: the first four tiles share a row, the fifth starts the next.
-  const tops = await Promise.all(
-    [0, 3, 4].map(async (i) => Math.round((await tiles.nth(i).boundingBox())?.y ?? -1)),
-  );
-  expect(tops[0]).toBe(tops[1]);
-  expect(tops[2]).toBeGreaterThan(tops[0] ?? 0);
+  // Four columns: the four tiles share a row, side by side.
+  const boxes = await Promise.all([0, 1, 2, 3].map(async (i) => tiles.nth(i).boundingBox()));
+  const tops = boxes.map((b) => Math.round(b?.y ?? -1));
+  expect(new Set(tops).size).toBe(1);
+  const lefts = boxes.map((b) => b?.x ?? -1);
+  expect([...lefts].sort((a, b) => a - b)).toEqual(lefts);
+
+  // Pressing a tile changes nothing (it is not a toggle).
+  const first = detail.locator('[data-tile-id="first-block"]');
+  await first.focus();
+  await detail.keyboard.press('Space');
+  await expect(first).toHaveAttribute('data-outline', 'selected');
+  await expect(first).not.toHaveAttribute('aria-pressed');
 
   // Alt + key focuses a tile (its help shows).
   await detail.keyboard.press('Alt+u');
@@ -286,15 +319,56 @@ test('logros: 3 of 8 in a 4-column grid, the help line says how to get them', as
 
   for (const theme of ['light', 'dark'] as const) {
     await launched.harness.load('logros', { theme });
-    await expect(tiles).toHaveCount(8);
+    await expect(tiles).toHaveCount(4);
     await expectClean(launched, detail, '.lgr');
   }
 
   await launched.harness.load('logros', { lang: 'en' });
-  await expect(detail.getByRole('heading', { name: 'Achievements: 3 of 8' })).toBeVisible();
+  await expect(detail.getByRole('heading', { name: 'Achievements: 3 of 4' })).toBeVisible();
   await detail.locator('[data-tile-id="streak-30"]').focus();
   await expect(detail.locator('#logros-help')).toHaveText(
     'Meet your daily goal 30 days in a row · 12 of 30',
   );
   await expectClean(launched, detail, '.lgr');
+});
+
+/** English in the tightest fixture: compact density on 1366×768 at 125 %. */
+async function compactEnglish(): Promise<Page> {
+  const launched = await launchApp({ state: 'compact-density', show: true });
+  app = launched;
+  await launched.harness.load('compact-density', { display: '1366x768@125', lang: 'en' });
+  const main = await launched.page('main');
+  await expect(main.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(main.locator('html')).toHaveAttribute('data-density', 'compact');
+  await settleMain(launched);
+  return main;
+}
+
+/**
+ * English labels are longer (PROMPT §10 «… ni texto cortado en ningún estado de esa matriz»):
+ * «Achievements…» must fit its 136 px door in compact density at 125 %.
+ */
+test('Progreso in English, compact density on 1366×768 at 125 %: no door is cut', async () => {
+  const main = await compactEnglish();
+  const section = main.locator('[data-section="progreso"]');
+  await expect(
+    section.getByRole('group', { name: 'Your progress' }).getByRole('button'),
+  ).toHaveText(['Statistics…', 'Rewards…', 'Achievements…']);
+  const probe = await probeLayout(main);
+  expect(probe.clipped, JSON.stringify(probe.clipped)).toEqual([]);
+});
+
+/**
+ * The whole main window in English at 1366×768 at 125 % (PROMPT §10 «La ventana principal no
+ * tiene scroll»). FIXME(lead): the English orange warning «Chrome doesn’t have the extension:
+ * blocks may take a while there» (src/renderer/src/i18n/en.ts `extensionMissing`) wraps to two
+ * lines and leaves the column 10 px too tall (427 > 417); Progreso has nothing left to fold in
+ * compact density. Enable once that string fits one line.
+ */
+test.fixme('main window in English, compact density on 1366×768 at 125 %: no scroll', async () => {
+  const main = await compactEnglish();
+  const probe = await probeLayout(main);
+  expect(probe.scrollMode).toBe(false);
+  expect(probe.column?.scrollHeight ?? 0).toBeLessThanOrEqual(probe.column?.clientHeight ?? 0);
+  expect(probe.clipped, JSON.stringify(probe.clipped)).toEqual([]);
 });

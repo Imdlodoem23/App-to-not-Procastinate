@@ -4,8 +4,10 @@
  *
  * - Header: «Logros: 3 de 8» and, on the right, the one reached last («Último: Una semana sin
  *   intentos»), or the new ones since Logros was last opened («Nuevo: 7 días de racha»).
- * - A 4-column grid with every achievement of `ACHIEVEMENTS` (points.ts), in its order: the
- *   badge over the name. Reached ones take the selected style in green (outline + tint, the
+ * - A 4-column grid with every achievement of `ACHIEVEMENTS` (points.ts) that can be earned, in
+ *   its order: the badge over the name. The Study Mode ones (sessions, study hours) only show
+ *   while Study Mode is (flag and guardian capability): a hidden feature's goals are hidden
+ *   too, and the count leaves them out (PROMPT §10 «Oculta lo que no aplica»). Reached ones take the selected style in green (outline + tint, the
  *   badge's closed ring); pending ones keep the grey border (the badge's ring with its gap).
  * - The grid's help line says, for the achievement under the mouse or with the focus, how to
  *   get it and how far you are («Cumple tu objetivo diario 30 días seguidos · 12 de 30»), or
@@ -16,7 +18,6 @@
  */
 import { achievementText } from '@centrate/shared/i18n';
 import {
-  ACHIEVEMENTS,
   type Achievement,
   type AchievementId,
   type AchievementMetric,
@@ -24,6 +25,7 @@ import {
 import { formatInt, formatMinutes } from '../../../../shared/format';
 import { activeLocale, intlTag } from '../../../../shared/i18n/locale';
 import type { AchievementStatus, ProgressState } from '../../../../shared/platform';
+import { isVisibleAchievement, progressCount, visibleAchievements } from './visible';
 import { LOGROS } from './i18n';
 
 const L = LOGROS;
@@ -72,6 +74,8 @@ export interface LogrosInput {
   fresh: readonly AchievementId[];
   /** `DetailRequest.focus` (a «¡Logro!» notification click). */
   focus: AchievementId | null;
+  /** Study Mode is shown (flag and capability): its achievements show and count. */
+  study: boolean;
 }
 
 /** The name of an achievement in the active language. */
@@ -160,15 +164,17 @@ function lastReached(list: readonly AchievementStatus[]): AchievementStatus | nu
 }
 
 export function deriveLogrosView(input: LogrosInput): LogrosView {
-  const { list, progress } = input;
-  const byId = new Map((list ?? []).map((s) => [s.id, s] as const));
+  const { list, progress, study } = input;
+  const shown = visibleAchievements(study);
+  const visible = (list ?? []).filter((s) => isVisibleAchievement(s.id, study));
+  const byId = new Map(visible.map((s) => [s.id, s] as const));
   const fresh = new Set(input.fresh.filter((id) => byId.get(id)?.achieved === true));
 
-  // Keys over every name (not only the listed ones), so each keeps its key.
-  const titles = ACHIEVEMENTS.map((a) => achievementTitle(a.id));
+  // Keys over every shown name (not only the listed ones), so each keeps its key.
+  const titles = shown.map((a) => achievementTitle(a.id));
   const keys = assignKeys(titles);
   const tiles: AchievementTileView[] = [];
-  ACHIEVEMENTS.forEach((a, index) => {
+  shown.forEach((a, index) => {
     const status = byId.get(a.id);
     if (!status) return;
     tiles.push({
@@ -181,8 +187,9 @@ export function deriveLogrosView(input: LogrosInput): LogrosView {
     });
   });
 
-  const achieved = list ? tiles.filter((t) => t.achieved).length : (progress?.achieved ?? null);
-  const total = list ? tiles.length : (progress?.total ?? ACHIEVEMENTS.length);
+  const count = progress ? progressCount(progress, study) : null;
+  const achieved = list ? tiles.filter((t) => t.achieved).length : (count?.achieved ?? null);
+  const total = list ? tiles.length : (count?.total ?? shown.length);
   const title = achieved === null ? L.titleLoading : L.title(formatInt(achieved), formatInt(total));
 
   let datum: string | null = null;
@@ -191,7 +198,7 @@ export function deriveLogrosView(input: LogrosInput): LogrosView {
   if (freshTiles.length > 1) datum = L.freshMany(formatInt(freshTiles.length));
   else if (firstFresh) datum = L.fresh(firstFresh.title);
   else if (list) {
-    const last = lastReached(list);
+    const last = lastReached(visible);
     if (last) datum = L.last(achievementTitle(last.id));
   }
 

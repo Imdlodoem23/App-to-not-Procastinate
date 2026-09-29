@@ -8,7 +8,9 @@
  * - Tooltip: «Céntrate · YouTube · quedan 43 min · 1.240 pts».
  * - Title: «Céntrate», «Céntrate · quedan 42 min», «Céntrate · castigo 38 min».
  * - Menu: the tiles again (status, Ampliar ▸, Bloqueo rápido ▸, the «Mini temporizador»
- *   checkbox with its flag, Abrir, Salir).
+ *   checkbox with its flag, Abrir, Salir). While a Nuclear punishment is trusted
+ *   (`nuclearTrusted`) «Salir» gives way to «Salida de emergencia…»: quitting would only drop
+ *   the overlay until the guardian relaunches the app, and keyboard users need a way out.
  *
  * Remaining minutes round **up**, like everywhere else (decision 10).
  */
@@ -31,6 +33,7 @@ import {
   primaryBlock,
   type UiSnapshot,
 } from '../../shared/ui-state';
+import { nuclearTrusted } from '../windows/nuclear-lock';
 import type { TrayIconKey } from './icons';
 import { TRAY, capitalise } from './i18n';
 
@@ -65,6 +68,7 @@ export const TRAY_ITEM = {
   miniTimer: 'mini-timer',
   open: 'open',
   quit: 'quit',
+  emergency: 'emergency',
 } as const;
 
 export type TrayAction =
@@ -73,12 +77,15 @@ export type TrayAction =
   /** The «Mini temporizador» checkbox: show or hide it. */
   | { type: 'mini-timer' }
   | { type: 'open' }
-  | { type: 'quit' };
+  | { type: 'quit' }
+  /** «Salida de emergencia…» (Nuclear): Emergencia above the overlay. */
+  | { type: 'emergency' };
 
 /** Inverse of the ids above; `null` for items that do nothing (status, separators, submenus). */
 export function trayActionForItem(id: string): TrayAction | null {
   if (id === TRAY_ITEM.open) return { type: 'open' };
   if (id === TRAY_ITEM.quit) return { type: 'quit' };
+  if (id === TRAY_ITEM.emergency) return { type: 'emergency' };
   if (id === TRAY_ITEM.miniTimer) return { type: 'mini-timer' };
   const extend = /^extend:(\d{1,4})$/.exec(id);
   if (extend?.[1]) return { type: 'extend', minutes: Number(extend[1]) };
@@ -335,7 +342,9 @@ export function trayMenu(snapshot: UiSnapshot, nowMs: number): TrayMenuItemModel
   items.push(
     separator('sep-actions'),
     item(TRAY_ITEM.open, TRAY.menu.open),
-    item(TRAY_ITEM.quit, TRAY.menu.quit),
+    nuclearTrusted(snapshot, nowMs)
+      ? item(TRAY_ITEM.emergency, TRAY.menu.emergency)
+      : item(TRAY_ITEM.quit, TRAY.menu.quit),
   );
   return items;
 }

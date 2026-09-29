@@ -13,6 +13,11 @@ import {
   type LogrosInput,
   type LogrosView,
 } from '../../../src/renderer/src/windows/logros/view';
+import {
+  isStudyAchievement,
+  progressCount,
+  visibleAchievements,
+} from '../../../src/renderer/src/windows/logros/visible';
 
 const fixture = harnessFixture('logros');
 const LIST = fixture.local.achievements;
@@ -23,6 +28,8 @@ function view(patch: Partial<LogrosInput> = {}): LogrosView {
     progress: fixture.snapshot.progress,
     fresh: [],
     focus: null,
+    // Study Mode shown: every achievement (the Study Mode-off grid has its own cases below).
+    study: true,
     ...patch,
   });
 }
@@ -141,6 +148,55 @@ describe('Logros: the grid', () => {
     expect(v.rowHelp).toBe(
       'Aún no tienes ninguno: pasa el ratón por uno para ver cómo se consigue',
     );
+  });
+});
+
+describe('Logros with Study Mode hidden', () => {
+  const off = (patch: Partial<LogrosInput> = {}): LogrosView => view({ study: false, ...patch });
+
+  it('hides the goals only Study Mode can reach and leaves them out of the count', () => {
+    const v = off();
+    expect(v.title).toBe('Logros: 3 de 4');
+    expect(v.tiles.map((t) => [t.id, t.achieved])).toEqual([
+      ['first-block', true],
+      ['streak-7', true],
+      ['clean-week', true],
+      ['streak-30', false],
+    ]);
+    expect(v.tiles.some((t) => /Study Mode/.test(t.help))).toBe(false);
+    expect(v.tiles.map((t) => t.mnemonic)).toEqual(['p', '7', 'u', '3']);
+    withLocale('en', () => expect(off().title).toBe('Achievements: 3 of 4'));
+  });
+
+  it("counts main's progress over the shown ones while the list loads", () => {
+    expect(off({ list: null }).title).toBe('Logros: 3 de 4');
+    const progress = fixture.snapshot.progress;
+    if (!progress) throw new Error('fixture without progress');
+    expect(progressCount({ ...progress, achieved: 6, total: 8 }, false)).toEqual({
+      achieved: 4,
+      total: 4,
+      fresh: progress.fresh,
+    });
+    expect(progressCount({ ...progress, total: 8 }, true).total).toBe(8);
+  });
+
+  it('never announces or opens on a hidden one', () => {
+    const list = LIST.map((s) =>
+      s.id === 'first-session'
+        ? { ...s, achieved: true, achievedAt: '2026-09-28T10:00:00.000Z' }
+        : s,
+    );
+    const v = off({ list, fresh: ['first-session'], focus: 'first-session' });
+    expect(v.datum).toBe('Último: Una semana sin intentos');
+    expect(v.datumFresh).toBe(false);
+    expect(v.focus).toBeNull();
+    expect(isStudyAchievement(ACHIEVEMENTS[0]!)).toBe(true);
+    expect(visibleAchievements(false).map((a) => a.id)).toEqual([
+      'first-block',
+      'streak-7',
+      'clean-week',
+      'streak-30',
+    ]);
   });
 });
 

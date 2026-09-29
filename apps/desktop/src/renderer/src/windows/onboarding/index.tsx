@@ -10,10 +10,14 @@
  * them.
  *
  * Showing the window puts the focus on the step's first action (or the field in step 5), through
- * the same `field` focus target section 2 uses.
+ * the same `field` focus target section 2 uses; so does every step change (the row is keyed by
+ * the step, so the tile pressed never survives into the next step with the focus). Screen
+ * readers hear the new step once, «Guardián · paso 2 de 5. El guardián aplica…», from one
+ * always-mounted polite region; each step's row starts with a fresh announcer, so its resting
+ * help is never repeated.
  */
 import { Camera, Lock, Puzzle, ShieldCheck, Sprout, type LucideIcon } from 'lucide-react';
-import { useRef } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Countdown, Field, Section, TextButton, Tile, TileRow } from '../../components';
 import { useFocusTarget } from '../../app/services';
 import type { OnboardingStep } from '../../../../shared/prefs';
@@ -71,8 +75,9 @@ export default function Onboarding(): React.JSX.Element {
   const actions = useRef<HTMLDivElement>(null);
 
   // Show, Ctrl+N and `/` focus the step's field (step 5) or its first enabled action.
-  useFocusTarget('field', () => {
-    if (view.field && field.current) {
+  const hasField = view.field;
+  const focusStep = useCallback((): boolean => {
+    if (hasField && field.current) {
       field.current.focus({ preventScroll: true });
       return true;
     }
@@ -82,7 +87,25 @@ export default function Onboarding(): React.JSX.Element {
     if (!first) return false;
     first.focus({ preventScroll: true });
     return true;
-  });
+  }, [hasField]);
+  useFocusTarget('field', focusStep);
+
+  // A new step: the keyboard goes where a show would put it (PROMPT §10 «Enter avanza»), unless
+  // it is somewhere else on purpose (the footer). The old step's tiles are gone by now.
+  const shownStep = useRef(view.step);
+  useLayoutEffect(() => {
+    if (shownStep.current === view.step) return;
+    shownStep.current = view.step;
+    const active = document.activeElement;
+    const lost = !active || active === document.body || actions.current?.contains(active);
+    if (lost) focusStep();
+  }, [view.step, focusStep]);
+
+  // The step change, spoken once (not the first step: the focused action speaks for itself).
+  const [firstStep] = useState(view.step);
+  const [moved, setMoved] = useState(false);
+  if (!moved && view.step !== firstStep) setMoved(true);
+  const announcement = moved ? O.stepAnnouncement(view.title, view.sentence) : '';
 
   return (
     <div className="ob" data-step={view.step} ref={actions}>
@@ -113,6 +136,7 @@ export default function Onboarding(): React.JSX.Element {
           />
         ) : null}
         <TileRow
+          key={view.step}
           id={ROW_ID}
           label={O.rowLabel}
           columns={3}
@@ -142,6 +166,9 @@ export default function Onboarding(): React.JSX.Element {
           ))}
         </ol>
       </Section>
+      <p className="sr-only" aria-live="polite" aria-atomic="true" data-testid="ob-announcer">
+        {announcement}
+      </p>
     </div>
   );
 }

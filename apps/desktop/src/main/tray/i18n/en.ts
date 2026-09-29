@@ -36,6 +36,7 @@ export const TRAY_EN: TrayMessages = {
     quick: 'Quick block',
     miniTimer: 'Mini timer',
     open: 'Open Céntrate',
+    emergency: 'Emergency exit…',
     quit: 'Quit (blocks stay active)',
   },
 };

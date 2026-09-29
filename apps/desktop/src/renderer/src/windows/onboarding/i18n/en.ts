@@ -4,6 +4,8 @@ import type { OnboardingMessages } from './es';
 export const ONBOARDING_EN: OnboardingMessages = {
   name: 'First steps',
   title: (step: string, n: number, total: number): string => `${step} · step ${n} of ${total}`,
+  /** Screen readers, on a step change: «Guardián · paso 2 de 5. El guardián aplica…». */
+  stepAnnouncement: (title: string, sentence: string): string => `${title}. ${sentence}`,
   steps: {
     welcome: 'Welcome',
     guardian: 'Guardian',
@@ -61,7 +63,9 @@ export const ONBOARDING_EN: OnboardingMessages = {
     continue: 'On to the next step',
     guideChromium: 'Step by step in Chrome, Edge, Brave and others',
     guideFirefox: 'Step by step in Firefox',
-    camera: 'The camera test comes with Study Mode',
+    camera: 'Checks that the camera can see you',
+    /** Step 4's «Continuar» while Study Mode is not there. */
+    cameraLater: 'The camera test comes with Study Mode',
     create: 'Review the block and confirm it with Enter',
     skip: {
       welcome: 'Straight to the app; you can repeat these steps from Settings',

@@ -101,7 +101,16 @@ describe('the Progreso doors', () => {
     const idle = snapshotOf('idle');
     expect(door(idle, 'stats').help).toBe('Tiempo concentrado por día, semana y mes');
     expect(door(idle, 'rewards').help).toBe('Canjea tus puntos por descansos ganados');
-    expect(door(idle, 'achievements').help).toBe(
+    // Study Mode is hidden: its four goals leave the count (3 of the other 4).
+    expect(door(idle, 'achievements').help).toBe('3 de 4 conseguidos: mira cómo lograr el resto');
+    const study: UiSnapshot = {
+      ...idle,
+      features: { ...idle.features, study: true },
+      health: idle.health
+        ? { ...idle.health, capabilities: [...idle.health.capabilities, 'study'] }
+        : null,
+    };
+    expect(door(study, 'achievements').help).toBe(
       `3 de ${ACHIEVEMENTS.length} conseguidos: mira cómo lograr el resto`,
     );
     const noProgress = { ...idle, progress: null };
@@ -142,6 +151,20 @@ describe('the Progreso doors', () => {
     expect(door(two, 'achievements')).toMatchObject({
       help: '2 logros nuevos',
       request: { name: 'logros', focus: 'streak-7' },
+    });
+    // A Study Mode one while Study Mode is hidden is neither announced nor opened on.
+    const hidden = {
+      ...idle,
+      progress: {
+        mascot: 'plant' as const,
+        achieved: 4,
+        total: 8,
+        fresh: ['first-session' as const],
+      },
+    };
+    expect(door(hidden, 'achievements')).toMatchObject({
+      help: '4 de 4 conseguidos: mira cómo lograr el resto',
+      request: { name: 'logros', focus: null },
     });
   });
 

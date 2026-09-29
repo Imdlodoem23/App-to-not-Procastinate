@@ -7,11 +7,12 @@
  *   blocks), big notices (OSD) and the global shortcuts;
  * - Bloqueo: default mode, penalties (and the read-only list of what costs points), «cerrar
  *   navegadores sin extensión», the schedule reminders and the 20-20-20 rule;
- * - Study Mode: here before its wave. Only the punishment level works (it is a guardian setting
- *   and applies at once); the camera settings say they arrive with Study Mode;
+ * - Study Mode (`study` flag only; with it off there is no group at all, since punishments only
+ *   come from Study Mode): the punishment level and its duration (15–120 min), guardian
+ *   settings that apply at once;
  * - Sistema: guardian, each paired extension, the pairing code at 32 px, the per-browser guides
- *   (incognito included), the active-window layer (macOS Screen Recording), the camera, updates,
- *   the first steps again and «Copiar diagnóstico»;
+ *   (incognito included), the active-window layer (macOS Screen Recording), the camera (`study`
+ *   flag), updates, the first steps again and «Copiar diagnóstico»;
  * - Datos: «Exportar a CSV» and «Borrar todos mis datos», enabled once BORRAR is typed.
  *
  * The guardian's own settings (goal, penalties, «cerrar navegadores», punishment) come from
@@ -21,8 +22,8 @@
  * Every tile has an Alt + letter unique in the window (`AJUSTES_KEYS` for the fixed tiles,
  * `allocateMnemonics` for the per-browser guides, «Exportar días» and each extension row's
  * «Guía…»), carried by the view so the tests can check them. Features behind flags (sounds, big
- * notices, reminders, the mini timer shortcut, updates, onboarding, CSV export) are hidden, never
- * greyed out.
+ * notices, reminders, the mini timer shortcut, updates, onboarding, CSV export, Study Mode and the
+ * camera) are hidden, never greyed out.
  */
 import { getService } from '@centrate/shared/catalog';
 import type { Accent, ThemePreference } from '@centrate/shared/design/tokens';
@@ -187,6 +188,8 @@ export const AJUSTES_IDS = {
 
 export const THEME_OPTIONS: readonly ThemePreference[] = ['system', 'light', 'dark'];
 export const LANGUAGE_OPTIONS: readonly LanguagePreference[] = LANGUAGE_PREFERENCES;
+/** «Duración del castigo» moves by 15 min (15, 30 … 120). */
+export const PUNISHMENT_MINUTES_STEP = 15;
 export const DEFAULT_MODE_OPTIONS: readonly DefaultBlockMode[] = ['normal', 'strict', 'hardcore'];
 export const GUIDES: readonly GuideId[] = [
   'extension-chromium',
@@ -401,6 +404,7 @@ export interface AjustesView {
     /** `reminders` flag. */
     reminders: { schedules: boolean; schedulesDesc: string; eyeBreaks: boolean } | null;
   };
+  /** `study` flag (`null` hides the whole group: punishments only come from Study Mode). */
   study: {
     title: string;
     /** `null` until the guardian settings were read. */
@@ -409,7 +413,9 @@ export interface AjustesView {
     levelDesc: string;
     /** «Nuclear» is chosen: the honest note about administrators shows. */
     nuclear: boolean;
-  };
+    /** «Duración del castigo» (15–120 min), `null` until the guardian settings were read. */
+    duration: { minutes: number; min: number; max: number; step: number } | null;
+  } | null;
   sistema: {
     title: string;
     titleTone: 'default' | 'red' | 'orange' | 'blue';
@@ -422,7 +428,8 @@ export interface AjustesView {
     pairingKey: string;
     guides: { id: GuideId; label: string; help: string; mnemonic: string | undefined }[];
     activeWindow: { status: string; tone: Accent; description: string; allowKey: string | null };
-    camera: { status: string; description: string };
+    /** `study` flag (without Study Mode nothing uses the camera, so nothing is offered). */
+    camera: { status: string; description: string } | null;
     /** `updater` flag. */
     updater: UpdaterRowView | null;
     /** «Empezar de nuevo» (`onboarding` flag): its key, or `null` when hidden. */
@@ -448,7 +455,7 @@ export function ajustesTileKeys(view: AjustesView): (string | undefined)[] {
     ...(view.general.dailyGoal?.options ?? []).map((o) => o.mnemonic),
     ...(view.general.sounds ? [view.general.sounds.key] : []),
     ...view.bloqueo.modeOptions.map((o) => o.mnemonic),
-    ...(view.study.levels ?? []).map((o) => o.mnemonic),
+    ...(view.study?.levels ?? []).map((o) => o.mnemonic),
     ...(s.guardian.repair ? [s.repairKey] : []),
     ...s.extensions.flatMap((e) => (e.guide ? [e.guideKey] : [])),
     s.pairingKey,
@@ -918,23 +925,34 @@ export function deriveAjustesView(
           }
         : null,
     },
-    study: {
-      title: feature('study') ? A.study.title.ready : A.study.title.soon,
-      levels: policy
-        ? PUNISHMENT_OPTIONS.map((value) => ({
-            value,
-            label: A.study.levels[value],
-            help: A.study.levelHelp[value],
-            tone: value === 'nuclear' ? ('red' as const) : ('orange' as const),
-            mnemonic: AJUSTES_KEYS.punishment[value],
-          }))
-        : null,
-      level: policy?.level ?? null,
-      levelDesc: policy
-        ? A.study.levelDesc(STUDY_RULES.maxStrikes, formatInt(policy.minutes))
-        : (settingsStatus ?? ''),
-      nuclear: policy?.level === 'nuclear',
-    },
+    study: feature('study')
+      ? {
+          title: A.study.title,
+          // A choice with no «better» one: neutral, and Nuclear in red (never the Estricto orange).
+          levels: policy
+            ? PUNISHMENT_OPTIONS.map((value) => ({
+                value,
+                label: A.study.levels[value],
+                help: A.study.levelHelp[value],
+                tone: value === 'nuclear' ? ('red' as const) : ('neutral' as const),
+                mnemonic: AJUSTES_KEYS.punishment[value],
+              }))
+            : null,
+          level: policy?.level ?? null,
+          levelDesc: policy
+            ? A.study.levelDesc(STUDY_RULES.maxStrikes, formatInt(policy.minutes))
+            : (settingsStatus ?? ''),
+          nuclear: policy?.level === 'nuclear',
+          duration: policy
+            ? {
+                minutes: policy.minutes,
+                min: STUDY_RULES.punishmentMinutes.min,
+                max: STUDY_RULES.punishmentMinutes.max,
+                step: PUNISHMENT_MINUTES_STEP,
+              }
+            : null,
+        }
+      : null,
     sistema: {
       title: A.sistema.title[sistemaKey],
       titleTone:
@@ -965,7 +983,9 @@ export function deriveAjustesView(
         mnemonic: listKeys[i],
       })),
       activeWindow: activeWindowRow(snapshot),
-      camera: { status: A.sistema.camera.status, description: A.sistema.camera.desc },
+      camera: feature('study')
+        ? { status: A.sistema.camera.status, description: A.sistema.camera.desc }
+        : null,
       updater: updater ? updaterRow(updater, snapshot.app.version) : null,
       onboardingKey: feature('onboarding') ? AJUSTES_KEYS.onboarding : null,
       diagnostics:

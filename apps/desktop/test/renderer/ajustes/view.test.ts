@@ -59,9 +59,25 @@ function withSnapshot(state: UiState, patch: Partial<UiState['snapshot']>): UiSt
   return { ...state, snapshot: { ...state.snapshot, ...patch } };
 }
 
+/** The same state with the `study` flag on (the Study Mode group and the camera row). */
+function withStudy(state: UiState): UiState {
+  return withSnapshot(state, { features: { ...state.snapshot.features, study: true } });
+}
+
+/** The Study Mode group (the `study` flag must be on). */
+function studyOf(view: AjustesView): NonNullable<AjustesView['study']> {
+  if (!view.study) throw new Error('no Study Mode group');
+  return view.study;
+}
+
 /** The full window: the `ajustes-full` fixture with its guardian settings read. */
 function fullView(): AjustesView {
   return deriveAjustesView(detailState('ajustes-full'), NOW, settingsOf('ajustes-full'));
+}
+
+/** The full window with every flag this wave can turn on (Study Mode included). */
+function fullStudyView(): AjustesView {
+  return deriveAjustesView(withStudy(detailState('ajustes-full')), NOW, settingsOf('ajustes-full'));
 }
 
 describe('Ajustes view per fixture', () => {
@@ -86,8 +102,9 @@ describe('Ajustes view per fixture', () => {
     ]);
     expect(view.bloqueo.guardianSettings).toEqual([]);
     expect(view.bloqueo.settingsStatus).toBe('Leyendo…');
-    expect(view.study.levels).toBeNull();
-    expect(view.study.title).toBe('Study Mode: llega pronto');
+    // No Study Mode yet: no group and no camera row (hidden, never greyed out).
+    expect(view.study).toBeNull();
+    expect(view.sistema.camera).toBeNull();
     expect(view.sistema.title).toBe('Sistema: todo en orden');
     expect(view.sistema.titleTone).toBe('default');
     expect(view.sistema.guardian).toEqual({
@@ -119,7 +136,6 @@ describe('Ajustes view per fixture', () => {
       description: 'Durante un bloqueo, mira qué ventana tienes delante',
       allowKey: null,
     });
-    expect(view.sistema.camera.status).toBe('Sin usar');
     expect(view.sistema.updater).toMatchObject({ status: 'al día', tone: 'green' });
     expect(view.sistema.diagnostics).toEqual({
       description: 'Para pedir ayuda: sin tus webs, motivos ni nombre',
@@ -151,14 +167,33 @@ describe('Ajustes view per fixture', () => {
         'Durante un bloqueo, cierra los navegadores que no la tengan activa',
       ],
     ]);
-    expect(view.study.levels?.map((o) => [o.label, o.tone])).toEqual([
-      ['1 · Distracciones', 'orange'],
-      ['2 · Lista blanca', 'orange'],
+    expect(view.study).toBeNull();
+  });
+
+  it('shows the Study Mode group and the camera only with the study flag', () => {
+    const before = deriveAjustesView(withStudy(detailState('ajustes')), NOW);
+    expect(studyOf(before)).toMatchObject({
+      title: 'Study Mode: castigo',
+      levels: null,
+      duration: null,
+    });
+    const view = deriveAjustesView(withStudy(detailState('ajustes')), NOW, settingsOf('ajustes'));
+    const study = studyOf(view);
+    // No level is «better»: neutral tiles, Nuclear in red (never the Estricto orange).
+    expect(study.levels?.map((o) => [o.label, o.tone])).toEqual([
+      ['1 · Distracciones', 'neutral'],
+      ['2 · Lista blanca', 'neutral'],
       ['Nuclear', 'red'],
     ]);
-    expect(view.study.level).toBe('distractions');
-    expect(view.study.levelDesc).toBe('Tras 3 strikes, durante 60 min; se aplica al momento');
-    expect(view.study.nuclear).toBe(false);
+    expect(study.level).toBe('distractions');
+    expect(study.levelDesc).toBe('Tras 3 strikes, durante 60 min; se aplica al momento');
+    expect(study.nuclear).toBe(false);
+    expect(study.duration).toEqual({ minutes: 60, min: 15, max: 120, step: 15 });
+    expect(view.sistema.camera).toEqual({
+      status: 'Sin usar',
+      description: 'La pedirá el Study Mode; ninguna imagen sale de tu ordenador',
+    });
+    expect(ajustesTileKeys(view)).toEqual(expect.arrayContaining(['1', '2', 'a']));
   });
 
   it('lists what costs points, read-only', () => {
@@ -298,7 +333,11 @@ describe('Ajustes view per fixture', () => {
     expect(view.general.dailyGoal).toBeNull();
     expect(view.sistema.extensions).toEqual([]);
     expect(view.bloqueo.settingsStatus).toBe('El guardián no está instalado');
-    expect(view.study.levelDesc).toBe('El guardián no está instalado');
+    expect(view.study).toBeNull();
+    const study = deriveAjustesView(withStudy(mainState('not-installed')), NOW, null, {
+      settingsError: 'El guardián no está instalado',
+    });
+    expect(studyOf(study).levelDesc).toBe('El guardián no está instalado');
   });
 
   it('points at the extension when a browser lacks it (extension-missing)', () => {
@@ -363,13 +402,15 @@ describe('Ajustes view per fixture', () => {
 
   it('shows Nuclear with its honest note', () => {
     const settings = settingsOf('ajustes');
-    const view = deriveAjustesView(detailState('ajustes'), NOW, {
+    const view = deriveAjustesView(withStudy(detailState('ajustes')), NOW, {
       ...settings,
       settings: { ...settings.settings, punishment: { level: 'nuclear', minutes: 90 } },
     });
-    expect(view.study.level).toBe('nuclear');
-    expect(view.study.nuclear).toBe(true);
-    expect(view.study.levelDesc).toBe('Tras 3 strikes, durante 90 min; se aplica al momento');
+    const study = studyOf(view);
+    expect(study.level).toBe('nuclear');
+    expect(study.nuclear).toBe(true);
+    expect(study.levelDesc).toBe('Tras 3 strikes, durante 90 min; se aplica al momento');
+    expect(study.duration?.minutes).toBe(90);
   });
 
   it('asks for Screen Recording when macOS withholds it, and names the last match', () => {
@@ -538,7 +579,9 @@ describe('Ajustes Alt + letter', () => {
     ]);
     expect(view.bloqueo.modeOptions.map((o) => o.mnemonic)).toEqual(['n', 'e', 'h']);
     expect(view.general.dailyGoal?.options?.map((o) => o.mnemonic)).toEqual(['3', '4', '6', '9']);
-    expect(view.study.levels?.map((o) => o.mnemonic)).toEqual(['1', '2', 'a']);
+    expect(view.study).toBeNull();
+    expect(studyOf(fullStudyView()).levels?.map((o) => o.mnemonic)).toEqual(['1', '2', 'a']);
+    expect(duplicateKeys(ajustesTileKeys(fullStudyView()))).toEqual([]);
     expect(view.sistema.guides.map((g) => [g.label, g.mnemonic])).toEqual([
       ['Chrome y Edge', 'm'],
       ['Firefox', 'f'],
@@ -550,13 +593,13 @@ describe('Ajustes Alt + letter', () => {
   });
 
   it('gives every English tile its own key, a letter of its label for the choices', () => {
-    const view = withLocale('en', () => fullView());
+    const view = withLocale('en', () => fullStudyView());
     for (const o of [
       ...view.general.themeOptions,
       ...view.general.languageOptions,
       ...view.bloqueo.modeOptions,
       ...(view.general.dailyGoal?.options ?? []),
-      ...(view.study.levels ?? []),
+      ...(view.study?.levels ?? []),
       ...view.sistema.guides,
     ]) {
       expect(o.label.toLowerCase(), o.label).toContain(o.mnemonic);

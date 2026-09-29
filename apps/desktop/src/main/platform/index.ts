@@ -3,7 +3,11 @@
  * the bootstrap after the core, the shell and the tray:
  *
  * - the surfaces: mini timer, OSD and Nuclear overlay windows, which draw `snapshot` like every
- *   renderer and publish what they cover (`snapshot.nuclear`);
+ *   renderer and publish what they cover (`snapshot.nuclear`). The overlay stands only on
+ *   trusted data (`nuclearTrusted`: link `ok`, end still ahead) and is looked at again when the
+ *   punishment ends; Emergencia sits above it only while it shows Emergencia;
+ * - the Nuclear quit lock (`nuclearLocked`, `refuseQuit`) and the tray's «Salida de
+ *   emergencia…» (`emergencyExit`);
  * - the OSD after tray and shortcut actions, cleared after 2 s;
  * - the global shortcuts (`prefs.shortcuts`), the updater (`snapshot.updater`,
  *   `app.updateVersion`), the progress (mascot, achievements) from the local event database;
@@ -41,6 +45,7 @@ import {
   toUiError,
   uiError,
   type CommandResult,
+  snapshotNow,
   type Platform,
   type SurfaceKind,
   type UiSnapshot,
@@ -65,6 +70,7 @@ import {
 import type { DisplaySource } from '../windows/display-source';
 import { MiniTimerWindow } from '../windows/mini-timer';
 import { NuclearOverlay } from '../windows/nuclear';
+import { nuclearRecheckDelay, nuclearTrusted } from '../windows/nuclear-lock';
 import { OsdWindow } from '../windows/osd';
 import type { WindowShell } from '../windows/shell';
 import type { RendererSource } from '../windows/window-urls';
@@ -91,8 +97,6 @@ export interface PlatformServicesOptions {
   exec: ExecRunner;
   log: AppLog;
   openExternal(url: string): void;
-  /** Lets the windows close for a quit that is not «Salir» (the updater's install). */
-  prepareQuit(): void;
   /** The `toggle-main` shortcut: like a tray click. */
   toggleMain(): void;
   /** «Salir», the OS session ending or an update install: surfaces may close. */
@@ -115,12 +119,21 @@ export interface PlatformHost extends PlatformServices {
   toggleMiniTimer(visible: boolean | null): void;
   /** Every surface window (e2e and the harness). */
   surfaceWindows(): BrowserWindow[];
+  /** A trusted Nuclear punishment covers the screens: quits the user can repeat are refused. */
+  nuclearLocked(): boolean;
+  /** A refused quit: the OSD says where the way out is. */
+  refuseQuit(): void;
+  /** Tray «Salida de emergencia…»: like the overlay's button (`nuclear:emergency-exit`). */
+  emergencyExit(): void;
 }
 
 const MAIN_CTX = { window: 'main' } as const;
 /** How often the progress is recomputed while the local copy lags the guardian's log. */
 const PROGRESS_RETRY_MS = 2_000;
 const PROGRESS_RETRIES = 5;
+/** The progress (a scan of the local log) runs at most this often while events stream in. */
+const PROGRESS_MIN_INTERVAL_MS = 3_000;
+const PROGRESS_DEBOUNCE_MS = 300;
 
 export function createPlatformServices(options: PlatformServicesOptions): PlatformHost {
   const { core, shell, log } = options;
@@ -133,7 +146,7 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
   // Surface windows
   // -------------------------------------------------------------------------------------
 
-  const create = createSurfaceFactory({
+  const baseCreate = createSurfaceFactory({
     platform: options.platform,
     packaged: options.packaged,
     preload: options.preload,
@@ -141,6 +154,15 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
     harnessStateId: options.harness?.id ?? null,
     register: (win, kind) => shell.registerSurface(win, kind),
   });
+  /** Readiness of the surface renderers by `webContents` id (harness `openSurface`). */
+  const ready = new Map<number, string | null>();
+  const create: typeof baseCreate = (kind, extra) => {
+    const win = baseCreate(kind, extra);
+    const id = win.webContents.id;
+    // A destroyed surface (the Nuclear overlay after the punishment) is forgotten.
+    win.on('closed', () => ready.delete(id));
+    return win;
+  };
 
   const push = <C extends PushChannel>(
     win: BrowserWindow,
@@ -178,6 +200,7 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
     },
     log: (event, fields) => log.info(event, fields),
     isQuitting: () => options.isQuitting(),
+    keepFocus: () => emergencyRaised() !== null,
   });
   options.theme.onChange(() => nuclear.setBackground(options.theme.backgroundColor()));
 
@@ -193,7 +216,63 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
     return nuclear.all();
   };
 
-  let emergencyAbove = false;
+  // -------------------------------------------------------------------------------------
+  // Emergencia above the overlay
+  // -------------------------------------------------------------------------------------
+
+  /** The detail window raised above the overlay (screen-saver + 1), if any. */
+  let raised: BrowserWindow | null = null;
+  const emergencyRaised = (): BrowserWindow | null =>
+    raised && !raised.isDestroyed() ? raised : null;
+
+  /**
+   * Emergencia goes above the overlay while Nuclear lasts and it is what the detail window
+   * shows, whatever opened it (the overlay's button, the tray, a door). Any other view, a hidden
+   * detail window or the end of Nuclear drops it back, so Ajustes or Estadísticas never cover
+   * the overlay.
+   */
+  function syncEmergencyRaise(options: { focus?: boolean } = {}): void {
+    if (disposed) return;
+    const detail = shell.window('detail');
+    const want =
+      detail !== null &&
+      nuclear.isActive() &&
+      detail.isVisible() &&
+      shell.currentDetail()?.name === 'emergencia';
+    const current = emergencyRaised();
+    if (current && (!want || current !== detail)) {
+      current.setAlwaysOnTop(false);
+      raised = null;
+    }
+    if (!want || !detail) return;
+    if (raised !== detail) {
+      raised = detail;
+      // Above the overlay (screen-saver level + 1) and focused, so the phrase can be typed.
+      detail.setAlwaysOnTop(true, 'screen-saver', 1);
+      detail.moveTop();
+      detail.focus();
+    } else if (options.focus) {
+      detail.moveTop();
+      detail.focus();
+    }
+  }
+
+  // The detail window's own events: shown or focused on another view, hidden, recreated.
+  const onWindowFocus = (_event: unknown, win: BrowserWindow): void => {
+    if (win === shell.window('detail') || win === emergencyRaised()) syncEmergencyRaise();
+  };
+  const onWindowCreated = (_event: unknown, win: BrowserWindow): void => {
+    win.on('hide', () => {
+      if (win === emergencyRaised()) syncEmergencyRaise();
+    });
+    win.on('show', () => {
+      if (win === shell.window('detail')) syncEmergencyRaise();
+    });
+  };
+  app.on('browser-window-focus', onWindowFocus);
+  app.on('browser-window-created', onWindowCreated);
+
+  let nuclearTimer: ReturnType<typeof setTimeout> | null = null;
   function syncSurfaces(snapshot: UiSnapshot): void {
     if (disposed) return;
     miniTimer.sync(
@@ -207,19 +286,39 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
           ? { id: 0, text: '', icon: 'check', tone: 'neutral', shownAt: 0 }
           : null),
     );
-    const nuclearOn = forced.has('nuclear') || snapshot.state?.nuclearActive === true;
+    // Only trusted data covers the screens: never a stale state from a guardian that stopped
+    // answering, never after the punishment's end.
+    const now = snapshotNow(snapshot);
+    const nuclearOn = forced.has('nuclear') || nuclearTrusted(snapshot, now);
     nuclear.sync(nuclearOn);
-    if (!nuclearOn && emergencyAbove) {
-      emergencyAbove = false;
-      shell.window('detail')?.setAlwaysOnTop(false);
+    if (nuclearTimer) clearTimeout(nuclearTimer);
+    nuclearTimer = null;
+    const recheck = forced.has('nuclear') ? null : nuclearRecheckDelay(snapshot, now);
+    // Harness runs sit on a frozen clock: nothing ends by itself there.
+    if (recheck !== null && live) {
+      nuclearTimer = setTimeout(() => {
+        nuclearTimer = null;
+        syncSurfaces(core.getSnapshot());
+      }, recheck);
     }
+    syncEmergencyRaise();
+  }
+
+  function nuclearLocked(): boolean {
+    if (disposed || !nuclear.isActive()) return false;
+    const snapshot = core.getSnapshot();
+    return nuclearTrusted(snapshot, snapshotNow(snapshot));
+  }
+
+  function refuseQuit(): void {
+    log.info('quit_refused_nuclear', {});
+    showOsd({ text: PLATFORM.osd.nuclearQuit, icon: 'warning', tone: 'red' });
   }
 
   // -------------------------------------------------------------------------------------
   // Harness readiness of the surfaces
   // -------------------------------------------------------------------------------------
 
-  const ready = new Map<number, string | null>();
   let readyWaiters: Array<() => void> = [];
 
   function markSurfaceReady(
@@ -385,7 +484,6 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
             app: { ...core.getSnapshot().app, updateVersion: offeredVersion(state) },
           }),
         openDownloadPage: () => options.openExternal(UPDATE_DOWNLOAD_PAGE),
-        prepareQuit: () => options.prepareQuit(),
         log: (event, fields) => log.info(event, fields),
       })
     : null;
@@ -547,8 +645,14 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
         guarded('updater_failed', () => updater?.check() ?? core.getSnapshot().updater),
       'updater:download': () =>
         guarded('updater_failed', () => updater?.download() ?? core.getSnapshot().updater),
-      'updater:install': () =>
-        guarded('updater_failed', () => updater?.install() ?? core.getSnapshot().updater),
+      'updater:install': () => {
+        // Restarting would drop the overlay until the guardian relaunches the app.
+        if (nuclearLocked()) {
+          log.info('updater_install_refused', { reason: 'nuclear_active' });
+          return fail(uiError('rejected', 'nuclear_active', 409));
+        }
+        return guarded('updater_failed', () => updater?.install() ?? core.getSnapshot().updater);
+      },
     } satisfies Partial<Omit<InvokeHandlers, 'app:init'>>);
   }
   Object.assign(core.handlers, handlers);
@@ -565,21 +669,17 @@ export function createPlatformServices(options: PlatformServicesOptions): Platfo
     'osd:show': (request) => {
       showOsd(request);
     },
-    'nuclear:emergency-exit': () => {
-      if (!nuclear.isActive()) return;
-      void (async () => {
-        shell.showMain('command', false);
-        await shell.openDetail(defaultDetailRequest('emergencia'), { show: true });
-        const detail = shell.window('detail');
-        if (!detail || !nuclear.isActive()) return;
-        emergencyAbove = true;
-        // Above the overlay (screen-saver level + 1) and focused, so the phrase can be typed.
-        detail.setAlwaysOnTop(true, 'screen-saver', 1);
-        detail.moveTop();
-        detail.focus();
-      })().catch((error: unknown) => log.warn('emergency_exit_failed', { message: String(error) }));
-    },
+    'nuclear:emergency-exit': () => emergencyExit(),
   };
+
+  function emergencyExit(): void {
+    if (!nuclear.isActive()) return;
+    void (async () => {
+      shell.showMain('command', false);
+      await shell.openDetail(defaultDetailRequest('emergencia'), { show: true });
+      syncEmergencyRaise({ focus: true });
+    })().catch((error: unknown) => log.warn('emergency_exit_failed', { message: String(error) }));
+  }
 
   // -------------------------------------------------------------------------------------
   // Snapshot → everything

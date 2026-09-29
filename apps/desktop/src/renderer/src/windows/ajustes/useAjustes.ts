@@ -22,6 +22,7 @@ import type { ThemePreference } from '@centrate/shared/design/tokens';
 import type { GuardianSettings, PunishmentLevel } from '@centrate/shared/domain';
 import { GUARDIAN_LIMITS, type SettingsResponse } from '@centrate/shared/guardian-api';
 import type { LanguagePreference } from '../../../../shared/i18n/locale';
+import { formatInt } from '../../../../shared/format';
 import type { UpdaterState } from '../../../../shared/platform';
 import type { AmbientSound, ShortcutAction } from '../../../../shared/prefs';
 import { newIntentId } from '../../app/push';
@@ -85,6 +86,7 @@ export interface AjustesApi {
   setReminders(on: boolean): void;
   setEyeBreaks(on: boolean): void;
   setPunishmentLevel(level: PunishmentLevel): void;
+  setPunishmentMinutes(minutes: number): void;
   newPairingCode(): void;
   copyDiagnostics(): void;
   openGuide(guide: GuideId): void;
@@ -353,6 +355,14 @@ export function useAjustes(): AjustesApi {
         'study',
         { punishment: { ...settings.settings.punishment, level } },
         AJUSTES.study.saved(AJUSTES.study.levels[level]),
+      );
+    },
+    setPunishmentMinutes: (minutes) => {
+      if (!settings || settings.settings.punishment.minutes === minutes) return;
+      putSettings(
+        'study',
+        { punishment: { ...settings.settings.punishment, minutes } },
+        AJUSTES.study.durationSaved(formatInt(minutes)),
       );
     },
     newPairingCode: () => {

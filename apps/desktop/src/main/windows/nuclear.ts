@@ -4,8 +4,12 @@
  * vuelves a las 18:40» and a single «Salida de emergencia»). It cannot be closed, minimised or
  * moved while Nuclear lasts: a close is refused, a crashed renderer is reloaded, a new display
  * gets its own window. The only way out is the emergency unlock (the Emergencia window opens
- * above it). It never takes focus. Its status (`shown`, displays covered) goes to
- * `snapshot.nuclear`, which drives the guardian heartbeat.
+ * above it). It is focusable and, when it appears, the overlay on the display under the pointer
+ * takes the focus, so Tab reaches «Salida de emergencia» and a screen reader lands on the
+ * countdown (WCAG 2.1.1; Nuclear takes over the computer anyway). When Nuclear ends its
+ * windows are destroyed (a hidden renderer per display would stay alive for nothing). Its
+ * status (`shown`, displays covered) goes to `snapshot.nuclear`, which drives the guardian
+ * heartbeat.
  *
  * Wayland compositors may still draw some surfaces above it (documented limit).
  */
@@ -14,7 +18,7 @@ import type { NuclearStatus } from '../../shared/platform';
 import type { SurfaceWindowFactory } from '../platform/surface-window';
 import type { DisplaySource } from './display-source';
 import type { Rect } from './geometry';
-import { overlayPlacements } from './nuclear-geometry';
+import { overlayFocusDisplay, overlayPlacements } from './nuclear-geometry';
 
 export interface NuclearOverlayOptions {
   create: SurfaceWindowFactory;
@@ -26,6 +30,8 @@ export interface NuclearOverlayOptions {
   log(event: string, fields: Record<string, string | number | boolean | null>): void;
   /** The app is quitting (or the OS session ends): windows may close. */
   isQuitting(): boolean;
+  /** Another window must keep the focus (Emergencia above the overlay). */
+  keepFocus?(): boolean;
 }
 
 export class NuclearOverlay {
@@ -61,10 +67,9 @@ export class NuclearOverlay {
       this.reconcile();
     } else {
       this.options.log('nuclear_overlay', { shown: false });
-      for (const win of this.all()) {
-        win.hide();
-        this.options.onVisibility(win, false);
-      }
+      const windows = this.all();
+      this.windows.clear();
+      for (const win of windows) this.destroyWindow(win);
       this.publish();
     }
   }
@@ -83,6 +88,7 @@ export class NuclearOverlay {
         this.destroyWindow(win);
       }
     }
+    let appeared = false;
     for (const p of placements) {
       let win = this.windows.get(p.displayId);
       if (!win || win.isDestroyed()) {
@@ -102,9 +108,25 @@ export class NuclearOverlay {
         win.showInactive();
         win.setAlwaysOnTop(true, 'screen-saver');
         this.options.onVisibility(win, true);
+        appeared = true;
       }
     }
+    if (appeared) this.focusUnderPointer();
     this.publish();
+  }
+
+  /**
+   * Keyboard and screen reader users start on the overlay they are looking at: the one on the
+   * display under the pointer (else the first). Only when an overlay appeared, never while the
+   * Emergencia window above it has the focus.
+   */
+  private focusUnderPointer(): void {
+    if (this.options.keepFocus?.() === true) return;
+    const { displays } = this.options;
+    const id = overlayFocusDisplay(displays.all(), displays.cursor());
+    const win = id === null ? undefined : this.windows.get(id);
+    if (!win || win.isDestroyed()) return;
+    win.focus();
   }
 
   private publish(): void {
@@ -126,7 +148,8 @@ export class NuclearOverlay {
       alwaysOnTop: true,
       movable: false,
       closable: false,
-      focusable: false,
+      // Focusable: the keyboard must reach «Salida de emergencia» (WCAG 2.1.1).
+      focusable: true,
       enableLargerThanScreen: true,
       kiosk: false,
     });

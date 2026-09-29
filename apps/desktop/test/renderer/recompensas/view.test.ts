@@ -16,6 +16,7 @@ import {
   coveredServices,
   deriveRecompensasView,
   loadErrorText,
+  offerLabelId,
   redeemArmId,
   redeemErrorText,
   type RecompensasInput,
@@ -102,6 +103,9 @@ describe('Recompensas: the shop', () => {
 
   it('keeps the in-place «¿Seguro?» id per offer and gives every row its Alt + number', () => {
     expect(redeemArmId('youtube-15')).toBe('redeem:youtube-15');
+    // Each row's group is named by its offer (a unique, valid DOM id per offer).
+    expect(offerLabelId('youtube-15')).toBe('rwd-offer-youtube-15');
+    expect(offerLabelId('a b:c')).toBe('rwd-offer-a_b_c');
     const rows = view('punishment').rows;
     expect(rows.map((r) => r.mnemonic)).toEqual(rows.map((_, i) => String(i + 1)));
     expect(RWD_IDS.row).toBe(harnessFixture('rewards-short-points').detail.help?.row);

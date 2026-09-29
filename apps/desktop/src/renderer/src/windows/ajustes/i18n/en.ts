@@ -144,12 +144,7 @@ export const AJUSTES_EN: AjustesMessages = {
     guardianSettingsLoading: 'Reading…',
   },
   study: {
-    title: {
-      soon: 'Study Mode: coming soon',
-      ready: 'Study Mode: punishment',
-    },
-    upcoming: 'AI sensitivity and timings',
-    upcomingDesc: 'They arrive with Study Mode, in the next version',
+    title: 'Study Mode: punishment',
     level: 'Punishment level',
     levelDesc: (strikes: number, minutes: string): string =>
       `After ${strikes} strikes, for ${minutes} min; applies right away`,
@@ -168,6 +163,10 @@ export const AJUSTES_EN: AjustesMessages = {
     adminNote:
       'If you are an administrator of this computer, no block is 100% impossible to bypass',
     saved: (level: string): string => `Punishment level: ${level}`,
+    duration: 'Punishment length',
+    durationDesc: 'How long the punishment lasts after the last strike',
+    durationValue: (minutes: string): string => `${minutes} min`,
+    durationSaved: (minutes: string): string => `Punishment length: ${minutes} min`,
   },
   sistema: {
     title: {

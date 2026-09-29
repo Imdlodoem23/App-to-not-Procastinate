@@ -22,6 +22,7 @@ import {
 import type { UiSnapshot } from '../../../../shared/ui-state';
 import { mascotStageOf } from '../../components/mascot/stage';
 import { RENDERER } from '../../i18n/messages';
+import { progressCount } from '../../windows/logros/visible';
 import { PROGRESO } from './i18n';
 
 /** The mascot's phase: `MASCOT_STAGES` of points.ts (brote, planta, árbol, marchita). */
@@ -87,14 +88,19 @@ function achievementTitle(id: AchievementId): string {
   return achievementText(id, activeLocale())?.title ?? id;
 }
 
+/** Study Mode is shown: its achievements show in Logros and count («3 de 8» vs «3 de 4»). */
+function studyShown(snapshot: UiSnapshot): boolean {
+  return featureEnabled(snapshot.features, 'study', snapshot.health?.capabilities ?? null);
+}
+
 function doorHelp(door: ProgresoDoor, snapshot: UiSnapshot): string {
   if (door === 'rewards') {
     const lock = snapshot.state?.rewardsLock ?? null;
     return lock ? PROGRESO.rewardsLocked[lock] : G.doorsHelp.rewards;
   }
   if (door === 'achievements') {
-    const progress = snapshot.progress;
-    if (!progress) return G.doorsHelp.achievements;
+    if (!snapshot.progress) return G.doorsHelp.achievements;
+    const progress = progressCount(snapshot.progress, studyShown(snapshot));
     const [first] = progress.fresh;
     if (progress.fresh.length === 1 && first) {
       return PROGRESO.achievementsFresh(achievementTitle(first));
@@ -110,7 +116,9 @@ function doorHelp(door: ProgresoDoor, snapshot: UiSnapshot): string {
 function doorRequest(door: ProgresoDoor, snapshot: UiSnapshot): DetailRequest {
   const request = defaultDetailRequest(PROGRESO_DOOR_VIEWS[door]);
   // A new achievement: Logros opens on it.
-  const [fresh] = snapshot.progress?.fresh ?? [];
+  const [fresh] = snapshot.progress
+    ? progressCount(snapshot.progress, studyShown(snapshot)).fresh
+    : [];
   if (request.name === 'logros' && fresh) return { ...request, focus: fresh };
   return request;
 }

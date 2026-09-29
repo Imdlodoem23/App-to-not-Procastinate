@@ -36,6 +36,7 @@ import {
   MASCOT_SIZE,
   RWD_IDS,
   loadErrorText,
+  offerLabelId,
   redeemArmId,
   type MascotView,
   type OfferRowView,
@@ -60,10 +61,13 @@ function MascotFigure(props: { mascot: MascotView }): React.JSX.Element {
 function OfferRow(props: { row: OfferRowView; api: RecompensasApi }): React.JSX.Element {
   const { row, api } = props;
   const busy = api.busy === row.id;
+  // Each row is its own group named by the offer, so every «Canjear» says which one it is
+  // («15 min de YouTube, grupo · Canjear»), like ScheduleRow in Bloqueos (WCAG 2.4.6).
+  const labelId = offerLabelId(row.id);
   return (
-    <div className="rwd-offer" data-offer={row.id}>
+    <div className="rwd-offer" data-offer={row.id} role="group" aria-labelledby={labelId}>
       <ServiceIcon className="rwd-monogram" monogram={row.monogram} />
-      <span className="rwd-offer-label" data-fit="">
+      <span className="rwd-offer-label" id={labelId} data-fit="">
         {row.label}
       </span>
       <span className="rwd-offer-price" data-fit="">

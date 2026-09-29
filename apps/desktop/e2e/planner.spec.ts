@@ -275,6 +275,49 @@ test('exam-whitelist: extras, the pending one, refusals with reasons, add and re
   await expect(detail.locator('[data-announcer]')).toHaveText('Quitada: khanacademy.org');
 });
 
+test('exam-whitelist: removing by keyboard keeps the focus on the list, never on <body>', async () => {
+  const detail = await bloqueosWindow('exam-whitelist');
+  const whitelist = detail.locator('[data-section="blq-exam"] .blq-whitelist');
+  const help = whitelist.locator('#blq-whitelist-help');
+  const chip = (name: string | RegExp) => whitelist.getByRole('button', { name });
+  const bodyFocused = () => detail.evaluate(() => document.activeElement === document.body);
+
+  // The first chip: the focus goes to the one that took its place.
+  await chip('Quitar wikipedia.org').focus();
+  await detail.keyboard.press('Enter');
+  await expect(help).toHaveText('Quitada: wikipedia.org');
+  await expect(chip('Quitar wikipedia.org')).toHaveCount(0);
+  await expect(chip('Quitar khanacademy.org')).toBeFocused();
+
+  // The pending one is the last web chip: the focus goes to the next chip (the app).
+  await chip(/^Quitar geogebra\.org/).focus();
+  await detail.keyboard.press('Enter');
+  await expect(chip(/^Quitar geogebra\.org/)).toHaveCount(0);
+  await expect(chip('Quitar WINWORD.EXE')).toBeFocused();
+
+  // The last chip: the previous one.
+  await detail.keyboard.press('Enter');
+  await expect(chip('Quitar WINWORD.EXE')).toHaveCount(0);
+  await expect(chip('Quitar khanacademy.org')).toBeFocused();
+
+  // The only chip left: its field.
+  await detail.keyboard.press('Enter');
+  await expect(chip('Quitar khanacademy.org')).toHaveCount(0);
+  await expect(whitelist.getByRole('textbox', { name: 'Webs permitidas' })).toBeFocused();
+  expect(await bodyFocused()).toBe(false);
+
+  // A suggestion leaves the suggestions once allowed: the focus goes to the apps field.
+  const apps = whitelist.getByRole('textbox', { name: 'Apps permitidas' });
+  await apps.fill('code');
+  const suggestion = whitelist.getByRole('button', { name: 'Permitir Code.exe' });
+  await suggestion.focus();
+  await detail.keyboard.press('Enter');
+  await expect(suggestion).toHaveCount(0);
+  await expect(chip(/^Quitar Code\.exe/)).toHaveCount(1);
+  await expect(apps).toBeFocused();
+  expect(await bodyFocused()).toBe(false);
+});
+
 test('exam: «Examen 2 h» goes to the main card, whose red line says it cannot be cancelled', async () => {
   const detail = await bloqueosWindow('exam-whitelist');
   await detail

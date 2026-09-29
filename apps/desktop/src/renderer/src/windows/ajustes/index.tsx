@@ -45,9 +45,10 @@ import { useLocaleSwitch } from '../../app/Localized';
 import { SoundTile } from '../../features/sounds';
 import { useRepair } from '../../hooks/useRepair';
 import { useAppStore } from '../../store/context';
+import { formatInt } from '../../../../shared/format';
 import type { DefaultBlockMode } from '../../../../shared/ui-state';
 import { AJUSTES } from './i18n';
-import { ChoiceRow, Notice, PunishmentRow, ShortcutRow, VolumeRow } from './parts';
+import { ChoiceRow, Notice, PunishmentRow, RangeRow, ShortcutRow, VolumeRow } from './parts';
 import { useAjustes, type AjustesApi } from './useAjustes';
 import { AJUSTES_IDS, type AjustesView } from './view';
 import './ajustes.css';
@@ -266,19 +267,29 @@ function BloqueoGroup(props: { view: AjustesView['bloqueo']; api: AjustesApi }):
   );
 }
 
-function StudyGroup(props: { view: AjustesView['study']; api: AjustesApi }): React.JSX.Element {
+function StudyGroup(props: {
+  view: NonNullable<AjustesView['study']>;
+  api: AjustesApi;
+}): React.JSX.Element {
   const { view, api } = props;
+  const duration = view.duration;
   return (
     <Section id={AJUSTES_IDS.study} icon={BookOpen} title={view.title}>
       <div className="aj-rows">
-        <SettingsRow
-          id="aj-study-upcoming"
-          title={A.study.upcoming}
-          description={A.study.upcomingDesc}
-        >
-          {null}
-        </SettingsRow>
         <PunishmentRow view={view} onChange={api.setPunishmentLevel} />
+        {duration ? (
+          <RangeRow
+            id="aj-punishment-minutes"
+            title={A.study.duration}
+            description={A.study.durationDesc}
+            value={duration.minutes}
+            min={duration.min}
+            max={duration.max}
+            step={duration.step}
+            format={(minutes) => A.study.durationValue(formatInt(minutes))}
+            onCommit={api.setPunishmentMinutes}
+          />
+        ) : null}
       </div>
       <Notice notice={api.notices.study} />
     </Section>
@@ -459,17 +470,19 @@ function SistemaGroup(props: { view: AjustesView['sistema']; api: AjustesApi }):
             />
           ) : null}
         </SettingsRow>
-        <SettingsRow
-          id="aj-camera"
-          title={
-            <StatusTitle tone="neutral">
-              {A.sistema.camera.title}: {view.camera.status}
-            </StatusTitle>
-          }
-          description={view.camera.description}
-        >
-          {null}
-        </SettingsRow>
+        {view.camera ? (
+          <SettingsRow
+            id="aj-camera"
+            title={
+              <StatusTitle tone="neutral">
+                {A.sistema.camera.title}: {view.camera.status}
+              </StatusTitle>
+            }
+            description={view.camera.description}
+          >
+            {null}
+          </SettingsRow>
+        ) : null}
         {updater ? (
           <SettingsRow
             id="aj-updater"
@@ -652,7 +665,7 @@ export default function AjustesWindow(): React.JSX.Element {
     <div className="aj" data-loading={api.loading ? '' : undefined}>
       <GeneralGroup view={api.view.general} api={api} />
       <BloqueoGroup view={api.view.bloqueo} api={api} />
-      <StudyGroup view={api.view.study} api={api} />
+      {api.view.study ? <StudyGroup view={api.view.study} api={api} /> : null}
       <SistemaGroup view={api.view.sistema} api={api} />
       <DatosGroup view={api.view.datos} api={api} />
     </div>

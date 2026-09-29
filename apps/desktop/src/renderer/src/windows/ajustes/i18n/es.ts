@@ -178,14 +178,9 @@ export const AJUSTES_ES = {
     guardianSettings: 'Ajustes del guardián',
     guardianSettingsLoading: 'Leyendo…',
   },
-  /** The Study Mode group: here before its wave; only the guardian's punishment level works. */
+  /** The Study Mode group (`study` flag): the guardian's punishment level and duration. */
   study: {
-    title: {
-      soon: 'Study Mode: llega pronto',
-      ready: 'Study Mode: castigo',
-    },
-    upcoming: 'Sensibilidad de la IA y tiempos',
-    upcomingDesc: 'Llegan con el Study Mode, en la próxima versión',
+    title: 'Study Mode: castigo',
     level: 'Nivel de castigo',
     /** «Tras 3 strikes, durante 60 min; se aplica al momento». */
     levelDesc: (strikes: number, minutes: string): string =>
@@ -205,6 +200,11 @@ export const AJUSTES_ES = {
     /** PROMPT §8: honest about the limits. */
     adminNote: 'Si eres administrador del ordenador, ningún bloqueo es 100 % imposible de saltar',
     saved: (level: string): string => `Nivel de castigo: ${level}`,
+    duration: 'Duración del castigo',
+    durationDesc: 'Cuánto dura el castigo tras el último strike',
+    /** «60 min». */
+    durationValue: (minutes: string): string => `${minutes} min`,
+    durationSaved: (minutes: string): string => `Duración del castigo: ${minutes} min`,
   },
   sistema: {
     title: {

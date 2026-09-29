@@ -9,6 +9,7 @@ export const PLATFORM_EN: PlatformMessages = {
     maxReached: '24 h in total at most',
     miniTimerShown: 'Mini timer',
     miniTimerHidden: 'Mini timer hidden',
+    nuclearQuit: 'Nuclear in progress · use the emergency exit',
   },
   csv: {
     dialogTitle: 'Export CSV',

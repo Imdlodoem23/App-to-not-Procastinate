@@ -89,12 +89,14 @@ test('Ajustes: every group in both themes and in English, 48 px rows, clean', as
   for (const title of [
     'General: tema del sistema',
     'Bloqueo: Normal por defecto',
-    'Study Mode: llega pronto',
     'Sistema: hay una versión nueva',
     'Datos: en este ordenador',
   ]) {
     await expect(detail.getByRole('heading', { name: title })).toBeAttached();
   }
+  // No Study Mode in this wave: no group, no camera row (hidden, never greyed out).
+  await expect(detail.locator('[data-section="aj-study"]')).toHaveCount(0);
+  await expect(detail.locator('#aj-camera')).toHaveCount(0);
   // Pending weakening changes say when they apply; the refused shortcut says so.
   await expect(detail.locator('#aj-goal-row-desc')).toHaveText('Pasará a 45 min en 24 h');
   await expect(detail.getByText('Se desactivará en 22 h')).toBeAttached();
@@ -222,6 +224,11 @@ async function arm(tile: Locator): Promise<void> {
 
 test('Ajustes: the punishment level asks «¿Seguro?» before Nuclear', async () => {
   const { launched, detail } = await openAjustes('ajustes');
+  // The level lives in the Study Mode group, which only exists with its flag.
+  test.skip(
+    !(await launched.harness.snapshot()).features.study,
+    'Study Mode flag off: no punishment level in this wave',
+  );
   const levels = detail.getByRole('radiogroup', { name: 'Nivel de castigo' });
   await expect(levels.getByRole('radio', { name: '1 · Distracciones' })).toBeChecked();
   await expect(detail.locator('#aj-punishment-help')).toHaveText(
@@ -387,4 +394,59 @@ test('onboarding: step 5 leaves the first block typed; Enter, Enter creates it',
   };
   expect(created.targets?.serviceIds).toEqual(['youtube']);
   expect(created.durationMinutes).toBe(25);
+});
+
+test('onboarding: a new step takes the focus; Enter walks from step 4 to the card', async () => {
+  const { launched, main } = await onboarding('onboarding-4');
+  // Step 4 before Study Mode: one action, nothing greyed out.
+  await expect(main.getByRole('button', { name: 'Probar cámara' })).toHaveCount(0);
+  await expect(main.locator('.ob [aria-disabled="true"]')).toHaveCount(0);
+  await launched.harness.hideMain();
+  await launched.harness.showMain();
+  await expect.poll(async () => (await focusInfo(main)).name).toBe('Continuar');
+
+  // Enter on «Continuar»: step 5, with the keyboard on the typed phrase (not on a stale tile).
+  await main.keyboard.press('Enter');
+  await expect(main.getByRole('heading', { name: 'Primer bloqueo · paso 5 de 5' })).toBeVisible();
+  const field = main.getByRole('textbox', { name: '¿Qué quieres hacer?' });
+  await expect(field).toBeFocused();
+  // Screen readers hear the new step once; the row's resting help is not repeated.
+  await expect(main.getByTestId('ob-announcer')).toHaveText(
+    'Primer bloqueo · paso 5 de 5. Te dejamos escrito tu primer bloqueo: Enter para revisarlo y otra vez Enter para empezar.',
+  );
+  const help = 'Revisa el bloqueo y confírmalo con Enter';
+  const count = await main
+    .locator('.ob')
+    .evaluate((el, text) => (el.textContent ?? '').split(text).length - 1, help);
+  expect(count).toBe(1);
+
+  // Enter: the confirmation card, focus on its button; Enter again creates the block.
+  await main.keyboard.press('Enter');
+  await expect
+    .poll(async () => (await launched.harness.snapshot()).prefs.onboarding.done)
+    .toBe(true);
+  const confirm = main.getByRole('button', { name: /^Bloquear hasta/ });
+  await expect(confirm).toBeFocused();
+  await main.keyboard.press('Enter');
+  await expect
+    .poll(async () => callsOf(await launched.harness.guardianCalls(), 'createBlock').length)
+    .toBe(1);
+});
+
+test('onboarding: «Empezar» moves the focus to step 2 and speaks it once', async () => {
+  const { launched, main } = await onboarding('onboarding-1');
+  await launched.harness.hideMain();
+  await launched.harness.showMain();
+  await expect.poll(async () => (await focusInfo(main)).name).toBe('Empezar');
+  await main.keyboard.press('Enter');
+  await expect(main.getByRole('heading', { name: 'Guardián · paso 2 de 5' })).toBeVisible();
+  await expect.poll(async () => (await focusInfo(main)).name).not.toBe('Empezar');
+  const focused = await focusInfo(main);
+  expect(['Instalar', 'Reparar', 'Continuar']).toContain(focused.name);
+  await expect(main.getByTestId('ob-announcer')).toHaveText(/^Guardián · paso 2 de 5\. /);
+  // Every help of the step appears once in reading order (no resting copy in a live region).
+  const texts = await main.locator('.ob').evaluate((el) => el.textContent ?? '');
+  for (const help of ['Pide permiso de administrador una sola vez', 'Al siguiente paso']) {
+    expect(texts.split(help).length - 1, help).toBeLessThanOrEqual(1);
+  }
 });

@@ -132,22 +132,24 @@ describe('Onboarding fixtures', () => {
     ]);
   });
 
-  it('4: the camera arrives with Study Mode (skippable)', () => {
+  it('4: the camera arrives with Study Mode: «Continuar», nothing greyed out', () => {
     const view = viewOf('onboarding-4');
     expect(view.title).toBe('Cámara · paso 4 de 5');
     expect(view.status).toBe('Llega con el Study Mode');
-    expect(view.tiles[0]).toMatchObject({
-      label: 'Probar cámara',
-      disabled: true,
-      disabledReason: 'La prueba de cámara llega con el Study Mode',
-    });
-    expect(view.tiles[1]?.label).toBe('Omitir');
+    expect(view.sentence).toMatch(/ninguna imagen salga de tu ordenador/);
+    expect(tiles(view)).toEqual([['Continuar', 'c']]);
+    expect(view.tiles.some((t) => t.disabled)).toBe(false);
     expect(view.help.text).toBe('La prueba de cámara llega con el Study Mode');
     const study = viewOf('onboarding-4', (f) => {
       f.snapshot.features = { ...FEATURES, study: true };
     });
     expect(study.status).toBe('Opcional');
+    expect(tiles(study)).toEqual([
+      ['Probar cámara', 'p'],
+      ['Omitir', 'o'],
+    ]);
     expect(study.tiles[0]?.disabled).toBe(false);
+    expect(study.help.text).toBe('Comprueba que la cámara te ve');
   });
 
   it('5: the first block, already typed', () => {

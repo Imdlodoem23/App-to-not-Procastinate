@@ -182,22 +182,29 @@ export function ShortcutRow(props: {
 }
 
 /**
- * «Volumen»: a slider (arrow keys move it by 5) with the value beside it. It follows the pointer
- * locally and saves on release (`change`), so a drag is one write.
+ * A settings row with a slider (arrow keys move it by `step`) and the value beside it. It follows
+ * the pointer locally and saves on release (`change`), so a drag is one write.
  */
-export function VolumeRow(props: {
-  volume: number;
-  onCommit(volume: number): void;
+export function RangeRow(props: {
+  id: string;
+  title: string;
+  description: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  format(value: number): string;
+  onCommit(value: number): void;
 }): React.JSX.Element {
-  const { volume, onCommit } = props;
-  /** The value being dragged, over the saved `base`; a new saved volume replaces it. */
+  const { id, value, onCommit } = props;
+  /** The value being dragged, over the saved `base`; a new saved value replaces it. */
   const [draft, setDraft] = useState<{ value: number; base: number } | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const commit = useRef(onCommit);
   useLayoutEffect(() => {
     commit.current = onCommit;
   });
-  const ids = settingsRowIds('aj-volume');
+  const ids = settingsRowIds(id);
 
   useEffect(() => {
     const el = input.current;
@@ -207,29 +214,49 @@ export function VolumeRow(props: {
     return () => el.removeEventListener('change', onChange);
   }, []);
 
-  const shown = draft && draft.base === volume ? draft.value : volume;
-  const label = A.general.volumeValue(formatInt(shown));
+  const shown = draft && draft.base === value ? draft.value : value;
+  const label = props.format(shown);
   return (
-    <SettingsRow id="aj-volume" title={A.general.volume} description={A.general.volumeDesc}>
+    <SettingsRow id={id} title={props.title} description={props.description}>
       {/* Named with `aria-label` (the row title's words): a name by reference is lost to axe
           while the row is scrolled out of the detail window. */}
       <input
         ref={input}
         type="range"
-        min={0}
-        max={100}
-        step={5}
+        min={props.min}
+        max={props.max}
+        step={props.step}
         value={shown}
         className="aj-range"
-        aria-label={A.general.volume}
+        aria-label={props.title}
         aria-describedby={ids.description}
         aria-valuetext={label}
-        onChange={(event) => setDraft({ value: Number(event.target.value), base: volume })}
+        onChange={(event) => setDraft({ value: Number(event.target.value), base: value })}
       />
       <span className="aj-value aj-range-value" aria-hidden="true">
         {label}
       </span>
     </SettingsRow>
+  );
+}
+
+/** «Volumen» (0–100, by 5). */
+export function VolumeRow(props: {
+  volume: number;
+  onCommit(volume: number): void;
+}): React.JSX.Element {
+  return (
+    <RangeRow
+      id="aj-volume"
+      title={A.general.volume}
+      description={A.general.volumeDesc}
+      value={props.volume}
+      min={0}
+      max={100}
+      step={5}
+      format={(v) => A.general.volumeValue(formatInt(v))}
+      onCommit={props.onCommit}
+    />
   );
 }
 
@@ -240,7 +267,7 @@ export function VolumeRow(props: {
  * note about administrators shows under the row.
  */
 export function PunishmentRow(props: {
-  view: AjustesView['study'];
+  view: NonNullable<AjustesView['study']>;
   onChange(level: PunishmentLevel): void;
 }): React.JSX.Element {
   const { view, onChange } = props;

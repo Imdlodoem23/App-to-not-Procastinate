@@ -13,6 +13,8 @@ export const ONBOARDING_ES = {
   name: 'Primeros pasos',
   /** «Guardián · paso 2 de 5». */
   title: (step: string, n: number, total: number): string => `${step} · paso ${n} de ${total}`,
+  /** Screen readers, on a step change: «Guardián · paso 2 de 5. El guardián aplica…». */
+  stepAnnouncement: (title: string, sentence: string): string => `${title}. ${sentence}`,
   steps: {
     welcome: 'Bienvenida',
     guardian: 'Guardián',
@@ -75,7 +77,9 @@ export const ONBOARDING_ES = {
     continue: 'Al siguiente paso',
     guideChromium: 'Paso a paso en Chrome, Edge, Brave y otros',
     guideFirefox: 'Paso a paso en Firefox',
-    camera: 'La prueba de cámara llega con el Study Mode',
+    camera: 'Comprueba que la cámara te ve',
+    /** Step 4's «Continuar» while Study Mode is not there. */
+    cameraLater: 'La prueba de cámara llega con el Study Mode',
     create: 'Revisa el bloqueo y confírmalo con Enter',
     skip: {
       welcome: 'Directo a la app; puedes repetir estos pasos desde Ajustes',

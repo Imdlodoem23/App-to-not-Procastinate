@@ -9,6 +9,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AchievementId } from '@centrate/shared/points';
+import { featureEnabled } from '../../../../shared/features';
 import { useAppStore, useAppStoreApi } from '../../store/context';
 import type { AchievementStatus } from '../../../../shared/platform';
 import type { UiError } from '../../../../shared/ui-state';
@@ -38,6 +39,9 @@ export function useLogros(): LogrosApi {
   const request = useAppStore((s) => s.env.detail);
   const progress = useAppStore((s) => s.snapshot.progress);
   const achievedCount = progress?.achieved ?? null;
+  const study = useAppStore((s) =>
+    featureEnabled(s.snapshot.features, 'study', s.snapshot.health?.capabilities ?? null),
+  );
 
   const [list, setList] = useState<AchievementStatus[] | null>(null);
   const [loadError, setLoadError] = useState<UiError | null>(null);
@@ -102,8 +106,8 @@ export function useLogros(): LogrosApi {
 
   const focus = request?.name === 'logros' ? request.focus : null;
   const view = useMemo(
-    () => deriveLogrosView({ list, progress, fresh, focus }),
-    [list, progress, fresh, focus],
+    () => deriveLogrosView({ list, progress, fresh, focus, study }),
+    [list, progress, fresh, focus, study],
   );
 
   return {

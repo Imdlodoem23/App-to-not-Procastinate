@@ -7,7 +7,8 @@
  * 1. Bienvenida: «Empezar | Omitir» (Omitir goes straight to the app).
  * 2. Guardián: «Instalar | Omitir» (the same elevation as «Reparar»); «Continuar» once it answers.
  * 3. Extensión: the pairing code at 32 px and the per-browser guides; «Continuar» once connected.
- * 4. Cámara: arrives with Study Mode, so «Probar cámara» says so and the step can be skipped.
+ * 4. Cámara: what Study Mode will do with it; «Continuar» (its help says the test arrives with
+ *    Study Mode). «Probar cámara | Omitir» only with the `study` flag (hidden, never greyed out).
  * 5. Primer bloqueo: «no veo YouTube en 25 minutos» already typed in «¿Qué quieres hacer?»;
  *    «Crear bloqueo» (or Enter) finishes and opens the confirmation card with it.
  *
@@ -254,13 +255,9 @@ function stepBody(
         statusTone: 'muted',
         sentence: O.sentences.camera,
         pairing: null,
-        tiles: [
-          tile('camera', O.tiles.camera, O.help.camera, {
-            disabled: !available,
-            disabledReason: O.cameraUnavailable,
-          }),
-          skip(step),
-        ],
+        tiles: available
+          ? [tile('camera', O.tiles.camera, O.help.camera), skip(step)]
+          : [tile('continue', O.tiles.continue, O.help.cameraLater)],
       };
     }
     case 'first-block':

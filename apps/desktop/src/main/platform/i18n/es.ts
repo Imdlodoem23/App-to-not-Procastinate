@@ -13,6 +13,8 @@ export const PLATFORM_ES = {
     maxReached: 'Como mucho 24 h en total',
     miniTimerShown: 'Mini temporizador',
     miniTimerHidden: 'Mini temporizador oculto',
+    /** «Salir» refused while a Nuclear punishment lasts. */
+    nuclearQuit: 'Nuclear en curso · usa la salida de emergencia',
   },
   csv: {
     dialogTitle: 'Exportar CSV',

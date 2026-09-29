@@ -10,7 +10,9 @@
  *    or a harness run without `--harness-show`; pre-warm the detail window ~1 s later.
  * 4. The X only hides. «Salir» (footer, tray, Cmd+Q) quits after `core.shutdown`, which
  *    sends the extensions still waiting in the undo queue. Blocks stay active: the guardian
- *    enforces them.
+ *    enforces them. While a Nuclear punishment is trusted (`windows/nuclear-lock.ts`) every
+ *    quit the user can repeat is refused with an OSD («usa la salida de emergencia»); only the
+ *    OS going away (session end, shutdown) quits. Harness runs never refuse a native quit.
  * 5. Phase 5 (docs/DESKTOP.md §15): PLATFORM's services (surfaces, OSD, shortcuts, updater,
  *    local statistics) start after the core; they are disposed before the final quit.
  */
@@ -42,6 +44,7 @@ import {
 import { createPlatformServices } from '../platform';
 import { runFile } from '../system/exec';
 import { TrayController } from '../tray/controller';
+import { quitRefused } from '../windows/nuclear-lock';
 import type { TrayAction } from '../tray/model';
 import { electronDisplaySource, primaryHostScreen } from '../windows/display-source';
 import { registerWindowIpc } from '../windows/ipc-window';
@@ -146,6 +149,8 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
     : { kind: 'file', path: paths.rendererHtml };
 
   let quitting = false;
+  /** The OS is going away (session end, shutdown): nothing refuses the quit then. */
+  let osQuit = false;
   const windows = new WindowShell({
     platform,
     packaged,
@@ -156,6 +161,7 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
     neutralServiceIcons: launch.harness?.neutralServiceIcons ?? false,
     isQuitting: () => quitting,
     onSessionEnd: () => {
+      osQuit = true;
       quitting = true;
     },
     notify: (title, body) => {
@@ -221,13 +227,25 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
     return snapshotFeature(snapshot, 'osd') && snapshot.prefs.osd;
   };
 
+  /** «Salir» from the tray or the footer: refused while Nuclear lasts. */
+  const requestQuit = (): void => {
+    if (platformServices && quitRefused(platformServices.nuclearLocked(), 'user')) {
+      platformServices.refuseQuit();
+      return;
+    }
+    app.quit();
+  };
+
   const runTrayAction = (action: TrayAction): void => {
     switch (action.type) {
       case 'open':
         windows.showMain('tray-menu');
         return;
       case 'quit':
-        app.quit();
+        requestQuit();
+        return;
+      case 'emergency':
+        platformServices?.emergencyExit();
         return;
       case 'mini-timer':
         platformServices?.toggleMiniTimer(null);
@@ -296,9 +314,6 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
     openExternal: (url) => {
       void electronShell.openExternal(url);
     },
-    prepareQuit: () => {
-      quitting = true;
-    },
     toggleMain: () => {
       windows.toggleFromTray();
     },
@@ -311,7 +326,7 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
     shell: windows,
     core,
     log: appLog('ipc'),
-    quit: () => app.quit(),
+    quit: requestQuit,
     openGuide: (guide) => {
       void electronShell.openExternal(GUIDE_URLS[guide]);
     },
@@ -392,11 +407,23 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
   powerMonitor.on('unlock-screen', () => core.refreshNow('resume'));
   // The OS is going away: let the windows close instead of hiding.
   powerMonitor.on('shutdown', () => {
+    osQuit = true;
     quitting = true;
   });
 
   let shutdownDone = false;
   app.on('before-quit', (event) => {
+    // Cmd+Q, the Dock's «Quit», SIGTERM, or electron-updater's quit after an install: refused
+    // while Nuclear lasts, unless the OS is going away. The windows keep refusing to close.
+    if (
+      !shutdownDone &&
+      !resolved &&
+      quitRefused(platformHost.nuclearLocked(), osQuit ? 'os' : 'user')
+    ) {
+      event.preventDefault();
+      platformHost.refuseQuit();
+      return;
+    }
     quitting = true;
     if (shutdownDone) return;
     event.preventDefault();

@@ -6,16 +6,34 @@
  * removing applies at once. Distractions are refused with the reason.
  *
  * Results show on the help line (not a live region: the window's polite region reads them).
+ *
+ * Removing a chip (or allowing a suggestion, which then leaves the suggestions) unmounts the
+ * focused button once the guardian accepts it; the focus moves to the chip that took its place,
+ * else the previous one, else the field of that kind, never to <body> (WCAG 2.4.3).
  */
 import { AppWindow, Globe } from 'lucide-react';
+import { useLayoutEffect, useRef } from 'react';
 import { Field, HelpLine, TextButton, Tile } from '../../components';
 import { errorCopy } from '../../i18n/errors';
 import { BLOQUEOS } from './i18n';
 import { EntryChip, SuggestionChip, isPlainEnter } from './parts';
 import type { BloqueosActions, Notice } from './useBloqueosWindow';
 import { BLOQUEOS_IDS, BLOQUEOS_KEYS, type ExamWhitelistView } from './view';
+import type { WhitelistKind } from './whitelist';
 
 const W = BLOQUEOS.exam.whitelist;
+
+/** The chip whose press may unmount it: where it was, and which field is the last resort. */
+interface FocusIntent {
+  button: HTMLElement;
+  list: 'entries' | 'suggestions';
+  index: number;
+  kind: WhitelistKind;
+}
+
+function isFocusable(el: HTMLElement | null | undefined): el is HTMLElement {
+  return !!el && el.isConnected && !(el instanceof HTMLInputElement && el.disabled);
+}
 
 export function WhitelistEditor(props: {
   view: ExamWhitelistView;
@@ -30,8 +48,42 @@ export function WhitelistEditor(props: {
   const ready = view.status === 'ready';
   const savingReason = view.saving ? BLOQUEOS.schedules.editor.saving : undefined;
 
+  const groupRef = useRef<HTMLDivElement>(null);
+  const entriesRef = useRef<HTMLDivElement>(null);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
+  const domainRef = useRef<HTMLInputElement>(null);
+  const processRef = useRef<HTMLInputElement>(null);
+  const intent = useRef<FocusIntent | null>(null);
+
+  const remember = (list: FocusIntent['list'], index: number, kind: FocusIntent['kind']): void => {
+    const active = document.activeElement;
+    intent.current =
+      active instanceof HTMLElement && active.closest('.blq-chip') === active
+        ? { button: active, list, index, kind }
+        : null;
+  };
+
+  // Once the pressed chip is gone (the guardian accepted the change), give the focus to its
+  // neighbour or its field, unless the user already moved it somewhere else.
+  useLayoutEffect(() => {
+    const pending = intent.current;
+    if (!pending || pending.button.isConnected) return;
+    intent.current = null;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    const container = pending.list === 'entries' ? entriesRef.current : suggestionsRef.current;
+    const chips = container
+      ? Array.from(container.querySelectorAll<HTMLElement>(':scope > .blq-chip'))
+      : [];
+    const field = pending.kind === 'domain' ? domainRef.current : processRef.current;
+    const target = [chips[pending.index], chips[pending.index - 1], field].find(isFocusable);
+    (target ?? groupRef.current?.closest<HTMLElement>('[data-section]'))?.focus({
+      preventScroll: false,
+    });
+  }, [view.entries, view.suggestions, view.status]);
+
   return (
-    <div className="blq-whitelist" role="group" aria-labelledby={titleId}>
+    <div ref={groupRef} className="blq-whitelist" role="group" aria-labelledby={titleId}>
       <h3 id={titleId} className="blq-editor-title">
         {view.title}
       </h3>
@@ -44,15 +96,18 @@ export function WhitelistEditor(props: {
         </div>
       ) : null}
       {view.entries.length > 0 ? (
-        <div className="blq-chips" role="group" aria-label={W.listLabel}>
-          {view.entries.map((entry) => (
+        <div ref={entriesRef} className="blq-chips" role="group" aria-label={W.listLabel}>
+          {view.entries.map((entry, index) => (
             <EntryChip
               key={`${entry.kind}:${entry.value}`}
               label={entry.label}
               ariaLabel={entry.removeLabel}
               describedBy={helpId}
               pending={entry.pendingWhen !== null}
-              onPress={() => actions.removeWhitelistEntry(entry)}
+              onPress={() => {
+                remember('entries', index, entry.kind);
+                actions.removeWhitelistEntry(entry);
+              }}
             />
           ))}
         </div>
@@ -64,6 +119,7 @@ export function WhitelistEditor(props: {
             <div className="blq-field-row">
               <Field
                 id={BLOQUEOS_IDS.whitelistDomain}
+                ref={domainRef}
                 value={props.domainInput}
                 label={W.domainsLabel}
                 placeholder={W.domainPlaceholder}
@@ -95,6 +151,7 @@ export function WhitelistEditor(props: {
             <div className="blq-label">{W.appsLabel}</div>
             <div className="blq-field-row">
               <Field
+                ref={processRef}
                 value={props.processInput}
                 label={W.appsLabel}
                 placeholder={W.appPlaceholder}
@@ -122,13 +179,21 @@ export function WhitelistEditor(props: {
               />
             </div>
             {view.suggestions.length > 0 ? (
-              <div className="blq-chips" role="group" aria-label={W.suggestionsLabel}>
-                {view.suggestions.map((name) => (
+              <div
+                ref={suggestionsRef}
+                className="blq-chips"
+                role="group"
+                aria-label={W.suggestionsLabel}
+              >
+                {view.suggestions.map((name, index) => (
                   <SuggestionChip
                     key={name}
                     label={name}
                     ariaLabel={`${W.add} ${name}`}
-                    onPress={() => actions.allowSuggestion(name)}
+                    onPress={() => {
+                      remember('suggestions', index, 'process');
+                      actions.allowSuggestion(name);
+                    }}
                   />
                 ))}
               </div>
