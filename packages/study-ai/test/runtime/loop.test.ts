@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CpuGovernor } from '../../src/runtime/governor';
-import { AdaptiveLoop, DUTY_BURST_MS, MAX_STEP_DUTY, type LoopStep } from '../../src/runtime/loop';
+import {
+  AdaptiveLoop,
+  DUTY_BURST_MS,
+  MAX_HOLD_MS,
+  MAX_STEP_DUTY,
+  OBJECTS_STARVED_MS,
+  type LoopStep,
+} from '../../src/runtime/loop';
 import { analyseNextFrame, FrameCadence } from '../../src/runtime/frame-step';
 import type { LoopPlan, StepCost } from '../../src/types';
 import { FakeScheduler, FakeSource, FakeVision } from './fakes';
@@ -29,8 +36,11 @@ async function dutyOf(
   const governor = new CpuGovernor();
   let busy = 0;
   let steps = 0;
+  let lastStart = 0;
   const loop = new AdaptiveLoop(
-    async (now) => {
+    async (now, plan) => {
+      if (!plan.analyse) return null; // a hold tick: no vision work
+      lastStart = now;
       steps += 1;
       s.t += computeMs;
       busy += computeMs;
@@ -42,10 +52,9 @@ async function dutyOf(
   );
   loop.start();
   await s.advance(seconds * 1_000);
-  // Up to the next step: a step's idle time comes after it, so a window that ends right after
-  // a long step would cut its repayment off.
-  const nextAt = s.t + Math.min(...s.delays());
-  return { duty: busy / nextAt, steps, loop, governor };
+  // Up to the start of the last analysed step, which the cap allowed: a step's repayment comes
+  // after it, so a window that ends right after a long step would cut it off.
+  return { duty: (busy - computeMs) / lastStart, steps, loop, governor };
 }
 
 function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
@@ -55,6 +64,9 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
   });
   return { promise, resolve };
 }
+
+/** Grid slack after a step that overran its interval. */
+const MIN_GAP_SLACK = 20;
 
 describe('AdaptiveLoop', () => {
   const originalRaf = (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame;
@@ -319,13 +331,15 @@ describe('AdaptiveLoop', () => {
 });
 
 describe('AdaptiveLoop: hard duty cap', () => {
-  const allowed = (seconds: number): number => MAX_STEP_DUTY + DUTY_BURST_MS / (seconds * 1_000);
+  /** The cap, plus the bucket's burst and the first step (the warm-up, not charged). */
+  const allowed = (seconds: number, warmUpMs = 0): number =>
+    MAX_STEP_DUTY + (DUTY_BURST_MS + warmUpMs) / (seconds * 1_000);
 
   for (const computeMs of [150, 400, 600, 900]) {
     it(`a ${computeMs} ms step never takes more than ${MAX_STEP_DUTY * 100} % of a core`, async () => {
       const { duty, steps, loop, governor } = await dutyOf(computeMs, 60);
       // Without the cap: 30 %, 81 %, 99 %, 99 % of a core at L4 (a busy loop).
-      expect(duty).toBeLessThanOrEqual(allowed(60));
+      expect(duty).toBeLessThanOrEqual(allowed(60, computeMs));
       // It keeps analysing, as fast as the cap allows.
       expect(steps).toBeGreaterThanOrEqual(Math.floor((60_000 * MAX_STEP_DUTY) / computeMs) - 1);
       expect(governor.level).toBe(5);
@@ -391,8 +405,11 @@ describe('AdaptiveLoop: hard duty cap', () => {
   it('a failing step is charged its wall time', async () => {
     const s = new FakeScheduler();
     let steps = 0;
+    let lastStart = 0;
     const loop = new AdaptiveLoop(
-      async () => {
+      async (now, plan) => {
+        if (!plan.analyse) return null;
+        lastStart = now;
         steps += 1;
         s.t += 600;
         throw new Error('WASM abort');
@@ -403,10 +420,138 @@ describe('AdaptiveLoop: hard duty cap', () => {
     );
     loop.start();
     await s.advance(60_000);
-    const nextAt = s.t + Math.min(...s.delays());
     loop.stop();
-    expect(loop.stats.errors).toBe(steps);
-    expect((steps * 600) / nextAt).toBeLessThanOrEqual(allowed(60));
+    expect(loop.stats.errors).toBe(steps); // hold ticks do no work, so they never throw
+    expect(((steps - 1) * 600) / lastStart).toBeLessThanOrEqual(allowed(60));
+  });
+});
+
+/**
+ * A camera step on a slow machine: `faceMs` per frame, plus `objectMs` when the cadence runs
+ * the detector (with no face in view the governor asks for it at ≥ 1 Hz).
+ */
+function slowMachine(
+  s: FakeScheduler,
+  faceMs: number,
+  objectMs: number,
+): {
+  step: LoopStep;
+  analysed: number[];
+  detector: number[];
+  holds: number[];
+  busy: () => number;
+} {
+  const cadence = new FrameCadence();
+  const analysed: number[] = [];
+  const detector: number[] = [];
+  const holds: number[] = [];
+  let busy = 0;
+  const step: LoopStep = async (now, plan) => {
+    if (!plan.analyse) {
+      holds.push(now);
+      return null;
+    }
+    const options = cadence.options(now, plan);
+    const cost = faceMs + (options.objects ? objectMs : 0);
+    s.t += cost;
+    busy += cost;
+    cadence.done(now, options);
+    analysed.push(now);
+    if (options.objects) detector.push(now);
+    return {
+      at: now,
+      visionMs: faceMs,
+      objectMs: options.objects ? objectMs : 0,
+      otherMs: 0,
+      ranObjects: options.objects,
+      faceSeen: false,
+    };
+  };
+  return { step, analysed, detector, holds, busy: () => busy };
+}
+
+describe('AdaptiveLoop: the duty cap never leaves a gap the rules read as a failure', () => {
+  for (const objectMs of [450, 900, 1_500]) {
+    it(`face 100 ms + detector ${objectMs} ms with no face: ticks ≤ ${MAX_HOLD_MS} ms apart plus the step`, async () => {
+      const s = new FakeScheduler();
+      const m = slowMachine(s, 100, objectMs);
+      const loop = new AdaptiveLoop(m.step, new CpuGovernor(), s, s);
+      loop.start();
+      await s.advance(120_000);
+      const stats = loop.stats;
+      loop.stop();
+      // Under the camera's stall time (3 s) and the engine's gap reset (5 s).
+      expect(stats.maxGapMs).toBeLessThanOrEqual(MAX_HOLD_MS + 100 + objectMs);
+      expect(stats.maxGapMs).toBeLessThan(3_000);
+      // Still within the cap: the debt is repaid with hold ticks, not with long sleeps.
+      const last = m.analysed.at(-1) ?? 0;
+      const lastCost = 100 + (m.detector.at(-1) === last ? objectMs : 0);
+      expect((m.busy() - lastCost) / last).toBeLessThanOrEqual(
+        MAX_STEP_DUTY + (DUTY_BURST_MS + 100 + objectMs) / 120_000,
+      );
+      expect(m.holds.length).toBeGreaterThan(0);
+      // The detector gives way to the bucket, but never for more than 8 s, or the time one
+      // run takes to repay when that is longer (a 1.5 s detector at 15 %).
+      const every = Math.max(OBJECTS_STARVED_MS, (100 + objectMs) / MAX_STEP_DUTY) + 1_600;
+      const gaps = m.detector.slice(1).map((t, i) => t - (m.detector[i] as number));
+      expect(Math.max(...gaps)).toBeLessThanOrEqual(every);
+      expect(m.detector.length).toBeGreaterThanOrEqual(Math.floor(120_000 / every));
+      expect(stats.overBudget).toBe(true);
+    });
+  }
+
+  it("the detector waits for the bucket instead of the governor's 1 Hz no-face floor", async () => {
+    const s = new FakeScheduler();
+    const plans: { objectsAllowed: boolean; analyse: boolean }[] = [];
+    const m = slowMachine(s, 30, 400);
+    const loop = new AdaptiveLoop(
+      async (now, plan) => {
+        plans.push({ objectsAllowed: plan.objectsAllowed, analyse: plan.analyse });
+        return m.step(now, plan);
+      },
+      new CpuGovernor(),
+      s,
+      s,
+    );
+    loop.start();
+    await s.advance(60_000);
+    loop.stop();
+    // 1 Hz × 400 ms would be 40 % of a core: the bucket allows far fewer runs.
+    expect(m.detector.length).toBeLessThan(60 * 0.25);
+    expect(m.detector.length).toBeGreaterThanOrEqual(60_000 / OBJECTS_STARVED_MS - 1);
+    expect(plans.some((p) => p.analyse && !p.objectsAllowed)).toBe(true);
+    // Face-only frames keep coming in between (≥ 1 fps).
+    expect(m.analysed.length - m.detector.length).toBeGreaterThanOrEqual(60);
+  });
+
+  it('does not charge the warm-up: a slow first frame does not stall the start', async () => {
+    const s = new FakeScheduler();
+    const starts: number[] = [];
+    let i = 0;
+    const loop = new AdaptiveLoop(
+      async (now) => {
+        starts.push(now);
+        // The first frame loads the models' kernels (1.5 s with WebGL off), then 10 ms.
+        const ms = i === 0 ? 1_500 : 10;
+        const ranObjects = i === 0;
+        i += 1;
+        s.t += ms;
+        return {
+          ...frameCost(now),
+          visionMs: ranObjects ? 10 : ms,
+          objectMs: ranObjects ? ms - 10 : 0,
+          ranObjects,
+        };
+      },
+      new CpuGovernor(),
+      s,
+      s,
+    );
+    loop.start();
+    await s.advance(5_000);
+    loop.stop();
+    expect((starts[1] ?? Infinity) - (starts[0] ?? 0)).toBeLessThanOrEqual(1_500 + MIN_GAP_SLACK);
+    expect(loop.stats.overBudget).toBe(false);
   });
 });
 

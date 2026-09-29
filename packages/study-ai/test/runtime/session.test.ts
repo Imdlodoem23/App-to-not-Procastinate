@@ -629,6 +629,64 @@ describe('study session facade (wiring)', () => {
     expect(r.s.pending).toBe(0);
   });
 
+  for (const phase of ['break', 'paused'] as const) {
+    it(`started during a ${phase} (window recreated, re-attach): the camera waits for work`, async () => {
+      const r = rig();
+      const f = fakeParts();
+      const profileJson = serializeProfile(profileFor('baseline'));
+      const off: ContextInput = { ...WORK, phase };
+      const handle = await startStudySessionWith(
+        r.options({ profileJson, initialContext: off }),
+        f.parts,
+      );
+      expect(r.visionLoads).toBe(1); // ready for when work resumes
+      expect(handle.report().mode).toBe('camera');
+      await run(r, handle, 60_000, off);
+      expect(r.camera.calls).toEqual([]);
+      expect(eventsOf(r.events, 'camera').map((e) => e.status)).toEqual(['off']); // never on
+      expect(handle.report().cameraOn).toBe(false);
+      expect(handle.report().snapshot.hints).not.toContain('recalibrate');
+      expect(f.engine().ticks.every((t) => t.camera === 'off' && t.frame === null)).toBe(true);
+
+      await run(r, handle, 3_000);
+      expect(r.camera.calls).toHaveLength(1);
+      expect(handle.report().cameraOn).toBe(true);
+      expect(handle.report().camera).toBe('ok');
+      expect(f.observers[0]?.classifier.kind).toBe('personal'); // picked by its identity
+      expect(eventsOf(r.events, 'hint').map((e) => e.code)).not.toContain('recalibrate');
+      expect(f.engine().ticks.at(-1)?.frame).not.toBeNull();
+      await handle.stop();
+    });
+
+    it(`a recovery timer firing during a ${phase} opens no camera until work resumes`, async () => {
+      const r = rig();
+      r.camera.failWith = new CameraError('in_use');
+      const f = fakeParts();
+      const handle = await startStudySessionWith(r.options(), f.parts);
+      expect(handle.report().mode).toBe('no-camera');
+      r.camera.failWith = null; // the call ended
+      const off: ContextInput = { ...WORK, phase };
+      await run(
+        r,
+        handle,
+        (RECOVERY_DELAYS_MS[0] as number) + (RECOVERY_DELAYS_MS[1] as number) + 5_000,
+        off,
+      );
+      expect(r.camera.calls).toHaveLength(1); // only the start attempt
+      expect(eventsOf(r.events, 'camera').map((e) => e.status)).toEqual(['error']);
+      expect(handle.report().mode).toBe('no-camera');
+      expect(handle.report().cameraOn).toBe(false);
+
+      await run(r, handle, 2_000);
+      expect(r.camera.calls).toHaveLength(2);
+      expect(handle.report().mode).toBe('camera');
+      expect(handle.report().cameraOn).toBe(true);
+      expect(eventsOf(r.events, 'mode').at(-1)?.reason).toBe('recovered');
+      await handle.stop();
+      expect(r.s.pending).toBe(0);
+    });
+  }
+
   it('«Seguir sin cámara» after a start-time failure stops the retries', async () => {
     const r = rig();
     r.camera.failWith = new CameraError('in_use');
@@ -1084,6 +1142,106 @@ describe('study session facade: the chosen camera, by label', () => {
     expect(handle.report().snapshot.hints).not.toContain('camera_default');
     const hints = eventsOf(r.events, 'hint').filter((e) => e.code === 'camera_default');
     expect(hints.map((e) => e.active)).toEqual([true, false]);
+    await handle.stop();
+  });
+
+  it('unplugged and replugged 3 s later with a built-in camera present: back on the chosen one', async () => {
+    const r = rig();
+    const both = (): { deviceId: string; label: string }[] => [
+      { deviceId: 'built-in', label: BUILT_IN },
+      { deviceId: 'usb', label: USB },
+    ];
+    r.camera.devices = both();
+    r.camera.identities.set(BUILT_IN, USB_ID); // the built-in camera looks different
+    const profileJson = serializeProfile(profileFor('baseline')); // calibrated on the USB one
+    const f = fakeParts();
+    const handle = await startStudySessionWith(
+      r.options({ cameraLabel: USB, profileJson }),
+      f.parts,
+    );
+    await run(r, handle, 2_000);
+    const usb = r.camera.last;
+    r.camera.devices = [{ deviceId: 'built-in', label: BUILT_IN }];
+    usb.status = 'error'; // unplugged
+    await run(r, handle, 3_000);
+    // Not the built-in camera: the chosen one gets its grace to re-enumerate.
+    expect(r.camera.calls.every((c) => c.deviceId !== null)).toBe(true);
+    r.camera.devices = both();
+    await run(r, handle, 10_000);
+    expect(r.camera.last.deviceId).toBe('usb');
+    expect(r.camera.last.stopped).toBe(0);
+    const report = handle.report();
+    expect(report.camera).toBe('ok');
+    expect(report.snapshot.hints).not.toContain('camera_default');
+    expect(report.snapshot.hints).not.toContain('recalibrate');
+    expect(f.observers[0]?.classifier.kind).toBe('personal');
+    await handle.stop();
+  });
+
+  it('on the default camera mid-session: back on the chosen one within ~10 s of its return', async () => {
+    const r = rig();
+    const both = (): { deviceId: string; label: string }[] => [
+      { deviceId: 'built-in', label: BUILT_IN },
+      { deviceId: 'usb', label: USB },
+    ];
+    r.camera.devices = both();
+    r.camera.identities.set(BUILT_IN, USB_ID);
+    const profileJson = serializeProfile(profileFor('baseline'));
+    const f = fakeParts();
+    const handle = await startStudySessionWith(
+      r.options({ cameraLabel: USB, profileJson }),
+      f.parts,
+    );
+    await run(r, handle, 2_000);
+    r.camera.devices = [{ deviceId: 'built-in', label: BUILT_IN }];
+    r.camera.last.status = 'error'; // unplugged for good…
+    await run(r, handle, 20_000);
+    const fallback = r.camera.last;
+    expect(fallback.deviceId).toBeNull(); // …so after the 15 s grace: the default camera
+    expect(handle.report().camera).toBe('ok');
+    expect(handle.report().snapshot.hints).toContain('camera_default');
+    expect(handle.report().snapshot.hints).toContain('recalibrate');
+    expect(f.observers[0]?.classifier.kind).toBe('generic');
+
+    // Plugged back in mid-work (no break): found by the periodic check.
+    r.camera.devices = both();
+    await run(r, handle, 11_000);
+    expect(r.camera.last.deviceId).toBe('usb');
+    expect(fallback.stopped).toBe(1);
+    const report = handle.report();
+    expect(report.camera).toBe('ok');
+    expect(report.snapshot.hints).not.toContain('camera_default');
+    expect(report.snapshot.hints).not.toContain('recalibrate');
+    expect(f.observers[0]?.classifier.kind).toBe('personal');
+    const defaults = eventsOf(r.events, 'hint').filter((e) => e.code === 'camera_default');
+    expect(defaults.map((e) => e.active)).toEqual([true, false]);
+
+    // Stays there: no more opens while the chosen camera works.
+    const opens = r.camera.calls.length;
+    await run(r, handle, 60_000);
+    expect(r.camera.calls.length).toBe(opens);
+    await handle.stop();
+  });
+
+  it('a chosen camera that is listed but busy keeps the working default camera', async () => {
+    const r = rig();
+    r.camera.devices = [{ deviceId: 'built-in', label: BUILT_IN }];
+    const f = fakeParts();
+    const handle = await startStudySessionWith(r.options({ cameraLabel: USB }), f.parts);
+    const fallback = r.camera.last;
+    r.camera.devices = [
+      { deviceId: 'built-in', label: BUILT_IN },
+      { deviceId: 'usb', label: USB },
+    ];
+    r.camera.failWith = new CameraError('in_use');
+    await run(r, handle, 25_000);
+    expect(fallback.stopped).toBe(0);
+    expect(handle.report().camera).toBe('ok');
+    expect(r.camera.calls.filter((c) => c.deviceId === 'usb').length).toBeGreaterThanOrEqual(2);
+    r.camera.failWith = null;
+    await run(r, handle, 11_000);
+    expect(r.camera.last.deviceId).toBe('usb');
+    expect(fallback.stopped).toBe(1);
     await handle.stop();
   });
 

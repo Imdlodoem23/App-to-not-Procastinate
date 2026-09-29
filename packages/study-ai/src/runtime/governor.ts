@@ -24,7 +24,9 @@
  * - **Emergency level** (default levels only): when even L4 does not fit the target, L5 keeps
  *   2 fps but runs the detector every 16 frames (8 s), with `overBudget` set. Below that the
  *   loop's hard duty cap (`AdaptiveLoop`, 15 % of one core) stretches the steps: a controlled
- *   1–1.5 fps instead of a busy loop.
+ *   1–1.5 fps instead of a busy loop. The cap also has the last word on the detector: the 1 Hz
+ *   no-face/alert rate above gives way when the bucket cannot pay for it (never below one run
+ *   per 8 s).
  */
 import { STUDY_AI_CONSTANTS } from '../config';
 import type { CpuBudget, LoopLevel, LoopPlan, MonoMs, StepCost } from '../types';
@@ -208,6 +210,11 @@ export class CpuGovernor {
   /** Predicted duty (share of one core) of the current level. */
   get duty(): number {
     return this.predict(this.current);
+  }
+
+  /** Typical cost of a detector run (ms; EMA, outliers skipped), 0 while unknown. */
+  get objectCostMs(): number {
+    return this.object.samples === 0 ? 0 : this.object.value;
   }
 
   /** Current level index (0 = fastest). */

@@ -371,6 +371,7 @@ wizard can say «no te veo» before the 20 s run out.
 | `phone_not_seen`  | warning  | `phone` with phone score ≥ 0.3 in < 20 % of detector runs                                                                 |
 | `same_as_screen`  | error    | `away` with median \|dyaw\| < 12° and \|dpitch\| < 10° from screen                                                        |
 | `unstable`        | warning  | `screen` pose IQR > 15°                                                                                                   |
+| `narrow_gaze`     | warning  | `screen` gazeX IQR < 0.05: the eyes stayed on one spot; the wizard asks to read across the whole screen (moving target)   |
 | `missing`         | error    | a class with no clip at build time                                                                                        |
 | `weak_separation` | warning  | set after training, with the confused `pair`, when the CV binary balanced accuracy is < 0.85; the profile is still usable |
 
@@ -618,7 +619,7 @@ and keeps the floor.
   - `eyes_closed` on entering drowsy;
   - `yawning` after 3 yawns in 5 min;
   - at most one per 10 min, never a strike.
-- **Stale profile** (personal classifier only): in the first 120 s, among face frames with input active and no F_dist, if there are ≥ 60 such frames and ≥ 70 % have argmax `away`:
+- **Stale profile** (personal classifier only): rolling over any 120 s of observed work time, among face frames with input active and no F_dist that the fallback calls study, if there are ≥ 60 such frames and ≥ 70 % have p_away ≥ 0.3 (`STALE_AWAY_P`; not only argmax `away`: the scan augmentation of §6.7 makes a pose just past the calibrated screen ambiguous rather than clearly away):
   - switch to the fallback (generic) classifier;
   - raise the sticky `recalibrate` hint.
 

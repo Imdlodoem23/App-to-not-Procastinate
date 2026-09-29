@@ -29,6 +29,13 @@ export const AWAY_MIN_DYAW = 12;
 export const AWAY_MIN_DPITCH = 10;
 /** `unstable`: screen yaw or pitch IQR above this. */
 export const SCREEN_MAX_IQR = 15;
+/**
+ * `narrow_gaze`: screen `gazeX` IQR under this. The eyes stayed on one spot (often the
+ * wizard's own preview) instead of reading across the screen. Training copes with it (scan
+ * augmentation, gaze scale floor), but a clip that reads across the screen is better: the
+ * wizard asks to follow a moving target or to read from one edge to the other.
+ */
+export const SCREEN_MIN_GAZE_IQR = 0.05;
 /** Live issues are reported once this many rows (or detector runs) exist. */
 export const LIVE_MIN_ROWS = 8;
 export const LIVE_MIN_RUNS = 10;

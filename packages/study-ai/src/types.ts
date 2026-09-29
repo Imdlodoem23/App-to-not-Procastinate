@@ -491,6 +491,7 @@ export type CalibrationIssueCode =
   | 'phone_not_seen'
   | 'same_as_screen'
   | 'unstable'
+  | 'narrow_gaze'
   | 'weak_separation';
 
 export interface CalibrationIssue {

@@ -93,6 +93,7 @@ const CALIBRATION_ISSUE_CODES = vocabulary<CalibrationIssueCode>()([
   'phone_not_seen',
   'same_as_screen',
   'unstable',
+  'narrow_gaze',
   'weak_separation',
 ]);
 const FEEDBACK_REJECTIONS = vocabulary<FeedbackRejectionReason>()([

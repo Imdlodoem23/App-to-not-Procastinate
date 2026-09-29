@@ -18,6 +18,7 @@ import { profileFor } from '../calibration/fixtures';
 import { PERSONAS, synthesize, type Persona, type Script, type SynthTick } from '../synth';
 import { FakeCamera, FakeScheduler, FakeVision, plainFeatures, shiftFrame } from '../runtime/fakes';
 import { LiveFrames } from './live-frames';
+import { STALL_AFTER_MS } from '../../src/perception/constants';
 
 const ASSETS: VisionAssets = {
   wasmBaseUrl: 'centrate-ai://assets/mediapipe',
@@ -122,14 +123,16 @@ const LEVEL_COSTS = {
 async function playLive(
   script: Script,
   seed: number,
-  level: keyof typeof LEVEL_COSTS,
+  level: keyof typeof LEVEL_COSTS | { faceMs: number; objectMs: number },
   persona: Persona = PERSONAS.baseline,
 ): Promise<Run & { levels: number[] }> {
   const s = new FakeScheduler(50_000);
   const t0 = s.t;
   const camera = new FakeCamera(s);
+  // Like the real source: `stalled` once the loop has not taken a frame for 3 s.
+  camera.stallAfterMs = STALL_AFTER_MS;
   const vision = new FakeVision(s);
-  const costs = LEVEL_COSTS[level];
+  const costs = typeof level === 'string' ? LEVEL_COSTS[level] : level;
   vision.cost = { faceMs: costs.faceMs, objectMs: 0, lumaMs: 0.5, totalMs: costs.faceMs + 0.5 };
   vision.objectMs = costs.objectMs;
   const live = new LiveFrames(script, persona, seed, t0);
@@ -376,6 +379,52 @@ describe('acceptance: a phone in hand on a slow laptop (detector at the planned 
       'L4',
     );
     expect(run.strikes).toEqual([]);
+  }, 60_000);
+});
+
+/**
+ * A slow or heavily loaded machine: the duty cap must repay a slow detector run by shedding
+ * work, never with a sleep the camera reads as stalled (3 s) or the engine as unobserved time
+ * (5 s), or the absence and phone rules would silently stop (fail-open).
+ */
+describe('acceptance: a slow detector never switches the rules off', () => {
+  for (const objectMs of [700, 900, 1_500]) {
+    it(`face 100 ms + detector ${objectMs} ms: leaving still ends in \`no_face\``, async () => {
+      const run = await playLive(
+        [
+          ['screen', 30_000],
+          ['absent', 165_000],
+        ],
+        5,
+        { faceMs: 100, objectMs },
+      );
+      expect(run.strikes[0]?.cause).toBe('no_face');
+      expect(run.strikes[0]?.at ?? 0).toBeLessThanOrEqual(30_000 + 75_000);
+      const gaps = run.reports.map((r) => r.loop?.maxGapMs ?? 0);
+      expect(Math.max(...gaps)).toBeLessThan(3_000);
+      // The camera never read as stalled or lost, and no warm-up went back to `warmup`.
+      const camera = run.events.filter((e) => e.type === 'camera').map((e) => e.status);
+      expect(camera).not.toContain('stalled');
+      expect(camera).not.toContain('error');
+      expect(run.events.some((e) => e.type === 'hint' && e.code === 'camera_lost')).toBe(false);
+      const states = attention(run).flatMap((e) => (e.type === 'state' ? [e.to] : []));
+      expect(states.filter((to) => to === 'warmup')).toEqual([]);
+    }, 60_000);
+  }
+
+  // At 15 % of a core a 900 ms detector runs every ~6 s at best, too rarely for E_phone (two
+  // sightings within 5 s): the low score still leads through DUDA to a strike.
+  it('face 100 ms + detector 900 ms: a phone in hand still strikes', async () => {
+    const run = await playLive(
+      [
+        ['screen', 60_000],
+        ['phoneInHand', 150_000],
+      ],
+      101,
+      { faceMs: 100, objectMs: 900 },
+    );
+    expect(['phone', 'doubt_timeout']).toContain(run.strikes[0]?.cause);
+    expect(run.warnings.some((w) => w.kind === 'doubt')).toBe(true);
   }, 60_000);
 });
 

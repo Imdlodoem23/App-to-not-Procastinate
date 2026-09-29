@@ -40,16 +40,15 @@ import type {
   CalibrationSessionOptions,
   CameraIdentity,
   FrameSource,
-  LoopPlan,
   MonoMs,
   SituationRecording,
   StepCost,
   VisionPipeline,
 } from '../types';
 import { abortError, isCameraOpenError, isVisionContextLost } from './errors';
-import { analyseNextFrame, FrameCadence, stepCost } from './frame-step';
+import { analyseNextFrame, discardNextFrame, FrameCadence, stepCost } from './frame-step';
 import { CpuGovernor } from './governor';
-import { AdaptiveLoop } from './loop';
+import { AdaptiveLoop, type StepPlan } from './loop';
 import {
   createVisionWithin,
   openCameraWithin,
@@ -214,7 +213,7 @@ class CalibrationSession implements CalibrationSessionHandle {
   private async step(
     active: ActiveRecording,
     now: MonoMs,
-    plan: LoopPlan,
+    plan: StepPlan,
   ): Promise<StepCost | null> {
     const { recorder, source } = active;
     if (active.done || recorder === null || source === null) return null;
@@ -227,8 +226,13 @@ class CalibrationSession implements CalibrationSessionHandle {
       return null;
     }
     const vision = this.vision;
+    if (vision !== null && !plan.analyse) {
+      // A hold tick (the duty cap is being repaid): keep the camera delivering, analyse nothing.
+      await discardNextFrame(source).catch(() => undefined);
+      if (active.done) return null;
+    }
     const outcome =
-      vision === null
+      vision === null || !plan.analyse
         ? ({ kind: 'none' } as const)
         : await analyseNextFrame(
             source,

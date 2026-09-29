@@ -416,7 +416,9 @@ describe('calibration session: slow laptops and the chosen camera', () => {
       0,
     );
     const lastFrame = slow.calls.at(-1)?.frame.t ?? startedAt;
-    expect(busy / (lastFrame - startedAt)).toBeLessThanOrEqual(MAX_STEP_DUTY + 0.02);
+    // The first frame and the first detector run are the warm-up, which the cap does not charge.
+    const warmUp = slow.cost.totalMs * 2 + slow.objectMs;
+    expect((busy - warmUp) / (lastFrame - startedAt)).toBeLessThanOrEqual(MAX_STEP_DUTY + 0.02);
     // The countdown followed the planned end: it grew once, then ran down to 0.
     const recording = r.progress.filter((p) => p.phase === 'recording');
     const peak = Math.max(...recording.map((p) => p.remainingMs));

@@ -325,6 +325,12 @@ ipcMain.on('analysis:out', (event, message: unknown) => {
   The window loads MediaPipe first (≤ 30 s) and opens the camera only once it is ready (≤ 15
   s), so the camera is never on while MediaPipe loads or when it cannot; `camera{status:
 'starting'}` is sent the moment the stream opens, before the first report.
+  - A `session_start` whose `context.phase` is not `work` (a window recreated or re-attached
+    during a Pomodoro break or a «Pausa») loads MediaPipe but opens **no** camera: reports
+    say `mode: 'camera'`, `cameraOn: false`, and the camera opens when `context` says `work`
+    again (then `report.cameraOn` turns true; no second `starting`). The background retries
+    below never open a camera outside `work` either: a retry that falls in a break waits for
+    work.
   - the camera cannot be opened (in use, blocked by the OS, unplugged) or does not answer
     within 15 s → `camera{status: 'error', error}`, then `mode{no-camera}`: the session runs
     without camera. (The mode reason is `vision_failed`, «the camera analysis is unavailable»,
@@ -359,6 +365,19 @@ ipcMain.on('analysis:out', (event, message: unknown) => {
   session**: after that, stop (heartbeats end within 60 s and the guardian applies its
   abandonment rule). Unlimited recreation would let a user reset the doubt timers by killing
   the renderer.
+- **A suspend is never a hung window** (ARCHITECTURE §10.4: a suspended machine is never
+  punished). Main's clock may include the time asleep (`Date.now()` everywhere; on Windows
+  `performance.now()` too), so after every lid-close the 20 s check would see a silent window,
+  destroy a healthy one, restart its camera and warm-up and spend one of the 2 recreations;
+  the third lid-close of a long session would then end in abandonment. So:
+  - between `powerMonitor` `suspend` and `resume`, pause the 20 s hung-window watchdog;
+  - on `resume`, reset its baseline (`lastReportAt = now`) and give the window a **20 s
+    grace** from then before calling it hung; call `acc.resume(now)` before the immediate
+    heartbeat (§4);
+  - only `render-process-gone` and a window that stays silent past that grace count toward the
+    2 recreations. A suspend without a `suspend` event (a hard sleep) is covered by the
+    resume-time reset alone.
+
 - Calibration opens the camera only while a situation is being recorded (§6); a camera problem
   answers that `calibration_record` with `error{camera_failed, camera}` and the wizard can try
   again. On a laptop too slow for 4 fps a recording lasts longer than 20 s (up to 60 s, until
@@ -383,8 +402,13 @@ has no `deviceId` at all:
 - Send it as `cameraLabel` in `session_start` and `calibration_start`. The window resolves it
   on every open (start, every reopen after an unplug or a break, every calibration clip).
 - A session whose chosen camera is missing uses the default camera and turns the
-  `camera_default` hint on (§6); the hint turns off when a later open finds the chosen camera
-  (after a break, or a reopen). A calibration recording never falls back: it fails with
+  `camera_default` hint on (§6). While on the default camera the window checks its device list
+  every 10 s; when the chosen camera is listed again it opens it and, once that worked,
+  switches to it (the hint turns off, and the personal classifier and its `recalibrate` hint
+  follow the camera). A chosen camera whose track ends mid-session (unplug, a USB hub glitch,
+  docking) is retried on its own every 2 s for 15 s before the default camera is used, since
+  USB re-enumeration takes 1–3 s; meanwhile the camera reads as lost (fails closed, as any
+  camera loss). A calibration recording never falls back: it fails with
   `error{camera_failed, not_found}`, since a profile is only valid for the camera it was
   recorded with.
 - The wizard's visible preview picks its own camera by the same label (its own
@@ -574,11 +598,57 @@ const notActive = (e: unknown): boolean =>
   60 s later, the heartbeats would stop and «Terminar» would turn into abandonment.
 
 - **The session ended elsewhere** (completed at the planned end, third strike, abandoned,
-  interrupted): a heartbeat or `GET …/current` shows `status` ≠ `active`, or a study call
-  answers 409 `study_not_active`. Stop heartbeating and retrying, send `session_stop`, and show
-  «Resumen» from `GET /v1/study/sessions/{id}` (plus the local timeline).
+  interrupted): a heartbeat or `GET …/current` shows a `status` that is **neither `active` nor
+  `paused`** (`paused` is an open session: a «Pausa» is running), or a study call answers 409
+  `study_not_active`. Stop heartbeating and retrying, send `session_stop`, and show «Resumen»
+  from `GET /v1/study/sessions/{id}` (plus the local timeline).
+
+  ```ts
+  /** Open study statuses: the session still needs heartbeats and the analysis. */
+  const isOpenStudyStatus = (status: StudyStatus): boolean =>
+    status === 'active' || status === 'paused';
+  ```
+
+  Never test `status !== 'active'`: every «Pausa» would stop the analysis and the heartbeats,
+  and the guardian, which keeps counting silence while paused, would declare the session
+  `abandoned` 120 s into the 5-minute pause (−100 points and a punishment block).
+
+- **Phase.** Take `session.phase` from **every** study response (heartbeat, strike, pause,
+  resume) and from the 2 s `/v1/state` poll, and schedule a refresh (`GET …/current`) at
+  `session.phaseEndsAt` (end of work, end of break, pause auto-resume). A phase taken only from
+  the 15 s heartbeat responses reaches the window up to 15 s late: the break would be analysed
+  as work, and work after a break or a pause would start without the camera.
+- **«Pausa»** (PROMPT §8: at most 2 × 5 min per hour; they do not count):
+  - The tile «Pausa (n)» shows `session.pausesLeft`; at 0 it is disabled and shows when the
+    next one is available (`session.nextPauseAvailableAt`).
+  - Click → `POST /v1/study/sessions/{id}/pause` (`guardian.pauseStudy`). The answer is the
+    session with `status: 'paused'`, `phase: 'paused'` and `phaseEndsAt` = the automatic
+    resume (5 min later). 409s: `already_paused` (another click got there first: refresh),
+    `pause_quota_exhausted` (`details.nextPauseAt`: show «Próxima pausa a las 10:42»),
+    `study_not_active` (the planned time is over, or the session ended: see above).
+  - «Reanudar» → `POST …/resume` (`guardian.resumeStudy`); 409 `not_paused` means it already
+    resumed (the 5 min ran out): refresh and carry on. After 5 min the guardian resumes on its
+    own: main sees it at `phaseEndsAt`, in the next study response or in the `/v1/state` poll.
+  - **During the pause everything keeps running:** the 15 s heartbeats (the guardian counts
+    heartbeat silence while paused too), the 1 Hz `context` with `phase: 'paused'`, and the
+    analysis window (it shows `state: 'paused'`, counts nothing, and stops the camera after
+    10 s). Never send `session_stop` for a pause.
 - **`powerMonitor.on('resume')`** → `resume` message (gap reset: suspended time is never
-  punished) and an immediate heartbeat.
+  punished), `acc.resume(performance.now())`, the hung-window grace of §3, and an immediate
+  heartbeat. Without `acc.resume` a clock that includes the sleep makes `take()` return `null`
+  (the loop looks dead), and that heartbeat is silently skipped.
+
+  ```ts
+  powerMonitor.on('suspend', () => watchdog.pause());
+  powerMonitor.on('resume', () => {
+    const now = performance.now();
+    toAnalysis({ type: 'resume' });
+    acc.resume(now); // suspended time never reads as a dead loop
+    watchdog.resume(now, { graceMs: 20_000 }); // not a hung window: no recreation spent
+    void heartbeat();
+  });
+  ```
+
 - The package already keeps the camera off during breaks («Descanso · la cámara no vigila»):
   after 10 s outside `work`, the track is stopped (`report.cameraOn: false`) and reopened when
   work resumes.
@@ -702,14 +772,18 @@ const next = nextPendingSituation(steps); // the class the single «Grabar 20 s�
   saved clips show «Hecho» when the user re-records one situation; `liveIssues` of the
   progress (such as `no_face`) say «no te veo» early. After `calibration_built`, `issues` with
   `weak_separation` (`pair`) → «La IA confunde el móvil con mirar a otro lado: repite esas
-  dos».
+  dos». `narrow_gaze` (on `screen`, a warning) → «Has mirado a un solo punto: repite la
+  pantalla leyendo de un lado a otro». Better still, prevent it: while `screen` records, show
+  a target that moves slowly across the whole screen (edge to edge) and ask the user to follow
+  it with the eyes, not at the wizard's own preview. Reading one side of the screen then never
+  looks like looking away.
 - Header «Con cámara · calibrado» when `profileStatus(profileJson).ok`, «Con cámara» otherwise
   (PROMPT §10). Whether the profile matches the camera in use is only known once it is open:
   the session says so with the `recalibrate` hint.
 
 ## 7. Tests the desktop must add
 
-Items 2–5 are about main's study controller: unit tests with a fake guardian client and a fake
+Items 2–7 are about main's study controller: unit tests with a fake guardian client and a fake
 analysis window are enough (no camera, no MediaPipe); the others need the Electron e2e build.
 
 1. **Hidden window e2e** (Playwright for Electron, `xvfb-run -a`, Chromium fake camera via
@@ -745,15 +819,25 @@ analysis window are enough (no camera, no MediaPipe); the others need the Electr
    Idempotency-Key and body, and `session_stop` is sent only after its 200. A `/strike` that
    fails is retried with the same key; `ui.strike` runs only for `counted: true`, with the
    response's `pointsDelta`.
-6. **No network:** with the analysis window running, no http(s)/ws(s) request from its
+6. **«Pausa» keeps the session alive:** with the fake guardian, start a session, pause it and
+   let the 5 minutes run out. Throughout, heartbeats keep coming every 15 s and `context`
+   carries `phase: 'paused'`; no `session_stop` is sent and the «Resumen» never shows; after
+   the automatic resume the session is `active` again (never `abandoned`) and `context` says
+   `work`. The 409s `already_paused`, `pause_quota_exhausted` (with `nextPauseAt` shown) and
+   `not_paused` refresh the session instead of ending it.
+7. **Suspend is not a hang:** on a fake clock that includes the sleep, emit `suspend`, advance
+   5 minutes, emit `resume`: no window is recreated (the recreation budget is untouched), the
+   post-resume heartbeat is sent (not skipped as a dead loop), and a later real crash is still
+   recreated. Repeat 3 times in one session: still `active`, never `abandoned`.
+8. **No network:** with the analysis window running, no http(s)/ws(s) request from its
    session succeeds (spy `onBeforeRequest`, which cancels them all). After `session_stop` the
    MediaPipe logger tries `odml.pa.googleapis.com`: it must show up as a CSP violation
    (`securitypolicyviolation`) or a cancelled request, never as a response.
-7. **Protocol:** `centrate-ai://assets/../x`, unknown files and non-GET methods return 404.
-8. **GPU reset:** in the running analysis window, `WEBGL_lose_context.loseContext()` on the
-   WebGL contexts (record them with an init script, as `demo/smoke.pw.ts` does): reports keep
-   `mode: 'camera'`, `loop.errors` stays 0 and frames are analysed again within a few seconds.
-9. **Permissions:** `media` with audio is denied; any other webContents is denied.
+9. **Protocol:** `centrate-ai://assets/../x`, unknown files and non-GET methods return 404.
+10. **GPU reset:** in the running analysis window, `WEBGL_lose_context.loseContext()` on the
+    WebGL contexts (record them with an init script, as `demo/smoke.pw.ts` does): reports keep
+    `mode: 'camera'`, `loop.errors` stays 0 and frames are analysed again within a few seconds.
+11. **Permissions:** `media` with audio is denied; any other webContents is denied.
 
 `packages/study-ai` already covers the browser side in `npm run test:browser -w
 packages/study-ai` (real WASM and models in Chromium with a fake camera: ≥ 2 fps, finite

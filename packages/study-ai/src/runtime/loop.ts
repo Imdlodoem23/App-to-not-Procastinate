@@ -9,10 +9,19 @@
  *   bursting to catch up.
  * - **Hard duty cap.** Whatever the governor plans, the steps never use more than `maxDuty`
  *   (0.15) of one core over time: a token bucket earns `maxDuty` ms of compute per ms of wall
- *   time (up to a small burst) and every step spends its measured cost. A step that overdraws
- *   it waits until the bucket is back at zero, and the grid restarts after that wait. So a
- *   machine too slow for 2 fps runs a controlled 1–1.5 fps instead of a busy loop that starves
- *   the renderer (IPC, the report timer); the stats say `overBudget`.
+ *   time (up to a small burst) and every step spends its measured cost. The first step of each
+ *   kind (frame only, with the detector) is not charged: it is the models' warm-up, which the
+ *   governor skips too. So a machine too slow for 2 fps runs a controlled 1–1.5 fps instead of
+ *   a busy loop that starves the renderer (IPC, the report timer); the stats say `overBudget`.
+ * - **Debt is repaid by shedding work, never by long sleeps.** A tick gap over 3 s reads as a
+ *   stalled camera, one over 5 s as unobserved time (the engine resets its absence and doubt
+ *   timers): a long sleep after a slow detector run would switch the rules off exactly when
+ *   they matter. So the loop never sleeps longer than `MAX_HOLD_MS` (1 s). While the bucket is
+ *   in debt the step is a **hold tick** (`analyse: false`): no vision work, the camera frame is
+ *   taken and dropped and the engine ticks on the last presence. The detector only runs when
+ *   the bucket covers its typical cost (`objectsAllowed`), which also overrides the governor's
+ *   1 Hz no-face/alert floor, except that it is never held back more than
+ *   `OBJECTS_STARVED_MS` (8 s, the emergency level's own rate).
  * - **Idle ticks.** A step that returns `null` did no vision work (a break tick, no-camera
  *   mode, a camera that is not delivering): the next step then comes after
  *   `STUDY_AI_CONSTANTS.noCameraTickMs` (1 s) instead of the governor's interval, so idle phases
@@ -28,8 +37,19 @@ import { STUDY_AI_CONSTANTS } from '../config';
 import type { Clock, LoopPlan, LoopStats, MonoMs, StepCost, TimerApi } from '../types';
 import type { CpuGovernor } from './governor';
 
-/** One loop step. Returns its cost, or `null` when it did no vision work (break tick). */
-export type LoopStep = (now: MonoMs, plan: LoopPlan) => Promise<StepCost | null>;
+/** The governor's plan plus the loop's own duty-cap decisions for one step. */
+export interface StepPlan extends LoopPlan {
+  /**
+   * `false`: a hold tick while the duty cap is repaid. The step does no vision work (it may
+   * take and drop a camera frame so the camera never reads as stalled) and returns `null`.
+   */
+  analyse: boolean;
+  /** The bucket covers a detector run (or it was held back for `OBJECTS_STARVED_MS`). */
+  objectsAllowed: boolean;
+}
+
+/** One loop step. Returns its cost, or `null` when it did no vision work (break or hold tick). */
+export type LoopStep = (now: MonoMs, plan: StepPlan) => Promise<StepCost | null>;
 
 export interface AdaptiveLoopOptions {
   /** Hard cap on the share of one core the steps may use over time (0.15). */
@@ -42,6 +62,13 @@ export const MIN_DELAY_MS = 10;
 export const MAX_STEP_DUTY = 0.15;
 /** Compute the bucket may hold: one slow detector run on top of the frames around it. */
 export const DUTY_BURST_MS = 300;
+/**
+ * Longest sleep between two steps. Well under the camera's stall time (3 s) and the engine's
+ * gap reset (5 s), and within its per-tick credit (2 s), so no time goes unobserved.
+ */
+export const MAX_HOLD_MS = 1_000;
+/** The detector waits for the bucket at most this long (the emergency level's 8 s). */
+export const OBJECTS_STARVED_MS = 8_000;
 /** `overBudget` stays set this long after the duty cap last delayed a step. */
 const DUTY_LIMITED_HOLD_MS = 10_000;
 /** Window over which `fps` is measured. */
@@ -95,6 +122,11 @@ export class AdaptiveLoop {
   private credit = DUTY_BURST_MS;
   private creditAt: MonoMs | null = null;
   private limitedAt: MonoMs | null = null;
+  /** When the detector last ran (`null`: not since start). */
+  private lastObjectsAt: MonoMs | null = null;
+  /** Kinds of step already charged once (the first of each is the warm-up). */
+  private warmFrame = false;
+  private warmObjects = false;
   /** Start times of recent ticks (all) and of recent vision frames, oldest first. */
   private readonly tickTimes: MonoMs[] = [];
   private readonly frameTimes: MonoMs[] = [];
@@ -126,6 +158,9 @@ export class AdaptiveLoop {
     this.prevTickAt = null;
     this.dueAt = null;
     this.firesAt = null;
+    this.lastObjectsAt = null;
+    this.warmFrame = false;
+    this.warmObjects = false;
     // A step still in flight from before a stop() schedules the next one when it settles.
     if (!this.inFlight) this.schedule(0, this.startedAt);
   }
@@ -210,16 +245,18 @@ export class AdaptiveLoop {
     this.tickTimes.push(startedAt);
 
     let cost: StepCost | null = null;
-    let plan: LoopPlan | null = null;
+    let plan: StepPlan | null = null;
     let failed = false;
     try {
-      plan = this.governor.plan(startedAt, this.faceSeen, this.alert);
-      this.lastPlan = plan;
+      const planned = this.governor.plan(startedAt, this.faceSeen, this.alert);
+      this.lastPlan = planned;
+      plan = { ...planned, ...this.duty(startedAt) };
       cost = await this.step(startedAt, plan);
       if (cost) {
         this.governor.record(cost);
         this.faceSeen = cost.faceSeen;
         this.alert = cost.alert === true;
+        if (cost.ranObjects) this.lastObjectsAt = startedAt;
         this.frameTimes.push(startedAt);
         this.lateness.push({ at: startedAt, ms: late });
       }
@@ -234,13 +271,20 @@ export class AdaptiveLoop {
 
     if (!this.isRunning) return;
     const now = this.clock.now();
-    // What the step cost: its measured compute; a step that threw is charged its wall time
-    // (it may have run inference before failing); an idle step did no vision work.
-    const busy = cost !== null ? stepBusyMs(cost) : failed ? Math.max(0, now - startedAt) : 0;
-    const wait = this.spend(busy, now);
+    // What the step cost: its measured compute (the first of each kind is the warm-up and
+    // free); a step that threw is charged its wall time (it may have run inference before
+    // failing); an idle or hold step did no vision work.
+    const busy = cost !== null ? this.charge(cost) : failed ? Math.max(0, now - startedAt) : 0;
+    this.earn(now);
+    this.credit -= busy;
+    const wait = this.credit < 0 ? -this.credit / this.maxDuty : 0;
 
+    // A hold tick goes back to the vision grid; other idle ticks come once a second.
+    const held = plan !== null && !plan.analyse;
     const interval =
-      cost === null || plan === null ? STUDY_AI_CONSTANTS.noCameraTickMs : plan.intervalMs;
+      plan === null || (cost === null && !held)
+        ? STUDY_AI_CONSTANTS.noCameraTickMs
+        : plan.intervalMs;
     // Fixed-rate: the next step is due one interval after this one was due, so timer latency
     // does not accumulate (2 fps stays 2 fps). More than an interval behind: restart the grid
     // now rather than bursting to catch up.
@@ -248,21 +292,41 @@ export class AdaptiveLoop {
     if (nextDue < now - interval) nextDue = now;
     let delay = Math.max(MIN_DELAY_MS, nextDue - now);
     if (wait > delay) {
-      // The duty cap wins: the grid restarts after the idle time the step needs.
-      delay = wait;
-      nextDue = now + wait;
+      // The duty cap wins: the grid restarts after the idle time the step needs, or after
+      // `MAX_HOLD_MS` for a hold tick (never a gap the rest of the package reads as a failure).
+      delay = Math.min(wait, MAX_HOLD_MS);
+      nextDue = now + delay;
       this.limitedAt = now;
     }
+    if (held) this.limitedAt = now;
     this.dueAt = nextDue;
     this.schedule(delay, now);
   }
 
-  /** Spends `busy` ms from the duty bucket; returns how long to stay idle to repay it. */
-  private spend(busy: number, now: MonoMs): number {
+  /** The duty cap's say on the step starting at `now`. */
+  private duty(now: MonoMs): Pick<StepPlan, 'analyse' | 'objectsAllowed'> {
+    this.earn(now);
+    const analyse = this.credit >= 0;
+    const starved = this.lastObjectsAt === null || now - this.lastObjectsAt >= OBJECTS_STARVED_MS;
+    const need = Math.min(this.governor.objectCostMs, DUTY_BURST_MS);
+    return { analyse, objectsAllowed: analyse && (starved || this.credit >= need) };
+  }
+
+  /** Brings the bucket up to `now` (it earns `maxDuty` ms per ms, up to the burst). */
+  private earn(now: MonoMs): void {
     const since = this.creditAt === null ? 0 : Math.max(0, now - this.creditAt);
     this.creditAt = now;
-    this.credit = Math.min(DUTY_BURST_MS, this.credit + since * this.maxDuty) - busy;
-    return this.credit < 0 ? -this.credit / this.maxDuty : 0;
+    this.credit = Math.min(DUTY_BURST_MS, this.credit + since * this.maxDuty);
+  }
+
+  /** What a step is charged: its compute, except the first step of each kind (warm-up). */
+  private charge(cost: StepCost): number {
+    if (cost.ranObjects ? !this.warmObjects : !this.warmFrame) {
+      if (cost.ranObjects) this.warmObjects = true;
+      else this.warmFrame = true;
+      return 0;
+    }
+    return stepBusyMs(cost);
   }
 
   private prune(now: MonoMs): void {

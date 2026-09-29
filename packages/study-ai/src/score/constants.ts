@@ -170,6 +170,14 @@ export const YAWN_JAW = 0.6;
 export const STALE_WINDOW_MS = 120_000;
 export const STALE_MIN_FRAMES = 60;
 export const STALE_AWAY_SHARE = 0.7;
+/**
+ * A frame is «away» for the profile from this p_away up, not only when away is the argmax:
+ * the scan augmentation (DESIGN.md §6.7) widens the calibrated screen, so a pose just past
+ * it (a monitor ~25° to the side, eyes further) is ambiguous for the profile (p_away ≈ 0.45)
+ * rather than clearly away, and the check must still notice that the profile does not
+ * know this study pose. Reading across the calibrated screen stays well under it.
+ */
+export const STALE_AWAY_P = 0.3;
 
 // Hints (§7.3)
 /** Any hidden stretch this long raises `camera_cant_see_you`. */

@@ -36,6 +36,7 @@ import {
   PHONE_SEEN_SCORE,
   PHONE_SEEN_SHARE,
   SCREEN_MAX_IQR,
+  SCREEN_MIN_GAZE_IQR,
 } from './constants';
 
 /** Severity of each issue code (§6.2). */
@@ -50,6 +51,7 @@ export const ISSUE_SEVERITY: Readonly<Record<CalibrationIssueCode, 'error' | 'wa
     phone_not_seen: 'warning',
     same_as_screen: 'error',
     unstable: 'warning',
+    narrow_gaze: 'warning',
     weak_separation: 'warning',
   });
 
@@ -76,6 +78,7 @@ interface Kept {
   run: number | null;
   yaw: number | null;
   pitch: number | null;
+  gazeX: number | null;
 }
 
 interface ClipStats {
@@ -90,6 +93,7 @@ interface ClipStats {
   phoneRunShare: number | null;
   yawIqr: number | null;
   pitchIqr: number | null;
+  gazeIqr: number | null;
 }
 
 function stats(kept: readonly Kept[]): ClipStats {
@@ -105,6 +109,7 @@ function stats(kept: readonly Kept[]): ClipStats {
   let phoneRuns = 0;
   const yaw: number[] = [];
   const pitch: number[] = [];
+  const gaze: number[] = [];
   for (const k of kept) {
     const personHere = k.person >= PERSON_PRESENT_SCORE;
     if (k.face) face += 1;
@@ -124,6 +129,7 @@ function stats(kept: readonly Kept[]): ClipStats {
       yaw.push(k.yaw);
       pitch.push(k.pitch);
     }
+    if (k.gazeX !== null) gaze.push(k.gazeX);
   }
   const share = (count: number): number => (n > 0 ? count / n : 0);
   return {
@@ -138,6 +144,7 @@ function stats(kept: readonly Kept[]): ClipStats {
     phoneRunShare: runs > 0 ? phoneRuns / runs : null,
     yawIqr: yaw.length > 0 ? iqr(yaw) : null,
     pitchIqr: pitch.length > 0 ? iqr(pitch) : null,
+    gazeIqr: gaze.length > 0 ? iqr(gaze) : null,
   };
 }
 
@@ -164,6 +171,9 @@ function clipIssues(cls: CalibrationClass, s: ClipStats, final: boolean): Calibr
     ((s.yawIqr ?? 0) > SCREEN_MAX_IQR || (s.pitchIqr ?? 0) > SCREEN_MAX_IQR)
   ) {
     out.push(issue('unstable', cls));
+  }
+  if (cls === 'screen' && final && s.gazeIqr !== null && s.gazeIqr < SCREEN_MIN_GAZE_IQR) {
+    out.push(issue('narrow_gaze', cls));
   }
   return out;
 }
@@ -240,6 +250,7 @@ export class CalibrationRecorder {
           : null,
         yaw: frame.face && Number.isFinite(frame.face.pose.yaw) ? frame.face.pose.yaw : null,
         pitch: frame.face && Number.isFinite(frame.face.pose.pitch) ? frame.face.pose.pitch : null,
+        gazeX: frame.face && Number.isFinite(frame.face.gazeX) ? frame.face.gazeX : null,
       });
     }
     return this.progress(t);

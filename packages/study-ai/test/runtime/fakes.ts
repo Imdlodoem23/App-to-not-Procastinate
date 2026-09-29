@@ -135,7 +135,26 @@ export class FakeFrame implements AnalysisFrame {
 }
 
 export class FakeSource implements FrameSource {
-  status: CameraStatus = 'ok';
+  private statusValue: CameraStatus = 'ok';
+  /**
+   * Models the real source's stall rule: `stalled` once no frame was taken for this long
+   * (`STALL_AFTER_MS`), `null` to leave the status to the test.
+   */
+  stallAfterMs: number | null = null;
+  private lastGrabAt: MonoMs | null = null;
+
+  get status(): CameraStatus {
+    const base = this.statusValue;
+    if (base !== 'ok' || this.stallAfterMs === null) return base;
+    const since = this.lastGrabAt ?? this.openedAt;
+    return this.clock.now() - since > this.stallAfterMs ? 'stalled' : 'ok';
+  }
+
+  set status(value: CameraStatus) {
+    this.statusValue = value;
+  }
+
+  private readonly openedAt: MonoMs;
   readonly width = 320;
   readonly height = 240;
   readonly frames: FakeFrame[] = [];
@@ -146,12 +165,15 @@ export class FakeSource implements FrameSource {
   /** The `deviceId` it was opened with (`null`: the default camera). */
   deviceId: string | null = null;
 
-  constructor(private readonly clock: Clock) {}
+  constructor(private readonly clock: Clock) {
+    this.openedAt = clock.now();
+  }
 
   next(): Promise<AnalysisFrame | null> {
-    if (!this.delivering || this.status !== 'ok' || this.stopped > 0) {
+    if (!this.delivering || this.statusValue !== 'ok' || this.stopped > 0) {
       return Promise.resolve(null);
     }
+    this.lastGrabAt = this.clock.now();
     const frame = new FakeFrame(this.clock.now());
     this.frames.push(frame);
     return Promise.resolve(frame);
@@ -181,6 +203,8 @@ export class FakeCamera {
   hang = false;
   /** Plugged cameras, or `null` to accept any `deviceId`. */
   devices: CameraDeviceInfo[] | null = null;
+  /** `FakeSource.stallAfterMs` of the sources it hands out. */
+  stallAfterMs: number | null = null;
   /** Identity per label (a different camera looks different). */
   identities = new Map<string, CameraIdentity>();
   private readonly hung: ((source: FrameSource) => void)[] = [];
@@ -224,6 +248,7 @@ export class FakeCamera {
 
   private make(): FakeSource {
     const source = new FakeSource(this.clock);
+    source.stallAfterMs = this.stallAfterMs;
     source.identityValue = this.identity;
     this.opened.push(source);
     return source;

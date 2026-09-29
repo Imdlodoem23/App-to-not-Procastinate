@@ -10,11 +10,17 @@
  * - **Start order:** the vision pipeline loads first and the camera opens only once it is
  *   ready, so the camera is never on while MediaPipe loads (or fails to). `camera{starting}` is
  *   sent the moment the stream opens, before the first report, so main can show «● Cámara
- *   activa» at once.
+ *   activa» at once. A session started outside `work` (a window recreated during a break or
+ *   «Pausa») loads the pipeline but opens no camera until work resumes; background recoveries
+ *   wait for work too: the camera is never opened outside `work`.
  * - **Which camera:** main names it by label (`cameraLabel`); it is resolved here with
  *   `enumerateDevices()` on every open, since `deviceId`s are salted per partition and run. A
  *   chosen camera that is missing falls back to the default one with the `camera_default`
- *   hint (cleared when it is back).
+ *   hint. While on the default camera the list is checked every 10 s; when the chosen camera
+ *   is back it is opened and, once it works, replaces the default one (hint cleared). A chosen
+ *   camera whose track ends mid-session (unplugged, a USB hub glitch, docking) is retried on
+ *   its own every 2 s for 15 s before the default one is used: USB re-enumeration takes
+ *   1–3 s.
  * - **Recovery:** a camera that fails at start for a reason that may pass (in use, unplugged,
  *   no answer) or a vision pipeline that fails (at start, or mid-session after one rebuild) is
  *   retried in the background after 30 s, 60 s, 2 min, then every 5 min. When it works the
@@ -27,6 +33,7 @@ import { createGenericClassifier } from '../classifier/generic';
 import { createPersonalClassifier } from '../classifier/personal';
 import { STUDY_AI_CONSTANTS, resolveStudyAiSettings } from '../config';
 import { CameraOpenError, listCameras, openCamera } from '../perception/camera';
+import { STALL_AFTER_MS } from '../perception/constants';
 import { isResting } from '../perception/objects';
 import { createVisionPipeline, VisionLoadError } from '../perception/vision';
 import { CameraObserver, type CameraObserverOptions } from '../score/camera-observer';
@@ -46,7 +53,6 @@ import type {
   FrameFeatures,
   FrameSource,
   HintCode,
-  LoopPlan,
   MonoMs,
   Observer,
   SessionDeps,
@@ -73,7 +79,7 @@ import {
 import { FacadeHints, mergeHints, type HintChange } from './hints';
 import { analyseNextFrame, discardNextFrame, FrameCadence, stepCost } from './frame-step';
 import { CpuGovernor } from './governor';
-import { AdaptiveLoop } from './loop';
+import { AdaptiveLoop, type StepPlan } from './loop';
 import { NoCameraObserver } from './no-camera';
 
 // ---------------------------------------------------------------------------------------
@@ -102,6 +108,13 @@ export const PHONE_ALERT_MS = 20_000;
 export const RECOVERY_DELAYS_MS: readonly number[] = Object.freeze([
   30_000, 60_000, 120_000, 300_000,
 ]);
+/**
+ * A chosen camera whose track ended mid-session is retried on its own (no default camera) for
+ * this long: a replug or a USB hub reset re-enumerates it within 1–3 s.
+ */
+export const CHOSEN_CAMERA_GRACE_MS = 15_000;
+/** How often the chosen camera is retried during that grace. */
+export const CHOSEN_CAMERA_RETRY_MS = 2_000;
 /**
  * A catalog service playing on another display (`visibleDistraction`) counts as a distraction
  * in the foreground once the keyboard and mouse have been idle this long.
@@ -340,6 +353,8 @@ const DEFAULT_CONTEXT: ContextInput = Object.freeze({
 
 type StartOutcome =
   | { kind: 'ok'; identity: CameraIdentity | null }
+  /** Started in a break or «Pausa»: the pipeline is ready, the camera opens when work resumes. */
+  | { kind: 'deferred' }
   | { kind: 'camera_failed'; error: CameraErrorCode }
   | { kind: 'vision_failed'; retryable: boolean };
 
@@ -369,6 +384,15 @@ class StudySession implements StudySessionHandle {
   /** Bumped to cancel an open in flight (stop, no-camera switch). */
   private openGeneration = 0;
   private lastOpenAt: MonoMs | null = null;
+  /** When the loop last asked the camera for a frame (`null`: not yet). */
+  private lastGrabAt: MonoMs | null = null;
+  /** The source is the default camera because the chosen one was missing. */
+  private onFallback = false;
+  /** While on the default camera: when the device list was last checked for the chosen one. */
+  private lastProbeAt: MonoMs | null = null;
+  private probing = false;
+  /** Until then a reopen tries only the chosen camera (its track just ended). */
+  private chosenOnlyUntil: MonoMs | null = null;
   private stalledSince: MonoMs | null = null;
   private failingSince: MonoMs | null = null;
   private lastCameraError: CameraErrorCode | null = null;
@@ -389,6 +413,8 @@ class StudySession implements StudySessionHandle {
   private recoveryAttempts = 0;
   private recoveryTimer: unknown = null;
   private recoveryGeneration = 0;
+  /** A recovery attempt is waiting for the work phase (the camera never opens in a break). */
+  private recoveryWaitsForWork = false;
 
   // The governor's alert: a phone seen lately, or the engine in doubt.
   private phoneSeenAt: MonoMs | null = null;
@@ -456,6 +482,11 @@ class StudySession implements StudySessionHandle {
       } else if (opened.kind === 'vision_failed') {
         observer = this.noCameraFallback(events);
         this.recoverable = opened.retryable;
+      } else if (opened.kind === 'deferred') {
+        // No camera yet, so no identity: the classifier is picked when the camera opens
+        // (`checkIdentity`), and `recalibrate` is decided then, not now.
+        this.cameraObserver = this.createCameraObserver(createGenericClassifier());
+        observer = this.cameraObserver;
       } else {
         const classifier = this.classifierFor(opened.identity);
         if (this.profile !== null && classifier.kind === 'generic') recalibrate = true;
@@ -493,6 +524,8 @@ class StudySession implements StudySessionHandle {
     } catch (error) {
       return { kind: 'vision_failed', retryable: isRetryableVisionError(error) };
     }
+    // Recreated or re-attached during a break or «Pausa»: «la cámara no vigila» holds.
+    if (this.effectiveContext(this.now()).phase !== 'work') return { kind: 'deferred' };
     let opened: OpenedCamera;
     try {
       opened = await openCameraWithin(this.deps, this.cameraRequest());
@@ -587,9 +620,13 @@ class StudySession implements StudySessionHandle {
   // Loop step
   // -------------------------------------------------------------------------------------
 
-  private async step(now: MonoMs, plan: LoopPlan): Promise<StepCost | null> {
+  private async step(now: MonoMs, plan: StepPlan): Promise<StepCost | null> {
     if (this.stopped) return null;
     if (this.mode === 'no-camera') {
+      if (this.recoveryWaitsForWork && this.effectiveContext(now).phase === 'work') {
+        this.recoveryWaitsForWork = false;
+        void this.attemptRecovery();
+      }
       this.tick(now, null);
       return null;
     }
@@ -602,7 +639,11 @@ class StudySession implements StudySessionHandle {
       return null;
     }
     this.nonWorkSince = null;
-    this.superviseCamera(now);
+    // The camera's `stalled` means «no frame for 3 s». When the loop itself did not ask for
+    // one in that time (a slow step, a busy renderer), that says nothing about the camera:
+    // judge it after this step's grab instead.
+    const loopAway = this.lastGrabAt !== null && now - this.lastGrabAt > STALL_AFTER_MS;
+    this.superviseCamera(now, loopAway);
 
     const source = this.source;
     const vision = this.vision;
@@ -610,12 +651,15 @@ class StudySession implements StudySessionHandle {
       this.tick(now, null);
       return null;
     }
-    if (vision === null) {
-      // The pipeline is being rebuilt. Keep taking (and closing) frames so a healthy camera
-      // never reads as stalled; the engine sees the camera ok and no frame, so it keeps the
-      // last presence and counts nothing as absent.
+    this.lastGrabAt = now;
+    if (vision === null || !plan.analyse) {
+      // The pipeline is being rebuilt, or the loop is repaying its duty cap (a hold tick).
+      // Keep taking (and closing) frames so a healthy camera never reads as stalled; the
+      // engine sees the camera ok and no frame, so it keeps the last presence (an absence
+      // keeps counting, a present user is not counted absent).
       await discardNextFrame(source).catch(() => undefined);
       if (this.stopped) return null;
+      if (loopAway) this.superviseCamera(this.now());
       this.tick(this.now(), null);
       return null;
     }
@@ -627,6 +671,7 @@ class StudySession implements StudySessionHandle {
       () => !this.stopped && this.source === source && this.vision === vision,
     );
     if (this.stopped) return null;
+    if (loopAway) this.superviseCamera(this.now());
 
     if (outcome.kind === 'failed') {
       const at = this.now();
@@ -706,7 +751,8 @@ class StudySession implements StudySessionHandle {
     return 'off';
   }
 
-  private superviseCamera(now: MonoMs): void {
+  /** `ignoreStall`: the loop has not asked for a frame lately, so `stalled` is no evidence. */
+  private superviseCamera(now: MonoMs, ignoreStall = false): void {
     const source = this.source;
     if (source !== null) {
       const status = source.status;
@@ -716,12 +762,17 @@ class StudySession implements StudySessionHandle {
         this.lastCameraError = null;
         this.offerSent = false;
         this.emitCamera('ok', null);
+        if (this.onFallback) this.probeChosenCamera(now);
       } else if (status === 'error') {
-        // Track ended (unplugged, access revoked): reopen now, then every 10 s.
+        // Track ended (unplugged, access revoked): reopen now, then every 10 s. The chosen
+        // camera gets 15 s to come back on its own before the default one is used.
         this.markFailing(now);
+        if (!this.onFallback && this.hasChosenCamera()) {
+          this.chosenOnlyUntil = now + CHOSEN_CAMERA_GRACE_MS;
+        }
         this.dropSource();
         this.lastOpenAt = null;
-      } else if (status === 'stalled') {
+      } else if (status === 'stalled' && !ignoreStall) {
         this.markFailing(now);
         if (this.stalledSince === null) this.stalledSince = now;
         if (now - this.stalledSince >= STUDY_AI_CONSTANTS.cameraRetryMs) {
@@ -736,10 +787,7 @@ class StudySession implements StudySessionHandle {
         if (this.lastOpenAt !== null && now - this.lastOpenAt >= STUDY_AI_CONSTANTS.cameraRetryMs) {
           this.markFailing(now);
         }
-      } else if (
-        this.lastOpenAt === null ||
-        now - this.lastOpenAt >= STUDY_AI_CONSTANTS.cameraRetryMs
-      ) {
+      } else if (this.lastOpenAt === null || now - this.lastOpenAt >= this.reopenEveryMs(now)) {
         this.reopenCamera(now);
       }
     }
@@ -753,6 +801,74 @@ class StudySession implements StudySessionHandle {
       this.lastCameraEvent = 'error';
       this.emit({ type: 'camera', at: now, status: 'error', error: this.lastCameraError });
     }
+  }
+
+  /** Main named a camera (by label or raw id). */
+  private hasChosenCamera(): boolean {
+    const request = this.cameraRequest();
+    return request.label !== null || request.deviceId !== null;
+  }
+
+  /** Only the chosen camera may be opened now (its track ended less than 15 s ago). */
+  private chosenOnly(now: MonoMs): boolean {
+    return this.chosenOnlyUntil !== null && now < this.chosenOnlyUntil;
+  }
+
+  /** Retry interval of the reopen; 0 right after the chosen camera's grace ran out. */
+  private reopenEveryMs(now: MonoMs): number {
+    if (this.chosenOnlyUntil === null) return STUDY_AI_CONSTANTS.cameraRetryMs;
+    return this.chosenOnly(now) ? CHOSEN_CAMERA_RETRY_MS : 0;
+  }
+
+  /**
+   * On the default camera: every 10 s, looks for the chosen one in the device list. When it
+   * is listed it is opened on its own; only once it opened does it replace the default camera
+   * (a chosen camera that is busy or fails keeps the working default one).
+   */
+  private probeChosenCamera(now: MonoMs): void {
+    if (this.probing || this.opening) return;
+    if (this.lastProbeAt !== null && now - this.lastProbeAt < STUDY_AI_CONSTANTS.cameraRetryMs) {
+      return;
+    }
+    this.lastProbeAt = now;
+    const request = this.cameraRequest();
+    const fallback = this.source;
+    const generation = this.openGeneration;
+    const current = (): boolean =>
+      !this.stopped &&
+      this.mode === 'camera' &&
+      this.onFallback &&
+      this.source === fallback &&
+      generation === this.openGeneration;
+    this.probing = true;
+    void (async (): Promise<void> => {
+      try {
+        const devices = await this.deps.listCameras().catch((): readonly CameraDeviceInfo[] => []);
+        const listed = devices.some(
+          (d) =>
+            d.deviceId !== '' &&
+            ((request.label !== null && d.label === request.label) ||
+              (request.deviceId !== null && d.deviceId === request.deviceId)),
+        );
+        if (!listed || !current()) return;
+        let opened: OpenedCamera;
+        try {
+          opened = await openCameraWithin(this.deps, request, true);
+        } catch {
+          return; // busy or gone again: keep the default camera, look again in 10 s
+        }
+        if (!current() || opened.fallback) {
+          opened.source.stop();
+          return;
+        }
+        this.openGeneration += 1;
+        this.dropSource();
+        this.lastOpenAt = this.now();
+        this.adoptSource(opened);
+      } finally {
+        this.probing = false;
+      }
+    })();
   }
 
   private markFailing(now: MonoMs): void {
@@ -781,21 +897,18 @@ class StudySession implements StudySessionHandle {
     this.lastOpenAt = now;
     const generation = ++this.openGeneration;
     // Resolved again on every open: the chosen camera may be back, or gone (then the default
-    // one, with the `camera_default` hint). Limited to 15 s: a hung `getUserMedia` must not
-    // leave `opening` set for good (the 10 s retries would stop).
-    openCameraWithin(this.deps, this.cameraRequest()).then(
+    // one, with the `camera_default` hint, unless its track ended less than 15 s ago). Limited
+    // to 15 s: a hung `getUserMedia` must not leave `opening` set for good (the retries stop).
+    const strict = this.chosenOnly(now);
+    if (!strict) this.chosenOnlyUntil = null;
+    openCameraWithin(this.deps, this.cameraRequest(), strict).then(
       (opened) => {
         if (this.stopped || generation !== this.openGeneration || this.mode !== 'camera') {
           opened.source.stop();
           return;
         }
         this.opening = false;
-        this.source = opened.source;
-        this.stalledSince = null;
-        this.setFallbackCamera(opened.fallback);
-        this.vision?.reset();
-        this.cadence.reset();
-        void this.checkIdentity(opened.source);
+        this.adoptSource(opened);
       },
       (error: unknown) => {
         if (generation !== this.openGeneration) return;
@@ -804,6 +917,17 @@ class StudySession implements StudySessionHandle {
         this.markFailing(this.now());
       },
     );
+  }
+
+  /** A stream opened mid-session becomes the source; the classifier follows its identity. */
+  private adoptSource(opened: OpenedCamera): void {
+    this.source = opened.source;
+    this.stalledSince = null;
+    if (!opened.fallback) this.chosenOnlyUntil = null;
+    this.setFallbackCamera(opened.fallback);
+    this.vision?.reset();
+    this.cadence.reset();
+    void this.checkIdentity(opened.source);
   }
 
   /** Another camera after a reopen (unplugged, a different one plugged): re-pick the classifier. */
@@ -819,7 +943,9 @@ class StudySession implements StudySessionHandle {
     this.identity = identity;
     const classifier = this.classifierFor(identity);
     this.cameraObserver.setClassifier(classifier);
-    if (this.profile !== null && classifier.kind === 'generic') this.stickyHint('recalibrate');
+    // The calibrated camera is back: its profile applies again, no need to recalibrate.
+    if (classifier.kind === 'personal') this.unstickHint('recalibrate');
+    else if (this.profile !== null) this.stickyHint('recalibrate');
   }
 
   /** «La cámara no vigila»: the track is stopped after 10 s outside the work phase. */
@@ -843,6 +969,8 @@ class StudySession implements StudySessionHandle {
 
   /** `camera_default`: running on the default camera because the chosen one is missing. */
   private setFallbackCamera(fallback: boolean): void {
+    this.onFallback = fallback;
+    if (fallback) this.lastProbeAt = this.now(); // look for the chosen one 10 s from now
     if (fallback) this.stickyHint('camera_default');
     else this.unstickHint('camera_default');
   }
@@ -916,6 +1044,7 @@ class StudySession implements StudySessionHandle {
     this.emitCamera('off', null);
     this.announce(this.hints.clear('camera_lost'));
     this.announce(this.hints.clear('over_budget'));
+    this.onFallback = false;
     this.unstickHint('camera_default');
     if (reason === 'vision_failed') this.stickyHint('vision_failed');
     this.emit({ type: 'mode', at: now, mode: 'no-camera', reason });
@@ -933,7 +1062,7 @@ class StudySession implements StudySessionHandle {
 
   private scheduleRecovery(): void {
     if (!this.recoverable || !this.started || this.stopped || this.mode !== 'no-camera') return;
-    if (this.recoveryTimer !== null || this.recovering) return;
+    if (this.recoveryTimer !== null || this.recovering || this.recoveryWaitsForWork) return;
     const delays = RECOVERY_DELAYS_MS;
     const delay = delays[Math.min(this.recoveryAttempts, delays.length - 1)] as number;
     this.recoveryAttempts += 1;
@@ -946,6 +1075,7 @@ class StudySession implements StudySessionHandle {
   private stopRecovery(): void {
     this.recoverable = false;
     this.recovering = false;
+    this.recoveryWaitsForWork = false;
     this.recoveryGeneration += 1;
     if (this.recoveryTimer !== null) this.deps.timers.clear(this.recoveryTimer);
     this.recoveryTimer = null;
@@ -1000,6 +1130,11 @@ class StudySession implements StudySessionHandle {
         }
         this.vision = vision;
       }
+      if (this.effectiveContext(this.now()).phase !== 'work') {
+        // A break or «Pausa»: the camera stays off; the attempt runs when work resumes.
+        this.recoveryWaitsForWork = true;
+        return;
+      }
       let opened: OpenedCamera;
       try {
         opened = await openCameraWithin(this.deps, this.cameraRequest());
@@ -1027,7 +1162,7 @@ class StudySession implements StudySessionHandle {
       this.enterCameraMode(identity, this.now());
     } finally {
       if (generation === this.recoveryGeneration) this.recovering = false;
-      this.scheduleRecovery();
+      if (!this.recoveryWaitsForWork) this.scheduleRecovery();
     }
   }
 

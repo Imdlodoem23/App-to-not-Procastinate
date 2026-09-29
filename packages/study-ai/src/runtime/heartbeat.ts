@@ -126,6 +126,20 @@ export class HeartbeatAccumulator {
     this.pendingWarnings += Math.round(nonNegative(body.warningsSinceLast));
   }
 
+  /**
+   * The machine woke from a suspend (powerMonitor `resume`). Main's clock may include the
+   * sleep (`Date.now()` everywhere, QPC-based monotonic time on Windows), so the time asleep
+   * would read as a dead loop: the baseline moves to `now`, and the loop gets the usual
+   * `deadAfterMs` from here to report again. The immediate post-resume heartbeat is then
+   * sent (HANDOFF §4). A suspended machine is never punished (ARCHITECTURE §10.4).
+   * Nothing is added or dropped: the pending deltas stay as they were.
+   */
+  resume(now: MonoMs): void {
+    if (!Number.isFinite(now)) return;
+    if (this.lastReportAt !== null) this.lastReportAt = now;
+    if (this.progressAt !== null) this.progressAt = now;
+  }
+
   alive(now: MonoMs): boolean {
     if (this.lastReportAt === null || this.progressAt === null) return false;
     return now - this.progressAt <= this.deadAfterMs;

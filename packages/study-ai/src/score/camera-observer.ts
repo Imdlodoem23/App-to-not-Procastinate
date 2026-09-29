@@ -60,6 +60,7 @@ import {
   LOOK_DOWN_SIDE_MAX_YAW,
   MOTION_NEAR_FACE,
   OBSERVE_MAX_STEP_MS,
+  STALE_AWAY_P,
   STALE_AWAY_SHARE,
   STALE_MIN_FRAMES,
   STALE_WINDOW_MS,
@@ -719,7 +720,7 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
   /**
    * Rolling stale-profile check: among the last 60 face frames with keyboard or mouse input
    * and no distraction app (all within the last 120 s of observed work time), ≥ 70 % are
-   * «away» for the profile while the fallback, fed with the same fresh input, calls them
+   * «away» for the profile (p_away ≥ `STALE_AWAY_P`) while the fallback, fed with the same fresh input, calls them
    * study → switch to the fallback for good and raise `recalibrate`.
    */
   private checkStale(
@@ -734,7 +735,7 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
     this.staleObservedMs += dt;
     if (!frame.face || !p || !inputActive || distraction) return;
     const at = this.staleObservedMs;
-    const away = argmax(p) === 'away' && studyFor(fallback.predict(frame));
+    const away = p.away >= STALE_AWAY_P && studyFor(fallback.predict(frame));
     const ring = this.staleRing;
     if (ring.length < STALE_MIN_FRAMES) {
       ring.push({ at, away });

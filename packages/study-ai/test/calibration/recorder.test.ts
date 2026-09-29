@@ -42,7 +42,8 @@ describe('CalibrationRecorder', () => {
   it('drops the first 2 s and the last 1 s', () => {
     const recording = record(
       'screen',
-      clip((t) => frame({ t, face: face({ yaw: t / 1_000 }) })),
+      // Reading across the screen: the eyes sweep ±0.3 (a still gaze adds `narrow_gaze`).
+      clip((t, i) => frame({ t, face: face({ yaw: t / 1_000, gazeX: ((i % 7) - 3) / 10 }) })),
     );
     const yaws = recording.rows.map((r) => r[COL.yaw] as number);
     expect(Math.min(...yaws)).toBe(2);
@@ -156,6 +157,26 @@ describe('CalibrationRecorder', () => {
       const frames = clip((t, i) => frame({ t, face: face({ yaw: i % 2 === 0 ? -20 : 20 }) }));
       const found = record('screen', frames).issues.find((i) => i.code === 'unstable');
       expect(found?.severity).toBe('warning');
+    });
+
+    it('narrow_gaze (warning): the eyes stayed on one spot of the screen', () => {
+      const still = record(
+        'screen',
+        clip((t, i) => frame({ t, face: face({ gazeX: (i % 3) * 0.01 }) })),
+      );
+      const found = still.issues.find((i) => i.code === 'narrow_gaze');
+      expect(found).toEqual({ code: 'narrow_gaze', cls: 'screen', severity: 'warning' });
+      // Reading across the screen, or any other situation, does not warn.
+      const reading = record(
+        'screen',
+        clip((t, i) => frame({ t, face: face({ gazeX: ((i % 7) - 3) / 10 }) })),
+      );
+      expect(reading.issues.map((i) => i.code)).not.toContain('narrow_gaze');
+      const paper = record(
+        'paper',
+        clip((t) => frame({ t, face: face({ pitch: -30, lookDown: 0.6 }) })),
+      );
+      expect(paper.issues.map((i) => i.code)).not.toContain('narrow_gaze');
     });
 
     it('reports live issues before the end', () => {

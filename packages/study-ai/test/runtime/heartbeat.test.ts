@@ -137,4 +137,31 @@ describe('HeartbeatAccumulator', () => {
     expect(acc.alive(5_000)).toBe(true);
     expect(acc.alive(5_001)).toBe(false);
   });
+
+  it('resume(): a suspend on a clock that includes it never reads as a dead loop', () => {
+    const acc = new HeartbeatAccumulator({ deadAfterMs: 20_000 });
+    acc.report(report('r1', { ticks: 10, focusedMs: 5_000 }), 1_000);
+    expect(acc.take(2_000)?.focusedMsSinceLast).toBe(5_000);
+    acc.report(report('r1', { ticks: 11, focusedMs: 6_000 }), 3_000);
+    // Lid closed for 5 minutes; main's clock kept running.
+    const woke = 3_000 + 300_000;
+    expect(acc.alive(woke)).toBe(false); // what the HANDOFF's immediate heartbeat hit before
+    acc.resume(woke);
+    const body = acc.take(woke);
+    expect(body).not.toBeNull();
+    expect(body?.focusedMsSinceLast).toBe(1_000); // nothing lost, nothing invented
+    // The loop gets the usual time to report again…
+    expect(acc.alive(woke + 20_000)).toBe(true);
+    // …and a loop that really died after the resume is still detected.
+    expect(acc.alive(woke + 20_001)).toBe(false);
+    acc.report(report('r1', { ticks: 12, focusedMs: 6_500 }), woke + 5_000);
+    expect(acc.take(woke + 15_000)?.focusedMsSinceLast).toBe(500);
+  });
+
+  it('resume() before any report changes nothing', () => {
+    const acc = new HeartbeatAccumulator();
+    acc.resume(1_000);
+    expect(acc.alive(1_000)).toBe(false);
+    expect(acc.take(1_000)).toBeNull();
+  });
 });

@@ -70,9 +70,18 @@ export class FrameCadence {
   private framesSinceObjects = Number.POSITIVE_INFINITY;
   private lastLumaAt: MonoMs = Number.NEGATIVE_INFINITY;
 
-  options(now: MonoMs, plan: Pick<LoopPlan, 'objectEvery' | 'lumaEveryMs'>): VisionFrameOptions {
+  /**
+   * `objectsAllowed: false` (the loop's duty cap cannot pay for a detector run) postpones a
+   * due detector run to the next frame it can.
+   */
+  options(
+    now: MonoMs,
+    plan: Pick<LoopPlan, 'objectEvery' | 'lumaEveryMs'> & { objectsAllowed?: boolean },
+  ): VisionFrameOptions {
     return {
-      objects: this.framesSinceObjects + 1 >= Math.max(1, plan.objectEvery),
+      objects:
+        plan.objectsAllowed !== false &&
+        this.framesSinceObjects + 1 >= Math.max(1, plan.objectEvery),
       luma: now - this.lastLumaAt >= plan.lumaEveryMs - LUMA_SLACK_MS,
     };
   }
