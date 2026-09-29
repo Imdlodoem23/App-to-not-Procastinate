@@ -159,6 +159,54 @@ describe('generic classifier, real observer and engine', { timeout: 120_000 }, (
     },
   );
 
+  it('writing below a typing direction under the screen, then the face lost for a minute, never strikes', () => {
+    // The screen at −5°, typing while looking at the keyboard at −18° (a study direction of
+    // its own), then a notebook at −28° with the eyes only a little down (lookDown 0.35):
+    // 10° under the typing direction, 23° under the screen. The landmarker then loses the
+    // bent head for 60 s. Against the nearest (typing) direction the notebook was «not
+    // down», so the hidden stretch had an unknown pose and went to the absence path.
+    const script: Script = [
+      ['screen', MIN],
+      ['typing', MIN],
+      ['notebook', 3 * MIN],
+    ];
+    const lostFrom = 3 * MIN;
+    const lostTo = 4 * MIN;
+    for (const seed of [31, 32, 33]) {
+      for (const fps of [2, 3, 4]) {
+        const ticks = synthesize(script, { seed, fps }).map((tick): SynthTick => {
+          const f = tick.frame?.face;
+          if (!tick.frame || !f) return tick;
+          if (tick.activity === 'typing') {
+            const pitch = -18 + (f.pose.pitch + 20) / 3;
+            const face = { ...f, pose: { ...f.pose, pitch }, lookDown: 0.3 };
+            return { ...tick, frame: { ...tick.frame, face } };
+          }
+          if (tick.activity !== 'notebook') return tick;
+          if (tick.now >= lostFrom && tick.now < lostTo) {
+            return { ...tick, frame: { ...tick.frame, face: null, quality: 0.6 } };
+          }
+          const pitch = -28 + (f.pose.pitch + 40) / 3;
+          const face = { ...f, pose: { ...f.pose, pitch }, lookDown: 0.35 };
+          return { ...tick, frame: { ...tick.frame, face } };
+        });
+        const { rec } = cameraEngine(createGenericClassifier(), { keepOutputs: true });
+        rec.synth(ticks);
+        const label = `seed ${seed}, ${fps} fps`;
+        let visible = 0;
+        let down = 0;
+        for (const { observation: o } of rec.outputs) {
+          if (o.at < 2 * MIN + 5_000 || o.presence !== 'visible') continue;
+          visible += 1;
+          if (o.evidence.lookingDown) down += 1;
+        }
+        expect(down / visible, label).toBeGreaterThanOrEqual(0.9);
+        expect(rec.strikes(), label).toEqual([]);
+        expect(rec.warnings(), label).toEqual([]);
+      }
+    }
+  });
+
   it.each([0.55, 0.65])('glasses glare at blink %f is not drowsiness (G)', (blink) => {
     const persona: Persona = { ...PERSONAS.glasses, blink, eyeSd: 0.05 };
     for (const input of ['synth', 'none'] as const) {

@@ -527,9 +527,12 @@ export class AttentionEngine {
     }
 
     // ENFOCADO → DUDA → STRIKE. Drowsy and unknown presence (a lost camera, a dropout)
-    // freeze the timers; absence has priority (its own path below).
+    // freeze the timers; absence has priority (its own path below). Drowsiness freezes them
+    // only when it is the whole story: a pushed frame with a phone in use or a distraction
+    // app in the foreground is judged (glasses glare or heavy lids must not hide a phone).
     const drowsy = this.eyes.drowsy;
-    const frozen = drowsy || rawAbsent || lost;
+    const judgedAnyway = obs.study !== null && (obs.evidence.phone || obs.evidence.distractionApp);
+    const frozen = (drowsy && !judgedAnyway) || rawAbsent || lost;
     if (this.state === 'focused') {
       if (!frozen) {
         if (!this.low) {

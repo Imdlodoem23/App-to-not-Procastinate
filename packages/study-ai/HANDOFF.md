@@ -587,13 +587,21 @@ const notActive = (e: unknown): boolean =>
 
 - `event{type: 'profile_updated', profileJson, reason}` (`feedback` or `migrated`) and
   `calibration_built{ok: true, profileJson}` → write `userData/study-ai/profile.json`
-  atomically (temp file + rename), debounced ~2 s. It holds numbers only (60–150 KB).
+  atomically (temp file + rename), debounced ~2 s. It holds numbers only (60–150 KB), but
+  they describe the user's face frame by frame: up to 80 rows per calibration situation and
+  up to 300 rows per study situation from «¡Estaba estudiando!» moments of real sessions
+  (≤ 30 frames per click, FIFO; `updatedAt` is when the last one happened), each row the 22
+  `FEATURE_ROW_COLUMNS` (head pose, face position and size, how much the face is cut off,
+  blink, gaze down/up/sideways, jaw open, room brightness and contrast, frame quality, and the
+  face, phone, book and person detector values), plus the baseline, thresholds, model, clip
+  dates and the camera hash. The parser refuses more than 5 000 rows or 512 KB. The consent
+  screen and the privacy texts must say so (README «Privacidad» has the wording).
+  «Recalibrar» (all five situations) drops the «¡Estaba estudiando!» rows too.
 - Write the string **exactly as received**, and only after `isAnalysisOutbound` accepted the
   message: the guard checks that it is the canonical JSON of a strictly valid profile of the
   current format, version and trainer (fixed keys, finite numbers, ISO dates and the camera
   hash, nothing else). So a buggy or compromised analysis renderer cannot make main persist
-  anything else (a base64 frame, say) in the file the privacy text describes as calibration
-  numbers.
+  anything else (a base64 frame, say) in the file the privacy text describes as numbers only.
 - **Never call `parseProfile` in main.** It retrains a profile of another trainer version,
   which takes seconds of CPU on main's thread; the window does that migration itself and sends
   `profile_updated{migrated}`.

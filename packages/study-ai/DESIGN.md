@@ -36,25 +36,25 @@ tests. It has **no Electron imports**.
 
 ## 2. Hard requirements and where they are met
 
-| Brief requirement                                                           | Mechanism                                                                                                                                                                             | Owner                       |
-| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
-| 2–4 fps, low resolution                                                     | 320×240 capture; loop levels between 250 and 500 ms; floor of 2 fps                                                                                                                   | PERCEPTION, RUNTIME         |
-| setTimeout loop, never rAF; keeps running with the window hidden            | `AdaptiveLoop` on injected `TimerApi`; `ImageCapture.grabFrame()` does not depend on rendering; hidden window with `backgroundThrottling:false`; a guard test bans rAF and rVFC       | RUNTIME                     |
-| CPU under 15 %                                                              | `CpuGovernor`: duty target 0.08 of one core, optional process-CPU probe at 12 %, adapts fps and detector rate; `AdaptiveLoop`: hard duty cap of 0.15 of one core (never a busy loop)  | RUNTIME                     |
-| No image stored or leaving the process                                      | Only `FrameFeatures` numbers leave the vision pipeline; frames are closed in `finally`; guard tests ban storage, network and image-export APIs; MediaPipe telemetry is blocked (§5.2) | all                         |
-| Looking down to write or read is studying                                   | Looking-down floor (§7.3) and the `paper` calibration class; only a visible phone in hand overrides it                                                                                | DECISION, LEARNING          |
-| Phone in hand weighs heavily                                                | `phoneCap` 0.10 overrides every floor; persistent `E_phone` names the strike cause                                                                                                    | DECISION, PERCEPTION        |
-| Book is positive                                                            | Book evidence raises the score to the study floor and never lowers it                                                                                                                 | DECISION                    |
-| Eyes closed for long → suggest a break, not a strike                        | Drowsy frames stay out of the window, timers freeze, `suggest_break` at most every 10 min                                                                                             | DECISION                    |
-| No-camera mode                                                              | `NoCameraObserver`: foreground class plus keyboard/mouse idle time only                                                                                                               | RUNTIME                     |
-| Score 0–100 smoothed over 10–20 s, with hysteresis                          | Time-weighted window W (default 15 s), H = 8, fast recovery on a 3 s window                                                                                                           | DECISION                    |
-| ENFOCADO → 15 s → DUDA → 30 s → STRIKE; 60 s grace                          | State machine (§7.6); grace = `STUDY_RULES.strikeCooldownMs`                                                                                                                          | DECISION                    |
-| No face for 60 s → strike, except in breaks                                 | Absence accumulator; covered and camera-lost count as absent (fail closed)                                                                                                            | DECISION                    |
-| Pomodoro breaks and Pausa don't count                                       | Phase ≠ work → `break`/`paused`: everything reset, camera off after 10 s                                                                                                              | DECISION, RUNTIME           |
-| Covering the camera = not there                                             | Luma `covered` → presence `covered` → absent, whatever the input activity                                                                                                             | PERCEPTION, DECISION        |
-| Configurable timings and sensitivity                                        | `resolveStudyAiSettings` clamps to `STUDY_RULES` plus two local ranges                                                                                                                | lead                        |
-| Personal classifier trained locally on 5 situations of ~20 s, recalibration | `CalibrationRecorder` → `buildProfile` (softmax, CV) → `profile.json`                                                                                                                 | LEARNING, RUNTIME           |
-| «¡Estaba estudiando!» adds examples and retrains, never refunds a strike    | engine episode → `learnFromFeedback` → classifier swap → rescore                                                                                                                      | DECISION, LEARNING, RUNTIME |
+| Brief requirement                                                           | Mechanism                                                                                                                                                                                                                                                          | Owner                       |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------- |
+| 2–4 fps, low resolution                                                     | 320×240 capture; loop levels between 250 and 500 ms; floor of 2 fps                                                                                                                                                                                                | PERCEPTION, RUNTIME         |
+| setTimeout loop, never rAF; keeps running with the window hidden            | `AdaptiveLoop` on injected `TimerApi`; `ImageCapture.grabFrame()` does not depend on rendering; hidden window with `backgroundThrottling:false`; a guard test bans rAF and rVFC                                                                                    | RUNTIME                     |
+| CPU under 15 %                                                              | `CpuGovernor`: duty target 0.08 of one core, optional process-CPU probe at 12 %, adapts fps and detector rate; `AdaptiveLoop`: hard duty cap of 0.15 of one core (never a busy loop)                                                                               | RUNTIME                     |
+| No image stored or leaving the process                                      | Only `FrameFeatures` numbers leave the vision pipeline; frames are closed in `finally`; guard tests ban storage, network and image-export APIs; MediaPipe telemetry is blocked (§5.2)                                                                              | all                         |
+| Looking down to write or read is studying                                   | Looking-down floor (§7.3), with «eyes down» judged against the user's own screen gaze (§7.2), and the `paper` calibration class; only a visible phone in hand, or typing at a distraction, overrides it; a hidden head down keeps it while there are signs of life | DECISION, LEARNING          |
+| Phone in hand weighs heavily                                                | `phoneCap` 0.10 overrides every floor; persistent `E_phone` names the strike cause                                                                                                                                                                                 | DECISION, PERCEPTION        |
+| Book is positive                                                            | Book evidence raises the score to the study floor and never lowers it                                                                                                                                                                                              | DECISION                    |
+| Eyes closed for long → suggest a break, not a strike                        | Drowsy frames stay out of the window, timers freeze (not over a phone or a distraction), eyes re-judged online (glare), `suggest_break` at most every 10 min                                                                                                       | DECISION                    |
+| No-camera mode                                                              | `NoCameraObserver`: foreground class plus keyboard/mouse idle time only                                                                                                                                                                                            | RUNTIME                     |
+| Score 0–100 smoothed over 10–20 s, with hysteresis                          | Time-weighted window W (default 15 s), H = 8, fast recovery on a 3 s window                                                                                                                                                                                        | DECISION                    |
+| ENFOCADO → 15 s → DUDA → 30 s → STRIKE; 60 s grace                          | State machine (§7.6); grace = `STUDY_RULES.strikeCooldownMs`                                                                                                                                                                                                       | DECISION                    |
+| No face for 60 s → strike, except in breaks                                 | Absence accumulator; covered and camera-lost count as absent (fail closed)                                                                                                                                                                                         | DECISION                    |
+| Pomodoro breaks and Pausa don't count                                       | Phase ≠ work → `break`/`paused`: everything reset, camera off after 10 s                                                                                                                                                                                           | DECISION, RUNTIME           |
+| Covering the camera = not there                                             | Luma `covered` → presence `covered` → absent, whatever the input activity                                                                                                                                                                                          | PERCEPTION, DECISION        |
+| Configurable timings and sensitivity                                        | `resolveStudyAiSettings` clamps to `STUDY_RULES` plus two local ranges                                                                                                                                                                                             | lead                        |
+| Personal classifier trained locally on 5 situations of ~20 s, recalibration | `CalibrationRecorder` → `buildProfile` (softmax, CV) → `profile.json`                                                                                                                                                                                              | LEARNING, RUNTIME           |
+| «¡Estaba estudiando!» adds examples and retrains, never refunds a strike    | engine episode → `learnFromFeedback` → classifier swap → rescore                                                                                                                                                                                                   | DECISION, LEARNING, RUNTIME |
 
 ## 3. Architecture
 
@@ -396,7 +396,7 @@ wizard can say «no te veo» before the 20 s run out.
 `face, dyaw, dpitch, droll, gazeX, gazeY(=lookUp−lookDown), dcx, dcy, logScale, blink, phone, phone·phoneNear, phone·phoneMoving, book, person, (1−face)·person`
 
 - `dcx = (cx−cx0)/w0`, `dcy = (cy−cy0)/h0`, `logScale = ln(h/h0)`.
-- **Robust standardisation:** (x − median)/max(IQR/1.349, floor). The floor is 3° for angles and 0.05 for the rest. Center and scale are stored in the model.
+- **Robust standardisation:** (x − median)/max(IQR/1.349, floor). The floor is 3° for angles, 0.15 for gazeX (reading across one screen moves the eyes by about ±0.3, so a clip that looked at one spot must not turn a 0.1 eye movement into several units), 0.05 for the other face values and 0.25 for detector scores and indicators. Center and scale are stored in the model.
 - Face-dependent standardised values are multiplied by `face`, so no face → 0, never a fake pose.
 
 **φ(x):**
@@ -426,7 +426,7 @@ This lets a convex linear model learn several «studying» directions: a second 
   - full `buildProfile` (CV + final) ≤ 2 s;
   - feedback retrain (warm start, fixed λ, center, scale and anchors, ≤ 300 iterations) ≤ 300 ms;
   - `predict` ≤ 0.1 ms.
-- **Stale trainer:** a profile whose `trainer` ≠ `PROFILE_TRAINER_VERSION` is retrained from `samples` on load. The facade emits `profile_updated{reason:'migrated'}`.
+- **Stale trainer:** a profile whose `trainer` ≠ `PROFILE_TRAINER_VERSION` (now 3: the reading-across copies of §6.8 and the gaze floor) is retrained from `samples` on load. The facade emits `profile_updated{reason:'migrated'}`.
 
 ### 6.7 Trust π
 
@@ -438,6 +438,7 @@ visible phone.
 ### 6.8 Augmentation (seeded, pseudo-rows weigh 0.3)
 
 - ±3° pose noise.
+- Reading across the screen or the page: a copy of every `screen`/`paper` face row with gazeX shifted uniformly within ±0.3 and yaw within ±10°, same label (own seeded stream). The `screen` clip is usually recorded looking at one spot (often the wizard's own preview); without these copies a sustained eyes-only shift to one side of the same screen (a PDF on one half, notes in a side window, a lecture in a side panel) read as `away` and struck.
 - Blendshape noise at 0.5 × the class σ, so the model depends less on the eyes.
 - Copies of `screen`/`paper` rows with phone = 0.8 and phoneNear = 1, labelled `phone` (a visible phone means phone, whatever the pose).
 - Copies of `paper` rows with book ∈ {0, 0.7} (independent of the detector).
@@ -454,7 +455,7 @@ visible phone.
 - Until 3 s of face frames exist, `ready = false` and `predict` returns a neutral study-leaning answer (p_screen 0.8).
 - A second monitor the user types or scrolls on is thereby a screen. One only watched, never touched, is not: pose alone cannot tell it from looking away (see §11).
 
-**Rules** (against the direction that fits best: lowest rule cost, then the nearest; `relativePose` uses the same one):
+**Rules** (pStudy against the direction that fits best: lowest rule cost). `relativePose` and the paper share use that direction too (equal cost: the nearest), except for a pose more than 6° below every direction that fits about as well (cost within 0.05): it looks at the desk, below all the screens, and is measured from the highest of them. Every downward pose costs about 0 against every direction, so «the nearest» would be the lowest one, and a direction learned from typing below the screen (at the keyboard) would make writing in a notebook «not down» for DECISION (looking-down floor, last pose before the face is lost).
 
 - pStudy = exp(−(max(0,|dyaw|−10)/30)⁴ − (max(0,dpitch−15)/15)⁴) when dpitch ≥ −70°. Looking down counts as study.
 - pStudy is split into screen/paper by the sign of dpitch.
@@ -514,6 +515,8 @@ datos» deletes it. The shape is `CalibrationProfile` (numbers, ISO dates and fi
   - every rejection case;
   - a leaf walk asserting only numbers and allowed strings.
 - **Personas** (via `calibrationFrames` from `test/synth`): every persona builds a usable profile; `offAxisCamera` and `secondMonitor` classify their study activities as study.
+- **Real observer and engine:** calibrated at one spot, reading the same screen with the eyes (gazeX ±0.2–0.3, also with yaw ±12°) and no input never strikes, and looking away still does; generic, a typing direction 13° under the screen does not stop a notebook 10° under it from being «down» (no strike through a 60 s face loss).
+- **Privacy texts:** README «Privacidad» and HANDOFF §5 name every `FEATURE_ROW_COLUMNS` column and the row limits (`test/calibration/privacy-doc.test.ts`).
 - **Feedback:** a new posture (tablet) is `away` before and study after; phone and absent frames never get in.
 - **Performance** bounds from §6.6.
 
@@ -539,9 +542,13 @@ The observer keeps the detector runs of the last 6 s (fresh frames only).
 
 - **`phone`** (E_phone): phone ≥ `thresholds.phone` ∧ (nearFace ∨ moving) ∧ stillMs < 20 s ∧ _in use_ (moving ∨ lookingDown ∨ the box overlaps the face ∨ no face in view), in ≥ 60 % of the runs of the last max(5 s, 2 runs). A phone that does not move near a user who visibly looks at the screen is a timer on a stand, not a phone in hand.
 - **`book`** (E_book): book ≥ 0.35 in ≥ 50 % of the runs of the last max(6 s, 2 runs).
-- **`lookingDown`:** visible ∧ (rel.dpitch ≤ −12° ∨ lookDown ≥ 0.45) ∧ |rel.dyaw| ≤ 35°. Without `rel` (generic not ready), absolute pitch ≤ −20° is used.
+- **`lookingDown`:** visible ∧ (rel.dpitch ≤ −12° ∨ eyes down) ∧ |rel.dyaw| ≤ 35° (up to 60° with the head clearly down, ≤ −20°, or down ≤ −12° with the eyes down). Without `rel` (generic not ready), absolute pitch ≤ −20° is used.
+  - **Eyes down** is relative to the user: lookDown ≥ max(0.45, g + 0.25). The screen gaze g is the p25 of lookDown over the latest 1 200 work frames with the head within 12° (yaw) and 8° (pitch) of a screen direction, q ≥ 0.5, no fresh input (the keys draw a typist's eyes down), no E_phone and a study argmax; 0.45 until 20 such frames exist. It survives `reset()`.
+  - A laptop placed low or progressive lenses read lookDown ≈ 0.5 at the screen. With the absolute 0.45 every screen frame got the study floor, and a distraction in the foreground was never caught.
+  - The p25 keeps a stretch of eyes-only reading at head level from moving g unless it fills three quarters of the ring.
 - **`distractionApp`** (F_dist): foreground `distraction` continuously for ≥ 5 s.
 - **`inputActive`:** idleMs < 15 s. Null idle counts as inactive.
+- **`freshInput`:** idleMs < 2 s. Null idle is not fresh. **Typing at a distraction** = F_dist ∧ freshInput.
 
 ### 7.3 Fusion: the instant study value s ∈ [0, 1]
 
@@ -551,28 +558,35 @@ and **floor = min(95, θ + 20)/100**. The floor is always ≥ θ + H, so looking
 
 **Base value, by presence:**
 
-| Presence                           | s                                                                                       |
-| ---------------------------------- | --------------------------------------------------------------------------------------- |
-| `visible`                          | p.screen·(F_dist ? 0.1 : 1) + p.paper + π.away·p.away + (E_phone ? 0 : π.phone·p.phone) |
-| `hidden`                           | max(p.screen + p.paper if p exists, last-pose rule)                                     |
-| `absent`, `covered`, `camera_lost` | `null`: not pushed; the absence path handles it                                         |
+| Presence                           | s                                                                                                          |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `visible`                          | p.screen·(F_dist ? 0.1 : 1) + p.paper·(typing ? 0.1 : 1) + π.away·p.away + (E_phone ? 0 : π.phone·p.phone) |
+| `hidden`                           | max(p.screen + p.paper if p exists (same discounts), last-pose rule)                                       |
+| `absent`, `covered`, `camera_lost` | `null`: not pushed; the absence path handles it                                                            |
 
 Hidden last-pose rule: look at the last visible relative pose within 2 s before the face was lost.
 
-- **down** (dpitch ≤ −12°): floor, for up to 10 min of continuous hidden time;
+- **down** (lookingDown, or dpitch ≤ −12°), or a book held up in front of the face: floor (× 0.1 when typing at a distraction), with no time limit while the user shows signs of life:
+  - someone is there (the person detector, which `hidden` needs after the first 10 s);
+  - and keyboard or mouse, or motion where the face was (motionNearFace ≥ 0.01, or ≥ 0.005 while E_book: a reader moves less than a writer).
+  - Writing for an hour with the face out of view is studying; `camera_cant_see_you` says so after 60 s. The stretch ends when the person leaves (presence `absent`, the absence path at once) or after 90 s without a sign of life: asleep on the desk (drowsy candidates, §7.4), handed to the absence path only after 20 min of hidden time.
+  - E_book alone is not a sign of life: a nap over an open notebook must still be recognised.
 - **turned** (|dyaw| ≥ 35°): 0.2;
-- **unknown:** (θ + 5)/100 for 20 s, then 0.2.
+- **unknown:** (θ + 5)/100 (× 0.1 with F_dist) for 20 s, then not observable: reported `absent`, so the absence path runs instead of a DUDA that would blame attention for framing or light. Low light with keyboard or mouse input within `noCameraIdleMs` keeps the value.
 
 **Then, in order:**
 
-1. If ¬E_phone ∧ (lookingDown ∨ E_book): s = max(s, floor).
+1. If ¬E_phone ∧ ¬typing ∧ (lookingDown ∨ (E_book ∧ a head that could be reading it)): s = max(s, floor). With F_dist, «could be reading it» needs the head or the eyes down: a level face at the screen with a textbook on the desk is watching the distraction. Otherwise E_book adds 0.10.
 2. If inputActive ∧ ¬F_dist ∧ ¬E_phone: s = min(1, s + 0.10). Keyboard and mouse are a weak signal.
 3. If E_phone: s = min(s, 0.10). A phone in hand overrides everything.
 4. Drowsy candidate (below): s = null. Not pushed, timers freeze.
 
 A distraction in the foreground discounts only the «looking at the screen» share. This is
 the brief's «aunque mires la pantalla»: writing in a notebook with music in the foreground
-stays study.
+stays study. Typing at the distraction (fresh input) is the exception: eyes or head down are
+on the keys, not on paper (a hunt-and-peck typist in a chat app), so there is no floor and
+the «paper» share is discounted too. Writing by hand with a video in front has no keystrokes
+and keeps the floor.
 
 **Other outputs:**
 
@@ -593,7 +607,9 @@ stays study.
 - **Closed frame:**
   - eyes reliable ∧ visible ∧ q ≥ 0.5;
   - blink − (a + b·dpitch) > closedDelta;
-  - lookDown < 0.5.
+  - lookDown < 0.5;
+  - ¬freshInput ∧ ¬E_phone ∧ ¬F_dist: someone typing, using a phone or at a distraction app is not asleep, and those frames must stay in the window.
+- **Online eye check** (both classifiers): the eye model in use is the classifier's, corrected by the latest 120 blink values of calm (not looking down) face frames with fresh input, no E_phone and no F_dist. From 20 values on, it is unreliable when their median is > 0.5 or their spread (IQR/1.349) is > 0.15 (the profile's glare rule), and a is raised to their median when that is higher. A profile judges its eyes once, at calibration; glasses glare from a lamp turned on later, or heavy eyelids at night, must not read as closed eyes for the rest of the session.
 - **Yawn:** jawOpen > 0.6 for ≥ 2 s.
 - **Drowsy** (engine):
   - starts when closed ≥ 80 % of the last 20 s (with ≥ 50 % coverage), or PERCLOS ≥ 0.3 over 60 s;
@@ -657,7 +673,7 @@ Per tick, dt = now − previous tick:
 - **Resulting cadence:**
   - continuous distraction strikes at ≈ 52 s, then every ≈ 105 s;
   - continuous absence strikes at 60, 180 and 300 s.
-- **Drowsy:** lowMs and doubtMs freeze (neither grow nor reset).
+- **Drowsy:** lowMs and doubtMs freeze (neither grow nor reset), unless the tick pushed a value with E_phone or F_dist: drowsiness never hides a phone or a distraction. A nap with a video playing pushes nothing and still freezes them.
 - **Strike events** carry `seq` (1, 2, 3… per engine run). Main uses `<sessionId>:<runId>:<seq>` as the idempotency key.
 
 ### 7.7 Strike cause (doubt path)
@@ -732,7 +748,7 @@ a fake clock.
 **Fusion:**
 
 - every rule of §7.3;
-- F_dist only discounts p.screen;
+- F_dist only discounts p.screen, and p.paper when typing at it (no floor then either);
 - the floor is ≥ θ + 8 for every θ in 30..80;
 - the phone cap beats book, looking down and hidden.
 
@@ -775,6 +791,13 @@ _True positives:_
 | distraction foreground while on screen  | `distraction_app`                                  |
 | eyesClosed 2 min                        | `suggest_break`, no strike                         |
 | any script with ≥ 70 s continuous phone | ≥ 1 strike                                         |
+
+`test/state/scenarios-user-eyes.test.ts` (oracle, generic, personal):
+
+- screen lookDown ≈ 0.5–0.55 (`LOW_SCREEN_PERSONA`): a distraction foreground strikes `distraction_app`; the study scripts and writing notes with the video in front do not strike;
+- hunt-and-peck typing (`huntAndPeck`): into a `distraction` foreground it strikes; in a study app it does not;
+- glare after calibration (`GLARE_PERSONA`): a phone at eye level strikes `phone`, a distraction strikes `distraction_app`, typing or reading the screen is not drowsy (≥ 90 % focus);
+- 20 min over a notebook or a book with the face hidden (person and motion; a still reader with the book in view): 0 strikes, ≥ 90 % focus; leaving afterwards strikes `no_face` 60 s later.
 
 ## 8. RUNTIME
 
@@ -1067,7 +1090,8 @@ HANDOFF wins. It must cover:
 
 ## 11. Known limitations
 
-- A phone held below the camera's view looks like reading or writing. It is not punished, by design.
+- A phone held below the camera's view looks like reading or writing. It is not punished, by design. This includes a face hidden over the desk for a long time: while the person detector sees the user and the head moves (or they type), the stretch keeps the study floor with no time limit (§7.3). Only `camera_cant_see_you` is raised.
+- «Eyes down» is judged against the user's screen gaze (§7.2). A user who reads paper with the eyes only, the head level, for most of the session raises that reference, and such reading then relies on the classifier (and loses the floor with a distraction in the foreground). Reading or writing with the head bent is not affected.
 - A phone held perfectly still in the hand (its centre within about 15 % of its diagonal for 20 s) reads as a phone at rest. Real hands wobble more; the classifier's `phone` posture still applies.
 - A phone that appears already at rest near the chest (a stand in view when the session starts) counts as in hand for its first 20 s: at most one «¿Sigues ahí?», never a strike.
 - A calculator held and moved near the face can read as a phone. The doubt period and the personal `thresholds.phone` soften this.
@@ -1076,6 +1100,7 @@ HANDOFF wins. It must cover:
 - The generic classifier learns a second screen only from keyboard or mouse input on it (§6.9). A second monitor that is only watched, at 40° or more, reads as looking away until the user types or scrolls there, or calibrates. The safety net is DECISION's: in generic mode a pose-only doubt (`looking_away`/`unknown`) should stop at DUDA (requested, not yet in §7.6).
 - A video on a second monitor while a study app has the focus is only caught when main sends `visibleDistraction` (a catalog service visible and playing on any display) and the input is idle for 10 s. Without it the second monitor reads as a screen and the video gets full focus credit. A video watched while typing in the notes is not caught.
 - The generic classifier keeps the session's opening pose (the first 20 s of calm frames) as a screen. A user who starts by looking elsewhere without touching the keyboard teaches it that direction until three other screens displace it.
+- The personal classifier treats eyes-only reading across the calibrated screen (gaze ±0.3) and a head turned up to about 10° as that screen (§6.8). A screen 20–30° to the side that was never calibrated is therefore ambiguous: typed on, it reads as study; only watched, it can reach DUDA and strike. Calibrating it (the wizard asks to look at every screen) or «¡Estaba estudiando!» teaches it.
 - The pitch sign must be checked once by hand in the demo, on a real face.
 
 ## Appendix: how A and B were merged

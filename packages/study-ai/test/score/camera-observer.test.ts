@@ -389,20 +389,65 @@ describe('hidden face: last-pose rule', () => {
     expect(o.presence).toBe('absent');
   });
 
-  it('head down but hidden for more than 10 min → not observable', () => {
+  it('head down, hidden, with signs of life: the floor for as long as it lasts', () => {
     const obs = observer();
-    // Writing: the head moves where the face was.
-    const writing = { face: null, run: { person: 0.9 }, luma: { motionNearFace: 0.03 } };
+    // Writing: someone there and the head moving where the face was. No timer ends it.
+    const writing = { face: null, run: { person: 0.9 }, luma: { motionNearFace: 0.012 } };
     observeAt(obs, 0, { face: faceOf({ pitch: -40 }), run: { person: 0.9 } });
     let t = 300;
     let o: Observation | null = null;
-    for (; t <= 600_300; t += 1_000) o = observeAt(obs, t, writing);
-    expect(o?.presence).toBe('hidden');
+    for (; t <= 3_600_300; t += 1_000) {
+      o = observeAt(obs, t, writing);
+      if (o.presence !== 'hidden' || o.study === null) break;
+    }
+    expect(t).toBeGreaterThan(3_600_000);
     expect(o?.study).toBeCloseTo(0.7);
-    expect(o?.hints).toContain('camera_cant_see_you'); // hidden > 60 s
-    o = observeAt(obs, t + 1_000, writing);
+    expect(o?.eyes.closed).toBe(false);
+    expect(o?.hints).toContain('camera_cant_see_you'); // hidden > 60 s: said, not punished
+    // The person leaves: the detector stops seeing them and the absence path takes over.
+    observeAt(obs, t, { face: null, run: {} });
+    observeAt(obs, t + 1_000, { face: null, run: {} });
+    o = observeAt(obs, t + 2_000, { face: null, run: {} });
     expect(o.presence).toBe('absent');
     expect(o.study).toBeNull();
+  });
+
+  it('a still reader with a book in view is alive; the same stillness without one is a nap', () => {
+    const hiddenRun = (book: boolean) => {
+      const obs = observer();
+      const ctx = { context: { idleMs: 3_600_000 } };
+      const run = { person: 0.9, ...(book ? { book: 0.7 } : {}) };
+      // Reading on the desk: little motion near the face (page turns, small head moves).
+      const reading = { face: null, run, luma: { motionNearFace: 0.007 } };
+      observeAt(obs, 0, { face: faceOf({ pitch: -35, lookDown: 0.6 }), run }, ctx);
+      let o: Observation | null = null;
+      for (let t = 1_000; t <= 1_500_000; t += 1_000) o = observeAt(obs, t, reading, ctx);
+      return o as Observation;
+    };
+    const reader = hiddenRun(true);
+    expect(reader.presence).toBe('hidden');
+    expect(reader.study).toBeCloseTo(0.7);
+    expect(reader.eyes.closed).toBe(false);
+    // Without a book the same motion is under the writing threshold: asleep, then (past
+    // 20 min of hidden time) the absence path.
+    expect(hiddenRun(false).presence).toBe('absent');
+  });
+
+  it('typing at a distraction with the face hidden over the keys gets no floor', () => {
+    const obs = observer();
+    const ctx = { context: { foreground: 'distraction' as const, idleMs: 300 } };
+    const keys = { face: null, run: { person: 0.9 }, luma: { motionNearFace: 0.03 } };
+    observeAt(obs, 0, { face: faceOf({ pitch: -40 }), run: { person: 0.9 } }, ctx);
+    let o: Observation | null = null;
+    for (let t = 1_000; t <= 10_000; t += 1_000) o = observeAt(obs, t, keys, ctx);
+    expect(o?.presence).toBe('hidden');
+    expect(o?.study).toBeLessThan(0.5);
+    expect(o?.cause).toBe('distraction_app');
+    expect(obs.rescore(o as Observation, SETTINGS)).toBeLessThan(0.5);
+    // Writing by hand with the video in front: no keystrokes, the floor stays.
+    const hand = { context: { foreground: 'distraction' as const, idleMs: 60_000 } };
+    o = observeAt(obs, 11_000, keys, hand);
+    expect(o.study).toBeCloseTo(0.7);
   });
 
   it('head down, hidden and still for 90 s: asleep on the desk (drowsy candidate)', () => {
@@ -518,6 +563,88 @@ describe('hidden face: last-pose rule', () => {
   });
 });
 
+describe("eyes down, against the user's own screen gaze", () => {
+  /** Watching the screen without touching the keyboard, eyes at `lookDown`. */
+  const watch = (
+    obs: CameraObserver,
+    from: number,
+    to: number,
+    lookDown: number,
+    extra: Extra = {},
+  ) => {
+    let o: Observation | null = null;
+    for (let t = from; t < to; t += 300) {
+      o = observeAt(obs, t, { face: faceOf({ lookDown }) }, extra);
+    }
+    return o as Observation;
+  };
+
+  it('a low laptop (eyes at 0.5 on the screen) is not «looking down» once learned', () => {
+    const obs = observer();
+    expect(obs.screenLookDown).toBeNull();
+    // Before the reference exists the absolute 0.45 applies.
+    expect(observeAt(obs, 0, { face: faceOf({ lookDown: 0.5 }) }).evidence.lookingDown).toBe(true);
+    watch(obs, 300, 10_000, 0.5);
+    expect(obs.screenLookDown).toBeCloseTo(0.5, 2);
+    const at = (t: number, lookDown: number, pitch = -5) =>
+      observeAt(obs, t, { face: faceOf({ lookDown, pitch }) }).evidence.lookingDown;
+    expect(at(10_000, 0.55)).toBe(false);
+    expect(at(10_300, 0.74)).toBe(false);
+    // Clearly further down (a notebook) still is; so is the head down, whatever the eyes.
+    expect(at(10_600, 0.8)).toBe(true);
+    expect(at(10_900, 0.5, -20)).toBe(true);
+    // Kept through a break (reset): it is the user's setup, not the session's state.
+    obs.reset();
+    expect(obs.screenLookDown).toBeCloseTo(0.5, 2);
+  });
+
+  it('a distraction on a low laptop is judged like on any other screen', () => {
+    const obs = observer();
+    const dist = { context: { foreground: 'distraction' as const } };
+    const o = watch(obs, 0, 30_000, 0.55, dist);
+    expect(o.evidence.distractionApp).toBe(true);
+    expect(o.evidence.lookingDown).toBe(false);
+    expect(o.study).toBeLessThan(0.2);
+    expect(o.cause).toBe('distraction_app');
+  });
+
+  it('a normal screen gaze keeps 0.45; typing, phone and «away» frames never teach it', () => {
+    const normal = observer();
+    watch(normal, 0, 10_000, 0.1);
+    expect(normal.screenLookDown).toBeCloseTo(0.1, 2);
+    expect(
+      observeAt(normal, 10_000, { face: faceOf({ lookDown: 0.45 }) }).evidence.lookingDown,
+    ).toBe(true);
+    // Keyboard glances with fresh input (a hunt-and-peck typist): not the screen gaze.
+    const typist = observer();
+    watch(typist, 0, 30_000, 0.6, { context: { idleMs: 500 } });
+    expect(typist.screenLookDown).toBeNull();
+    // A phone in hand in view: not the screen gaze either.
+    const phone = observer();
+    for (let t = 0; t < 30_000; t += 300) {
+      observeAt(phone, t, {
+        face: faceOf({ lookDown: 0.6 }),
+        run: t % 1_200 === 0 ? { phone: { score: 0.8, moving: true } } : undefined,
+      });
+    }
+    expect(phone.screenLookDown).toBeNull();
+    // Frames the model calls «away» (looking at something else at the same height).
+    const away = observer(oracleClassifier({ predict: () => probs({ away: 1 }) }));
+    watch(away, 0, 30_000, 0.6);
+    expect(away.screenLookDown).toBeNull();
+  });
+
+  it('a stretch of reading with the eyes only does not move the reference', () => {
+    const obs = observer();
+    watch(obs, 0, 300_000, 0.1); // 5 min at the screen
+    watch(obs, 300_000, 360_000, 0.7); // 1 min reading notes on the palm rest, head level
+    expect(obs.screenLookDown).toBeLessThan(0.2);
+    expect(observeAt(obs, 360_000, { face: faceOf({ lookDown: 0.7 }) }).evidence.lookingDown).toBe(
+      true,
+    );
+  });
+});
+
 describe('eyes', () => {
   it('closed when blink − fit(dpitch) > closedDelta, eyes not looking down, good frame', () => {
     const obs = observer();
@@ -541,6 +668,65 @@ describe('eyes', () => {
       oracleClassifier({ eyes: { reliable: false, blinkFit: [0.15, -0.004], closedDelta: 0.45 } }),
     );
     expect(observeAt(obs, 0, { face: faceOf({ blink: 1 }) }).eyes.closed).toBe(false);
+  });
+
+  it('never while typing, with a phone in use or with a distraction app', () => {
+    const obs = observer();
+    const shut = { face: faceOf({ blink: 0.95 }) };
+    expect(observeAt(obs, 0, shut, { context: { idleMs: 1_000 } }).eyes.closed).toBe(false);
+    expect(observeAt(obs, 300, shut, { context: { idleMs: 2_000 } }).eyes.closed).toBe(true);
+    const phone = observer();
+    const inHand = { ...shut, run: { phone: { score: 0.8, moving: true } } };
+    observeAt(phone, 0, inHand);
+    const o = observeAt(phone, 1_000, inHand);
+    expect(o.evidence.phone).toBe(true);
+    expect(o.eyes.closed).toBe(false);
+    expect(o.study).not.toBeNull(); // pushed: the phone is judged
+    expect(o.study).toBeLessThanOrEqual(0.1);
+    const dist = observer();
+    const ctx = { context: { foreground: 'distraction' as const } };
+    observeAt(dist, 0, shut, ctx);
+    const d = observeAt(dist, 5_000, shut, ctx);
+    expect(d.evidence.distractionApp).toBe(true);
+    expect(d.eyes.closed).toBe(false);
+    expect(d.study).not.toBeNull();
+  });
+
+  it('glare that appears after calibration is judged online (typing frames)', () => {
+    // The profile said reliable; a lamp turned on later makes open eyes read 0.7.
+    const obs = observer();
+    expect(obs.eyeModel.reliable).toBe(true);
+    let t = 0;
+    for (; t < 10_000; t += 300) {
+      observeAt(
+        obs,
+        t,
+        { face: faceOf({ blink: 0.7 + ((t / 300) % 5) * 0.01 }) },
+        { context: { idleMs: 200 } },
+      );
+    }
+    expect(obs.eyeModel.reliable).toBe(false);
+    // A pause in the typing: the same eyes are not «closed».
+    expect(observeAt(obs, t, { face: faceOf({ blink: 0.72 }) }).eyes.closed).toBe(false);
+  });
+
+  it('online eyes raise the fit to the open-eye median and keep a clean profile reliable', () => {
+    const obs = observer(); // fit 0.15, closedDelta 0.45
+    let t = 0;
+    for (; t < 10_000; t += 300) {
+      observeAt(
+        obs,
+        t,
+        { face: faceOf({ blink: 0.4 + ((t / 300) % 3) * 0.01 }) },
+        { context: { idleMs: 200 } },
+      );
+    }
+    const model = obs.eyeModel;
+    expect(model.reliable).toBe(true);
+    expect(model.blinkFit[0]).toBeCloseTo(0.41, 2);
+    // 0.7 was «closed» against the profile's fit (0.7 − 0.15 > 0.45), not against 0.41.
+    expect(observeAt(obs, t, { face: faceOf({ blink: 0.7 }) }).eyes.closed).toBe(false);
+    expect(observeAt(obs, t + 300, { face: faceOf({ blink: 0.95 }) }).eyes.closed).toBe(true);
   });
 
   it('a yawn is jawOpen > 0.6 for ≥ 2 s', () => {

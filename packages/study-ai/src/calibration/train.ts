@@ -2,7 +2,8 @@
  * Training pipeline of the personal classifier (owner: LEARNING). DESIGN.md §6.5–6.8.
  *
  * samples (absolute rows) + baseline → x → robust standardisation + RBF anchors → φ,
- * seeded augmentation (pseudo-rows weigh 0.3), class-equalised weights (feedback rows 1.5,
+ * seeded augmentation (pseudo-rows weigh 0.3; study rows are also read across the screen with
+ * the eyes and a slightly turned head), class-equalised weights (feedback rows 1.5,
  * capped at 50 % of their class's calibration weight; `phone` rows with no visible phone
  * 0.2, so posture alone never means «phone»), blocked 4-fold CV over the λ grid
  * (out-of-fold binary log-likelihood), trust π from the out-of-fold predictions, and a final
@@ -13,6 +14,9 @@ import {
   AUGMENT_EYE_FACTOR,
   AUGMENT_PHONE_SCORE,
   AUGMENT_POSE_SD,
+  AUGMENT_SCAN_GAZE,
+  AUGMENT_SCAN_SEED,
+  AUGMENT_SCAN_YAW,
   AUGMENT_SEED,
   CV_FOLDS,
   CV_MAX_ITER,
@@ -177,6 +181,9 @@ function classEyeSd(samples: SampleSet): number[][] {
 /**
  * Seeded pseudo-rows from calibration rows only:
  * - pose (±3°) and blendshape (0.5 × class σ) noise on every 2nd face row;
+ * - study face rows read across the screen or the page: gazeX shifted uniformly within ±0.3
+ *   and yaw within ±10°, same label (every row, own seeded stream). A small eye movement
+ *   must not carry a class: the screen clip is usually recorded looking at one spot;
  * - study face rows with a phone near the face (0.8), labelled `phone` (every 2nd);
  * - paper rows with the book toggled between 0 and 0.7 (every row);
  * - absent rows pinned at face = 0 and a person below the threshold (every 2nd);
@@ -192,6 +199,8 @@ export function augment(
   baseline: ScreenBaseline,
 ): PseudoRow[] {
   const rng = mulberry32(AUGMENT_SEED);
+  // Own stream, so the other pseudo-rows do not depend on this one.
+  const scan = mulberry32(AUGMENT_SCAN_SEED);
   const eyeSd = classEyeSd(samples);
   const out: PseudoRow[] = [];
   const counters = new Int32Array(K_CLASSES);
@@ -213,6 +222,14 @@ export function augment(
         const v = (row[column] ?? 0) + gaussian(rng, 0, sd);
         row[column] = column === COL.gazeX ? clamp(v, -1, 1) : clamp01(v);
       });
+      out.push({ row, cls, parent: i, weight: PSEUDO_ROW_WEIGHT });
+    }
+    if (hasFace && isStudyIndex(cls)) {
+      const row = copy();
+      const gaze = (row[COL.gazeX] ?? 0) + uniform(scan, -AUGMENT_SCAN_GAZE, AUGMENT_SCAN_GAZE);
+      const yaw = (row[COL.yaw] ?? 0) + uniform(scan, -AUGMENT_SCAN_YAW, AUGMENT_SCAN_YAW);
+      row[COL.gazeX] = clamp(gaze, -1, 1);
+      row[COL.yaw] = clamp(yaw, -180, 180);
       out.push({ row, cls, parent: i, weight: PSEUDO_ROW_WEIGHT });
     }
     if (hasFace && isStudyIndex(cls) && nth % 2 === 1) {

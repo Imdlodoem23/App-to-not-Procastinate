@@ -15,6 +15,7 @@ import {
   RBF_ENTRIES,
   SCALE_FLOOR_ANGLE,
   SCALE_FLOOR_FACE,
+  SCALE_FLOOR_GAZE,
   SCALE_FLOOR_SCORE,
   XI,
   X_DIM,
@@ -154,6 +155,7 @@ const ANGLES = new Set(ANGLE_ENTRIES);
 
 function scaleFloor(entry: number): number {
   if (ANGLES.has(entry)) return SCALE_FLOOR_ANGLE;
+  if (entry === XI.gazeX) return SCALE_FLOOR_GAZE;
   if (FACE_DEP.has(entry)) return SCALE_FLOOR_FACE;
   return SCALE_FLOOR_SCORE;
 }

@@ -5,6 +5,11 @@
  * Order: base value by presence → study floor (looking down; a book the head could be
  * reading) or the small book bonus → weak input bonus → phone cap (over everything) →
  * drowsy candidates stay out of the window.
+ *
+ * With a distraction in the foreground and fresh keyboard or mouse input («typing at a
+ * distraction»), eyes or head down are on the keyboard, not on paper: no study floor, and the
+ * «paper» share is discounted like the screen share. Writing by hand with a video in front
+ * (no keystrokes) keeps the floor.
  */
 import { STUDY_AI_CONSTANTS } from '../config';
 import type { ClassProbabilities, LowCause, ObservationEvidence, Presence } from '../types';
@@ -14,8 +19,6 @@ import {
   BOOK_READING_MAX_YAW,
   BOOK_READING_SIDE_MAX_YAW,
   DISTRACTION_SCREEN_KEEP,
-  HIDDEN_BOOK_MAX_MS,
-  HIDDEN_DOWN_MAX_MS,
   HIDDEN_LOW_VALUE,
   HIDDEN_UNKNOWN_MARGIN,
   HIDDEN_UNKNOWN_MS,
@@ -46,8 +49,9 @@ export function neutralValue(threshold: number): number {
  * past its allowance and no longer observable: the observer hands it to the absence path
  * instead of pushing a value that would blame attention for a framing or light problem.
  *
- * - `down` (writing): the floor for 10 min, then not observable;
- * - `book` (a book held up in front of the face): the floor for 10 min, like `down`;
+ * - `down` (writing): the floor. No time limit: the observer ends the stretch when the person
+ *   leaves (absent) or stops showing signs of life (asleep on the desk);
+ * - `book` (a book held up in front of the face): the floor, like `down`;
  * - `turned`: 0.2, always (looking away is observable enough);
  * - `unknown`: neutral for 20 s, then not observable, unless `holdUnknown` (low light with
  *   recent keyboard or mouse input, judged like the no-camera mode).
@@ -60,9 +64,8 @@ export function hiddenValue(
 ): number | null {
   switch (pose) {
     case 'down':
-      return hiddenMs <= HIDDEN_DOWN_MAX_MS ? studyFloor(threshold) : null;
     case 'book':
-      return hiddenMs <= HIDDEN_BOOK_MAX_MS ? studyFloor(threshold) : null;
+      return studyFloor(threshold);
     case 'turned':
       return HIDDEN_LOW_VALUE;
     case 'unknown':
@@ -94,6 +97,11 @@ export interface FusionInput {
   threshold: number;
   /** A closed-eyes frame (drowsy candidate). */
   eyesClosed: boolean;
+  /**
+   * Keyboard or mouse used within the last 2 s (`FRESH_INPUT_MS`). With a distraction in the
+   * foreground: typing at it, not writing by hand. Absent = false.
+   */
+  freshInput?: boolean;
 }
 
 export interface FusionResult {
@@ -118,7 +126,9 @@ function finite01(value: number): number {
  * The head could be reading a book in view: looking down; or, visible, facing the desk area
  * (|yaw| < 35°) without the model saying «away», or head or eyes down toward a book up to 60°
  * to the side (a textbook next to the laptop); or, hidden, lost with the head down or behind
- * a book held up in front of the face.
+ * a book held up in front of the face. With a distraction in the foreground a level face at
+ * the screen is watching it, not reading the textbook lying on the desk: the head or the eyes
+ * must look down.
  */
 export function readingPose(input: FusionInput): boolean {
   if (input.evidence.lookingDown) return true;
@@ -130,8 +140,13 @@ export function readingPose(input: FusionInput): boolean {
   const yaw = input.faceYaw;
   if (yaw === null || !Number.isFinite(yaw)) return false;
   if (input.facingDown === true && Math.abs(yaw) < BOOK_READING_SIDE_MAX_YAW) return true;
-  if (Math.abs(yaw) >= BOOK_READING_MAX_YAW) return false;
+  if (Math.abs(yaw) >= BOOK_READING_MAX_YAW || input.evidence.distractionApp) return false;
   return !(input.p && argmaxIsAway(input.p));
+}
+
+/** A distraction in the foreground and fresh keyboard or mouse input: typing at it. */
+export function typingAtDistraction(input: FusionInput): boolean {
+  return input.evidence.distractionApp && input.freshInput === true;
 }
 
 export function fuse(input: FusionInput): FusionResult {
@@ -140,30 +155,37 @@ export function fuse(input: FusionInput): FusionResult {
   const c = STUDY_AI_CONSTANTS;
   const phone = evidence.phone;
   const dist = evidence.distractionApp;
+  const typing = typingAtDistraction(input);
   const screenKeep = dist ? DISTRACTION_SCREEN_KEEP : 1;
+  // Typing at a distraction: the eyes on the keys are not on paper.
+  const paperKeep = typing ? DISTRACTION_SCREEN_KEEP : 1;
 
   let s: number;
   if (presence === 'visible') {
     s = p
       ? finite01(p.screen) * screenKeep +
-        finite01(p.paper) +
+        finite01(p.paper) * paperKeep +
         finite01(trust.away) * finite01(p.away) +
         (phone ? 0 : finite01(trust.phone) * finite01(p.phone))
       : neutralValue(threshold);
   } else {
     const hidden = input.hidden;
-    const fromModel = p ? finite01(p.screen) * screenKeep + finite01(p.paper) : 0;
+    const fromModel = p ? finite01(p.screen) * screenKeep + finite01(p.paper) * paperKeep : 0;
     // The unknown-pose value stands in for «looking at the screen»: a distraction discounts
-    // it like p.screen. Head down (writing) keeps its floor with music in the foreground.
-    const rule = hidden ? hidden.value * (hidden.pose === 'unknown' ? screenKeep : 1) : 0;
+    // it like p.screen. Head down (writing) keeps its floor with music in the foreground,
+    // unless the user is typing at the distraction.
+    const keep = hidden?.pose === 'unknown' ? screenKeep : paperKeep;
+    const rule = hidden ? hidden.value * keep : 0;
     s = Math.max(fromModel, rule);
   }
   s = finite01(s);
 
-  // 1. Writing or reading: never under the floor without a phone in hand. A book lifts only
-  //    a head that could be reading it; elsewhere it is a small positive signal.
+  // 1. Writing or reading: never under the floor without a phone in hand (or typing at a
+  //    distraction). A book lifts only a head that could be reading it; elsewhere it is a
+  //    small positive signal.
   if (!phone) {
-    if (evidence.lookingDown || (evidence.book && readingPose(input))) {
+    const floor = !typing && (evidence.lookingDown || (evidence.book && readingPose(input)));
+    if (floor) {
       s = Math.max(s, studyFloor(threshold));
     } else if (evidence.book) {
       s = Math.min(1, s + BOOK_BONUS);

@@ -605,6 +605,41 @@ describe('eyes: drowsiness and yawns', () => {
     expect(rec.engine.snapshot().drowsy).toBe(true);
   });
 
+  it('drowsiness never hides a phone in use or a distraction app (their frames are judged)', () => {
+    // Glasses glare or heavy lids read as closed eyes; the pushed phone or distraction frames
+    // still run the timers.
+    for (const evidence of [{ phone: true }, { distractionApp: true }] as const) {
+      const { rec } = scriptedEngine((i) => {
+        if (i.now < 30_000) return { study: 1 };
+        if (i.now < 60_000) return { study: null, eyes: { closed: true } }; // drowsy first
+        return { study: 0.1, eyes: { closed: true }, evidence };
+      });
+      rec.run(0, 60_000, TICK);
+      expect(rec.engine.snapshot().drowsy).toBe(true);
+      rec.run(60_000, 180_000, TICK);
+      const cause = 'phone' in evidence ? 'phone' : 'distraction_app';
+      expect(rec.strikes()[0]?.cause, cause).toBe(cause);
+      // DUDA after 15 s low (the window needs ~7 s to fall), strike 30 s later.
+      expect((rec.strikes()[0]?.at as number) - 60_000, cause).toBeLessThanOrEqual(60_000);
+    }
+  });
+
+  it('a nap with a video playing still freezes the timers (nothing pushed)', () => {
+    const { rec } = scriptedEngine((i) => {
+      if (i.now < 30_000) return { study: 1 };
+      if (i.now < 45_000) return { study: 0.1, evidence: { distractionApp: true } };
+      return {
+        presence: 'hidden',
+        study: null,
+        eyes: { closed: true },
+        evidence: { distractionApp: true },
+      };
+    });
+    rec.run(0, 600_000, TICK);
+    expect(rec.strikes()).toEqual([]);
+    expect(rec.engine.snapshot().drowsy).toBe(true);
+  });
+
   it('a hidden head asleep on the desk: a break suggestion, no credit, never a strike', () => {
     // The observer marks hidden frames of a still head down as drowsy candidates.
     const { rec } = scriptedEngine((i) => {

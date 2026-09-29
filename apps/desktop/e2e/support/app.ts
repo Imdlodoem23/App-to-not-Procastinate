@@ -38,7 +38,7 @@ import {
   type Rect,
 } from '../../src/shared/fixtures';
 import type { LanguagePreference } from '../../src/shared/i18n/locale';
-import type { WindowKind } from '../../src/shared/ui-state';
+import type { SurfaceKind, WindowKind } from '../../src/shared/ui-state';
 import { LAUNCH_ENV } from '../../src/main/app/launch-options';
 import {
   prefsPath,
@@ -111,6 +111,11 @@ export interface LaunchedApp {
   harness: HarnessClient;
   /** The page of a window (waits until it exists and has loaded its document). */
   page(kind: WindowKind): Promise<Page>;
+  /**
+   * The page of a Phase 5 surface window (mini timer, OSD, Nuclear), waiting for main to create
+   * it (`harness.openSurface`, or the snapshot showing it).
+   */
+  surface(kind: SurfaceKind): Promise<Page>;
   close(): Promise<void>;
 }
 
@@ -183,6 +188,7 @@ function callHarness(electron: ElectronApplication): HarnessClient {
     'snapshot',
     'guardianCalls',
     'notifications',
+    'openSurface',
   ];
   return Object.fromEntries(methods.map((m) => [m, call(m)])) as unknown as HarnessClient;
 }
@@ -195,10 +201,17 @@ function windowOf(page: Page): WindowKind | null {
 }
 
 /** The page of `kind`, waiting for Electron to create it. */
-async function findPage(electron: ElectronApplication, kind: WindowKind): Promise<Page> {
+async function findPage(
+  electron: ElectronApplication,
+  kind: WindowKind | SurfaceKind,
+): Promise<Page> {
   const deadline = Date.now() + 20_000;
+  const matches = (p: Page): boolean =>
+    kind === 'main' || kind === 'detail'
+      ? windowOf(p) === kind
+      : new RegExp(`[?&]window=${kind}\\b`).test(p.url());
   for (;;) {
-    const found = electron.windows().find((p) => windowOf(p) === kind);
+    const found = electron.windows().find(matches);
     if (found) {
       await found.waitForLoadState('domcontentloaded');
       return found;
@@ -298,6 +311,9 @@ export async function launchApp(options: LaunchOptions): Promise<LaunchedApp> {
         page.catch(() => pages.delete(kind));
       }
       return page;
+    },
+    surface(kind) {
+      return findPage(electron, kind);
     },
     async close() {
       // «Salir» runs `core.shutdown`; a hung app must not hang the suite.

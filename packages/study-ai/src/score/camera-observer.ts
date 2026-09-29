@@ -1,7 +1,8 @@
 /**
  * Camera ticks → observations (owner: DECISION): presence, evidence persistence, fusion of
  * the classifier with the rules, drowsiness candidates and the stale-profile check.
- * DESIGN.md §7.1–7.4.
+ * DESIGN.md §7.1–7.4. «Eyes down» is judged against the user's own screen gaze, and the eye
+ * model is re-judged online (`gaze.ts`).
  *
  * Deterministic: time only comes from `TickInput.now`. Nothing here keeps an image; the
  * observation carries the frame's numbers for the 90 s «¡Estaba estudiando!» ring only.
@@ -12,6 +13,7 @@ import type {
   AttentionClassifier,
   Box,
   ClassProbabilities,
+  EyeModel,
   FaceFeatures,
   FrameFeatures,
   HeadPose,
@@ -39,14 +41,18 @@ import {
   EYES_MAX_LOOK_DOWN,
   EYES_MIN_QUALITY,
   FACE_RECENT_MS,
+  FRESH_INPUT_MS,
+  GAZE_REF_MAX_DPITCH,
+  GAZE_REF_MAX_DYAW,
+  GAZE_REF_MIN_QUALITY,
   HIDDEN_ACTIVE_MOTION,
   HIDDEN_ASLEEP_MAX_MS,
+  HIDDEN_BOOK_MOTION,
   HIDDEN_LOOKBACK_MS,
   HIDDEN_LOW_VALUE,
   HIDDEN_STILL_MS,
   HIDDEN_TURNED_YAW,
   LOOK_DOWN_ABS_PITCH,
-  LOOK_DOWN_BLEND,
   LOOK_DOWN_DPITCH,
   LOOK_DOWN_MAX_YAW,
   LOOK_DOWN_SIDE_ABS_PITCH,
@@ -68,6 +74,7 @@ import {
 } from './desk-phone';
 import { DetectorEvidence } from './evidence';
 import { fuse, hiddenValue, type HiddenPose } from './fusion';
+import { OnlineEyes, ScreenGaze } from './gaze';
 
 export interface CameraObserverOptions {
   classifier: AttentionClassifier;
@@ -111,6 +118,15 @@ interface HiddenMemo {
   pose: HiddenPose;
 }
 
+/**
+ * Rule-side inputs of an observation that the stored frame alone cannot give back, kept for
+ * `rescore` only when they matter (a hidden face, typing at a distraction).
+ */
+interface FusionMemo {
+  hidden: HiddenMemo | null;
+  freshInput: boolean;
+}
+
 /** A vouched desk phone and when it was last seen there (observed time). */
 interface DeskSpotMemo {
   spot: DeskPhoneSpot;
@@ -123,10 +139,11 @@ const NO_EYES = Object.freeze({ closed: false, yawn: false });
  * Looking down at the desk: head or eyes down within 35° of the screen direction; or, up to
  * 60° to the side where a notebook or a textbook next to the laptop lies, the head clearly
  * down (relative pitch ≤ −20°), or moderately down (≤ −12°) with the eyes down too. Without
- * a baseline, absolute pitch (−20°, and −25° for «clearly»).
+ * a baseline, absolute pitch (−20°, and −25° for «clearly»). Eyes down means `lookDown` ≥
+ * `eyesDownAt`: 0.45, or higher for a user whose eyes already look down at the screen.
  */
-function isLookingDown(face: FaceFeatures, rel: RelativePose | null): boolean {
-  const eyesDown = face.lookDown >= LOOK_DOWN_BLEND;
+function isLookingDown(face: FaceFeatures, rel: RelativePose | null, eyesDownAt: number): boolean {
+  const eyesDown = face.lookDown >= eyesDownAt;
   const pitch = rel ? rel.dpitch : face.pose.pitch;
   const yaw = Math.abs(rel ? rel.dyaw : face.pose.yaw);
   const downPitch = rel ? LOOK_DOWN_DPITCH : LOOK_DOWN_ABS_PITCH;
@@ -138,8 +155,8 @@ function isLookingDown(face: FaceFeatures, rel: RelativePose | null): boolean {
 }
 
 /** The face looks down toward the desk, head or eyes (whatever the yaw). */
-function isFacingDown(face: FaceFeatures, rel: RelativePose | null): boolean {
-  if (face.lookDown >= LOOK_DOWN_BLEND) return true;
+function isFacingDown(face: FaceFeatures, rel: RelativePose | null, eyesDownAt: number): boolean {
+  if (face.lookDown >= eyesDownAt) return true;
   return rel ? rel.dpitch <= LOOK_DOWN_DPITCH : face.pose.pitch <= LOOK_DOWN_ABS_PITCH;
 }
 
@@ -160,6 +177,13 @@ function coverShare(cover: Box, target: Box): number {
 function faceYaw(face: FaceFeatures | null, rel: RelativePose | null): number | null {
   if (!face) return null;
   return rel ? rel.dyaw : face.pose.yaw;
+}
+
+/** Keyboard or mouse used within the last 2 s. Unknown idle is not fresh. */
+function freshInputOf(idleMs: number | null): boolean {
+  return typeof idleMs === 'number' && Number.isFinite(idleMs) && idleMs >= 0
+    ? idleMs < FRESH_INPUT_MS
+    : false;
 }
 
 /**
@@ -192,7 +216,10 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
   private current: AttentionClassifier;
   private readonly fallback: AttentionClassifier | null;
   private readonly evidence = new DetectorEvidence();
-  private readonly hiddenMemo = new WeakMap<Observation, HiddenMemo>();
+  private readonly memo = new WeakMap<Observation, FusionMemo>();
+  /** The user's own eyes (session memory: survive reset(), like the stale-profile state). */
+  private readonly gaze = new ScreenGaze();
+  private readonly onlineEyes = new OnlineEyes();
 
   private lastT: MonoMs | null = null;
   private presence: Presence = 'camera_lost';
@@ -233,6 +260,16 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
   /** True once the stale-profile check switched to the fallback (sticky `recalibrate`). */
   get staleProfile(): boolean {
     return this.stale;
+  }
+
+  /** The user's `lookDown` at the screen, once known (tests, diagnostics). */
+  get screenLookDown(): number | null {
+    return this.gaze.reference;
+  }
+
+  /** The eye model in use: the classifier's, corrected by the session's own frames. */
+  get eyeModel(): Readonly<EyeModel> {
+    return this.onlineEyes.model(this.current.eyes);
   }
 
   /** Swaps the classifier (feedback retrain, recalibration); keeps evidence state. */
@@ -287,6 +324,7 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
     const idle = input.context.idleMs;
     const inputActive =
       typeof idle === 'number' && Number.isFinite(idle) && idle >= 0 && idle < c.inputActiveMs;
+    const freshInput = freshInputOf(idle);
 
     // Detector evidence. The pose comes first: a phone only counts as in use when it moves,
     // the user looks down at it or holds it at the face, or the face is out of view.
@@ -294,7 +332,8 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
     const frame = cameraOk ? this.maskDeskPhone(input.frame) : null;
     const seenFace = frame ? frame.face : null;
     const rel = seenFace ? classifier.relativePose(seenFace) : null;
-    const lookingDown = seenFace ? isLookingDown(seenFace, rel) : false;
+    const eyesDownAt = this.gaze.eyesDownAt;
+    const lookingDown = seenFace ? isLookingDown(seenFace, rel, eyesDownAt) : false;
     this.evidence.record(frame, thresholds, lookingDown);
     this.evidence.update(now);
 
@@ -324,13 +363,15 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
       inputActive,
     };
 
-    // Face bookkeeping and the hidden last-pose rule. A hidden stretch past its allowance
-    // (unknown pose after 20 s, head down or a book held up after 10 min) is not observable:
-    // without a phone or a distraction to go by it is reported `absent`, so the absence path
-    // (warning at half, strike at `noFaceStrikeMs`, cause `no_face`) replaces a DUDA that
-    // would blame attention for a framing or light problem. Turned away stays observable
-    // (0.2). A head down (or behind a book) with no sign of life for 90 s is asleep on the
-    // desk: a drowsy candidate, never a strike, until `HIDDEN_ASLEEP_MAX_MS`.
+    // Face bookkeeping and the hidden last-pose rule. An unknown pose past its 20 s allowance
+    // is not observable: without a phone or a distraction to go by it is reported `absent`,
+    // so the absence path (warning at half, strike at `noFaceStrikeMs`, cause `no_face`)
+    // replaces a DUDA that would blame attention for a framing or light problem. Turned away
+    // stays observable (0.2). A head down (or behind a book) keeps the study floor for as
+    // long as someone is there with signs of life (writing for an hour out of the camera's
+    // view is studying); with no sign of life for 90 s it is asleep on the desk: a drowsy
+    // candidate, never a strike, until `HIDDEN_ASLEEP_MAX_MS`. When the person leaves, the
+    // presence is `absent` and the absence path runs at once.
     let hidden: HiddenMemo | null = null;
     let asleep = false;
     if (frame) {
@@ -347,7 +388,7 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
         this.hidden = null;
       } else if (presence === 'hidden') {
         const stretch = this.hiddenStretch(now);
-        this.noteActivity(stretch, frame, idle, now);
+        this.noteActivity(stretch, frame, idle, now, evidence.book);
         const bookRule = !phone && !distractionApp;
         if (bookRule && evidence.book && this.bookOverFace(now)) stretch.bookAt = now;
         const bookHeld =
@@ -405,20 +446,24 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
     }
 
     const p = presence === 'visible' || presence === 'hidden' ? classifier.predict(frame) : null;
+    if (work && face) this.learnEyes(face, rel, frame.quality, p, freshInput, evidence);
 
-    // Eyes
+    // Eyes. Someone typing, holding a phone in use or at a distraction app is not asleep: a
+    // «closed» reading then is glare or heavy lids, and such frames must stay in the window.
     let closed = false;
     let yawn = false;
     if (face) {
-      const eyes = classifier.eyes;
       if (
-        eyes.reliable &&
+        !freshInput &&
+        !phone &&
+        !distractionApp &&
         frame.quality >= EYES_MIN_QUALITY &&
         face.lookDown < EYES_MAX_LOOK_DOWN
       ) {
+        const eyes = this.onlineEyes.model(classifier.eyes);
         const dpitch = rel ? rel.dpitch : 0;
         const expected = eyes.blinkFit[0] + eyes.blinkFit[1] * dpitch;
-        closed = face.blink - expected > eyes.closedDelta;
+        closed = eyes.reliable && face.blink - expected > eyes.closedDelta;
       }
       if (face.jawOpen > YAWN_JAW) {
         if (this.yawnSince === null) this.yawnSince = now;
@@ -441,9 +486,10 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
           evidence,
           hidden,
           faceYaw: faceYaw(face, rel),
-          facingDown: face ? isFacingDown(face, rel) : false,
+          facingDown: face ? isFacingDown(face, rel, eyesDownAt) : false,
           threshold,
           eyesClosed: closed,
+          freshInput,
         });
     if (asleep) closed = true;
 
@@ -461,7 +507,8 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
       frame,
       rel,
     };
-    if (hidden) this.hiddenMemo.set(observation, hidden);
+    if (hidden || (freshInput && distractionApp))
+      this.memo.set(observation, { hidden, freshInput });
     return observation;
   }
 
@@ -486,16 +533,18 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
       observation.at >= span.from &&
       observation.at <= span.to;
     const face = presence === 'visible' ? frame.face : null;
+    const memo = this.memo.get(observation);
     return fuse({
       presence,
       p: classifier.predict(frame),
       trust: classifier.trust,
       evidence: vouched ? { ...observation.evidence, phone: false } : observation.evidence,
-      hidden: this.hiddenMemo.get(observation) ?? null,
+      hidden: memo?.hidden ?? null,
       faceYaw: faceYaw(face, observation.rel),
-      facingDown: face ? isFacingDown(face, observation.rel) : false,
+      facingDown: face ? isFacingDown(face, observation.rel, this.gaze.eyesDownAt) : false,
       threshold: settings.focusScoreThreshold,
       eyesClosed: false,
+      freshInput: memo?.freshInput ?? false,
     }).study;
   }
 
@@ -588,19 +637,61 @@ export class CameraObserver implements Observer, DeskPhoneLearner {
     return this.hidden;
   }
 
-  /** Keyboard or mouse (the last input time), or motion where the face was. */
+  /**
+   * Signs of life: keyboard or mouse (the last input time), or motion where the face was
+   * (less of it while a book is in view: a still reader).
+   */
   private noteActivity(
     stretch: HiddenStretch,
     frame: FrameFeatures,
     idleMs: number | null,
     now: MonoMs,
+    book: boolean,
   ): void {
     if (typeof idleMs === 'number' && Number.isFinite(idleMs) && idleMs >= 0) {
       stretch.activeAt = Math.max(stretch.activeAt, now - idleMs);
     }
     const luma = frame.luma;
-    if (luma && luma.motionNearFace >= HIDDEN_ACTIVE_MOTION && Number.isFinite(luma.at)) {
+    const motion = book ? HIDDEN_BOOK_MOTION : HIDDEN_ACTIVE_MOTION;
+    if (luma && luma.motionNearFace >= motion && Number.isFinite(luma.at)) {
       stretch.activeAt = Math.max(stretch.activeAt, Math.min(luma.at, now));
+    }
+  }
+
+  /**
+   * The user's own eyes, from visible work frames:
+   *
+   * - screen gaze: the head within 12°/8° of a screen direction, a good frame, no fresh input
+   *   (the keys draw the eyes down), no phone and a study answer;
+   * - open-eye blink values: calm (not looking down) frames with fresh input, no phone and no
+   *   distraction app, as the generic classifier judges its eyes.
+   */
+  private learnEyes(
+    face: FaceFeatures,
+    rel: RelativePose | null,
+    quality: number,
+    p: ClassProbabilities | null,
+    freshInput: boolean,
+    evidence: ObservationEvidence,
+  ): void {
+    if (evidence.phone) return;
+    if (
+      !freshInput &&
+      rel !== null &&
+      quality >= GAZE_REF_MIN_QUALITY &&
+      Math.abs(rel.dyaw) <= GAZE_REF_MAX_DYAW &&
+      Math.abs(rel.dpitch) <= GAZE_REF_MAX_DPITCH &&
+      studyFor(p)
+    ) {
+      this.gaze.push(face.lookDown);
+    }
+    if (
+      freshInput &&
+      !evidence.distractionApp &&
+      !evidence.lookingDown &&
+      quality >= EYES_MIN_QUALITY
+    ) {
+      this.onlineEyes.push(face.blink);
     }
   }
 

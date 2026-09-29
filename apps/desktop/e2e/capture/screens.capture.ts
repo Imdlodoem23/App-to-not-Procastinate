@@ -11,8 +11,10 @@
  *
  * Output, per shot, in `CENTRATE_CAPTURE_OUT` (docs/ui):
  * - `<state>-<theme>-<w>x<h>@<scale>.png`: the window the state is about (the detail window
- *   for Bloqueos, Emergencia and Ajustes states), at device pixels;
- * - `<state>-<theme>-<w>x<h>@<scale>.main.png`: for detail states, the main window beside it;
+ *   for detail states, the mini timer, OSD or Nuclear window for surface states), at device
+ *   pixels;
+ * - `<state>-<theme>-<w>x<h>@<scale>.main.png`: for detail and surface states, the main window
+ *   beside it;
  * - `manifest.<scale>.json`: what this worker wrote (merged into manifest.json by the script).
  *
  * Typeface (PROMPT §10 «Tipografía»): the shots feed the README and the web, so they must be
@@ -33,7 +35,8 @@ import {
   type HarnessFixture,
 } from '../../src/shared/fixtures';
 import { isLocale } from '../../src/shared/i18n/locale';
-import type { WindowKind } from '../../src/shared/ui-state';
+import { isSurfaceKind, type UiWindow, type WindowKind } from '../../src/shared/ui-state';
+import { waitHarnessReady } from '../support/app';
 import type { LaunchedApp } from '../support/app';
 import { settleWindow } from '../support/checks';
 import { fontPlan, renderedFonts, type PlatformFont } from '../support/fonts';
@@ -43,7 +46,7 @@ import { expect, test } from '../support/test';
 export interface CaptureShot {
   /** File name relative to the output folder. */
   file: string;
-  window: WindowKind;
+  window: UiWindow;
   /** Device pixels. */
   width: number;
   height: number;
@@ -122,9 +125,15 @@ function pngSize(png: Buffer): { width: number; height: number } {
   return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
 }
 
-async function shoot(page: Page, file: string, kind: WindowKind): Promise<CaptureShot> {
+async function shoot(page: Page, file: string, kind: UiWindow): Promise<CaptureShot> {
   if (!OUT) throw new Error('CENTRATE_CAPTURE_OUT is not set');
-  const png = await page.screenshot({ animations: 'disabled', caret: 'hide', scale: 'device' });
+  const png = await page.screenshot({
+    animations: 'disabled',
+    caret: 'hide',
+    scale: 'device',
+    // The OSD pill and the mini timer's rounded box sit on a transparent window.
+    omitBackground: isSurfaceKind(kind) && kind !== 'nuclear',
+  });
   writeFileSync(join(OUT, file), png);
   return { file, window: kind, ...pngSize(png) };
 }
@@ -155,8 +164,9 @@ async function capture(
   preset: DisplayPresetId,
 ): Promise<CaptureEntry> {
   await app.harness.load(fixture.id, { display: preset, theme, ...(LANG ? { lang: LANG } : {}) });
-  // Surface fixtures (mini timer, OSD, Nuclear) open no detail window; their own window joins
-  // the capture once PLATFORM registers it (`harness.openSurface`).
+  // Surface fixtures (mini timer, OSD, Nuclear) open no detail window: their own window is the
+  // shot (`harness.openSurface`), with the main window beside it.
+  const surface = isSurfaceKind(fixture.window) ? fixture.window : null;
   const hasDetail = fixture.detailRequest !== null;
   const kinds: WindowKind[] = hasDetail ? ['detail', 'main'] : ['main'];
   let settled = (await settleWindow(app, 'main')).settled;
@@ -166,9 +176,16 @@ async function capture(
   }
   const base = `${fixture.id}-${theme}-${preset}`;
   const shots: CaptureShot[] = [];
+  if (surface) {
+    await app.harness.openSurface(surface);
+    const page = await app.surface(surface);
+    await waitHarnessReady(page, fixture.id);
+    await page.evaluate(() => document.fonts.ready.then(() => undefined));
+    shots.push(await shoot(page, `${base}.png`, surface));
+  }
   for (const kind of kinds) {
     const page = await app.page(kind);
-    const primary = kind === (hasDetail ? 'detail' : 'main');
+    const primary = !surface && kind === (hasDetail ? 'detail' : 'main');
     shots.push(await shoot(page, primary ? `${base}.png` : `${base}.main.png`, kind));
   }
   const main = await app.page('main');

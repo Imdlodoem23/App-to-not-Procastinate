@@ -46,6 +46,7 @@ import {
   EYES_UNRELIABLE_MEDIAN,
   EYES_UNRELIABLE_SD,
   GENERIC_BASELINE_MS,
+  GENERIC_BELOW_MARGIN,
   GENERIC_CALM_MAX_LOOK_DOWN,
   GENERIC_CALM_MIN_PITCH,
   GENERIC_CANDIDATE_GAP_MS,
@@ -58,6 +59,7 @@ import {
   GENERIC_EYE_SAMPLES,
   GENERIC_EYES,
   GENERIC_EYES_UNKNOWN,
+  GENERIC_FIT_TOLERANCE,
   GENERIC_FRESH_INPUT_MS,
   GENERIC_MAX_CANDIDATES,
   GENERIC_MAX_DIRECTIONS,
@@ -106,6 +108,15 @@ interface Direction {
   lastFed: number;
   lastSeen: number;
   center: ScreenBaseline | null;
+}
+
+/** A study direction's fit to a face (see `fit` in `createGenericClassifier`). */
+interface Fit {
+  rel: RelativePose;
+  /** Pitch of the direction (degrees, absolute). */
+  pitch: number;
+  cost: number;
+  dist: number;
 }
 
 /** Exponent of the generic rule: pStudy = exp(−cost). */
@@ -259,25 +270,47 @@ export function createGenericClassifier(
     return out;
   };
 
-  /** Pose relative to the direction that fits best: lowest rule cost, then the nearest. */
-  const relativePose = (face: FaceFeatures): RelativePose | null => {
-    let best: RelativePose | null = null;
-    let bestCost = Infinity;
-    let bestDist = Infinity;
+  /**
+   * The direction a face is judged against, and the rule cost of the best fit.
+   *
+   * The reference is the direction that fits best: lowest rule cost, then the nearest. But a
+   * pose more than `GENERIC_BELOW_MARGIN` below every direction that fits about as well
+   * (cost within `GENERIC_FIT_TOLERANCE`) looks at the desk, below all the screens: it is
+   * judged against the highest of those, the one closest to eye level. Every downward pose
+   * costs (almost) 0 against every direction, so «the nearest» would be the lowest one, and a
+   * direction learned from typing below the screen would make writing in a notebook «not
+   * down» for DECISION (the looking-down floor, the last pose before the face is lost).
+   */
+  const fit = (face: FaceFeatures): { rel: RelativePose; cost: number } | null => {
+    let best: Fit | null = null;
+    const fits: Fit[] = [];
     for (const ref of references()) {
       const rel = relativeFromFace(face, ref);
       const cost = genericCost(rel.dyaw, rel.dpitch);
       const dist = Math.hypot(rel.dyaw, rel.dpitch);
-      const c = Number.isFinite(cost) ? cost : Number.MAX_VALUE;
-      const d = Number.isFinite(dist) ? dist : Number.MAX_VALUE;
-      if (best === null || c < bestCost || (c === bestCost && d < bestDist)) {
-        best = rel;
-        bestCost = c;
-        bestDist = d;
+      const f: Fit = {
+        rel,
+        pitch: ref.pitch,
+        cost: Number.isFinite(cost) ? cost : Number.MAX_VALUE,
+        dist: Number.isFinite(dist) ? dist : Number.MAX_VALUE,
+      };
+      fits.push(f);
+      if (best === null || f.cost < best.cost || (f.cost === best.cost && f.dist < best.dist)) {
+        best = f;
       }
     }
-    return best;
+    if (best === null) return null;
+    const cost = best.cost;
+    const around = fits.filter((f) => f.cost <= cost + GENERIC_FIT_TOLERANCE);
+    if (around.every((f) => f.rel.dpitch < -GENERIC_BELOW_MARGIN)) {
+      for (const f of around) {
+        if (f.pitch > best.pitch || (f.pitch === best.pitch && f.dist < best.dist)) best = f;
+      }
+    }
+    return { rel: best.rel, cost };
   };
+
+  const relativePose = (face: FaceFeatures): RelativePose | null => fit(face)?.rel ?? null;
 
   const predict = (frame: FrameFeatures): ClassProbabilities | null => {
     if (!frameHasSomeone(frame, thresholds.person)) return null;
@@ -286,8 +319,8 @@ export function createGenericClassifier(
     const face = frame.face;
     let pStudy: number;
     let paper: number;
-    const rel = face ? relativePose(face) : null;
-    if (face && !rel) {
+    const fitted = face ? fit(face) : null;
+    if (face && !fitted) {
       // Not ready yet: neutral and study-leaning.
       const other = (1 - GENERIC_NEUTRAL_SCREEN) / 2;
       return toProbabilities([
@@ -298,9 +331,12 @@ export function createGenericClassifier(
         0,
       ]);
     }
-    if (rel) {
-      pStudy = genericStudyProbability(rel.dyaw, rel.dpitch);
-      paper = genericPaperShare(rel.dpitch);
+    if (fitted) {
+      // Study against the best fit; the paper share against the reference (the desk is
+      // measured from the screen closest to eye level).
+      const p = Math.exp(-fitted.cost);
+      pStudy = Number.isFinite(p) ? clamp01(p) : 0;
+      paper = genericPaperShare(fitted.rel.dpitch);
     } else {
       // No face but a person: leave it to the observer's last-pose rule.
       pStudy = HIDDEN_STUDY_CAP;

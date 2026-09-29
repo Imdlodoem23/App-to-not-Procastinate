@@ -198,9 +198,14 @@ export const GUIDES: readonly GuideId[] = [
 // Pure helpers
 // ---------------------------------------------------------------------------------------
 
-/** «en 24 h», «en 3 h», «en 45 min» (hours rounded up from 1 h). */
+/**
+ * «en 24 h», «en 3 h», «en 45 min» (hours rounded up from 1 h). The minutes are rounded to the
+ * nearest one first: the guardian stamps `effectiveAt` to the whole second and the view's clock
+ * lags up to a tick, so a change made just now is 24 h plus a moment away and must not read
+ * «en 25 h».
+ */
 export function inLabel(ms: number): string {
-  const minutes = Math.max(1, Math.ceil(ms / 60_000));
+  const minutes = Math.max(1, Math.round(ms / 60_000));
   const label =
     minutes >= 60 ? durationLabel(Math.ceil(minutes / 60) * 60) : durationLabel(minutes);
   return A.pending.in(label);

@@ -53,6 +53,13 @@ export interface Persona {
   secondScreenYaw: number;
   /** A calculator or a phone lying on the desk that the detector half-believes. */
   deskPhoneScore: number;
+  /**
+   * Added to every activity's `lookDown`: the eyes already look down at the screen (a laptop
+   * placed low, progressive lenses). 0.4 reads ≈ 0.5 at the screen. Absent = 0.
+   */
+  lookDownAdd?: number;
+  /** Name for test labels of the variants below (their `id` is the persona they vary). */
+  label?: string;
 }
 
 const BASE: Persona = {
@@ -83,6 +90,24 @@ export const PERSONAS: Readonly<Record<PersonaId, Persona>> = Object.freeze({
   calculator: { ...BASE, id: 'calculator', deskPhoneScore: 0.5 },
 });
 
+/**
+ * Variants outside `PERSONAS` (the suites that loop over every persona stay as they are):
+ *
+ * - `lowScreen`: a laptop placed low, or progressive lenses: `lookDown` ≈ 0.5 at the screen;
+ * - `glare`: glasses glare (a lamp turned on after calibration): open eyes read blink ≈ 0.7.
+ */
+export const LOW_SCREEN_PERSONA: Persona = Object.freeze({
+  ...BASE,
+  label: 'lowScreen',
+  lookDownAdd: 0.4,
+});
+export const GLARE_PERSONA: Persona = Object.freeze({
+  ...BASE,
+  id: 'glasses',
+  label: 'glare',
+  blink: 0.7,
+});
+
 // ---------------------------------------------------------------------------------------
 // Activities
 // ---------------------------------------------------------------------------------------
@@ -106,6 +131,8 @@ export const ACTIVITIES = [
   'absent',
   'covered',
   'dark',
+  'huntAndPeck',
+  'phoneEyeLevel',
 ] as const;
 export type Activity = (typeof ACTIVITIES)[number];
 
@@ -159,6 +186,11 @@ interface ActivitySpec {
   book: ObjectSpec | null;
   /** Horizontal offset of the book box from the face (× side). */
   bookDx?: number;
+  /**
+   * Periodic glances (deterministic, no extra random draws): for the first `forMs` of every
+   * `everyMs` of the step, `lookDown` and the pitch offset are these instead.
+   */
+  glance?: { lookDown: number; pitch: number; everyMs: number; forMs: number };
   /** Probability per second of a keyboard/mouse event. */
   inputRate: number;
   luma: 'normal' | 'dark' | 'covered';
@@ -285,6 +317,22 @@ const SPECS: Readonly<Record<Activity, ActivitySpec>> = {
   absent: { ...SCREEN, faceDrop: NO_FACE, person: 0.05, inputRate: 0 },
   covered: { ...SCREEN, faceDrop: NO_FACE, person: 0, luma: 'covered', inputRate: 1 },
   dark: { ...SCREEN, poseSd: 2, faceDrop: 0.2, luma: 'dark' },
+  /** Typing while looking at the keys two seconds out of three (eyes and head down). */
+  huntAndPeck: {
+    ...SCREEN,
+    poseSd: 2,
+    inputRate: 1,
+    glance: { lookDown: 0.6, pitch: -10, everyMs: 3_000, forMs: 2_000 },
+  },
+  /** A phone held up at eye level in front of the screen: head level, eyes barely down. */
+  phoneEyeLevel: {
+    ...SCREEN,
+    poseSd: 2,
+    lookDown: 0.2,
+    faceDrop: 0.05,
+    phone: { score: [0.5, 0.9], detectP: 0.7, place: 'hand' },
+    inputRate: 0,
+  },
 };
 
 // ---------------------------------------------------------------------------------------
@@ -392,6 +440,7 @@ export function synthesize(script: Script, options: SynthOptions = {}): SynthTic
     const step = norm(raw);
     const spec = SPECS[step.activity];
     const side = rng() < 0.5 ? -1 : 1;
+    const stepStart = t;
     const end = t + step.ms;
     const foreground = step.foreground ?? options.foreground ?? 'study';
     const camera = step.camera ?? 'ok';
@@ -411,17 +460,21 @@ export function synthesize(script: Script, options: SynthOptions = {}): SynthTic
         w: persona.box.w * (1 + gaussian(rng, 0, 0.02)),
         h: persona.box.h * (1 + gaussian(rng, 0, 0.02)),
       };
+      const glance = spec.glance;
+      const glancing = glance !== undefined && (t - stepStart) % glance.everyMs < glance.forMs;
+      const pitch = glancing ? glance.pitch : spec.pitch;
+      const lookDown = (glancing ? glance.lookDown : spec.lookDown) + (persona.lookDownAdd ?? 0);
       if (!lost && camera === 'ok') {
         face = {
           pose: {
             yaw: persona.screen.yaw + spec.yaw(persona, side) + gaussian(rng, 0, sd),
-            pitch: persona.screen.pitch + spec.pitch + gaussian(rng, 0, sd),
+            pitch: persona.screen.pitch + pitch + gaussian(rng, 0, sd),
             roll: persona.screen.roll + spec.roll + gaussian(rng, 0, sd / 2),
           },
           box,
           truncated: clamp01(spec.truncated + gaussian(rng, 0, 0.02)),
           blink: clamp01(persona.blink + spec.blinkAdd + gaussian(rng, 0, persona.eyeSd)),
-          lookDown: clamp01(spec.lookDown + gaussian(rng, 0, persona.eyeSd)),
+          lookDown: clamp01(lookDown + gaussian(rng, 0, persona.eyeSd)),
           lookUp: clamp01(spec.lookUp + gaussian(rng, 0, persona.eyeSd / 2)),
           gazeX: clamp(spec.gazeX(side) + gaussian(rng, 0, persona.eyeSd), -1, 1),
           jawOpen: clamp01(spec.jaw + gaussian(rng, 0, 0.03)),

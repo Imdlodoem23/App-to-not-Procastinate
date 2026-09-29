@@ -18,6 +18,7 @@ import {
   type Assembled,
   type SampleSet,
 } from '../../src/calibration/train';
+import { XI } from '../../src/classifier/constants';
 import { COL } from '../../src/classifier/rows';
 import { CALIBRATION_CLASSES } from '../../src/types';
 import type { FeatureRow } from '../../src/types';
@@ -135,6 +136,46 @@ describe('augmentation', () => {
       expect(p.row[COL.face]).toBe(0);
       expect(p.row[COL.person] as number).toBeLessThan(thresholds.person);
     }
+  });
+
+  it('adds copies of study rows read across the screen: eyes ±0.3, head ±10°, same label', () => {
+    // Only yaw and gazeX differ from the source (the pose-noise copies also move pitch).
+    const scan = pseudo.filter((p) => {
+      const source = samples.rows[p.parent] as FeatureRow;
+      return (
+        p.cls === samples.cls[p.parent] &&
+        p.cls <= CLASS_INDEX.paper &&
+        p.row.every((v, c) => c === COL.yaw || c === COL.gazeX || v === source[c]) &&
+        p.row[COL.gazeX] !== source[COL.gazeX]
+      );
+    });
+    const studyFaceRows = samples.rows.filter(
+      (row, i) => (samples.cls[i] ?? 9) <= CLASS_INDEX.paper && (row[COL.face] ?? 0) === 1,
+    ).length;
+    expect(scan.length).toBe(studyFaceRows);
+    const gaze: number[] = [];
+    const yaw: number[] = [];
+    for (const p of scan) {
+      const source = samples.rows[p.parent] as FeatureRow;
+      gaze.push((p.row[COL.gazeX] as number) - (source[COL.gazeX] as number));
+      yaw.push((p.row[COL.yaw] as number) - (source[COL.yaw] as number));
+      expect(p.weight).toBe(0.3);
+    }
+    expect(Math.max(...gaze.map(Math.abs))).toBeLessThanOrEqual(0.3);
+    expect(Math.max(...yaw.map(Math.abs))).toBeLessThanOrEqual(10);
+    // Spread over the whole range on both sides, not a few fixed offsets.
+    expect(Math.min(...gaze)).toBeLessThan(-0.25);
+    expect(Math.max(...gaze)).toBeGreaterThan(0.25);
+    expect(Math.min(...yaw)).toBeLessThan(-8);
+    expect(Math.max(...yaw)).toBeGreaterThan(8);
+  });
+
+  it('floors the gaze scale at 0.15 when calibration looked at one spot', () => {
+    const still = samples.rows.map((row) => row.map((v, c) => (c === COL.gazeX ? 0 : v)));
+    const space = fitFeatureSpace({ ...samples, rows: still }, baseline);
+    expect(space.scale[XI.gazeX]).toBe(0.15);
+    // A real spread above the floor is kept.
+    expect(fitFeatureSpace(samples, baseline).scale[XI.gazeX] ?? 0).toBeGreaterThan(0.15);
   });
 
   it('toggles the book on paper rows', () => {

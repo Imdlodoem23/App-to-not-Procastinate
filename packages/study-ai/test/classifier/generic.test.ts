@@ -227,6 +227,28 @@ describe('generic study directions (one per screen)', () => {
     expect(down?.paper ?? 0).toBeGreaterThan(0.95);
   });
 
+  it('measures a pose below every screen from the highest one, not a typing direction under it', () => {
+    const clf = createGenericClassifier();
+    // The screen at eye level (−5°) watched without input, then typing while looking at the
+    // keyboard (−18°, eyes a little down, 2° to the side): two study directions.
+    let t = feed(clf, at(0), 20, NO_INPUT);
+    t = feed(clf, at(-2, { pitch: -18, lookDown: 0.3 }), 5, FRESH, t);
+    // Looking at either one is not «down».
+    expect(clf.relativePose(face())?.dpitch).toBeCloseTo(0, 5);
+    expect(clf.relativePose(face({ yaw: -2, pitch: -18 }))?.dpitch).toBeCloseTo(0, 5);
+    // Up to 6° under the typing direction is still that direction.
+    expect(clf.relativePose(face({ yaw: -2, pitch: -23 }))?.dpitch).toBeCloseTo(-5, 5);
+    // A notebook further down is measured from the screen, also when the head is turned a
+    // little more than the 10° free yaw of the screen but not of the typing direction.
+    expect(clf.relativePose(face({ pitch: -28 }))?.dpitch).toBeCloseTo(-23, 5);
+    expect(clf.relativePose(face({ yaw: -11, pitch: -28 }))?.dpitch).toBeCloseTo(-23, 5);
+    const p = clf.predict(frame({ t, face: face({ yaw: -11, pitch: -28, lookDown: 0.35 }) }));
+    expect(p?.paper ?? 0).toBeGreaterThan(0.99);
+    // Turned far to the side stays measured from the direction that fits best.
+    expect(clf.relativePose(face({ yaw: 50, pitch: -28 }))?.dyaw).toBeCloseTo(50, 5);
+    expect(studyOf(clf, t, { yaw: 50, pitch: -28 })).toBeLessThan(0.1);
+  });
+
   it('starts a candidate screen over after a 5 s gap in fresh input', () => {
     const clf = createGenericClassifier();
     let t = feed(clf, at(0), 20, FRESH);

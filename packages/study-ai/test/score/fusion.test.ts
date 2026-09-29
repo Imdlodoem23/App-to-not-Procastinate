@@ -162,6 +162,78 @@ describe('rules in order', () => {
     expect(hidden.cause).toBe('phone');
   });
 
+  it('1f. typing at a distraction: no floor for looking down, «paper» discounted too', () => {
+    const typing = { distractionApp: true, inputActive: true };
+    // A hunt-and-peck typist glancing at the keys while chatting: not writing by hand.
+    const glance = fuse(
+      input({
+        p: probs({ screen: 0.9, away: 0.1 }),
+        freshInput: true,
+        ev: { ...typing, lookingDown: true },
+      }),
+    );
+    expect(glance.study).toBeCloseTo(0.09);
+    expect(glance.cause).toBe('distraction_app');
+    // The model's «paper» answer for the keyboard glance is discounted like the screen.
+    const paper = fuse(input({ p: probs({ paper: 1 }), freshInput: true, ev: typing }));
+    expect(paper.study).toBeCloseTo(DISTRACTION_KEEP);
+    // No book floor either (the book bonus stays: a book is a positive signal).
+    const book = fuse(
+      input({
+        p: probs({ screen: 1 }),
+        freshInput: true,
+        ev: { ...typing, book: true, lookingDown: true },
+      }),
+    );
+    expect(book.study).toBeCloseTo(DISTRACTION_KEEP + 0.1);
+    // Hidden with the head down (face lost over the keys): the floor is discounted too.
+    const hidden = fuse(
+      input({
+        presence: 'hidden',
+        p: probs({ screen: 0.1, paper: 0.1, away: 0.8 }),
+        faceYaw: null,
+        hidden: { value: studyFloor(50), pose: 'down' },
+        freshInput: true,
+        ev: typing,
+      }),
+    );
+    expect(hidden.study).toBeLessThan(0.5);
+    expect(hidden.cause).toBe('distraction_app');
+    // Writing by hand with the video in front (no keystrokes) keeps the floor…
+    expect(
+      fuse(
+        input({ p: probs({ screen: 1 }), freshInput: false, ev: { ...typing, lookingDown: true } }),
+      ).study,
+    ).toBeCloseTo(0.7);
+    // …and so does typing in a study app.
+    expect(
+      fuse(
+        input({
+          p: probs({ away: 1 }),
+          freshInput: true,
+          ev: { inputActive: true, lookingDown: true },
+        }),
+      ).study,
+    ).toBeCloseTo(0.8);
+  });
+
+  it('1g. with a distraction in the foreground a book lifts only a face looking down', () => {
+    const screen = probs({ screen: 0.9, away: 0.1 });
+    const dist = { distractionApp: true, book: true };
+    // Watching a video at the screen with a textbook lying on the desk: bonus only.
+    const watching = fuse(input({ p: screen, faceYaw: 5, ev: dist }));
+    expect(watching.study).toBeCloseTo(0.09 + 0.1);
+    expect(watching.cause).toBe('distraction_app');
+    // Eyes or head down toward the book: reading it, whatever plays in the foreground.
+    expect(fuse(input({ p: screen, faceYaw: 5, facingDown: true, ev: dist })).study).toBeCloseTo(
+      0.7,
+    );
+    // Without a distraction, a face at the screen with a book in view keeps the floor.
+    expect(
+      fuse(input({ p: probs({ screen: 0.3, away: 0.2, phone: 0.5 }), ev: { book: true } })).study,
+    ).toBeCloseTo(0.7);
+  });
+
   it('4. closed eyes keep the frame out of the window, unless a phone or distraction', () => {
     expect(fuse(input({ eyesClosed: true })).study).toBeNull();
     expect(fuse(input({ eyesClosed: true, ev: { phone: true } })).study).toBeCloseTo(0.1);
@@ -192,22 +264,22 @@ describe('hidden face', () => {
     expect(turned.cause).toBe('looking_away');
   });
 
-  it('last-pose values: down → floor for 10 min, turned → 0.2, unknown → θ+5 for 20 s', () => {
+  it('last-pose values: down or book → floor (no time limit), turned → 0.2, unknown → θ+5', () => {
     expect(hiddenValue('down', 0, 50)).toBeCloseTo(0.7);
-    expect(hiddenValue('down', 600_000, 50)).toBeCloseTo(0.7);
-    expect(hiddenValue('book', 600_000, 60)).toBeCloseTo(0.8);
-    expect(hiddenValue('book', 600_001, 60)).toBeNull();
+    // Writing for an hour with the face out of view is studying: the observer, not a timer,
+    // ends the stretch (the person left, or no sign of life: asleep on the desk).
+    expect(hiddenValue('down', 3_600_000, 50)).toBeCloseTo(0.7);
+    expect(hiddenValue('book', 600_001, 60)).toBeCloseTo(0.8);
+    expect(hiddenValue('book', 3_600_000, 60)).toBeCloseTo(0.8);
     expect(hiddenValue('turned', 0, 50)).toBeCloseTo(0.2);
     expect(hiddenValue('turned', 3_600_000, 50)).toBeCloseTo(0.2);
     expect(hiddenValue('unknown', 20_000, 60)).toBeCloseTo(0.65);
   });
 
-  it('past the allowance a hidden stretch is not observable (null), not «not studying»', () => {
-    expect(hiddenValue('down', 600_001, 50)).toBeNull();
+  it('past the allowance an unknown pose is not observable (null), not «not studying»', () => {
     expect(hiddenValue('unknown', 20_001, 60)).toBeNull();
     // Low light with recent input: the unknown pose keeps its neutral value.
     expect(hiddenValue('unknown', 3_600_000, 60, true)).toBeCloseTo(0.65);
-    expect(hiddenValue('down', 600_001, 50, true)).toBeNull();
   });
 
   it('a distraction discounts the unknown-pose value like p.screen, not head down', () => {

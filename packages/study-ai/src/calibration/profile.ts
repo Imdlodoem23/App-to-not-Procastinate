@@ -51,8 +51,15 @@ import {
   type SampleSet,
 } from './train';
 
-/** Current trainer version (`profile.trainer`); bump when training changes. */
-export const PROFILE_TRAINER_VERSION = 1;
+/**
+ * Current trainer version (`profile.trainer`); bump when training changes. A stored profile
+ * of another version is retrained from its samples on load.
+ *
+ * - 1: first trainer.
+ * - 3: study rows read across the screen (eyes ±0.3, head ±10°) and a 0.15 gaze scale floor.
+ *   (2 is skipped: the runtime tests use it as «another trainer version».)
+ */
+export const PROFILE_TRAINER_VERSION = 3;
 
 // ---------------------------------------------------------------------------------------
 // Helpers

@@ -71,6 +71,11 @@ export const ANGLE_ENTRIES: readonly number[] = [1, 2, 3];
 export const SCALE_FLOOR_ANGLE = 3;
 export const SCALE_FLOOR_FACE = 0.05;
 /**
+ * Horizontal gaze: reading across one screen moves the eyes by about ±0.3, so a calibration
+ * that looked at one spot (IQR ≈ 0) must not turn a 0.1 eye movement into several units.
+ */
+export const SCALE_FLOOR_GAZE = 0.15;
+/**
  * Detector scores and indicators (face, phone, book, person…) are mostly 0 or mostly 1, so
  * their IQR is often 0. A 0.25 floor keeps a 0.8 score at ~3 standard units instead of 16.
  */
@@ -124,6 +129,16 @@ export const AUGMENT_SEED = 0xa11ce5;
 /** Augmentation pose noise (degrees, sd) and blendshape noise (× the class sd). */
 export const AUGMENT_POSE_SD = 3;
 export const AUGMENT_EYE_FACTOR = 0.5;
+/**
+ * Reading across the screen or the page: copies of `screen`/`paper` face rows with the eyes
+ * shifted uniformly within ±`AUGMENT_SCAN_GAZE` and the head within ±`AUGMENT_SCAN_YAW`°,
+ * same label. The `screen` clip is usually recorded looking at one spot (often the wizard's
+ * own preview), so without them a sustained eyes-only shift to one side of the same screen
+ * (a PDF on one half, notes in a side window) reads as looking away.
+ */
+export const AUGMENT_SCAN_GAZE = 0.3;
+export const AUGMENT_SCAN_YAW = 10;
+export const AUGMENT_SCAN_SEED = 0x5ca9_9a2e;
 /** Synthetic phone copies of study rows. */
 export const AUGMENT_PHONE_SCORE = 0.8;
 /** Book toggled to this value (or to 0) on copies of paper rows. */
@@ -241,6 +256,19 @@ export const GENERIC_DOWN_SCALE = 15;
 /** Paper share of pStudy ramps from 0 at dpitch −6° to 1 at −18°. */
 export const GENERIC_PAPER_FROM = -6;
 export const GENERIC_PAPER_TO = -18;
+/**
+ * A pose more than this many degrees below every best-fitting direction (where it already
+ * starts to count as paper against each of them) looks at the desk, below all the screens:
+ * it is judged against the highest of them, the one closest to eye level. Against the
+ * nearest (the lowest) a direction learned from typing below the screen would make writing
+ * in a notebook «not down».
+ */
+export const GENERIC_BELOW_MARGIN = -GENERIC_PAPER_FROM;
+/**
+ * Directions whose rule cost is within this of the best one fit about as well (pStudy within
+ * 5 %): the head faces each of them (|dyaw| up to about 24°).
+ */
+export const GENERIC_FIT_TOLERANCE = 0.05;
 /**
  * No face but a person (both classifiers): the study share is at most this, so DECISION's
  * last-pose rule (head down writing → floor, turned → 0.2), the book and the keyboard decide.

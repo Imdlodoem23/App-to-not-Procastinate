@@ -493,6 +493,10 @@ describe('Ajustes weakening delay', () => {
 
   it('only weakening changes wait 24 h', () => {
     expect(inLabel(24 * 60 * MIN)).toBe('en 24 h');
+    // A change made just now: 24 h plus the guardian's whole-second stamp.
+    expect(inLabel(24 * 60 * MIN + 900)).toBe('en 24 h');
+    expect(inLabel(23 * 60 * MIN + 30 * MIN)).toBe('en 24 h');
+    expect(inLabel(20_000)).toBe('en 1 min');
     expect(isWeakening('dailyGoalMinutes', 60, 30)).toBe(true);
     expect(isWeakening('dailyGoalMinutes', 30, 60)).toBe(false);
     expect(isWeakening('punishment', { level: 'nuclear' }, { level: 'distractions' })).toBe(false);

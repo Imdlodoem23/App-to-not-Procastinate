@@ -43,8 +43,14 @@ Si la cámara falla al empezar (otra app la está usando, está desenchufada), l
 
 ### Privacidad
 
-- **Ninguna imagen se guarda, se sube ni sale del proceso.** De cada fotograma solo salen números (ángulos, probabilidades), y el fotograma se libera al momento.
-- **Solo se guarda `profile.json`**, con los números de la calibración, en la carpeta de datos de la app. «Borrar todos mis datos» lo elimina.
+- **Ninguna imagen se guarda, se sube ni sale del proceso.** De cada fotograma solo salen números y el fotograma se libera al momento.
+- **Solo se guarda `profile.json`**, en la carpeta de datos de la app. Son números, nunca imágenes, pero son medidas de tu cara y de tu postura, fotograma a fotograma:
+  - **De la calibración:** hasta 80 fotogramas de cada situación.
+  - **De cada «¡Estaba estudiando!»:** hasta 30 fotogramas de ese momento de la sesión. Se guardan los 300 más recientes de cada situación de estudio (pantalla, y libro o cuaderno) y la fecha del último.
+  - **De cada fotograma, 22 números:** si hay cara; los ángulos de la cabeza; la posición y el tamaño de la cara en la imagen, y cuánto queda cortada por el borde; el parpadeo, la mirada (hacia abajo, hacia arriba y a los lados) y cuánto abres la boca; el brillo y el contraste de la habitación; la calidad de la imagen; y lo que ven los detectores: la probabilidad de un móvil (y si está cerca de la cara o se mueve), de un libro y de una persona.
+  - **Lo que la IA aprende de ellos:** tu postura de referencia, los umbrales, el modelo, la fecha de cada grabación y una huella (hash) del nombre y la resolución de la cámara, para saber si es la misma.
+  - El archivo nunca pasa de 5000 filas ni de 512 KB.
+- **«Recalibrar»** vuelve a grabar las 5 situaciones y borra también los momentos de «¡Estaba estudiando!». **«Borrar todos mis datos»** elimina el archivo.
 - **La ventana que analiza la cámara no tiene acceso a internet.** La librería MediaPipe intenta enviar estadísticas de uso a Google y Céntrate lo bloquea.
 - **Gasta menos del 15 % de CPU:** si tu ordenador va justo, baja sola a 2 fotogramas por segundo y busca el móvil con menos frecuencia (salvo cuando acaba de ver uno). En un ordenador muy lento analiza aún menos fotogramas antes que pasarse del 15 %.
 

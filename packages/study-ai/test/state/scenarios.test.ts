@@ -189,11 +189,14 @@ describe('true positives', { timeout: HEAVY_MS }, () => {
         );
         const label = `${persona.id} ${fps} fps`;
         expect(rec.strikes(), label).toEqual([]);
-        // Glasses glare can hide the eyes; with reliable eyes the break is suggested.
+        // Glasses glare can hide the eyes: the glasses persona's open-eye blink values spread
+        // by 0.2 (> 0.15), so the online eye check (the profile's glare rule) turns
+        // drowsiness off, as both real classifiers do. With reliable eyes the break is
+        // suggested.
         expect(
           rec.of('suggest_break').map((e) => e.reason),
           label,
-        ).toEqual(['eyes_closed']);
+        ).toEqual(persona.id === 'glasses' ? [] : ['eyes_closed']);
       }
     }
   });

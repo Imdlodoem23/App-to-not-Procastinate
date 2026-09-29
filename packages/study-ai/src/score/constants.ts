@@ -50,7 +50,31 @@ export const FACE_RECENT_MS = 10_000;
 
 // Looking down (§7.2)
 export const LOOK_DOWN_DPITCH = -12;
+/**
+ * Eyes down: `lookDown` ≥ max(`LOOK_DOWN_BLEND`, the user's screen `lookDown` +
+ * `LOOK_DOWN_REF_MARGIN`). A low laptop or progressive lenses read ≈ 0.5 at the screen; for
+ * them 0.45 would be every screen frame (see `ScreenGaze`).
+ */
 export const LOOK_DOWN_BLEND = 0.45;
+export const LOOK_DOWN_REF_MARGIN = 0.25;
+/**
+ * The screen `lookDown` reference: frames with the head within this of a screen direction
+ * (relative pose), quality ≥ `GAZE_REF_MIN_QUALITY`, no fresh input, no phone and a study
+ * answer; the p25 of the latest `GAZE_REF_SAMPLES`, once there are `GAZE_REF_MIN_SAMPLES`.
+ */
+export const GAZE_REF_MAX_DYAW = 12;
+export const GAZE_REF_MAX_DPITCH = 8;
+export const GAZE_REF_MIN_QUALITY = 0.5;
+export const GAZE_REF_SAMPLES = 1_200;
+export const GAZE_REF_MIN_SAMPLES = 20;
+export const GAZE_REF_QUANTILE = 0.25;
+/**
+ * Fresh keyboard or mouse input: idle under this. With a distraction in the foreground,
+ * someone typing is using the keyboard, not writing by hand: no study floor for looking down
+ * (a hunt-and-peck typist glancing at the keys), and the «paper» share is discounted like the
+ * screen share. It also means the eyes are open (never a «closed» frame).
+ */
+export const FRESH_INPUT_MS = 2_000;
 export const LOOK_DOWN_MAX_YAW = 35;
 /** Without a baseline (generic classifier not ready yet): absolute pitch. */
 export const LOOK_DOWN_ABS_PITCH = -20;
@@ -69,26 +93,29 @@ export const LOOK_DOWN_SIDE_MAX_YAW = 60;
 // Hidden face: last-pose rule (§7.3)
 /** The last visible pose must be this recent when the face is lost. */
 export const HIDDEN_LOOKBACK_MS = 2_000;
-/** Head down (writing): the study floor for up to this much continuous hidden time. */
-export const HIDDEN_DOWN_MAX_MS = 600_000;
 /**
- * …but only while the user shows signs of life: keyboard or mouse, or motion where the face
- * was (`motionNearFace` ≥ `HIDDEN_ACTIVE_MOTION`). After `HIDDEN_STILL_MS` without either,
- * a head down on the desk is asleep, not writing: its frames become drowsy candidates (not
- * pushed, timers frozen, `suggest_break{eyes_closed}`, no focus credit), and only after
- * `HIDDEN_ASLEEP_MAX_MS` of hidden time does the absence path take over.
+ * Head down (writing, reading) keeps the study floor, with no time limit, while the user
+ * shows signs of life: someone is still there (the person detector, which `hidden` needs),
+ * and keyboard or mouse, or motion where the face was (`motionNearFace` ≥
+ * `HIDDEN_ACTIVE_MOTION`, or ≥ `HIDDEN_BOOK_MOTION` while a book is in view: a reader turns
+ * pages, but moves less than a writer). Writing for an hour with the face out of the camera's
+ * view is studying; `camera_cant_see_you` says so after a minute. After `HIDDEN_STILL_MS`
+ * without a sign of life, a head down on the desk is asleep, not writing: its frames become
+ * drowsy candidates (not pushed, timers frozen, `suggest_break{eyes_closed}`, no focus
+ * credit), and only after `HIDDEN_ASLEEP_MAX_MS` of hidden time does the absence path take
+ * over. When the person leaves, presence becomes `absent` and the absence path runs at once.
  */
 export const HIDDEN_STILL_MS = 90_000;
 export const HIDDEN_ACTIVE_MOTION = 0.01;
+export const HIDDEN_BOOK_MOTION = 0.005;
 export const HIDDEN_ASLEEP_MAX_MS = 1_200_000;
 /**
  * A book held up in front of the face (reading while leaning back): E_book whose last box
  * covers at least `BOOK_OVER_FACE_SHARE` of the last face box keeps the hidden stretch at
- * the study floor for `HIDDEN_BOOK_MAX_MS`, like head down. The book pose holds
+ * the study floor, like head down (and with the same signs-of-life rule). The book pose holds
  * `BOOK_UP_HOLD_MS` through detector misses. A phone in hand or a distraction app in the
  * foreground turn the rule off.
  */
-export const HIDDEN_BOOK_MAX_MS = 600_000;
 export const BOOK_OVER_FACE_SHARE = 0.5;
 export const BOOK_UP_HOLD_MS = 10_000;
 export const HIDDEN_TURNED_YAW = 35;
@@ -121,6 +148,13 @@ export const BOOK_BONUS = 0.1;
 
 // Eyes (§7.4)
 export const EYES_MIN_QUALITY = 0.5;
+/**
+ * Online eye check (`OnlineEyes`): the latest `EYES_ONLINE_SAMPLES` blink values of calm
+ * face frames (not looking down) with fresh input, no phone and no distraction app; judged
+ * once there are `EYES_ONLINE_MIN_SAMPLES`.
+ */
+export const EYES_ONLINE_SAMPLES = 120;
+export const EYES_ONLINE_MIN_SAMPLES = 20;
 /** Eyes looking down (reading) lower the lids: never a «closed» frame. */
 export const EYES_MAX_LOOK_DOWN = 0.5;
 export const YAWN_JAW = 0.6;
