@@ -37,7 +37,7 @@ export interface Occurrence {
   end: number;
 }
 
-interface LocalDate {
+export interface LocalDate {
   year: number;
   month: number;
   day: number;
@@ -77,22 +77,22 @@ function wallAsUtc(ms: number, timeZone: string): number {
   );
 }
 
-function localDateOf(ms: number, timeZone: string): LocalDate {
+export function localDateOf(ms: number, timeZone: string): LocalDate {
   const wall = new Date(wallAsUtc(ms, timeZone));
   return { year: wall.getUTCFullYear(), month: wall.getUTCMonth() + 1, day: wall.getUTCDate() };
 }
 
-function addLocalDays(d: LocalDate, days: number): LocalDate {
+export function addLocalDays(d: LocalDate, days: number): LocalDate {
   const t = new Date(Date.UTC(d.year, d.month - 1, d.day + days));
   return { year: t.getUTCFullYear(), month: t.getUTCMonth() + 1, day: t.getUTCDate() };
 }
 
-function isoWeekday(d: LocalDate): IsoWeekday {
+export function isoWeekday(d: LocalDate): IsoWeekday {
   const w = new Date(Date.UTC(d.year, d.month - 1, d.day)).getUTCDay();
   return (w === 0 ? 7 : w) as IsoWeekday;
 }
 
-function dateKey(d: LocalDate): string {
+export function dateKey(d: LocalDate): string {
   const pad = (n: number): string => String(n).padStart(2, '0');
   return `${d.year}-${pad(d.month)}-${pad(d.day)}`;
 }
@@ -124,6 +124,16 @@ export function zonedInstant(date: LocalDate, minutes: number, timeZone: string)
   if (exact[0] !== undefined) return exact[0];
   // In a gap: the latest candidate lies after it.
   return Math.max(...candidates);
+}
+
+/** The first instant of the local day of `ms` in `timeZone`. */
+export function startOfLocalDay(ms: number, timeZone: string): number {
+  return zonedInstant(localDateOf(ms, timeZone), 0, timeZone);
+}
+
+/** The first instant whose local date (in `timeZone`) is the day after that of `ms`. */
+export function nextLocalMidnight(ms: number, timeZone: string): number {
+  return zonedInstant(addLocalDays(localDateOf(ms, timeZone), 1), 0, timeZone);
 }
 
 function validZone(timeZone: string): boolean {

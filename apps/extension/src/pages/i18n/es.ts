@@ -439,6 +439,7 @@ export const PAGES_ES = {
         'Mira la dirección de cada página que abres para compararla con tus bloqueos. Esa comprobación se hace dentro del navegador.',
         'Nunca envía tu historial de navegación.',
         'Solo cuando intentas abrir algo bloqueado, envía el dominio (por ejemplo, youtube.com, nunca la dirección completa) al guardián de Céntrate, que está en tu propio ordenador, para restar los puntos del intento.',
+        'Si tienes límites diarios, cuenta el tiempo que pasas en esas webs (solo la pestaña que estás mirando) y envía al guardián el dominio y los segundos, por ejemplo www.youtube.com, 30 s. El tiempo en otras webs no se cuenta ni se envía.',
         'Cada 30 segundos le dice al guardián que sigue activa: la versión del navegador y de la extensión y si tiene los permisos. Nada de tus webs.',
         'Guarda en el navegador el emparejamiento y la última lista de bloqueos, para seguir bloqueando aunque el guardián no responda. La dirección de una página bloqueada solo queda en la memoria de la sesión y se borra al cerrar el navegador.',
         'No hay analíticas ni servidores de Céntrate: nada sale de tu ordenador.',

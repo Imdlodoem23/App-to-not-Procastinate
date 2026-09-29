@@ -46,6 +46,8 @@ import {
 } from './catalog';
 import { parseDurationText, parseUntilText } from './duration';
 import { BLOQUEOS } from './i18n';
+import { createLimitActions, type LimitActions } from './limit-actions';
+import type { LimitsData } from './limits';
 import { createScheduleActions, type ScheduleActions } from './schedule-actions';
 import { createWhitelistActions, type WhitelistActions } from './whitelist-actions';
 import type { SettingsData } from './whitelist';
@@ -66,9 +68,9 @@ export interface Notice {
 }
 
 export type NoticeArea =
-  'domains' | 'apps' | 'duration' | 'actions' | 'templates' | 'lists' | 'whitelist';
+  'domains' | 'apps' | 'duration' | 'actions' | 'templates' | 'lists' | 'limits' | 'whitelist';
 
-export interface BloqueosActions extends ScheduleActions, WhitelistActions {
+export interface BloqueosActions extends ScheduleActions, LimitActions, WhitelistActions {
   setSearch(text: string): void;
   /** Enter in the search box: mark the first result and clear the box. */
   pickFirstResult(): void;
@@ -131,10 +133,21 @@ export function useBloqueosWindow(): BloqueosWindowApi {
   const [settings, setSettings] = useState<SettingsData>({ status: 'loading' });
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [whitelistSaving, setWhitelistSaving] = useState(false);
+  const [limits, setLimits] = useState<LimitsData>({ status: 'loading' });
+  const [limitSaving, setLimitSaving] = useState(false);
+  const [limitRowSaving, setLimitRowSaving] = useState<string | null>(null);
   /** Latest values for the action factories (they run outside render). */
-  const live = useRef({ schedules, settings, scheduleSaving, whitelistSaving });
-  live.current = { schedules, settings, scheduleSaving, whitelistSaving };
+  const live = useRef({
+    schedules,
+    settings,
+    scheduleSaving,
+    whitelistSaving,
+    limits,
+    limitSaving,
+  });
+  live.current = { schedules, settings, scheduleSaving, whitelistSaving, limits, limitSaving };
   const lastCreate = useRef<{ body: string; intentId: string } | null>(null);
+  const lastLimitCreate = useRef<{ body: string; intentId: string } | null>(null);
   const [processNames, setProcessNames] = useState<readonly string[]>([]);
   const [notices, setNotices] = useState<Partial<Record<NoticeArea, Notice>>>({});
   const { announcement, announce } = useAnnouncer();
@@ -177,6 +190,20 @@ export function useBloqueosWindow(): BloqueosWindowApi {
     );
   }, [bridge]);
 
+  const loadLimits = useCallback(() => {
+    void bridge.invoke('limits:list', null).then(
+      (result) => {
+        if (!mounted.current) return;
+        setLimits(
+          result.ok
+            ? { status: 'ready', list: result.value }
+            : { status: 'error', error: result.error },
+        );
+      },
+      () => undefined,
+    );
+  }, [bridge]);
+
   const loadSettings = useCallback(() => {
     void bridge.invoke('settings:get', null).then(
       (result) => {
@@ -204,9 +231,10 @@ export function useBloqueosWindow(): BloqueosWindowApi {
   useEffect(() => {
     if (!env.visible) return;
     loadSchedules();
+    loadLimits();
     loadSettings();
     loadProcesses();
-  }, [env.visible, env.detail, loadSchedules, loadSettings, loadProcesses]);
+  }, [env.visible, env.detail, loadSchedules, loadLimits, loadSettings, loadProcesses]);
 
   const updateLocal = useCallback(
     (fn: (local: BloqueosLocalState) => BloqueosLocalState) => {
@@ -250,6 +278,9 @@ export function useBloqueosWindow(): BloqueosWindowApi {
         settings,
         scheduleSaving,
         whitelistSaving,
+        limits,
+        limitSaving,
+        limitRowSaving,
       } satisfies BloqueosData),
     [
       api,
@@ -264,6 +295,9 @@ export function useBloqueosWindow(): BloqueosWindowApi {
       settings,
       scheduleSaving,
       whitelistSaving,
+      limits,
+      limitSaving,
+      limitRowSaving,
     ],
   );
 
@@ -321,6 +355,25 @@ export function useBloqueosWindow(): BloqueosWindowApi {
       newIntentId: () => crypto.randomUUID(),
     });
 
+    const limitActions = createLimitActions({
+      bridge,
+      getState: () => api.getState(),
+      now,
+      updateLocal,
+      getLimits: () => live.current.limits,
+      setLimits,
+      loadLimits,
+      setSaving: setLimitSaving,
+      isSaving: () => live.current.limitSaving,
+      setRowSaving: setLimitRowSaving,
+      problem: () => view.limits.editor?.problem ?? null,
+      notify: (notice) => notify('limits', notice),
+      announce,
+      mounted: () => mounted.current,
+      lastCreate: lastLimitCreate,
+      newIntentId: () => crypto.randomUUID(),
+    });
+
     const whitelistActions = createWhitelistActions({
       bridge,
       local,
@@ -338,6 +391,7 @@ export function useBloqueosWindow(): BloqueosWindowApi {
 
     return {
       ...scheduleActions,
+      ...limitActions,
       ...whitelistActions,
       setSearch: (text) => updateLocal((l) => (l.search === text ? l : { ...l, search: text })),
       pickFirstResult: () => {
@@ -520,6 +574,7 @@ export function useBloqueosWindow(): BloqueosWindowApi {
     updateForm,
     updateTargets,
     loadSchedules,
+    loadLimits,
     loadSettings,
     view,
   ]);

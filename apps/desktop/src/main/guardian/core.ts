@@ -19,11 +19,12 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { arch, release } from 'node:os';
 import { join } from 'node:path';
-import type { BlockId, EmergencyId, Schedule, ScheduleId } from '@centrate/shared/domain';
+import type { BlockId, EmergencyId, LimitId, Schedule, ScheduleId } from '@centrate/shared/domain';
 import { isIdOf } from '@centrate/shared/domain';
 import {
   DATA_DELETE_CONFIRM_WORDS,
   GUARDIAN_LIMITS,
+  isDailyLimitInput,
   type GuardianClient,
   type GuardianStateResponse,
   type ScheduleInput,
@@ -46,7 +47,14 @@ import {
   type UiSnapshot,
 } from '../../shared/ui-state';
 import { ActiveWindowLayer, createForegroundReader } from '../activewin';
-import type { Clock, Core, CoreHarness, CoreOptions, RefreshReason } from '../contracts';
+import type {
+  Clock,
+  Core,
+  CoreHarness,
+  CoreOptions,
+  LimitAlert,
+  RefreshReason,
+} from '../contracts';
 import { createNullEventsDb, openEventsDb, type EventsDb } from '../db/events-db';
 import { eventsDbFileName } from '../db/stats';
 import { ReminderScheduler } from '../reminders';
@@ -61,6 +69,7 @@ import {
 } from '../db/prefs-store';
 import { appLog, initAppLog, type AppLogger } from '../logs/logger';
 import { createElectronNotifier } from '../notifications/notifier';
+import { limitAlertsFromEvents } from '../notifications/policy';
 import { NotificationScheduler } from '../notifications/scheduler';
 import type { Notifier } from '../notifications/types';
 import { createRecordingNotifier } from '../notifications/types';
@@ -69,6 +78,7 @@ import { runFile, type ExecRunner } from '../system/exec';
 import { DIAGNOSTICS } from '../system/i18n';
 import { GuardianInstaller } from '../system/installer';
 import { listProcessNames } from '../system/processes';
+import { UsageReporter } from '../usage/reporter';
 import { withTimeout, createPortAwareClient } from './client';
 import {
   clientJsonPath,
@@ -193,6 +203,18 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
 
   let started = false;
   let stopped = false;
+  const limitListeners = new Set<(alert: LimitAlert) => void>();
+  function emitLimitAlerts(alerts: readonly LimitAlert[]): void {
+    for (const alert of alerts) {
+      for (const listener of limitListeners) {
+        try {
+          listener(alert);
+        } catch {
+          // a listener's failure never breaks the event sync
+        }
+      }
+    }
+  }
   let currentFixture: HarnessFixture | null = options.harness;
   let realDb: EventsDb | null = null;
 
@@ -322,6 +344,7 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
       db,
       onPage: (page, info) => {
         notifications.ingestEvents(page.events, info.notify);
+        if (info.notify) emitLimitAlerts(limitAlertsFromEvents(page.events, clock.now()));
         if (page.events.length > 0 || page.reset) poller.refreshNow('event');
       },
       onError: (stage, error) => {
@@ -424,11 +447,12 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
     });
   }
 
-  const activeWindow = live
+  const foreground = live ? createForegroundReader({ platform: options.platform, env, exec }) : null;
+  const activeWindow = foreground
     ? new ActiveWindowLayer({
         platform: options.platform,
         clock: options.clock,
-        reader: createForegroundReader({ platform: options.platform, env, exec }),
+        reader: foreground,
         report: (serviceId, browser) =>
           call((c) =>
             c.reportAttempt({
@@ -448,6 +472,29 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
         log: (event, fields) => log.debug(event, fields),
       })
     : null;
+  // Daily limits (ARCHITECTURE §10.13): the foreground app's seconds while a limit exists.
+  const usage =
+    foreground?.readProcess !== undefined
+      ? new UsageReporter({
+          clock: options.clock,
+          monotonic: () => performance.now(),
+          readProcess: () => foreground.readProcess?.() ?? Promise.resolve(null),
+          idle: options.idle ?? null,
+          report: (body) => call((c) => c.reportUsage(body)),
+          onReported: (r) => {
+            // The allowance ran out and the state does not show its block yet: poll now.
+            const blocks = store.get().state?.blocks ?? [];
+            const missing = r.limits.some(
+              (l) => l.blockedUntil !== null && !blocks.some((b) => b.limitId === l.limitId),
+            );
+            if (missing) {
+              session.poller.refreshNow('write');
+              session.events.kick();
+            }
+          },
+          log: (event, fields) => log.debug(event, fields),
+        })
+      : null;
   const reminders = live
     ? new ReminderScheduler({ clock: options.clock, show: (content) => notifier.show(content) })
     : null;
@@ -465,6 +512,11 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
   function syncPlatform(s: UiSnapshot): void {
     if (!started || stopped) return;
     activeWindow?.sync(s.state, s.link.status === 'ok');
+    usage?.sync(
+      s.state,
+      s.link.status === 'ok',
+      s.health?.capabilities.includes('daily_limits') ?? false,
+    );
     reminders?.sync(s.state, s.prefs.reminders, snapshotFeature(s, 'reminders'));
     nuclearBeat?.sync(s);
   }
@@ -661,6 +713,35 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
         );
         afterWrite();
         return ok(r.schedule);
+      }),
+
+    'limits:list': () => guarded(async () => ok((await call((c) => c.listLimits())).limits)),
+
+    'limits:create': (req) =>
+      guarded(async () => {
+        if (!isIntentId(req?.intentId) || !isDailyLimitInput(req?.input)) return invalid();
+        const r = await call((c) => c.createLimit(req.input, { idempotencyKey: req.intentId }));
+        log.info('limit_created', { mode: r.limit.mode, minutes: r.limit.dailyMinutes });
+        afterWrite();
+        return ok(r.limit);
+      }),
+
+    'limits:update': (req) =>
+      guarded(async () => {
+        if (!isIdOf('limit', req?.id) || !isDailyLimitInput(req?.input)) return invalid();
+        const r = await call((c) => c.updateLimit(req.id as LimitId, req.input));
+        log.info('limit_updated', { pending: r.limit.pendingChange !== null });
+        afterWrite();
+        return ok(r.limit);
+      }),
+
+    'limits:delete': (req) =>
+      guarded(async () => {
+        if (!isIdOf('limit', req?.id)) return invalid();
+        const r = await call((c) => c.deleteLimit(req.id as LimitId));
+        log.info('limit_delete_requested', {});
+        afterWrite();
+        return ok(r.limit);
       }),
 
     'templates:save': (req) =>
@@ -931,6 +1012,12 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
       session.poller.reschedule();
     },
     patchSnapshot,
+    onLimitAlert(listener) {
+      limitListeners.add(listener);
+      return () => {
+        limitListeners.delete(listener);
+      };
+    },
     refreshNow(reason: RefreshReason): void {
       if (stopped) return;
       session.poller.refreshNow(reason);
@@ -946,6 +1033,8 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
       if (stopped) return;
       stopped = true;
       activeWindow?.stop();
+      usage?.stop();
+      limitListeners.clear();
       reminders?.stop();
       nuclearBeat?.stop();
       const s = session;

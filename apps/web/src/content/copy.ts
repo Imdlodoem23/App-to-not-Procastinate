@@ -217,6 +217,7 @@ export const es = {
       'sin insta media hora',
       'nada de Discord hasta mañana a las 8',
       'no veo series 1h30',
+      'YouTube máximo 30 minutos al día',
     ],
     result: {
       title: 'Esto haría Céntrate',
@@ -230,6 +231,16 @@ export const es = {
       studyNoTask: 'Céntrate te propondría un Study Mode de {duration}.',
       over4h: 'Son más de 4\u00a0horas: la app te pediría confirmarlo dos veces.',
       over24h: 'El máximo es 24\u00a0horas por bloqueo.',
+      /** Daily limits: {daily} is `perDay` («30 min al día»), or `limitDays` when not every day. */
+      limit:
+        'Céntrate te dejaría usar {services} {daily} y, al agotar ese tiempo, cortaría el acceso hasta las 0:00.',
+      perDay: '{duration} al día',
+      /** {days} is «entre semana», «fines de semana», «de lunes a jueves»… */
+      limitDays: '{daily} ({days})',
+      limitRange: 'Un límite diario va de 5\u00a0min a 12\u00a0horas.',
+      limitNote:
+        'Solo cuenta el tiempo de uso real. Bajar el límite es al momento; subirlo o quitarlo tarda 24\u00a0horas.',
+      limitMode: 'Estricto',
       partial:
         'He entendido {understood}, pero no «{rest}». En la app se abriría el formulario avanzado con eso ya puesto.',
       none: 'No he entendido «{text}». La app no se inventaría nada: abriría el formulario avanzado para que lo elijas tú.',
@@ -258,6 +269,9 @@ export const es = {
         duration: 'Duración',
         ends: 'Termina a las',
         mode: 'Modo',
+        limited: 'Qué se limita',
+        daily: 'Límite diario',
+        days: 'Días',
       },
       defaultMode: 'Normal',
     },
@@ -453,6 +467,10 @@ export const es = {
         text: 'Bloqueos que se repiten solos, como las redes sociales de lunes a viernes de 16:00 a 19:00.',
       },
       {
+        name: 'Límites diarios',
+        text: 'Como YouTube 30\u00a0minutos al día: cuando los gastas, queda bloqueado hasta medianoche.',
+      },
+      {
         name: 'Modo examen',
         text: 'Solo tus webs de estudio y sin forma de cancelarlo hasta la hora que elijas.',
       },
@@ -463,10 +481,6 @@ export const es = {
       {
         name: 'Sonidos',
         text: 'Lluvia, ruido blanco o lo-fi, incluidos en la app y sin internet.',
-      },
-      {
-        name: 'Mini temporizador',
-        text: 'Una cuenta atrás pequeña y siempre visible que colocas donde quieras.',
       },
       {
         name: 'Extensión del navegador',
@@ -487,6 +501,10 @@ export const es = {
     ],
     /** Replacements if a tile has to change. */
     spare: [
+      {
+        name: 'Mini temporizador',
+        text: 'Una cuenta atrás pequeña y siempre visible que colocas donde quieras.',
+      },
       {
         name: 'Plantillas rápidas',
         text: 'Deberes 1\u00a0h, Examen 3\u00a0h o Leer 30\u00a0min: un clic y Enter.',
@@ -960,7 +978,7 @@ export const es = {
 
     privacidad: {
       headline: 'Política de privacidad.',
-      updated: 'Última actualización: 27 de septiembre de 2026.',
+      updated: 'Última actualización: 29 de septiembre de 2026.',
       lead: 'Céntrate funciona sin cuenta, sin internet y sin enviarnos nada. Aquí tienes qué datos se tratan, dónde se guardan y qué derechos tienes, según el Reglamento General de Protección de Datos (RGPD) y la ley española de protección de datos (LOPDGDD).',
       summary: {
         title: 'En resumen',
@@ -987,10 +1005,11 @@ export const es = {
             'Todo esto se guarda solo en tu ordenador:',
             {
               list: [
-                'tus bloqueos, horarios, plantillas, ajustes y tu motivo;',
+                'tus bloqueos, horarios, límites diarios, plantillas, ajustes y tu motivo;',
                 'las tareas de tus sesiones de Study Mode;',
                 'tus puntos, tu XP, tu racha y tus logros, y el registro de eventos del que salen: intentos, strikes, castigos, bloqueos cumplidos y desbloqueos de emergencia;',
                 'tus estadísticas, como los minutos concentrado y el número de avisos;',
+                'cuánto has usado cada límite diario cada día: solo los segundos que cuentan para ese límite, nunca qué páginas viste ni los títulos de tus ventanas;',
                 'la calibración del Study Mode, que son solo números, nunca fotos;',
                 'registros técnicos rotativos, sin datos personales, para diagnosticar fallos.',
               ],
@@ -1021,6 +1040,7 @@ export const es = {
           blocks: [
             'La extensión compara, dentro de tu navegador, cada web que abres con tu lista de bloqueos activos. Necesita permiso para todos los sitios web porque es la única forma de desviar los que bloqueas.',
             'Solo se comunica con el guardián en tu propio ordenador (`127.0.0.1`): recibe la lista de lo que está bloqueado y le avisa de los intentos. No guarda tu historial ni lo envía a ningún sitio.',
+            'Si tienes límites diarios, la extensión le dice al guardián cuántos segundos has pasado en esas webs, con solo el nombre del sitio (como `www.youtube.com`), nunca la dirección completa. Para los límites de apps, la app de escritorio le dice qué programa tienes delante, sin el título de la ventana. Todo eso se queda en tu ordenador.',
           ],
         },
         {
@@ -1088,7 +1108,7 @@ export const es = {
             {
               list: [
                 '**Acceso y portabilidad:** Ajustes → Datos → **Exportar**, en CSV.',
-                '**Supresión:** Ajustes → Datos → **Borrar todos mis datos**, que te pide escribir BORRAR. Los bloqueos en curso no se borran: terminan a su hora.',
+                '**Supresión:** Ajustes → Datos → **Borrar todos mis datos**, que te pide escribir BORRAR. Los bloqueos en curso no se borran: terminan a su hora. Tampoco tus límites diarios ni lo que llevas usado hoy, para que borrar no sirva para saltarse un límite.',
                 '**Rectificación:** cambia tus ajustes, horarios y plantillas cuando quieras. Los puntos no se pueden editar, para que nadie haga trampas, pero sí se pueden borrar.',
               ],
             },

@@ -24,6 +24,17 @@ import { PHASE5_VALID_INVOKE } from '../../shared/phase5-payloads';
 const BLOCK = 'blk_fixture0000000001';
 const EMG = 'emg_fixture0000000001';
 const SCH = 'sch_fixture0000000001';
+const LIM = 'lim_fixture0000000001';
+const limitInput = {
+  name: 'YouTube',
+  enabled: true,
+  targets: { ...emptyTargets(), serviceIds: ['youtube'] },
+  dailyMinutes: 30,
+  days: [1, 2, 3, 4, 5, 6, 7],
+  mode: 'strict',
+  reason: '',
+  acknowledgeNoEmergency: false,
+};
 
 const request = {
   targets: { ...emptyTargets(), serviceIds: ['youtube'] },
@@ -50,6 +61,10 @@ const VALID: Record<string, unknown> = {
   'emergency:confirm': { intentId: 'i-3', id: EMG },
   'schedules:list': null,
   'schedules:set-enabled': { id: SCH, enabled: false },
+  'limits:list': null,
+  'limits:create': { intentId: 'i-5', input: limitInput },
+  'limits:update': { id: LIM, input: limitInput },
+  'limits:delete': { id: LIM },
   'templates:save': {
     id: null,
     label: 'Mates',
@@ -91,6 +106,14 @@ const INVALID: Record<string, unknown[]> = {
   ],
   'emergency:cancel': [{ id: BLOCK }],
   'schedules:set-enabled': [{ id: SCH, enabled: 'yes' }],
+  'limits:create': [
+    { intentId: 'i', input: { ...limitInput, dailyMinutes: 4 } },
+    { intentId: 'i', input: { ...limitInput, mode: 'exam' } },
+    { intentId: 'i', input: { ...limitInput, targets: emptyTargets() } },
+    { intentId: 'i', input: limitInput, extra: 1 },
+  ],
+  'limits:update': [{ id: SCH, input: limitInput }],
+  'limits:delete': [{ id: 'lim_1' }],
   'templates:save': [{ id: null, label: 'x' }],
   'prefs:set': [{ theme: 'blue' }, { token: 'x' }],
   'data:delete': [
@@ -150,6 +173,7 @@ function fakeCore(): Core & { seen: Array<[string, unknown]> } {
     visibilityChanged: () => undefined,
     refreshNow: () => undefined,
     patchSnapshot: () => undefined,
+    onLimitAlert: () => () => undefined,
     shutdown: async () => undefined,
     harness: null,
   };

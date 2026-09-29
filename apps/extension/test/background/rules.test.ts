@@ -108,6 +108,13 @@ describe('BlockedTabInfo', () => {
     expect(parseBlockedTabInfo({ ...info, pointsDelta: '−10' })).toBeNull();
     expect(parseBlockedTabInfo({ ...info, block: { reason: 1 } })).toBeNull();
     expect(parseBlockedTabInfo(null)).toBeNull();
+    // A daily limit's block carries its limit id (reported as `manual`, §8.4).
+    const limited = { ...info, block: { ...info.block, limitId: 'lim_0123456789abcdefYTYT' } };
+    expect(parseBlockedTabInfo(limited)).toEqual(limited);
+    expect(
+      parseBlockedTabInfo({ ...info, block: { ...info.block, limitId: null } }),
+    ).not.toBeNull();
+    expect(parseBlockedTabInfo({ ...info, block: { ...info.block, limitId: 'blk_x' } })).toBeNull();
   });
 });
 

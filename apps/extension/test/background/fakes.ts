@@ -245,6 +245,23 @@ export async function fakeGuardian(
             reason: null,
           });
         }
+        case '/v1/usage': {
+          if (!authorized) return errorBody(401, 'unauthorized');
+          return jsonBody(200, {
+            day: '2026-09-28',
+            limits: [
+              {
+                limitId: 'lim_0123456789abcdefYTYT',
+                usedTodaySeconds: 600,
+                remainingTodaySeconds: 1_200,
+                appliesToday: true,
+                creditedSeconds: 30,
+                blockedUntil: null,
+              },
+            ],
+            serverNow: iso(NOW),
+          });
+        }
         default:
           return errorBody(404, 'not_found');
       }

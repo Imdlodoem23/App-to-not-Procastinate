@@ -1018,3 +1018,41 @@ func TestLimitEventsAreTrusted(t *testing.T) {
 		t.Fatal("the API answered trusted time")
 	}
 }
+
+// A limit block created while the trusted clock ran ahead moves back with the
+// calibration like every block; its (limit, day) stays materialized, and usage credited
+// ahead of the corrected clock only delays new credit (never counts twice, §10.2).
+func TestLimitsCalibrationShift(t *testing.T) {
+	env := newTestEnv(t)
+	e := env.open()
+	l := limCreate(t, env, limIn("YouTube", 5, "youtube"))
+	if err := e.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	env.net.SetOffline(true)
+	env.clk.RebootAfter(5 * time.Minute)
+	env.clk.JumpWall(3 * time.Hour)
+	e = env.open()
+	limBrowse(t, env, "www.youtube.com", 5*time.Minute)
+	bl := limBlocks(e, l.ID)
+	if len(bl) != 1 || bl[0].EndsAt != limMidnight.UnixMilli() {
+		t.Fatalf("limit block while the clock ran ahead: %+v", bl)
+	}
+	used := limGet(t, env, l.ID).UsedTodaySeconds
+	env.net.SetOffline(false)
+	schForward(env, 5*time.Minute, 10*time.Second)
+	if e.trust() != TrustVerified {
+		t.Fatal("no calibration")
+	}
+	bl = limBlocks(e, l.ID)
+	if len(bl) != 1 || bl[0].Status != StatusActive || bl[0].EndsAt >= limMidnight.UnixMilli()-2*3600*1000 {
+		t.Fatalf("limit block after the correction: %d blocks, ends %s", len(bl), fmtMs(bl[0].EndsAt))
+	}
+	limBrowse(t, env, "www.youtube.com", 2*time.Minute)
+	if n := len(limBlocks(e, l.ID)); n != 1 || len(env.eventsOf(EvLimitReached)) != 1 {
+		t.Fatalf("re-materialized after the correction: %d blocks", n)
+	}
+	if got := limGet(t, env, l.ID).UsedTodaySeconds; got != used {
+		t.Fatalf("usage credited again after the clock moved back: %d → %d", used, got)
+	}
+}

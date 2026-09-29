@@ -338,3 +338,29 @@ test.describe('with a short idle timeout', () => {
     );
   });
 });
+
+test('a daily limit that ran out blocks the site and blocked.html says so', async ({
+  firefox,
+  guardian,
+}) => {
+  await firefox.pair(guardian);
+  const t = await copyOf(firefox);
+  const limit = guardian.addLimit({ services: ['youtube'], dailyMinutes: 30 });
+  await guardian.waitForApplied();
+  // The limit alone blocks nothing.
+  const open = await firefox.open('http://www.youtube.com/watch?v=abc');
+  expect(await open.title()).toBe(fakeTitle('http://www.youtube.com/'));
+
+  // Used up: the guardian adds a block with `limitId`, served as `manual` (§8.4).
+  guardian.setLimitUsage(limit.id, 30 * 60);
+  await expect
+    .poll(() => open.url())
+    .toBe(firefoxBlockedUrl({ cause: 'domain', serviceId: 'youtube', enforced: true }));
+  await expect.poll(() => open.text()).toContain(t.blocked.limitLine(30, 'YouTube'));
+
+  const tab = await firefox.open('https://www.youtube.com/');
+  expect(await tab.url()).toBe(firefoxBlockedUrl({ cause: 'domain', serviceId: 'youtube' }));
+  const attempt = await guardian.waitForAttempt();
+  expect(attempt.response.block).toMatchObject({ kind: 'manual', limitId: limit.id });
+  await expect.poll(() => tab.text()).toContain(t.blocked.limitLine(30, 'YouTube'));
+});

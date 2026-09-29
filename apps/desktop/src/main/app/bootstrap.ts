@@ -204,6 +204,11 @@ async function boot(deps: BootstrapDeps, launch: LaunchOptions, log: AppLog): Pr
     systemLocale: readSystemLocale(),
     harness: resolved?.fixture ?? null,
     host: windows,
+    // Daily-limit usage counts only while the user is at the machine (ARCHITECTURE §10.13).
+    idle: {
+      idleSeconds: () => powerMonitor.getSystemIdleTime(),
+      locked: () => powerMonitor.getSystemIdleState(60) === 'locked',
+    },
   });
 
   setActiveLocale(snapshotLocale(core.getSnapshot()));

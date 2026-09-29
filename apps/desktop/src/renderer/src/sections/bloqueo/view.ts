@@ -6,12 +6,13 @@
  * Time comes in as `nowMs` (the harness's frozen clock or `Date.now()`); the big countdown
  * itself ticks in its component from `endsAt`. Pure: no DOM, Node or Electron imports.
  */
-import type { Block, BlockId, BlockMode, Punishment } from '@centrate/shared/domain';
-import { BLOCK_MODES } from '@centrate/shared/domain';
+import type { Block, BlockId, BlockMode, LimitMode, Punishment } from '@centrate/shared/domain';
+import { BLOCK_MODES, LIMIT_MODES } from '@centrate/shared/domain';
 import type { GuardianStateResponse } from '@centrate/shared/guardian-api';
 import { durationLabel } from '@centrate/shared/parser';
 import { POINT_RULES } from '@centrate/shared/points';
 import {
+  formatClock,
   formatList,
   formatPoints,
   modeLabel,
@@ -20,6 +21,13 @@ import {
   targetsLabel,
 } from '../../../../shared/format';
 import { SHARED } from '../../../../shared/i18n';
+import {
+  LIMIT_TEXT,
+  isLimitBlock,
+  limitBlockName,
+  limitProblem,
+  type LimitProblem,
+} from '../../../../shared/limits';
 import {
   EXTEND_PRESETS,
   activePunishment,
@@ -50,12 +58,21 @@ import {
   type UiState,
 } from '../../../../shared/ui-state';
 import { RENDERER } from '../../i18n/messages';
-import { chipCandidates, draftChips, estimateTextWidth, typingChips, type ChipView } from './chips';
+import { progresoMnemonics } from '../progreso/view';
+import {
+  chipCandidates,
+  draftChips,
+  estimateTextWidth,
+  limitChips,
+  typingChips,
+  type ChipView,
+} from './chips';
 import {
   consequenceUnlockAt,
   draftFromRequest,
   fieldEnter,
   isConsequenceLocked,
+  limitUnlockAt,
   parseExtendMinutes,
   parsePhrase,
   projectedEnd,
@@ -283,7 +300,28 @@ export interface ComposerBody {
   composer: ComposerView;
 }
 
-export type BloqueoBody = ComposerBody | CardView | ActiveView;
+/**
+ * The «Límite diario» card (ARCHITECTURE §5.10): what is limited, «30 min al día», the days,
+ * Normal | Estricto | Hardcore, «Tu motivo» and Editar… | Crear límite: 30 min al día.
+ */
+export interface LimitCardView {
+  kind: 'limit-card';
+  status: 'edit' | 'consequence' | 'sending';
+  editable: boolean;
+  composer: { value: string } | null;
+  chips: ChipView[];
+  modes: TileView[];
+  modeHelp: string;
+  reason: string;
+  actions: CardActionView[];
+  actionsHelp: CardLine;
+  unlockAt: number | null;
+  problem: LimitProblem | null;
+  /** Screen readers: «Limita YouTube a 30 minutos al día, todos los días, modo Estricto». */
+  summary: string;
+}
+
+export type BloqueoBody = ComposerBody | CardView | ActiveView | LimitCardView;
 
 export interface BloqueoView {
   variant: BloqueoVariant;
@@ -371,7 +409,20 @@ function firstPlus(names: readonly string[]): string {
  * «Bloqueo: YouTube, Instagram · Estricto», «Bloqueo: YouTube +1 · Estricto»,
  * «Bloqueo: Redes +2 · Estricto», «Bloqueo: 3 · Estricto» (or «Bloqueo: Estricto»).
  */
-export function blockTitles(block: Block, punishment: Punishment | null): string[] {
+export function blockTitles(
+  block: Block,
+  punishment: Punishment | null,
+  limitName: string | null = null,
+): string[] {
+  if (limitName !== null) {
+    // «Límite diario de YouTube: bloqueado hasta las 00:00» (the time is in the title).
+    const clock = formatClock(Date.parse(block.endsAt));
+    return [
+      LIMIT_TEXT.blockCard(limitName, clock),
+      BLOQUEO.header.limitNamed(limitName, clock),
+      BLOQUEO.header.limitUntil(clock),
+    ];
+  }
   if (punishment) {
     const level = BLOQUEO.punishment.level[punishment.level];
     return [
@@ -424,8 +475,12 @@ function deriveHeader(
       // «Nuevo» goes back to the field; a punishment's title needs the whole line.
       const pill =
         (variant === 'active' || variant === 'boot-hold') && !main.composer.openWhileActive;
-      const datum = variant === 'boot-hold' ? null : untilShort(Date.parse(block.endsAt), nowMs);
-      const titles = blockTitles(block, punishment);
+      const limitName = !punishment && isLimitBlock(block) ? limitBlockName(state, block) : null;
+      const datum =
+        variant === 'boot-hold' || limitName !== null
+          ? null
+          : untilShort(Date.parse(block.endsAt), nowMs);
+      const titles = blockTitles(block, punishment, limitName);
       return {
         title: titles[0] ?? '',
         titles,
@@ -486,6 +541,13 @@ function fieldLine(text: string, nowMs: number, enter: FieldEnter['kind']): Fiel
     };
   } else if (chips.length === 0) {
     note = { tone: 'muted', text: BLOQUEO.field.notUnderstoodAll(truncate(text.trim(), 40)) };
+  } else if (enter === 'bloqueos' && parse.kind === 'limit') {
+    const hasTargets = chips.some((c) => c.kind !== 'daily' && c.kind !== 'days');
+    note = !hasTargets
+      ? { tone: 'muted', text: BLOQUEO.field.missingLimitTargets }
+      : parse.dailyMinutes === undefined
+        ? { tone: 'muted', text: BLOQUEO.field.missingDaily }
+        : null;
   } else if (enter === 'bloqueos') {
     const hasTargets = chips.some(
       (c) => c.kind !== 'duration' && c.kind !== 'until' && c.kind !== 'task',
@@ -764,6 +826,128 @@ function cardView(
 }
 
 // ---------------------------------------------------------------------------------------
+// The «Límite diario» card
+// ---------------------------------------------------------------------------------------
+
+const LIMIT_MODE_ORDER: readonly LimitMode[] = LIMIT_MODES;
+
+function limitCardView(main: MainLocalState, nowMs: number): LimitCardView {
+  const card = main.limitCard;
+  if (!card) throw new Error('limitCardView without a limit card');
+  const draft = card.draft;
+  const L = BLOQUEO.limit;
+  const status: LimitCardView['status'] = card.sending
+    ? 'sending'
+    : card.step === 'consequence'
+      ? 'consequence'
+      : 'edit';
+  const editable = !card.sending;
+  const problem = limitProblem(draft);
+  const perDay = LIMIT_TEXT.perDay(draft.dailyMinutes);
+
+  const modes = LIMIT_MODE_ORDER.map((mode) =>
+    tile({
+      id: mode,
+      label: modeLabel(mode),
+      help: L.modeHelp[mode],
+      selected: draft.mode === mode,
+      accent: modeAccent(mode),
+      disabled: !editable,
+      disabledReason: !editable ? L.sendingHelp : null,
+    }),
+  );
+  const modeHelp = rowHelp(main.help, BLOQUEO_ROWS.modes, modes, L.modeHelp[draft.mode]);
+
+  const unlockAt = limitUnlockAt(card);
+  const locked = status === 'consequence' && unlockAt !== null && nowMs < unlockAt;
+  let actions: CardActionView[] = [
+    {
+      id: 'edit',
+      label: L.edit,
+      help: L.editHelp,
+      primary: false,
+      disabled: !editable,
+      locked: false,
+      busy: false,
+      span: 1,
+    },
+    {
+      id: 'confirm',
+      label:
+        status === 'sending'
+          ? L.sending
+          : status === 'consequence'
+            ? L.confirmAgain
+            : L.confirm(perDay),
+      help:
+        status === 'sending'
+          ? L.sendingHelp
+          : status === 'consequence'
+            ? L.confirmAgainHelp
+            : L.confirmHelp,
+      primary: true,
+      disabled: problem !== null,
+      locked,
+      busy: status === 'sending',
+      span: 3,
+    },
+  ];
+  const letters = assignMnemonics(
+    [...modes.map((m) => m.label), ...actions.map((a) => a.label)],
+    // The Progreso doors keep their letters too (the card sits above them).
+    [...reservedMnemonics(), ...progresoMnemonics()],
+  );
+  modes.forEach((m, i) => {
+    m.mnemonic = letters[i] ?? null;
+  });
+  actions = actions.map((a, i) => ({ ...a, mnemonic: letters[modes.length + i] ?? null }));
+
+  let actionsHelp: CardLine;
+  if (card.error) {
+    actionsHelp = { kind: 'error', error: card.error };
+  } else if (problem) {
+    actionsHelp = { kind: 'text', tone: 'orange', text: L.problem[problem] };
+  } else if (status === 'consequence') {
+    actionsHelp = { kind: 'text', tone: 'red', text: L.consequence };
+  } else if (status === 'sending') {
+    actionsHelp = { kind: 'text', tone: 'muted', text: L.sendingHelp };
+  } else {
+    const hovered =
+      main.help?.row === BLOQUEO_ROWS.actions
+        ? actions.find((a) => a.id === main.help?.item)
+        : undefined;
+    actionsHelp = {
+      kind: 'text',
+      tone: 'muted',
+      text: hovered ? hovered.help : L.reminder(durationLabel(draft.dailyMinutes)),
+    };
+  }
+
+  const names = targetNames(draft.targets, false);
+  return {
+    kind: 'limit-card',
+    status,
+    editable,
+    composer:
+      card.phrase !== null && main.composer.text !== '' ? { value: main.composer.text } : null,
+    chips: limitChips(draft),
+    modes,
+    modeHelp,
+    reason: draft.reason,
+    actions,
+    actionsHelp,
+    unlockAt,
+    problem,
+    summary: L.summary(
+      formatList(names),
+      BLOQUEO.card.durationWords(Math.floor(draft.dailyMinutes / 60), draft.dailyMinutes % 60),
+      LIMIT_TEXT.days(draft.days),
+      modeLabel(draft.mode),
+    ),
+  };
+}
+
+// ---------------------------------------------------------------------------------------
 // Active, punishment and boot hold
 // ---------------------------------------------------------------------------------------
 
@@ -907,7 +1091,12 @@ function rowView(state: GuardianStateResponse, block: Block): RowView {
     ? BLOQUEO.header.punishment(BLOQUEO.punishment.level[punishment.level], punishment.minutes)
     : null;
   let label = mode ?? '';
-  if (!mode) {
+  if (!mode && isLimitBlock(block)) {
+    label = BLOQUEO.active.row(
+      BLOQUEO.header.limitShort(limitBlockName(state, block)),
+      modeLabel(block.mode),
+    );
+  } else if (!mode) {
     const budget = CONTENT_WIDTH - ROW_COUNTDOWN_WIDTH - 12;
     for (const names of [2, 1]) {
       label = BLOQUEO.active.row(
@@ -1045,7 +1234,7 @@ function viewWakeAt(snapshot: UiSnapshot, body: BloqueoBody, nowMs: number): num
   const add = (ms: number | null): void => {
     if (ms !== null && ms > nowMs) at.push(ms);
   };
-  if (body.kind === 'card') add(body.unlockAt);
+  if (body.kind === 'card' || body.kind === 'limit-card') add(body.unlockAt);
   if (body.kind === 'active') {
     const undo = body.extend?.undo;
     if (undo?.kind === 'waiting') {
@@ -1081,6 +1270,9 @@ export function deriveBloqueoView(
     case 'pending':
     case 'failed':
       body = cardView(variant, snapshot, main, nowMs);
+      break;
+    case 'limit':
+      body = limitCardView(main, nowMs);
       break;
     case 'active':
     case 'punishment':

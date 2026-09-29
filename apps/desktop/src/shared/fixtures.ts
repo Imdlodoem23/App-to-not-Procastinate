@@ -26,10 +26,12 @@ import type {
   BlockMode,
   BrowserFamily,
   ClockTrust,
+  DailyLimit,
   EmergencyUnlock,
   GuardianSettings,
   IsoUtc,
   LocalDay,
+  LimitId,
   PendingSettingChange,
   PointsSummary,
   Punishment,
@@ -52,6 +54,7 @@ import type {
   SettingsResponse,
 } from '@centrate/shared/guardian-api';
 import {
+  ALL_WEEKDAYS,
   DEFAULT_GUARDIAN_SETTINGS,
   GUARDIAN_CAPABILITIES,
   emptyAllow,
@@ -70,6 +73,7 @@ import {
   xpForLevel,
 } from '@centrate/shared/points';
 import { FEATURES, type FeatureFlags } from './features';
+import { limitDraftFromParse } from './limits';
 import type { HarnessLoad } from './ipc';
 import type { AchievementStatus, InstallOutcome, RunningProcess, UpdaterState } from './platform';
 import type { OnboardingStep } from './prefs';
@@ -107,6 +111,7 @@ import {
   type BlockDraft,
   type ConfirmCardState,
   type DetailLocalState,
+  type LimitCardState,
   type DetailName,
   type DetailRequest,
   type ExtendEntry,
@@ -249,6 +254,8 @@ export interface BlockSpec {
   emergencyEligible?: boolean;
   punishmentN?: number;
   scheduleN?: number;
+  /** A `limit` block of daily limit `lim_fixture…N`. */
+  limitN?: number;
 }
 
 export function makeBlock(spec: BlockSpec, now: number): Block {
@@ -279,6 +286,7 @@ export function makeBlock(spec: BlockSpec, now: number): Block {
     extendedMinutes: extended,
     scheduleId: spec.scheduleN === undefined ? null : fixtureId('sch', spec.scheduleN),
     punishmentId: spec.punishmentN === undefined ? null : fixtureId('pun', spec.punishmentN),
+    ...(spec.limitN === undefined ? {} : { limitId: fixtureId('lim', spec.limitN) as LimitId }),
     attemptsCounted: spec.attempts ?? 0,
     emergencyEligible: spec.emergencyEligible ?? (spec.mode === 'normal' || spec.mode === 'strict'),
     pointsDelta: null,
@@ -429,6 +437,8 @@ export interface StateParts {
   rewardsLock?: RewardsLockReason | null;
   problems?: string[];
   nuclearActive?: boolean;
+  /** Daily limits (exact usage: the state floors it to whole minutes). */
+  limits?: DailyLimit[];
 }
 
 /** A `/v1/state` body; blocks and punishments are sorted `endsAt` descending like the guardian's. */
@@ -475,7 +485,111 @@ export function makeGuardianState(now: number, parts: StateParts = {}): Guardian
     points: parts.points ?? makePoints(),
     pendingSettings: [],
     recent: { endedBlocks: parts.endedBlocks ?? [], endedStudy: null },
+    limits: (parts.limits ?? []).map(stateLimit),
   };
+}
+
+/** A limit as `/v1/state` shows it: today's usage floored to whole minutes. */
+export function stateLimit(limit: DailyLimit): DailyLimit {
+  const used = Math.floor(limit.usedTodaySeconds / 60) * 60;
+  return {
+    ...limit,
+    usedTodaySeconds: used,
+    remainingTodaySeconds: Math.max(0, limit.dailyMinutes * 60 - used),
+  };
+}
+
+/** Until the next local midnight of `HARNESS_NOW` (17:00 in Madrid → 00:00): 7 h. */
+const TO_MIDNIGHT_MS = 7 * 60 * MIN;
+
+/** The limit block of «Redes sociales» (used up at 16:35, blocked until 00:00). */
+export function limitBlock(now: number): Block {
+  return makeBlock(
+    {
+      n: 31,
+      categories: ['social'],
+      mode: 'strict',
+      kind: 'limit',
+      leftMs: TO_MIDNIGHT_MS,
+      elapsedMs: 25 * MIN,
+      limitN: 2,
+    },
+    now,
+  );
+}
+
+/**
+ * Daily limits with exact usage (`GET /v1/limits`): «YouTube» 12 min 20 s of 30 min every day;
+ * «Redes sociales» 1 h on weekdays, used up at 16:35 (its block runs until 00:00); «TikTok»
+ * 5 of 45 min with a raise to 1 h waiting until tomorrow.
+ */
+export function makeLimits(now: number): DailyLimit[] {
+  const day = harnessDay(now);
+  const created = iso(now - 6 * 24 * 60 * MIN);
+  const base = {
+    enabled: true,
+    reason: '',
+    createdAt: created,
+    updatedAt: created,
+    day,
+    appliesToday: true,
+    pendingChange: null,
+  };
+  return [
+    {
+      ...base,
+      id: fixtureId('lim', 1) as LimitId,
+      name: 'YouTube',
+      targets: { ...emptyTargets(), serviceIds: ['youtube'] },
+      dailyMinutes: 30,
+      days: [...ALL_WEEKDAYS],
+      mode: 'strict',
+      usedTodaySeconds: 12 * 60 + 20,
+      remainingTodaySeconds: 17 * 60 + 40,
+      reachedAt: null,
+      activeBlockId: null,
+    },
+    {
+      ...base,
+      id: fixtureId('lim', 2) as LimitId,
+      name: 'Redes sociales',
+      targets: { ...emptyTargets(), categoryIds: ['social'] },
+      dailyMinutes: 60,
+      days: [1, 2, 3, 4, 5],
+      mode: 'strict',
+      reason: REASON,
+      usedTodaySeconds: 60 * 60,
+      remainingTodaySeconds: 0,
+      reachedAt: iso(now - 25 * MIN),
+      activeBlockId: limitBlock(now).id,
+    },
+    {
+      ...base,
+      id: fixtureId('lim', 3) as LimitId,
+      name: 'TikTok',
+      targets: { ...emptyTargets(), serviceIds: ['tiktok'] },
+      dailyMinutes: 45,
+      days: [...ALL_WEEKDAYS],
+      mode: 'normal',
+      usedTodaySeconds: 5 * 60 + 8,
+      remainingTodaySeconds: 39 * 60 + 52,
+      reachedAt: null,
+      activeBlockId: null,
+      updatedAt: iso(now - 60 * MIN),
+      pendingChange: {
+        definition: {
+          name: 'TikTok',
+          enabled: true,
+          targets: { ...emptyTargets(), serviceIds: ['tiktok'] },
+          dailyMinutes: 60,
+          days: [...ALL_WEEKDAYS],
+          mode: 'normal',
+          reason: '',
+        },
+        effectiveAt: iso(now + 23 * 60 * MIN),
+      },
+    },
+  ];
 }
 
 /**
@@ -860,6 +974,8 @@ export interface FakeGuardianData {
   health: HealthResponse;
   settings: SettingsResponse;
   schedules: Schedule[];
+  /** `GET /v1/limits` (exact usage); `state.limits` is the same list floored to minutes. */
+  limits: DailyLimit[];
   emergencyPreview: EmergencyPreviewResponse;
   pairingCode: PairingCodeResponse;
   extensions: PairedExtension[];
@@ -989,10 +1105,14 @@ export const PHASE5_STATES = [
   'update-available',
 ] as const;
 
+/** Daily limits («YouTube máximo 30 minutos al día»; ARCHITECTURE §5.10). */
+export const LIMIT_STATES = ['limits', 'limit-editor', 'limit-confirm', 'limit-block'] as const;
+
 export const HARNESS_STATE_IDS = [
   ...PHASE1_REQUIRED_STATES,
   ...EXTRA_STATES,
   ...PHASE5_STATES,
+  ...LIMIT_STATES,
 ] as const;
 export type HarnessStateId = (typeof HARNESS_STATE_IDS)[number];
 
@@ -1115,6 +1235,23 @@ function card(
   };
 }
 
+/** The «Límite diario» card of a phrase the parser reads as a daily limit. */
+function limitCard(text: string, now: number): LimitCardState {
+  const draft = limitDraftFromParse(parse(text, now));
+  if (!draft) throw new Error(`fixture phrase not read as a limit: ${text}`);
+  return {
+    intentId: INTENT,
+    phrase: text,
+    draft,
+    step: 'edit',
+    consequenceAt: null,
+    sending: false,
+    error: null,
+  };
+}
+
+const PHRASE_LIMIT = 'YouTube máximo 30 minutos al día';
+
 function mainWith(patch: Partial<MainLocalState>): MainLocalState {
   return { ...initialMainLocal(), ...patch };
 }
@@ -1137,6 +1274,7 @@ function fakeData(now: number, state: GuardianStateResponse | null): FakeGuardia
     health: makeHealth(now),
     settings: makeSettings(),
     schedules: makeSchedules(now),
+    limits: [],
     emergencyPreview: {
       eligible: !inProgress && eligible.length > 0,
       reason: inProgress
@@ -1981,6 +2119,63 @@ const BUILDERS: Readonly<Record<HarnessStateId, Builder>> = {
       }),
     }),
 
+  limits: (now) =>
+    build('limits', now, {
+      label: 'Bloqueos: límites diarios',
+      window: 'bloqueos',
+      state: makeGuardianState(now, { blocks: [limitBlock(now)], limits: makeLimits(now) }),
+      detailRequest: { name: 'bloqueos', seed: null, focus: 'limits' },
+      fake: (f) => ({ ...f, limits: makeLimits(now) }),
+    }),
+
+  'limit-editor': (now) =>
+    build('limit-editor', now, {
+      label: 'Bloqueos: nuevo límite diario',
+      window: 'bloqueos',
+      state: makeGuardianState(now, { blocks: [limitBlock(now)], limits: makeLimits(now) }),
+      detailRequest: { name: 'bloqueos', seed: null, focus: 'limits' },
+      fake: (f) => ({ ...f, limits: makeLimits(now) }),
+      detail: detailWith((d) => ({
+        ...d,
+        bloqueos: {
+          ...d.bloqueos,
+          limit: {
+            id: null,
+            input: {
+              name: '',
+              enabled: true,
+              targets: { ...emptyTargets(), serviceIds: ['instagram'] },
+              dailyMinutes: 45,
+              days: [1, 2, 3, 4, 5],
+              mode: 'strict',
+              reason: '',
+              acknowledgeNoEmergency: false,
+            },
+            minutesText: '45 min',
+            error: null,
+          },
+        },
+      })),
+    }),
+
+  'limit-confirm': (now) =>
+    build('limit-confirm', now, {
+      label: 'Confirmación de límite diario',
+      state: makeGuardianState(now, { limits: makeLimits(now).slice(1) }),
+      main: mainWith({
+        composer: { text: PHRASE_LIMIT, openWhileActive: false },
+        limitCard: limitCard(PHRASE_LIMIT, now),
+      }),
+      fake: (f) => ({ ...f, limits: makeLimits(now).slice(1) }),
+    }),
+
+  'limit-block': (now) =>
+    build('limit-block', now, {
+      label: 'Bloqueo por límite diario',
+      state: makeGuardianState(now, { blocks: [limitBlock(now)], limits: makeLimits(now) }),
+      fake: (f) => ({ ...f, limits: makeLimits(now) }),
+    }),
+
   'update-available': (now) =>
     build('update-available', now, {
       label: 'Actualización lista',
@@ -2094,6 +2289,8 @@ const SAMPLE_TEXT_EN: Readonly<Record<string, string>> = {
   'Sábados sin juegos': 'Game-free Saturdays',
   [EMERGENCY_TYPED_ES]: 'I accept breaking my commitment',
   'Tardes sin redes': 'Social-free afternoons',
+  'Redes sociales': 'Social media',
+  [PHRASE_LIMIT]: 'limit YouTube to 30 min a day',
   [OSD_EXTEND_ES]: '+15 min · until 5:57 PM',
   [ONBOARDING_PHRASE]: ONBOARDING_PHRASE_EN,
 };

@@ -374,6 +374,7 @@ export const PAGES_EN: PagesMessages = {
         'It looks at the address of every page you open to compare it with your blocks. That check happens inside the browser.',
         'It never sends your browsing history.',
         'Only when you try to open something blocked, it sends the domain (for example, youtube.com, never the full address) to the Céntrate guardian, which runs on your own computer, to take off the points for the attempt.',
+        'If you have daily limits, it counts the time you spend on those sites (only the tab you are looking at) and sends the guardian the domain and the seconds, for example www.youtube.com, 30 s. Time on other sites is neither counted nor sent.',
         'Every 30 seconds it tells the guardian it is still active: the browser and extension versions and whether it has its permissions. Nothing about your websites.',
         'It keeps the pairing and the latest list of blocks in the browser, to keep blocking even if the guardian does not respond. The address of a blocked page only stays in the session memory and is erased when the browser closes.',
         'There are no analytics and no Céntrate servers: nothing leaves your computer.',

@@ -7,10 +7,13 @@
  * - five minutes left: a main timer at `endsAt − 5 min` for blocks lasting ≥ 10 min, once
  *   per `(blockId, endsAt)`;
  * - block finished: `block_completed` of a `manual` or `schedule` block («Hecho. +80 puntos»);
- * - attempt: `attempt` whose envelope `points < 0` («Intento bloqueado: −10 puntos»).
+ * - attempt: `attempt` whose envelope `points < 0` («Intento bloqueado: −10 puntos»);
+ * - daily limits: `limit_warning` («Te quedan 5 min de YouTube hoy») and `limit_reached`
+ *   («Has gastado tus 30 min de YouTube de hoy»). Limit blocks never say «Bloqueo iniciado»
+ *   (their `block_created` has source `limit`) nor «Quedan 5 min» (they end at midnight).
  *
  * Grouping: one notification carries everything queued, titled by the highest priority kind
- * (finished > started > five minutes > attempts) with the rest in one «También: …» line.
+ * (finished > limit reached > started > limit warning > five minutes > attempts) with the rest in one «También: …» line.
  * Events older than 2 minutes never notify (no storm after sleep or a restart).
  */
 import { getService } from '@centrate/shared/catalog';
@@ -18,18 +21,28 @@ import type { BlockId, WireEvent } from '@centrate/shared/domain';
 import { isKnownEvent } from '@centrate/shared/domain';
 import type { GuardianStateResponse } from '@centrate/shared/guardian-api';
 import { formatClock, formatPoints, targetsLabel } from '../../shared/format';
+import { LIMIT_TEXT, isLimitBlock } from '../../shared/limits';
+import type { LimitAlert } from '../contracts';
 import { UI_TIMINGS } from '../../shared/ui-state';
 import { NOTIFY } from './i18n';
 import type { NotificationContent } from './types';
 
-export type NoticeKind = 'block_finished' | 'block_started' | 'five_minutes' | 'attempt';
+export type NoticeKind =
+  | 'block_finished'
+  | 'limit_reached'
+  | 'block_started'
+  | 'limit_warning'
+  | 'five_minutes'
+  | 'attempt';
 
 /** Lower comes first. */
 export const NOTICE_PRIORITY: Readonly<Record<NoticeKind, number>> = Object.freeze({
   block_finished: 0,
-  block_started: 1,
-  five_minutes: 2,
-  attempt: 3,
+  limit_reached: 1,
+  block_started: 2,
+  limit_warning: 3,
+  five_minutes: 4,
+  attempt: 5,
 });
 
 /** Events whose display time is older than this never notify. */
@@ -53,6 +66,11 @@ export interface Notice {
   label: string | null;
   /** Signed points (finished > 0, attempt < 0). */
   points: number;
+  /**
+   * Daily limits: the allowance (`limit_reached`) or the whole minutes left
+   * (`limit_warning`); the limit's name is in `label`.
+   */
+  minutes?: number;
 }
 
 /** Notices from one page of `/v1/events` (already filtered by age). */
@@ -86,6 +104,32 @@ export function noticesFromEvents(events: readonly WireEvent[], nowMs: number): 
           endsAtMs: null,
           label: null,
           points: event.points,
+        });
+        break;
+      }
+      case 'limit_warning': {
+        const d = event.data;
+        out.push({
+          ...base,
+          kind: 'limit_warning',
+          blockId: null,
+          endsAtMs: null,
+          label: d.name,
+          points: 0,
+          minutes: Math.max(1, Math.ceil(d.remainingSeconds / 60)),
+        });
+        break;
+      }
+      case 'limit_reached': {
+        const d = event.data;
+        out.push({
+          ...base,
+          kind: 'limit_reached',
+          blockId: d.blockId,
+          endsAtMs: null,
+          label: d.name,
+          points: 0,
+          minutes: d.dailyMinutes,
         });
         break;
       }
@@ -131,6 +175,8 @@ export function nextFiveMinuteDue(
   if (!state) return null;
   let best: FiveMinuteDue | null = null;
   for (const block of state.blocks) {
+    // A limit block ends at midnight: «Quedan 5 min» would only announce the new day.
+    if (isLimitBlock(block)) continue;
     const endsAtMs = Date.parse(block.endsAt);
     const startsAtMs = Date.parse(block.startsAt);
     if (!Number.isFinite(endsAtMs) || endsAtMs - startsAtMs < FIVE_MINUTES_MIN_BLOCK_MS) continue;
@@ -167,7 +213,14 @@ export function isStale(
   state: GuardianStateResponse | null,
   nowMs: number,
 ): boolean {
-  if (notice.kind === 'block_finished' || notice.kind === 'attempt') return false;
+  if (
+    notice.kind === 'block_finished' ||
+    notice.kind === 'attempt' ||
+    notice.kind === 'limit_warning' ||
+    notice.kind === 'limit_reached'
+  ) {
+    return false;
+  }
   if (notice.endsAtMs !== null && notice.endsAtMs <= nowMs) return true;
   if (!state || notice.blockId === null) return false;
   const block = state.blocks.find((b) => b.id === notice.blockId) ?? null;
@@ -214,6 +267,23 @@ export function composeNotification(notices: readonly Notice[]): NotificationCon
         formatClock(latest.endsAtMs ?? latest.atMs),
       );
       break;
+    case 'limit_reached': {
+      title =
+        group.length === 1
+          ? LIMIT_TEXT.reached(latest.label ?? '', latest.minutes ?? 0)
+          : NOTIFY.limits.reachedTitleMany(group.length);
+      body = NOTIFY.limits.reachedBody(formatClock(nextMidnight(latest.atMs)));
+      break;
+    }
+    case 'limit_warning': {
+      title =
+        group.length === 1
+          ? LIMIT_TEXT.warning(latest.label ?? '', latest.minutes ?? 5)
+          : NOTIFY.limits.warningTitleMany(group.length);
+      const names = [...new Set(group.map((n) => n.label).filter((l): l is string => !!l))];
+      body = group.length === 1 ? LIMIT_TEXT.title : names.slice(0, 2).join(', ');
+      break;
+    }
     case 'attempt': {
       title = NOTIFY.attempt.title(group.length, signedPoints(sum));
       const labels = [...new Set(group.map((n) => n.label).filter((l): l is string => !!l))];
@@ -233,6 +303,10 @@ export function composeNotification(notices: readonly Notice[]): NotificationCon
         return NOTIFY.fiveMinutes.also;
       case 'attempt':
         return NOTIFY.attempt.also(g.length, signedPoints(points));
+      case 'limit_reached':
+        return NOTIFY.limits.reachedAlso(g.length);
+      case 'limit_warning':
+        return NOTIFY.limits.warningAlso(g.length);
     }
   });
   if (also.length > 0) {
@@ -240,4 +314,32 @@ export function composeNotification(notices: readonly Notice[]): NotificationCon
     body = body ? `${body}\n${line}` : line;
   }
   return { title, body, kinds };
+}
+
+/** The first instant of the next local day after `ms` (a limit block's end). */
+function nextMidnight(ms: number): number {
+  const d = new Date(ms);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
+}
+
+/**
+ * The OSD's daily-limit alerts from a page of fresh events (the same age rule as
+ * notifications): «Te quedan 5 min de YouTube hoy», «Has gastado tus 30 min de YouTube de hoy».
+ */
+export function limitAlertsFromEvents(events: readonly WireEvent[], nowMs: number): LimitAlert[] {
+  const out: LimitAlert[] = [];
+  for (const notice of noticesFromEvents(events, nowMs)) {
+    if (notice.kind === 'limit_warning') {
+      out.push({
+        kind: 'warning',
+        text: LIMIT_TEXT.warning(notice.label ?? '', notice.minutes ?? 5),
+      });
+    } else if (notice.kind === 'limit_reached') {
+      out.push({
+        kind: 'reached',
+        text: LIMIT_TEXT.reached(notice.label ?? '', notice.minutes ?? 0),
+      });
+    }
+  }
+  return out;
 }

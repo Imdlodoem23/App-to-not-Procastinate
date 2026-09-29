@@ -152,5 +152,6 @@ describe('Spanish copy', () => {
     expect(note).toMatch(/Nunca envía tu historial/);
     expect(note).toMatch(/solo cuando intentas abrir algo bloqueado, envía el dominio/i);
     expect(note).toMatch(/nunca la dirección completa/);
+    expect(note).toMatch(/límites diarios.*el dominio y los segundos/);
   });
 });

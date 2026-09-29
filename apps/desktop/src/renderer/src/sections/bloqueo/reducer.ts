@@ -8,7 +8,7 @@
  * may have landed: its card is frozen and only «Reintentar» (same request, same key) or Esc
  * (dismiss) get out of it, so a block is never duplicated. Pure module.
  */
-import type { CreateBlockRequest } from '@centrate/shared/guardian-api';
+import type { CreateBlockRequest, DailyLimitInput } from '@centrate/shared/guardian-api';
 import {
   bloqueoVariant,
   isGuardianUnresponsive,
@@ -19,7 +19,16 @@ import {
   type UiPrefs,
   type UiSnapshot,
 } from '../../../../shared/ui-state';
-import { cardAdvance, cardBack, cardForTemplate, fieldEnter, newCard, parsePhrase } from './draft';
+import {
+  cardAdvance,
+  cardBack,
+  cardForTemplate,
+  fieldEnter,
+  limitCardAdvance,
+  newCard,
+  newLimitCard,
+  parsePhrase,
+} from './draft';
 
 export type NewIntentId = () => IntentId;
 
@@ -88,7 +97,11 @@ export function typeInField(snapshot: UiSnapshot, main: MainLocalState, text: st
   const create = cardCreateState(snapshot, main.card);
   if (create === 'sending' || create === 'unanswered') return same(main);
   if (text === main.composer.text) return same(main);
+  if (main.limitCard?.sending) return same(main);
   const composer = { ...main.composer, text };
+  if (main.limitCard) {
+    return { main: { ...main, composer, limitCard: null }, dismissIntentId: null, focus: null };
+  }
   if (!main.card) return { main: { ...main, composer }, dismissIntentId: null, focus: null };
   return {
     main: { ...main, composer, card: null },
@@ -116,8 +129,9 @@ export function openTemplate(
     origin,
   );
   if (!card) return same(main);
+  if (main.limitCard?.sending) return same(main);
   return {
-    main: { ...main, card, extendOther: { open: false, text: '' }, help: null },
+    main: { ...main, card, limitCard: null, extendOther: { open: false, text: '' }, help: null },
     dismissIntentId: create === 'rejected' && main.card ? main.card.intentId : null,
     focus: 'confirm',
   };
@@ -133,10 +147,12 @@ export function openDraft(
   const create = cardCreateState(snapshot, main.card);
   if (create === 'sending' || create === 'unanswered') return same(main);
   if (snapshot.ops.create?.status === 'sending') return same(main);
+  if (main.limitCard?.sending) return same(main);
   return {
     main: {
       ...main,
       card: newCard(draft, newIntentId(), 'form'),
+      limitCard: null,
       extendOther: { open: false, text: '' },
       help: null,
     },
@@ -163,6 +179,8 @@ export type EnterOutcome =
   /** Card opened or moved to its consequence step (local only). */
   | ({ kind: 'update' } & Transition)
   | ({ kind: 'submit'; intentId: IntentId; request: CreateBlockRequest } & Transition)
+  /** The «Límite diario» card: `limits:create` with this key. */
+  | ({ kind: 'limit-submit'; intentId: IntentId; input: DailyLimitInput } & Transition)
   /** «Reintentar»: same request, same key. */
   | ({ kind: 'retry'; intentId: IntentId } & Transition)
   /** A phrase that was not (fully) understood: Bloqueos with what was. */
@@ -187,6 +205,30 @@ export function enterBloqueo(
     const state = cardCreateState(snapshot, main.card ?? null);
     if (state === 'unanswered' || !main.card) {
       return { kind: 'retry', intentId: create.intentId, ...same(main) };
+    }
+  }
+  const limitCard = main.limitCard;
+  if (limitCard && !main.card) {
+    const step = limitCardAdvance(limitCard, nowMs);
+    switch (step.kind) {
+      case 'none':
+        return { kind: 'none', ...same(main) };
+      case 'consequence':
+        return {
+          kind: 'update',
+          main: { ...main, limitCard: step.card },
+          dismissIntentId: null,
+          focus: 'confirm',
+        };
+      case 'submit':
+        return {
+          kind: 'limit-submit',
+          intentId: step.card.intentId,
+          input: step.input,
+          main: { ...main, limitCard: step.card },
+          dismissIntentId: null,
+          focus: 'confirm',
+        };
     }
   }
   const card = main.card;
@@ -233,10 +275,22 @@ export function enterBloqueo(
         dismissIntentId: null,
         focus: 'confirm',
       };
+    case 'limit':
+      return {
+        kind: 'update',
+        main: {
+          ...main,
+          limitCard: newLimitCard(decision.draft, newIntentId(), text),
+          extendOther: { open: false, text: '' },
+          help: null,
+        },
+        dismissIntentId: null,
+        focus: 'confirm',
+      };
     case 'bloqueos':
       return {
         kind: 'open-detail',
-        request: { name: 'bloqueos', seed: decision.seed, focus: 'form' },
+        request: { name: 'bloqueos', seed: decision.seed, focus: decision.focus ?? 'form' },
         ...same(main),
       };
   }
@@ -277,6 +331,16 @@ export function escapeStage(
           }
         : null;
     case 'consequence': {
+      const limit = main.limitCard;
+      if (limit && !main.card) {
+        return limit.step === 'consequence' && !limit.sending
+          ? {
+              main: { ...main, limitCard: { ...limit, step: 'edit', consequenceAt: null } },
+              dismissIntentId: null,
+              focus: 'confirm',
+            }
+          : null;
+      }
       const card = main.card;
       if (!card) return null;
       const variant = bloqueoVariant(snapshot, main, nowMs);
@@ -296,6 +360,12 @@ export function escapeStage(
     }
     case 'card': {
       const variant = bloqueoVariant(snapshot, main, nowMs);
+      if (variant === 'limit') {
+        // A create in flight cannot be taken back: Esc falls through (the window hides).
+        return main.limitCard && !main.limitCard.sending
+          ? { main: { ...main, limitCard: null }, dismissIntentId: null, focus: 'field' }
+          : null;
+      }
       if (variant === 'pending') return null;
       const card = main.card;
       if (card) {

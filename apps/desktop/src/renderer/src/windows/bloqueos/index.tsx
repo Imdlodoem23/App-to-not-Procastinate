@@ -20,6 +20,7 @@ import { useLayoutEffect, useRef } from 'react';
 import { useAppStore } from '../../store/context';
 import { DurationSection, FormActions, ModeSection, ReasonSection } from './FormSections';
 import { ActiveSection, ExamSection, SchedulesSection, TemplatesSection } from './ListSections';
+import { LimitsSection } from './LimitsSection';
 import { TargetsSection } from './TargetsSection';
 import { Announcer } from './announcer';
 import { scrollToSection, useBloqueosWindow } from './useBloqueosWindow';
@@ -31,6 +32,7 @@ const FOCUS_SECTIONS = {
   active: BLOQUEOS_IDS.active,
   templates: BLOQUEOS_IDS.templates,
   schedules: BLOQUEOS_IDS.schedules,
+  limits: BLOQUEOS_IDS.limits,
   exam: BLOQUEOS_IDS.exam,
 } as const;
 
@@ -44,7 +46,10 @@ function presetTabStop(): HTMLElement | null {
 
 export default function BloqueosWindow(): React.JSX.Element {
   const { view, local, notices, announcement, actions } = useBloqueosWindow();
-  const loading = view.schedules.status === 'loading' || view.exam.whitelist.status === 'loading';
+  const loading =
+    view.schedules.status === 'loading' ||
+    view.limits.status === 'loading' ||
+    view.exam.whitelist.status === 'loading';
   const request = useAppStore((s) => (s.env.detail?.name === 'bloqueos' ? s.env.detail : null));
 
   // Read by the door effect below, which must run once per door (not when the user picks).
@@ -56,7 +61,10 @@ export default function BloqueosWindow(): React.JSX.Element {
   useLayoutEffect(() => {
     if (!request) return;
     if (request.focus) scrollToSection(FOCUS_SECTIONS[request.focus]);
-    if (request.seed && missing.current === 'duration') {
+    if (request.focus === 'limits' && request.seed) {
+      // From the main window's «Límite diario»: the new limit's editor, seeded.
+      document.getElementById(BLOQUEOS_IDS.limitName)?.focus({ preventScroll: true });
+    } else if (request.seed && missing.current === 'duration') {
       presetTabStop()?.focus({ preventScroll: true });
     } else if (request.seed || !request.focus || request.focus === 'form') {
       // A plain door (footer, tray) also lands on the search, never on <body>.
@@ -102,6 +110,7 @@ export default function BloqueosWindow(): React.JSX.Element {
       <ActiveSection view={view.active} actions={actions} />
       <TemplatesSection view={view.templates} notice={notices.templates} actions={actions} />
       <SchedulesSection view={view.schedules} notice={notices.lists} actions={actions} />
+      <LimitsSection view={view.limits} notice={notices.limits} actions={actions} />
       <ExamSection
         view={view.exam}
         domainInput={local.exam.domainInput}

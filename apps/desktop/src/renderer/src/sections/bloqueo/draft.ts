@@ -8,8 +8,8 @@
  * Nothing here invents data: a phrase that is not fully understood goes to Bloqueos with
  * what was understood. Pure: no DOM, Node or Electron imports.
  */
-import type { TargetSpec } from '@centrate/shared/domain';
-import type { CreateBlockRequest } from '@centrate/shared/guardian-api';
+import type { LimitMode, TargetSpec } from '@centrate/shared/domain';
+import type { CreateBlockRequest, DailyLimitInput } from '@centrate/shared/guardian-api';
 import { GUARDIAN_LIMITS, emptyTargets } from '@centrate/shared/guardian-api';
 import { parseIntent, type ParseResult } from '@centrate/shared/parser';
 import {
@@ -31,8 +31,16 @@ import {
   type DraftEnd,
   type DraftSeed,
   type IntentId,
+  type LimitCardState,
+  type LimitDraft,
   type UiPrefs,
 } from '../../../../shared/ui-state';
+import {
+  limitDraftFromParse,
+  limitDraftToInput,
+  limitNeedsConsequence,
+  limitProblem,
+} from '../../../../shared/limits';
 import type { BlockMode } from '@centrate/shared/domain';
 import { durationLabel } from '@centrate/shared/parser';
 import { formatClock, intlLocale, targetNames } from '../../../../shared/format';
@@ -56,8 +64,13 @@ export type FieldEnter =
   | { kind: 'none' }
   /** Fully understood: the confirmation card opens with this draft. */
   | { kind: 'card'; draft: BlockDraft }
-  /** Not (fully) understood: Bloqueos opens with what was understood. */
-  | { kind: 'bloqueos'; seed: DraftSeed };
+  /** A daily limit fully understood: the «Límite diario» card opens with this draft. */
+  | { kind: 'limit'; draft: LimitDraft }
+  /**
+   * Not (fully) understood: Bloqueos opens with what was understood (`limits`: a daily limit
+   * phrase, so the new limit's editor opens there instead of the block form).
+   */
+  | { kind: 'bloqueos'; seed: DraftSeed; focus?: 'limits' };
 
 function parseTargets(parse: ParseResult): TargetSpec {
   return {
@@ -114,6 +127,17 @@ export function studyReason(text: string, parse: ParseResult): string {
  */
 export function fieldEnter(text: string, parse: ParseResult, prefs: UiPrefs): FieldEnter {
   if (text.trim() === '') return { kind: 'none' };
+  if (parse.kind === 'limit') {
+    const draft = limitDraftFromParse(parse);
+    if (draft) return { kind: 'limit', draft };
+    const seed = draftSeedFromParse(text, parse);
+    // The allowance travels as the seed's duration (the Bloqueos limit editor reads it).
+    const end =
+      parse.dailyMinutes !== undefined
+        ? { kind: 'duration' as const, minutes: parse.dailyMinutes }
+        : null;
+    return { kind: 'bloqueos', seed: { ...seed, end }, focus: 'limits' };
+  }
   if (parse.kind === 'study') {
     const reason = studyReason(text, parse) || null;
     const targets = parseTargets(parse);
@@ -441,4 +465,74 @@ export function parseExtendMinutes(text: string, nowMs: number): number | null {
 /** «hasta 18:12» once `addMinutes` more is added to a block ending at `endsAtMs`. */
 export function projectedEnd(endsAtMs: number, addMinutes: number): number {
   return endsAtMs + addMinutes * MIN;
+}
+
+// ---------------------------------------------------------------------------------------
+// The «Límite diario» card (ARCHITECTURE §5.10)
+// ---------------------------------------------------------------------------------------
+
+export function newLimitCard(
+  draft: LimitDraft,
+  intentId: IntentId,
+  phrase: string | null,
+): LimitCardState {
+  return {
+    intentId,
+    phrase,
+    draft,
+    step: 'edit',
+    consequenceAt: null,
+    sending: false,
+    error: null,
+  };
+}
+
+/** A changed draft: back to the edit step, with a new key (a new intention). */
+export function limitCardWithMode(
+  card: LimitCardState,
+  mode: LimitMode,
+  intentId: IntentId,
+): LimitCardState {
+  if (card.draft.mode === mode || card.sending) return card;
+  return {
+    ...card,
+    intentId,
+    draft: { ...card.draft, mode },
+    step: 'edit',
+    consequenceAt: null,
+    error: null,
+  };
+}
+
+export function limitCardWithReason(card: LimitCardState, reason: string): LimitCardState {
+  const clean = reason.replace(/[\r\n]+/g, ' ').slice(0, GUARDIAN_LIMITS.reasonMaxLength);
+  if (clean === card.draft.reason || card.sending) return card;
+  return { ...card, draft: { ...card.draft, reason: clean } };
+}
+
+/** When «Sí, crear el límite» unlocks, or `null` outside the consequence step. */
+export function limitUnlockAt(card: LimitCardState): number | null {
+  if (card.step !== 'consequence' || card.consequenceAt === null) return null;
+  return card.consequenceAt + UI_TIMINGS.consequenceLockMs;
+}
+
+export type LimitCardAdvance =
+  | { kind: 'none'; card: LimitCardState }
+  /** Hardcore: the red line and the 2 s lock. */
+  | { kind: 'consequence'; card: LimitCardState }
+  | { kind: 'submit'; card: LimitCardState; input: DailyLimitInput };
+
+/** Enter on the limit card: edit → (consequence →) create. */
+export function limitCardAdvance(card: LimitCardState, nowMs: number): LimitCardAdvance {
+  if (card.sending || limitProblem(card.draft) !== null) return { kind: 'none', card };
+  if (card.step === 'edit' && limitNeedsConsequence(card.draft.mode)) {
+    return { kind: 'consequence', card: { ...card, step: 'consequence', consequenceAt: nowMs } };
+  }
+  const unlockAt = limitUnlockAt(card);
+  if (unlockAt !== null && nowMs < unlockAt) return { kind: 'none', card };
+  return {
+    kind: 'submit',
+    card: { ...card, sending: true, error: null },
+    input: limitDraftToInput(card.draft, card.step === 'consequence'),
+  };
 }

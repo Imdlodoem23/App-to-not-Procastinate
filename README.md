@@ -8,6 +8,16 @@ Además tiene un **Study Mode**: la cámara y una IA que funciona solo en tu ord
 
 > Estado: en desarrollo (Fase 0). Mira [`ROADMAP.md`](ROADMAP.md).
 
+## Qué puedes hacer
+
+- **Bloquear escribiendo:** _«no veo YouTube en una hora»_, _«bloquea las redes sociales hasta las 20:30»_. Modos Normal, Estricto, Hardcore y Examen; un bloqueo se puede ampliar, nunca acortar.
+- **Límites diarios:** _«YouTube máximo 30 minutos al día»_. Mientras te quede tiempo no se bloquea nada; cuando lo gastas, queda bloqueado hasta las 0:00. Bajar un límite es al momento; subirlo o quitarlo tarda 24 horas.
+- **Horarios:** bloqueos que se repiten solos, como las redes sociales entre semana de 16:00 a 19:00.
+- **Study Mode** con cámara (o sin ella), Pomodoro, sonidos, mini temporizador y recordatorios.
+- **Puntos, racha, recompensas y logros:** cada intento de entrar en algo bloqueado te cuesta puntos.
+- **Extensión del navegador** para Chrome, Edge, Brave y Firefox, con tu motivo en la página de bloqueo.
+- **Estadísticas** por día, semana y mes, con exportación a CSV.
+
 ## Plataformas
 
 - Windows 10 y 11 (prioridad)

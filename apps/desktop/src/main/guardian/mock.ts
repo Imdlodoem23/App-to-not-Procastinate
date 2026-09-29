@@ -15,11 +15,12 @@
  * engine does before each request. There is no operation that ends a block early.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { CATALOG_VERSION, getApp, getService } from '@centrate/shared/catalog';
+import { CATALOG_VERSION, getApp, getService, type CatalogPlatform } from '@centrate/shared/catalog';
 import type {
   Block,
   BlockId,
   BlockMode,
+  DailyLimit,
   EmergencyId,
   EmergencyUnlock,
   EpochId,
@@ -81,6 +82,7 @@ import {
   type HealthResponse,
   type ListBlocksQuery,
   type ListBlocksResponse,
+  type LimitResponse,
   type ListLimitsResponse,
   type ListSchedulesResponse,
   type NuclearHeartbeatRequest,
@@ -116,6 +118,7 @@ import {
 } from '@centrate/shared/points';
 import type { Clock, TimerHandle } from '../contracts';
 import { checkRedeem, rewardsShop } from './mock-rewards';
+import { MockLimits } from './mock-limits';
 import { applyDuePending, applySettingsPut } from './mock-settings';
 import {
   currentOccurrence,
@@ -149,6 +152,8 @@ export interface MockSeed {
   emergencyPreview?: EmergencyPreviewResponse;
   /** Served for `listRewards()` while nothing changed since the seed (Phase 5). */
   rewards?: RewardsResponse;
+  /** Daily limits with exact usage (`GET /v1/limits`); default: `state.limits`. */
+  limits?: DailyLimit[];
 }
 
 export interface MockGuardianOptions {
@@ -271,6 +276,7 @@ export class MockGuardian implements GuardianClient {
   private readonly liveSince: number;
   /** Occurrence keys already turned into blocks (never re-created). */
   private readonly materialized = new Set<string>();
+  private readonly limitBook: MockLimits;
 
   constructor(options: MockGuardianOptions) {
     this.clock = options.clock;
@@ -302,6 +308,49 @@ export class MockGuardian implements GuardianClient {
     this.pendingSettings = clone(seed?.settings?.pending ?? state?.pendingSettings ?? []);
     this.health0 = clone(seed?.health ?? this.defaultHealth(now));
     this.base = clone(state ?? this.emptyState(now));
+    this.limitBook = new MockLimits(
+      {
+        now: () => this.clock.now(),
+        timeZone: () =>
+          this.settings.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+        newId: (prefix) => this.newId(prefix),
+        platform: mockPlatform(),
+        emit: (type, data, opts) => this.emit(type, data, opts),
+        makeLimitBlock: (limit, startsAt, endsAt) => ({
+          id: this.newId('blk') as BlockId,
+          kind: 'limit',
+          mode: limit.mode,
+          status: 'active',
+          targets: clone(limit.targets),
+          whitelistOnly: false,
+          allow: emptyAllow(),
+          reason: limit.reason,
+          createdAt: iso(startsAt),
+          startsAt: iso(startsAt),
+          endsAt: iso(endsAt),
+          originalEndsAt: iso(endsAt),
+          endedAt: null,
+          extendedMinutes: 0,
+          scheduleId: null,
+          punishmentId: null,
+          limitId: limit.id,
+          attemptsCounted: 0,
+          emergencyEligible: isEligibleMode(limit.mode),
+          pointsDelta: null,
+        }),
+        addLimitBlock: (block) => {
+          this.blocks = sortBlocks([...this.blocks, block]);
+          this.rewardsLock = this.currentLock();
+          const revokes =
+            block.mode === 'hardcore' && this.allowances.some((a) => a.status === 'active');
+          this.emit('block_created', { block, source: 'limit' }, { txEnd: !revokes });
+          if (revokes) this.revokeAllowances(block.id);
+        },
+        activeLimitBlock: (limitId) =>
+          sortBlocks(this.blocks.filter((b) => b.limitId === limitId))[0] ?? null,
+      },
+      clone(seed?.limits ?? state?.limits ?? []),
+    );
     if (!state) {
       this.emit('epoch_started', {
         reason: 'install',
@@ -513,6 +562,8 @@ export class MockGuardian implements GuardianClient {
       if (this.materializeSchedules(now)) dirty = true;
     }
     this.refreshSchedules(now);
+    // Daily limits: the local day, pending changes, allowances used up (§10.13).
+    if (this.limitBook.step()) dirty = true;
     // Emergency: counting → ready → expired; moot when its blocks are gone.
     const e = this.emergency;
     if (e) {
@@ -799,6 +850,8 @@ export class MockGuardian implements GuardianClient {
         this.version === this.seedVersion ? this.base.pendingSettings : this.pendingSettings,
       points: this.points,
       recent: { endedBlocks: this.ended, endedStudy: null },
+      // A seeded state keeps the fixture's `limits` (or their absence) until something changes.
+      ...(this.version === this.seedVersion ? {} : { limits: this.limitBook.stateList() }),
     });
   }
 
@@ -1071,29 +1124,44 @@ export class MockGuardian implements GuardianClient {
     this.changed();
   }
 
-  // Daily limits (ARCHITECTURE §5.10): stubs added with the shared contract; the desktop
-  // implementer replaces them with a simulation.
+  // Daily limits (ARCHITECTURE §5.10, §10.13): `mock-limits.ts`.
   async listLimits(): Promise<ListLimitsResponse> {
     this.step();
-    return { limits: [] };
+    return { limits: this.limitBook.list() };
   }
 
-  async createLimit(_body: DailyLimitInput, _options?: WriteOptions): Promise<never> {
-    throw apiError('not_found', 'daily limits are not simulated');
-  }
-
-  async updateLimit(_id: LimitId, _body: DailyLimitInput): Promise<never> {
-    throw apiError('not_found', 'daily limits are not simulated');
-  }
-
-  async deleteLimit(_id: LimitId): Promise<never> {
-    throw apiError('not_found', 'daily limits are not simulated');
-  }
-
-  async reportUsage(_body: UsageReportRequest): Promise<UsageReportResponse> {
+  async createLimit(body: DailyLimitInput, options?: WriteOptions): Promise<LimitResponse> {
     this.step();
-    const now = this.clock.now();
-    return { day: localDay(now, this.settings.timezone), limits: [], serverNow: iso(now) };
+    return this.idem('POST /v1/limits', options?.idempotencyKey, body, () => {
+      this.writable();
+      const limit = this.limitBook.create(body);
+      this.changed();
+      return { limit };
+    });
+  }
+
+  async updateLimit(id: LimitId, body: DailyLimitInput): Promise<LimitResponse> {
+    this.step();
+    this.writable();
+    const r = this.limitBook.update(id, body);
+    if (r.changed) this.changed();
+    return { limit: r.limit };
+  }
+
+  async deleteLimit(id: LimitId): Promise<LimitResponse> {
+    this.step();
+    this.writable();
+    const r = this.limitBook.remove(id);
+    if (r.changed) this.changed();
+    return { limit: r.limit };
+  }
+
+  /** The app's `POST /v1/usage` (accepted in safe mode, like the real guardian). */
+  async reportUsage(body: UsageReportRequest): Promise<UsageReportResponse> {
+    this.step();
+    const r = this.limitBook.report('app', body);
+    if (r.changed) this.changed();
+    return r.response;
   }
 
   async startStudy(): Promise<never> {
@@ -1656,6 +1724,7 @@ export class MockGuardian implements GuardianClient {
             settings: clone(this.settings),
             pendingSettings: [],
             materializedOccurrences: [],
+            limits: this.limitBook.list(),
           },
         },
         { points: carry },
@@ -1667,9 +1736,15 @@ export class MockGuardian implements GuardianClient {
         keptBlockIds: this.blocks.map((b) => b.id),
         keptPunishmentIds: this.punishments.map((p) => p.id),
         keptScheduleIds: keptSchedules.map((s) => s.id),
+        keptLimitIds: this.limitBook.keptIds(),
       };
     });
   }
+}
+
+/** The catalog's platform for the machine the mock runs on (process names per OS). */
+function mockPlatform(): CatalogPlatform {
+  return process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : 'linux';
 }
 
 function isEligibleMode(mode: BlockMode): boolean {

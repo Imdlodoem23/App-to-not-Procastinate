@@ -29,6 +29,9 @@ export const BLOQUEO_EN: BloqueoMessages = {
     finishedNoPoints: 'Done',
     newPill: 'New',
     newPillLabel: 'New block: back to the field',
+    limitShort: (name: string): string => `Daily limit for ${name}`,
+    limitUntil: (time: string): string => `Daily limit: until ${time}`,
+    limitNamed: (name: string, time: string): string => `${name} limit: until ${time}`,
   },
 
   field: {
@@ -50,6 +53,8 @@ export const BLOQUEO_EN: BloqueoMessages = {
     understood: (parts: readonly string[]): string => `Understood: ${parts.join(', ')}`,
     missingDuration: 'add how long',
     missingTargets: 'add what to block',
+    missingDaily: 'add how much a day',
+    missingLimitTargets: 'add what to limit',
     chipHint: 'Fix this part',
     moreChips: (count: number): string => `+${count}`,
     hiddenTargets: (count: number, kind: 'web' | 'category' | 'mixed'): string =>
@@ -176,6 +181,36 @@ export const BLOQUEO_EN: BloqueoMessages = {
       if (cause === 'three_strikes') return task ? `3 strikes on “${task}”` : '3 strikes';
       return task ? `Study Mode abandoned: “${task}”` : 'Study Mode abandoned';
     },
+  },
+
+  limit: {
+    label: 'Confirm the daily limit',
+    targetsLabel: 'What is limited',
+    modeHelp: {
+      normal: 'Normal: once used up, the emergency takes 10 min and costs points',
+      strict: 'Strict: once used up, the emergency takes 30 min and costs points',
+      hardcore: 'Hardcore: once used up, it cannot be unblocked in any way',
+    },
+    edit: 'Edit…',
+    editHelp: 'Opens Blocks with this limit to change more',
+    confirm: (perDay: string): string => `Create limit: ${perDay}`,
+    confirmHelp: "Counts today's use in the browser and in apps",
+    confirmAgain: 'Yes, create the limit',
+    confirmAgainHelp: 'Press again to create it',
+    sending: 'Creating…',
+    sendingHelp: 'Waiting for the guardian',
+    reminder: (dailyMinutes: string): string =>
+      `After ${dailyMinutes} it blocks until midnight. Softening it waits 24 h`,
+    consequence: 'Once used up, you cannot unblock it in any way until midnight',
+    summary: (targets: string, minutes: string, days: string, mode: string): string =>
+      `Limits ${targets} to ${minutes} a day, ${days}, ${mode} mode`,
+    problem: {
+      no_targets: 'Choose what to limit: press Edit…',
+      minutes: 'Between 5 min and 12 h a day',
+      no_days: 'Choose at least one day',
+      name_long: 'The name is too long',
+    },
+    created: (name: string, perDay: string): string => `Limit created: ${name}, ${perDay}`,
   },
 
   study: {

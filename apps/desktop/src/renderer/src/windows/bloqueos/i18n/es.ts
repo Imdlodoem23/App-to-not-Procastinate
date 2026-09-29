@@ -278,6 +278,108 @@ export const BLOQUEOS_ES = {
     },
   },
 
+  /** «Límites diarios» (ARCHITECTURE §5.10): «YouTube máximo 30 minutos al día». */
+  limits: {
+    /** «Límites diarios: 3». */
+    title: (count: number): string =>
+      count === 0 ? 'Límites diarios: ninguno' : `Límites diarios: ${count}`,
+    loading: 'Límites diarios: cargando…',
+    unavailable: 'Límites diarios: sin conexión',
+    /** A guardian without daily limits (an older version). */
+    unsupported: 'Tu guardián aún no tiene límites diarios: actualiza Céntrate',
+    /** «1 agotado hoy». */
+    datum: (reached: number): string => (reached === 0 ? '' : `${reached} agotado hoy`),
+    empty: 'Aún no tienes límites. Prueba a escribir «YouTube máximo 30 minutos al día»',
+    retry: 'Reintentar',
+    listLabel: 'Tus límites diarios',
+    /** «YouTube · 30 min al día». */
+    row: (name: string, perDay: string): string => `${name} · ${perDay}`,
+    /** «30 min al día · entre semana · Estricto» (the row's description when it applies). */
+    desc: (days: string, mode: string): string => `${days} · ${mode}`,
+    /** The progress bar's accessible name: «Uso de hoy de YouTube». */
+    usageLabel: (name: string): string => `Uso de hoy de ${name}`,
+    notToday: 'Hoy no cuenta para bloquear',
+    disabled: 'Desactivado',
+    /** «Cambio pendiente: 1 h al día desde mañana 17:00». */
+    pending: (what: string, when: string): string => `Cambio pendiente: ${what} desde ${when}`,
+    pendingDelete: (when: string): string => `Se borrará ${when}; hasta entonces sigue contando`,
+    /** What a pending change does, shortest first: «1 h al día», «otros días», «menos cosas». */
+    pendingWhat: {
+      minutes: (perDay: string): string => perDay,
+      days: (days: string): string => days,
+      mode: (mode: string): string => `modo ${mode}`,
+      targets: 'menos cosas',
+      disabled: 'desactivado',
+      other: 'cambios',
+    },
+    editing: 'Editando…',
+    saving: 'Guardando…',
+    edit: 'Editar',
+    editHelp: 'Cambia los minutos, los días o lo que limita',
+    cancelChange: 'Cancelar cambio',
+    cancelChangeHelp: 'Deja el límite como está ahora',
+    cancelled: (name: string): string => `Cambio cancelado: ${name}`,
+    newLimit: 'Nuevo límite',
+    newLimitHelp: 'Unos minutos al día y, al gastarlos, bloqueado hasta medianoche',
+
+    editor: {
+      /** «Nuevo límite: Instagram · 45 min al día». */
+      titleNew: (summary: string): string => `Nuevo límite: ${summary}`,
+      titleEdit: (summary: string): string => `Editar: ${summary}`,
+      name: 'Nombre',
+      nameLabel: 'Nombre del límite (opcional)',
+      minutes: 'Minutos al día',
+      minutesLabel: 'Minutos al día',
+      minutesPlaceholder: '30, 45 min, 1 h…',
+      /** The field's help: «45 min al día». */
+      minutesHelp: (perDay: string): string => perDay,
+      minutesInvalid: 'Escribe cuánto: 30, 45 min, 1 h…',
+      minutesRange: 'Entre 5 min y 12 h al día',
+      days: 'Días que bloquea',
+      daysHelp: 'El uso cuenta todos los días; solo bloquea los elegidos',
+      targets: 'Qué limitar',
+      categoriesLabel: 'Categorías que limita',
+      extrasLabel: 'También limita',
+      removeTarget: (what: string): string => `Quitar ${what}`,
+      fromForm: 'Añadir lo del formulario de arriba',
+      mode: 'Al agotarse',
+      reason: 'Tu motivo',
+      reasonLabel: 'Tu motivo (opcional)',
+      reasonPlaceholder: 'Quiero dormir más',
+      rowLabel: 'Guardar el límite',
+      save: 'Guardar',
+      saveHelp: 'Endurecerlo se aplica ya; suavizarlo espera 24 h',
+      saving: 'Guardando…',
+      /** An edit that softens it: said before saving. */
+      weakens: (when: string): string =>
+        `Esto lo suaviza: se aplicará ${when} (lo que lo endurece, ya)`,
+      remove: 'Borrar',
+      removeHelp: 'Se borra dentro de 24 h; hasta entonces sigue contando',
+      removeConsequence: (name: string, when: string): string =>
+        `«${name}» se borrará ${when}; el bloqueo de hoy sigue`,
+      cancel: 'Cancelar',
+      cancelHelp: 'Cierra sin guardar',
+      consequence: 'Cuando se agote, no podrás desbloquearlo de ninguna forma hasta medianoche',
+      problem: {
+        noTargets: 'Elige qué limitar',
+        minutes: 'Entre 5 min y 12 h al día',
+        minutesText: 'Escribe cuánto: 30, 45 min, 1 h…',
+        noDays: 'Elige al menos un día',
+        nameLong: (max: number): string => `El nombre, como mucho ${max} letras`,
+        full: (max: number): string => `Ya tienes ${max} límites: borra alguno antes`,
+      },
+      errors: {
+        tooMany: 'Tus límites ya tienen demasiadas webs propias',
+        notFound: 'Ese límite ya no existe',
+        invalid: 'El guardián no acepta este límite: revisa los minutos y los días',
+      },
+      saved: (summary: string): string => `Guardado: ${summary}`,
+      savedPending: (summary: string, when: string): string =>
+        `Guardado: ${summary}. Lo que lo suaviza se aplicará ${when}`,
+      removed: (name: string, when: string): string => `«${name}» se borrará ${when}`,
+    },
+  },
+
   exam: {
     title: 'Modo examen: lista blanca + Hardcore',
     datum: 'no se puede cancelar',

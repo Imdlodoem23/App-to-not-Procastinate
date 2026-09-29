@@ -34,6 +34,7 @@
     "declarativeNetRequestWithHostAccess",
     "storage",
     "alarms",
+    "idle",
     "webNavigation",
     "webRequest"
   ],

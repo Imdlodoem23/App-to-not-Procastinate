@@ -169,8 +169,9 @@ export function trimPending(
   return out;
 }
 
-export function pendingTotal(pending: PendingUsage): number {
-  return pending.reduce((sum, [, ms]) => sum + ms, 0);
+/** True when some host has a whole second to report (items carry whole seconds). */
+export function hasWholeSecond(pending: PendingUsage): boolean {
+  return pending.some(([, ms]) => ms >= 1_000);
 }
 
 export interface PlannedReport {
@@ -304,7 +305,7 @@ export function nextReportAt(input: {
   lastAttemptAt: number | null;
   fast: boolean;
 }): number | null {
-  if (input.windowStart === null || pendingTotal(input.pending) < 1_000) return null;
+  if (input.windowStart === null || !hasWholeSecond(input.pending)) return null;
   const period = input.fast
     ? GUARDIAN_LIMITS.usageFastReportIntervalMs
     : GUARDIAN_LIMITS.usageReportIntervalMs;
@@ -487,6 +488,8 @@ export function createUsageTracker(deps: UsageTrackerDeps): UsageTracker {
   let queue: Promise<void> = Promise.resolve();
   let inflight: Promise<void> | null = null;
   let timer: unknown = null;
+  /** What this worker last showed on the badge (`tabId|text|title|color`), to skip repeats. */
+  let shownBadge: string | null = null;
 
   const enqueue = (task: () => Promise<void>): Promise<void> => {
     const run = queue.then(task).catch((error: unknown) => warn('usage step failed', error));
@@ -530,11 +533,14 @@ export function createUsageTracker(deps: UsageTrackerDeps): UsageTracker {
     const tabId = badge === null || tab === null ? null : tab.id;
     if (previousTabId !== null && previousTabId !== tabId) {
       await deps.badge.set(previousTabId, null).catch(() => undefined);
+      shownBadge = null;
     }
-    if (tab !== null && tabId !== null) {
-      await deps.badge.set(tabId, badge).catch(() => undefined);
-    } else if (tab !== null && previousTabId === tab.id) {
-      await deps.badge.set(tab.id, null).catch(() => undefined);
+    if (tabId !== null && badge !== null) {
+      const key = `${tabId}|${badge.text}|${badge.title}|${badge.color}`;
+      if (key !== shownBadge) {
+        await deps.badge.set(tabId, badge).catch(() => undefined);
+        shownBadge = key;
+      }
     }
     return tabId;
   }
@@ -614,9 +620,13 @@ export function createUsageTracker(deps: UsageTrackerDeps): UsageTracker {
 
     const status = freshStatus(await readLocal(USAGE_KEYS.status, parseUsageStatus), at);
     const left = host === null ? null : limitLeftFor(host, limits, status, pending);
+    // Fast near the end of an allowance, and for a first answer (the badge) unless an
+    // attempt without an answer was made recently (a guardian that is down is not polled).
+    const noAnswer =
+      status === null &&
+      (state.lastAttemptAt === null || at - state.lastAttemptAt > STATUS_FRESH_MS);
     const fast =
-      host !== null &&
-      (status === null || (left !== null && left.seconds < FAST_REMAINING_SECONDS));
+      host !== null && (noAnswer || (left !== null && left.seconds < FAST_REMAINING_SECONDS));
 
     let lastAttemptAt = state.lastAttemptAt;
     const due = nextReportAt({ pending, windowStart, lastAttemptAt, fast });
@@ -648,11 +658,21 @@ export function createUsageTracker(deps: UsageTrackerDeps): UsageTracker {
 
     if (planned !== null) send(planned, at);
 
+    // With a segment open there will be a second to report within 1 s.
+    const projected = segment === null ? pending : creditPending(pending, segment.host, 1_000);
     const nextDue =
       planned === null && inflight === null
-        ? nextReportAt({ pending, windowStart, lastAttemptAt, fast })
+        ? nextReportAt({
+            pending: projected,
+            windowStart: windowStart ?? (segment === null ? null : at),
+            lastAttemptAt,
+            fast,
+          })
         : null;
-    const delays = [segment === null ? null : FLUSH_MS, nextDue === null ? null : nextDue - at];
+    const delays = [
+      segment === null ? null : FLUSH_MS,
+      nextDue === null ? null : Math.max(nextDue, hasWholeSecond(pending) ? 0 : at + 1_000) - at,
+    ];
     const wanted = delays.filter((d): d is number => d !== null);
     schedule(wanted.length === 0 ? null : Math.min(...wanted));
   }
@@ -665,9 +685,10 @@ export function createUsageTracker(deps: UsageTrackerDeps): UsageTracker {
         return null;
       })
       .then((answer) => enqueue(() => settle(planned, sentAt, answer)));
-    inflight = run.finally(() => {
-      inflight = null;
+    const flight: Promise<void> = run.finally(() => {
+      if (inflight === flight) inflight = null;
     });
+    inflight = flight;
   }
 
   /** Applies a report's answer: the seconds it carried are no longer pending. */
