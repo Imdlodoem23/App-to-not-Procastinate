@@ -162,10 +162,13 @@
     gap: 6px;
   }
 
-  /* Compact density: 40 px tiles with the icon left of the label. */
+  /* Compact density: 40 px tiles with the icon left of the label. The icon takes room from
+     the label, so the gap is the text tile's 6 px and the sides 6 px: four tiles to a row
+     still fit «Hardcore» in the widest stack font (Noto Sans) at 125 %. */
   html[data-density='compact'] .c-tile[data-size='regular'] {
     flex-direction: row;
-    gap: var(--space-2);
+    gap: 6px;
+    padding: 0 6px;
   }
 
   .c-tile[data-surface='tile-2'] {

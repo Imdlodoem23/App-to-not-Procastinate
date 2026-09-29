@@ -67,7 +67,9 @@
 
   .osd-text {
     min-width: 0;
-    overflow: hidden;
+    /* Clip sideways only (with the ellipsis): at 28 px a font whose ascent and descent pass
+       the 32 px line (Noto Sans, Segoe UI) must not lose its glyph tops and descenders. */
+    overflow: clip visible;
     text-overflow: ellipsis;
   }
 

@@ -127,7 +127,7 @@ export const ESTADISTICAS_ES = {
         ? `${when}: ${duration} · ${attempts === 1 ? '1 intento' : `${attempts} intentos`}`
         : `${when}: ${duration}`,
     /** Resting help line under the chart. */
-    hint: 'Pasa el ratón por una barra, o usa las flechas, para ver sus minutos',
+    hint: 'Pasa el ratón por una barra o usa las flechas para ver minutos',
     /** Help line when the chart could not be drawn (its chunk or Recharts failed). */
     unavailable: 'No se ha podido dibujar el gráfico; el resumen de al lado tiene las cifras',
     /** What screen readers call the focusable chart (instead of «imagen» or «aplicación»). */

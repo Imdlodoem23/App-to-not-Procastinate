@@ -52,7 +52,7 @@ export const ONBOARDING_EN: OnboardingMessages = {
     repair: 'Repair',
     installing: 'Installing…',
     continue: 'Continue',
-    guideChromium: 'Chrome and Edge',
+    guideChromium: 'Chrome & Edge',
     guideFirefox: 'Firefox',
     camera: 'Test camera',
     create: 'Create block',
