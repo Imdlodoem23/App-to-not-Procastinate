@@ -265,13 +265,40 @@ function licenseTextOf(dir, pkg) {
     .sort();
   if (files.length > 0) return files.map((name) => readText(join(dir, name))).join('\n\n');
   const author = authorOf(pkg);
-  if (pkg.license === 'MIT' && author) {
-    return (
-      `(${pkg.name} no incluye archivo de licencia: texto MIT estándar con el autor de su ` +
-      `package.json)\n\nMIT License\n\nCopyright (c) ${author}\n\n${MIT_TEXT}`
-    );
+  const mit = () =>
+    `(${pkg.name} no incluye archivo de licencia: texto MIT estándar con el autor de su ` +
+    `package.json)\n\nMIT License\n\nCopyright (c) ${author}\n\n${MIT_TEXT}`;
+  if (pkg.license === 'MIT' && author) return mit();
+  // «MIT AND <other>»: the package's own code is MIT (standard text with its author) and it
+  // vendors third-party code whose licence files sit in its subfolders (victory-vendor ships
+  // d3 under lib-vendor/<module>/LICENSE). Each vendored text is reproduced as it ships.
+  const terms = String(pkg.license ?? '').split(/\s+AND\s+/);
+  if (terms.length > 1 && terms.includes('MIT') && author) {
+    const vendored = vendoredLicenseFiles(dir);
+    if (vendored.length > 0) {
+      return [
+        mit(),
+        ...vendored.map((file) => `${pkg.name}/${file}:\n\n${readText(join(dir, file))}`),
+      ].join('\n\n');
+    }
   }
   return fail(`${pkg.name}@${pkg.version} (${pkg.license}) ships no licence file`);
+}
+
+/** Licence files in a package's subfolders (two levels, node_modules excluded), sorted. */
+function vendoredLicenseFiles(dir) {
+  const found = [];
+  const walk = (relDir, depth) => {
+    for (const name of readdirSync(join(dir, relDir)).sort()) {
+      if (name === 'node_modules') continue;
+      const rel = relDir ? `${relDir}/${name}` : name;
+      const stat = statSync(join(dir, rel));
+      if (stat.isDirectory() && depth < 2) walk(rel, depth + 1);
+      else if (stat.isFile() && relDir && LICENSE_FILE.test(name)) found.push(rel);
+    }
+  };
+  walk('', 0);
+  return found;
 }
 
 /** Every package reachable from `roots` through `dependencies`, sorted by name. */
