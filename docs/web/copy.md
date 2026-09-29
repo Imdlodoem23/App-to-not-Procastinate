@@ -196,10 +196,11 @@ Nombre accesible de la sección: «Céntrate en números».
   5. **Estadísticas.** Tu tiempo concentrado por día, semana y mes, con mapa de calor y exportación a CSV.
   6. **Sonidos.** Lluvia, ruido blanco o lo-fi, incluidos en la app y sin internet.
   7. **Extensión del navegador.** Para Chrome, Edge, Brave y Firefox: bloquea al instante y te enseña tu motivo.
-  8. **Tu motivo.** Una frase tuya, como «Quiero aprobar mates», que aparece justo cuando intentas entrar.
+  8. **Mantener despierto.** El ordenador no se suspende solo, ni con la app cerrada, hasta que lo desactives o acabe el tiempo.
   9. **Recordatorios.** «Es tu hora de estudiar» según tus horarios, y descansos para la vista con la regla 20-20-20.
   10. **Logros.** Tu primera sesión, 7 días de racha, 10 horas de Study Mode, una semana sin intentos…
 - De reserva:
+  - **Tu motivo.** Una frase tuya, como «Quiero aprobar mates», que aparece justo cuando intentas entrar. (Dejó su hueco a «Mantener despierto»: el motivo ya sale en la escena, en las maquetas de la app y en las preguntas).
   - **Mini temporizador.** Una cuenta atrás pequeña y siempre visible que colocas donde quieras.
   - **Plantillas rápidas.** Deberes 1 h, Examen 3 h o Leer 30 min: un clic y Enter.
   - **Tareas de la sesión.** Apunta qué vas a hacer y, al terminar, di si lo has conseguido.

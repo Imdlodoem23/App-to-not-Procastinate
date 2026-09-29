@@ -59,6 +59,8 @@ import type {
   IdKind,
   IsoUtc,
   IsoWeekday,
+  KeepAwakeConfig,
+  KeepAwakeError,
   LimitId,
   LimitMode,
   MalformedGuardianEvent,
@@ -100,6 +102,8 @@ import {
   GUARDIAN_MODES,
   HEARTBEAT_STATES,
   ID_PREFIXES,
+  KEEP_AWAKE_ERRORS,
+  KEEP_AWAKE_OFF_REASONS,
   LIMIT_MODES,
   PUNISHMENT_CAUSES,
   PUNISHMENT_LEVELS,
@@ -300,6 +304,12 @@ export const GUARDIAN_LIMITS = Object.freeze({
   usageSlackMs: 2_000,
   /** Clients stop counting usage after this long without keyboard or mouse input. */
   usageIdleSeconds: 60,
+  /**
+   * Keep-awake (§5.11) `durationMinutes`: 5 min … 24 h, or `null` («Hasta que lo
+   * desactive»). The UI offers `KEEP_AWAKE_PRESET_MINUTES`.
+   */
+  keepAwakeMinMinutes: 5,
+  keepAwakeMaxMinutes: 1440,
 });
 
 /**
@@ -334,6 +344,7 @@ export const GUARDIAN_CAPABILITIES = [
   'study_history',
   'nuclear_heartbeat',
   'daily_limits',
+  'keep_awake',
 ] as const;
 export type GuardianCapability = (typeof GUARDIAN_CAPABILITIES)[number];
 
@@ -408,6 +419,7 @@ export const GUARDIAN_PATHS = {
   extHeartbeat: '/v1/ext/heartbeat',
   nuclearHeartbeat: '/v1/nuclear/heartbeat',
   dataDelete: '/v1/data/delete',
+  keepAwake: '/v1/keep-awake',
   /** Only in builds with the `testhooks` tag. */
   testClock: '/v1/_test/clock',
 } as const;
@@ -503,6 +515,8 @@ export const GUARDIAN_ENDPOINTS: readonly EndpointSpec[] = Object.freeze([
   ep('extHeartbeat', 'POST', '/v1/ext/heartbeat', 'ext'),
   ep('nuclearHeartbeat', 'POST', '/v1/nuclear/heartbeat', 'app'),
   ep('deleteData', 'POST', '/v1/data/delete', 'app', { idem: true }),
+  ep('getKeepAwake', 'GET', '/v1/keep-awake', 'app'),
+  ep('setKeepAwake', 'PUT', '/v1/keep-awake', 'app'),
   ep('testClock', 'POST', '/v1/_test/clock', 'app', { testOnly: true }),
 ]);
 
@@ -744,6 +758,11 @@ export interface GuardianStateResponse {
    * without the `daily_limits` capability omit it (read it as `[]`).
    */
   limits?: DailyLimit[];
+  /**
+   * «Mantener despierto» (§5.11), display time. Guardians without the `keep_awake`
+   * capability omit it (read it as off, `DEFAULT_KEEP_AWAKE`).
+   */
+  keepAwake?: KeepAwakeState;
   points: PointsSummary;
   pendingSettings: PendingSettingChange[];
   recent: {
@@ -1411,6 +1430,36 @@ export interface DeleteDataResponse {
   keptLimitIds?: LimitId[];
 }
 
+/**
+ * «Mantener despierto» as the API serves it (§5.11): the configuration in display time plus
+ * whether the OS idle-sleep inhibition is held right now.
+ *
+ * Invariants (checked by `keepAwakeStateSchema`): off → `since`, `until` `null`,
+ * `active: false` and `error` `null` or `unsupported`; on → `since` set and `until` set
+ * exactly when `durationMinutes` is; `active` → `error: null`.
+ */
+export interface KeepAwakeState extends KeepAwakeConfig {
+  /** The guardian holds the OS idle-sleep inhibition right now. */
+  active: boolean;
+  /** Why it is not held (see `KEEP_AWAKE_ERRORS`); `null` when held or simply off. */
+  error: KeepAwakeError | null;
+}
+
+/**
+ * `PUT /v1/keep-awake`: the whole desired configuration (full replace, idempotent by state).
+ * `since`/`until` are the guardian's: a new duration while on restarts the countdown.
+ */
+export interface KeepAwakeRequest {
+  on: boolean;
+  /** `keepAwakeMinMinutes`…`keepAwakeMaxMinutes`, or `null` («Hasta que lo desactive»). */
+  durationMinutes: number | null;
+  display: boolean;
+}
+
+export interface KeepAwakeResponse {
+  keepAwake: KeepAwakeState;
+}
+
 /** Test builds only: drive the fake clock. Exactly one action per call. */
 export interface TestClockRequest {
   advanceMs: number | null;
@@ -2047,6 +2096,58 @@ const escalationSchema: Schema<EscalationState> = obj<EscalationState>({
   index: int(0, 64),
 });
 
+const keepAwakeMinutes: Schema<number | null> = nullable(
+  int(L.keepAwakeMinMinutes, L.keepAwakeMaxMinutes),
+);
+
+const keepAwakeConfigShape: Shape<KeepAwakeConfig> = {
+  on: bool,
+  durationMinutes: keepAwakeMinutes,
+  display: bool,
+  since: nullable(iso),
+  until: nullable(iso),
+};
+
+/** The invariants of a keep-awake configuration (§5.11). */
+function keepAwakeConfigRule(v: KeepAwakeConfig): { path: string; message: string } | null {
+  if (!v.on) {
+    if (v.since !== null) return { path: 'since', message: 'null while off' };
+    if (v.until !== null) return { path: 'until', message: 'null while off' };
+    return null;
+  }
+  if (v.since === null) return { path: 'since', message: 'set while on' };
+  if ((v.until === null) !== (v.durationMinutes === null)) {
+    return { path: 'until', message: 'set exactly when durationMinutes is' };
+  }
+  if (v.until !== null && Date.parse(v.until) <= Date.parse(v.since)) {
+    return { path: 'until', message: 'after since' };
+  }
+  return null;
+}
+
+/** A keep-awake configuration: events (trusted time) and `EpochKeptState.keepAwake`. */
+export const keepAwakeConfigSchema: Schema<KeepAwakeConfig> = refine(
+  obj<KeepAwakeConfig>(keepAwakeConfigShape),
+  keepAwakeConfigRule,
+);
+
+/** `KeepAwakeState` (display time), with the invariants documented on the type. */
+export const keepAwakeStateSchema: Schema<KeepAwakeState> = refine(
+  obj<KeepAwakeState>({
+    ...keepAwakeConfigShape,
+    active: bool,
+    error: nullable(oneOf(KEEP_AWAKE_ERRORS)),
+  }),
+  (v) => {
+    const broken = keepAwakeConfigRule(v);
+    if (broken) return broken;
+    if (v.active && !v.on) return { path: 'active', message: 'false while off' };
+    if (v.active && v.error !== null) return { path: 'error', message: 'null while active' };
+    if (!v.on && v.error === 'failed') return { path: 'error', message: 'failed only while on' };
+    return null;
+  },
+);
+
 // ---------------------------------------------------------------------------------------
 // Event schemas
 // ---------------------------------------------------------------------------------------
@@ -2094,6 +2195,7 @@ const eventDataSchemas: DataSchemas = {
       pendingSettings: pendingList,
       materializedOccurrences: arr(str({ min: 1, max: 128 }), { max: RESPONSE_LIMITS.ids }),
       limits: optional(arr(limitSchema, { max: RESPONSE_LIMITS.limits })),
+      keepAwake: optional(keepAwakeConfigSchema),
     }),
   }),
   clock_jump: obj<Data<'clock_jump'>>({
@@ -2278,6 +2380,17 @@ const eventDataSchemas: DataSchemas = {
     archivedAs: str({ min: 1, max: 200 }),
     balanceCorrection: int(-SAFE, 0),
   }),
+  keep_awake_on: refine(obj<Data<'keep_awake_on'>>({ keepAwake: keepAwakeConfigSchema }), (v) =>
+    v.keepAwake.on ? null : { path: 'keepAwake.on', message: 'true' },
+  ),
+  keep_awake_updated: obj<Data<'keep_awake_updated'>>({ keepAwake: keepAwakeConfigSchema }),
+  keep_awake_off: refine(
+    obj<Data<'keep_awake_off'>>({
+      keepAwake: keepAwakeConfigSchema,
+      reason: oneOf(KEEP_AWAKE_OFF_REASONS),
+    }),
+    (v) => (v.keepAwake.on ? { path: 'keepAwake.on', message: 'false' } : null),
+  ),
 };
 
 const EVENT_TYPE_RE = /^[a-z][a-z0-9_]{0,63}$/;
@@ -2583,6 +2696,12 @@ export const deleteDataRequestSchema: Schema<DeleteDataRequest> = obj<DeleteData
   confirm: str({ min: 1, max: 16, text: true }),
 });
 
+export const keepAwakeRequestSchema: Schema<KeepAwakeRequest> = obj<KeepAwakeRequest>({
+  on: bool,
+  durationMinutes: keepAwakeMinutes,
+  display: bool,
+});
+
 export const testClockRequestSchema: Schema<TestClockRequest> = refine(
   obj<TestClockRequest>({
     advanceMs: nullable(int(0, 30 * 86_400_000)),
@@ -2726,6 +2845,7 @@ export const stateResponseSchema: Schema<GuardianStateResponse> = obj<GuardianSt
     }),
   ),
   limits: optional(arr(limitSchema, { max: RESPONSE_LIMITS.limits })),
+  keepAwake: optional(keepAwakeStateSchema),
   points: pointsSummarySchema,
   pendingSettings: pendingList,
   recent: obj<GuardianStateResponse['recent']>({
@@ -3101,6 +3221,10 @@ export const deleteDataResponseSchema: Schema<DeleteDataResponse> = obj<DeleteDa
   keptLimitIds: optional(arr(idOf('limit'), { max: RESPONSE_LIMITS.ids, unique: true })),
 });
 
+export const keepAwakeResponseSchema: Schema<KeepAwakeResponse> = obj<KeepAwakeResponse>({
+  keepAwake: keepAwakeStateSchema,
+});
+
 export const testClockResponseSchema: Schema<TestClockResponse> = obj<TestClockResponse>({
   serverNow: iso,
   trustedNow: iso,
@@ -3131,6 +3255,7 @@ export const isExtHeartbeatRequest = requestGuard(extHeartbeatRequestSchema);
 export const isNuclearHeartbeatRequest = requestGuard(nuclearHeartbeatRequestSchema);
 export const isDeleteDataRequest = requestGuard(deleteDataRequestSchema);
 export const isTestClockRequest = requestGuard(testClockRequestSchema);
+export const isKeepAwakeRequest = requestGuard(keepAwakeRequestSchema);
 
 export const isGuardianErrorBody = responseGuard(errorBodySchema);
 export const isHealthResponse = responseGuard(healthResponseSchema);
@@ -3176,6 +3301,8 @@ export const isExtRulesResponse = responseGuard(extRulesResponseSchema);
 export const isExtHeartbeatResponse = responseGuard(extHeartbeatResponseSchema);
 export const isNuclearHeartbeatResponse = responseGuard(nuclearHeartbeatResponseSchema);
 export const isDeleteDataResponse = responseGuard(deleteDataResponseSchema);
+export const isKeepAwakeState = responseGuard(keepAwakeStateSchema);
+export const isKeepAwakeResponse = responseGuard(keepAwakeResponseSchema);
 
 // ---------------------------------------------------------------------------------------
 // Extension rules signature (ECDSA P-256 + SHA-256, WebCrypto)
@@ -3389,6 +3516,10 @@ export interface GuardianClient {
   extHeartbeat(body: ExtHeartbeatRequest): Promise<ExtHeartbeatResponse>;
   nuclearHeartbeat(body: NuclearHeartbeatRequest): Promise<NuclearHeartbeatResponse>;
   deleteData(body: DeleteDataRequest, options?: WriteOptions): Promise<DeleteDataResponse>;
+  /** «Mantener despierto» (§5.11); only when `health.capabilities` lists `keep_awake`. */
+  getKeepAwake(): Promise<KeepAwakeResponse>;
+  /** Full replace, applied at once; re-sending the current configuration changes nothing. */
+  setKeepAwake(body: KeepAwakeRequest): Promise<KeepAwakeResponse>;
 }
 
 interface CallSpec<T> {
@@ -3814,6 +3945,12 @@ export function createGuardianClient(options: GuardianClientOptions = {}): Guard
         schema: deleteDataResponseSchema,
         idempotencyKey: key(o),
       }),
+
+    getKeepAwake: () =>
+      value({ method: 'GET', path: P.keepAwake, schema: keepAwakeResponseSchema }),
+
+    setKeepAwake: (body) =>
+      value({ method: 'PUT', path: P.keepAwake, body, schema: keepAwakeResponseSchema }),
   };
 }
 
@@ -3850,6 +3987,49 @@ export function emptyAllow(): WhitelistAllow {
 }
 
 /** Milliseconds until `endsAt` from the machine's own clock (the countdown). */
+/**
+ * «Mantener despierto» durations the UI offers (30 min, 1 h, 2 h, 4 h); `null`
+ * («Hasta que lo desactive») is offered too.
+ */
+export const KEEP_AWAKE_PRESET_MINUTES: readonly number[] = Object.freeze([30, 60, 120, 240]);
+
+/** Keep-awake of a fresh install (off, «Hasta que lo desactive», screen on too). */
+export const DEFAULT_KEEP_AWAKE: Readonly<KeepAwakeConfig> = Object.freeze({
+  on: false,
+  durationMinutes: null,
+  display: true,
+  since: null,
+  until: null,
+});
+
+/**
+ * The `PUT /v1/keep-awake` body that applies `change` to the current configuration (tray
+ * and Ajustes send the whole configuration; unspecified fields keep their value).
+ */
+export function keepAwakeRequest(
+  current: Pick<KeepAwakeConfig, 'on' | 'durationMinutes' | 'display'>,
+  change: Partial<KeepAwakeRequest>,
+): KeepAwakeRequest {
+  return {
+    on: change.on ?? current.on,
+    durationMinutes:
+      change.durationMinutes === undefined ? current.durationMinutes : change.durationMinutes,
+    display: change.display ?? current.display,
+  };
+}
+
+/** True when a `PUT` of `request` would change nothing (no event, `until` kept). */
+export function keepAwakeRequestIsNoop(
+  current: Pick<KeepAwakeConfig, 'on' | 'durationMinutes' | 'display'>,
+  request: KeepAwakeRequest,
+): boolean {
+  return (
+    current.on === request.on &&
+    current.durationMinutes === request.durationMinutes &&
+    current.display === request.display
+  );
+}
+
 export function remainingMs(endsAt: IsoUtc, nowMs: number = Date.now()): number {
   return Math.max(0, Date.parse(endsAt) - nowMs);
 }
@@ -4276,6 +4456,7 @@ export function apiContractSnapshot(): {
   dataDeleteConfirmWords: string[];
   chromiumExtensionId: string;
   defaultSettings: GuardianSettings;
+  defaultKeepAwake: KeepAwakeConfig;
 } {
   return JSON.parse(
     JSON.stringify({
@@ -4290,6 +4471,7 @@ export function apiContractSnapshot(): {
       dataDeleteConfirmWords: DATA_DELETE_CONFIRM_WORDS,
       chromiumExtensionId: CHROMIUM_EXTENSION_ID,
       defaultSettings: DEFAULT_GUARDIAN_SETTINGS,
+      defaultKeepAwake: DEFAULT_KEEP_AWAKE,
     }),
   ) as ReturnType<typeof apiContractSnapshot>;
 }

@@ -50,4 +50,13 @@ export const SHARED_EN: SharedMessages = {
     examen: 'Exam 3 h',
     leer: 'Read 30 min',
   },
+  keepAwake: {
+    title: 'Keep awake',
+    forever: 'Until I turn it off',
+    turnOff: 'Turn off',
+    awake: 'Awake',
+    until: (clock: string): string => `until ${clock}`,
+    failed: 'This computer could not be kept awake',
+    unsupported: 'This computer does not allow keeping it awake',
+  },
 };

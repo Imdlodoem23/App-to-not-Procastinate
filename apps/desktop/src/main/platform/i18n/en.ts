@@ -10,6 +10,9 @@ export const PLATFORM_EN: PlatformMessages = {
     miniTimerShown: 'Mini timer',
     miniTimerHidden: 'Mini timer hidden',
     nuclearQuit: 'Nuclear in progress · use the emergency exit',
+    awakeOn: (until: string | null): string => (until ? `Awake ${until}` : 'Awake'),
+    awakeOff: 'No longer kept awake',
+    awakeFailed: 'Keep awake could not be changed',
   },
   surfaceTitles: {
     miniTimer: 'Mini timer',

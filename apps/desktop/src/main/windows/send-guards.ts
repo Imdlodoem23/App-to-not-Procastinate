@@ -225,6 +225,13 @@ export const SEND_GUARDS: { readonly [C in SendChannel]: Guard<SendPayload<C>> }
     hasOnlyKeys(v, ['message', 'stack']) &&
     isShortString(v['message'], MAX_ERROR_MESSAGE) &&
     (v['stack'] === null || isShortString(v['stack'], MAX_STACK)),
+  'keep-awake:menu': (v): v is SendPayload<'keep-awake:menu'> =>
+    isRecord(v) &&
+    hasOnlyKeys(v, ['x', 'y']) &&
+    isNonNegativeInt(v['x']) &&
+    isNonNegativeInt(v['y']) &&
+    v['x'] <= MAX_HEIGHT &&
+    v['y'] <= MAX_HEIGHT,
 
   // Phase 5: validators written with the contract (docs/DESKTOP.md §15).
   ...PHASE5_SEND_GUARDS,

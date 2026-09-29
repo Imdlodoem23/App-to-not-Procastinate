@@ -8,6 +8,23 @@
  */
 
 @layer components {
+  /* «Despierto · hasta las 18:30»: in the version's place, right of the status line. It may shrink
+     (with an ellipsis) before the protection status does. */
+  .footer-status .footer-awake-chip {
+    flex: 0 1000 auto;
+    min-width: 0;
+  }
+
+  .footer-awake-chip .c-icon {
+    flex: none;
+  }
+
+  .footer-awake-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .main-footer .c-tile[data-size='text'] {
     gap: var(--space-1);
     padding: 0 var(--space-1);

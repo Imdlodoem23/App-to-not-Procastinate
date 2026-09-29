@@ -7,13 +7,22 @@
  * The buttons use the footer's 12 px (`footer.css`), so «Mini temporizador» fits a third of
  * the row. Outside `<main>`, so it is the window's `contentinfo` and never scrolls with the
  * sections.
+ *
+ * While «Mantener despierto» is on, «Despierto · hasta las 18:30» takes the version's place (no extra
+ * height): pressing it (click, Enter or Space) asks main for the tray's «Mantener despierto»
+ * choices as a native menu under it (`keep-awake:menu`), which the keyboard walks like any menu.
+ * When the guardian cannot hold it, the help line under the buttons says why, in orange; when a
+ * choice from that menu or the tray is refused and «Avisos grandes» is off, main sends
+ * `ui:command keep-awake-failed` and the same line says «No se ha podido cambiar «Mantener
+ * despierto»» until the keep-awake state changes or another footer action reports.
  */
-import { LogOut, Settings, Timer } from 'lucide-react';
-import { Fragment, useMemo, useState } from 'react';
-import { StatusDot, TextButton, Tile, TileRow } from '../../components';
+import { Coffee, LogOut, Settings, Timer } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Icon, StatusDot, TextButton, Tile, TileRow } from '../../components';
 import { useRepair } from '../../hooks/useRepair';
 import { RENDERER } from '../../i18n/messages';
 import { useBridge, useSnapshot } from '../../store/context';
+import { FOOTER } from './i18n';
 import { useUpdate } from './useUpdate';
 import { deriveFooterView, type FooterButton } from './view';
 import './footer.css';
@@ -22,15 +31,54 @@ const F = RENDERER.footer;
 
 const ICONS = { miniTimer: Timer, settings: Settings, quit: LogOut } as const;
 
+/** The chip's description (what pressing it does), read with its name. */
+const AWAKE_HELP_ID = 'footer-awake-help';
+
 export function Footer(): React.JSX.Element {
   const snapshot = useSnapshot();
   const view = useMemo(() => deriveFooterView(snapshot), [snapshot]);
   const bridge = useBridge();
   const repair = useRepair();
   const update = useUpdate();
-  // The help line reports the last thing pressed (a repair or an update).
-  const [last, setLast] = useState<'repair' | 'update'>('repair');
-  const message = last === 'update' ? update.message : repair.message;
+  // The help line reports the last thing that happened (a repair, an update, or a refused
+  // «Mantener despierto» choice).
+  const [last, setLast] = useState<'repair' | 'update' | 'awake'>('repair');
+  const [awakeFailedFor, setAwakeFailedFor] = useState<string | null>(null);
+  const awakeKey = JSON.stringify(snapshot.state?.keepAwake ?? null);
+  const awakeFailed = last === 'awake' && awakeFailedFor === awakeKey;
+  const message: { text: string; tone: 'muted' | 'red' | 'orange' } | null =
+    last === 'update'
+      ? update.message
+      : last === 'awake'
+        ? awakeFailed
+          ? { text: FOOTER.awake.failed, tone: 'orange' }
+          : null
+        : repair.message;
+  const awakeRef = useRef<HTMLButtonElement>(null);
+  const awakeKeyRef = useRef(awakeKey);
+  useEffect(() => {
+    awakeKeyRef.current = awakeKey;
+  }, [awakeKey]);
+
+  // A refused choice (tray or chip menu, «Avisos grandes» off): shown until the state changes.
+  useEffect(
+    () =>
+      bridge.on('ui:command', (command) => {
+        if (command.type !== 'keep-awake-failed') return;
+        setAwakeFailedFor(awakeKeyRef.current);
+        setLast('awake');
+      }),
+    [bridge],
+  );
+
+  // The native menu opens under the chip's left edge (CSS px of this window).
+  const openAwakeMenu = (): void => {
+    const rect = awakeRef.current?.getBoundingClientRect();
+    bridge.send('keep-awake:menu', {
+      x: Math.max(0, Math.round(rect?.left ?? 0)),
+      y: Math.max(0, Math.round(rect?.bottom ?? 0)),
+    });
+  };
 
   const press = (button: FooterButton): void => {
     if (button === 'settings') bridge.send('window:open-detail', { name: 'ajustes', group: null });
@@ -70,7 +118,28 @@ export function Footer(): React.JSX.Element {
   }
 
   const { action } = view.version;
-  const version = action ? (
+  const awake = view.awake;
+  const version = awake ? (
+    <>
+      <TextButton
+        ref={awakeRef}
+        tone={awake.tone}
+        className="footer-version footer-awake-chip"
+        describedBy={AWAKE_HELP_ID}
+        hasPopup="menu"
+        onPress={openAwakeMenu}
+      >
+        <Icon icon={Coffee} />
+        <span className="footer-awake-label">
+          {awake.hiddenPrefix ? <span className="sr-only">{awake.hiddenPrefix}</span> : null}
+          {awake.label}
+        </span>
+      </TextButton>
+      <span id={AWAKE_HELP_ID} className="sr-only">
+        {awake.trouble ? `${awake.trouble}. ${FOOTER.awake.help}` : FOOTER.awake.help}
+      </span>
+    </>
+  ) : action ? (
     <TextButton
       tone="blue"
       className="footer-version"
@@ -112,8 +181,8 @@ export function Footer(): React.JSX.Element {
         id="pie"
         label={F.rowLabel}
         columns={3}
-        help={message?.text}
-        helpTone={message?.tone ?? 'muted'}
+        help={message?.text ?? awake?.trouble ?? undefined}
+        helpTone={message?.tone ?? (awake?.trouble ? 'orange' : 'muted')}
         helpLive="polite"
       >
         {view.buttons.map((button) => (

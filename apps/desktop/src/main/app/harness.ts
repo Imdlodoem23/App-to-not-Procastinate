@@ -30,6 +30,7 @@ import {
   type DetailName,
   type DetailRequest,
 } from '../../shared/ui-state';
+import type { DisplayKeeper } from '../keep-awake/display';
 import type { PlatformHost } from '../platform';
 import type { TrayController } from '../tray/controller';
 import {
@@ -98,6 +99,8 @@ export interface HarnessDeps {
   lang: Locale | null;
   /** PLATFORM's services: the surface windows (mini timer, OSD, Nuclear overlay). */
   platform: PlatformHost;
+  /** «Mantener también la pantalla encendida» (a recording blocker in harness mode). */
+  displayKeeper: DisplayKeeper;
 }
 
 /** What renderers receive in `app:init` for the launch fixture. */
@@ -200,6 +203,8 @@ export function createHarnessApi(deps: HarnessDeps): HarnessApi {
     trayMenu: () => tray.currentMenu(),
     clickTrayItem: (id: string) => tray.dispatch(id),
     trayTooltip: () => tray.tooltip(),
+    keepAwakeMenu: () => tray.lastPopupMenu(),
+    keepAwakeDisplay: () => deps.displayKeeper.held(),
     windowTitle: () => shell.mainTitle(),
     bounds: () => shell.bounds(),
     snapshot: () => core.getSnapshot(),

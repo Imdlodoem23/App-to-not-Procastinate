@@ -50,6 +50,9 @@ const EVENT_LABELS: EventLabels = {
   extension_revoked: 'Extensión quitada',
   tamper_detected: 'Manipulación detectada',
   ledger_repaired: 'Registro reparado',
+  keep_awake_on: 'Mantener despierto activado',
+  keep_awake_updated: 'Mantener despierto cambiado',
+  keep_awake_off: 'Mantener despierto desactivado',
 };
 
 export const ESTADISTICAS_ES = {

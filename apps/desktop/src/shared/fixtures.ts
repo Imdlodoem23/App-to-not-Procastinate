@@ -46,6 +46,7 @@ import type {
   GuardianErrorCode,
   GuardianStateResponse,
   HealthResponse,
+  KeepAwakeState,
   NextScheduleInfo,
   PairedExtension,
   PairingCodeResponse,
@@ -439,6 +440,8 @@ export interface StateParts {
   nuclearActive?: boolean;
   /** Daily limits (exact usage: the state floors it to whole minutes). */
   limits?: DailyLimit[];
+  /** «Mantener despierto» (absent: off, as an older guardian would say). */
+  keepAwake?: KeepAwakeState;
 }
 
 /** A `/v1/state` body; blocks and punishments are sorted `endsAt` descending like the guardian's. */
@@ -486,6 +489,30 @@ export function makeGuardianState(now: number, parts: StateParts = {}): Guardian
     pendingSettings: [],
     recent: { endedBlocks: parts.endedBlocks ?? [], endedStudy: null },
     limits: (parts.limits ?? []).map(stateLimit),
+    ...(parts.keepAwake ? { keepAwake: parts.keepAwake } : {}),
+  };
+}
+
+/**
+ * «Mantener despierto» as `/v1/state` serves it (display time): on since `sinceMs` for
+ * `durationMinutes` (`null`: until turned off), held, the screen kept on too; `patch` for the
+ * error states. `sinceMs: null`: off.
+ */
+export function makeKeepAwake(
+  sinceMs: number | null,
+  durationMinutes: number | null,
+  patch: Partial<KeepAwakeState> = {},
+): KeepAwakeState {
+  const on = sinceMs !== null;
+  return {
+    on,
+    durationMinutes,
+    display: true,
+    since: on ? iso(sinceMs) : null,
+    until: on && durationMinutes !== null ? iso(sinceMs + durationMinutes * MIN) : null,
+    active: on,
+    error: null,
+    ...patch,
   };
 }
 
@@ -1105,6 +1132,16 @@ export const PHASE5_STATES = [
   'update-available',
 ] as const;
 
+/** «Mantener despierto» (ARCHITECTURE §5.11): on without an end, on until 18:30 in compact
+ * density, failing, and Ajustes on and on a machine that cannot (off is `idle` / `ajustes`). */
+export const KEEP_AWAKE_STATES = [
+  'keep-awake',
+  'keep-awake-until',
+  'keep-awake-error',
+  'keep-awake-ajustes',
+  'keep-awake-unsupported',
+] as const;
+
 /** Daily limits («YouTube máximo 30 minutos al día»; ARCHITECTURE §5.10). */
 export const LIMIT_STATES = [
   'limits',
@@ -1119,6 +1156,7 @@ export const HARNESS_STATE_IDS = [
   ...EXTRA_STATES,
   ...PHASE5_STATES,
   ...LIMIT_STATES,
+  ...KEEP_AWAKE_STATES,
 ] as const;
 export type HarnessStateId = (typeof HARNESS_STATE_IDS)[number];
 
@@ -2197,6 +2235,62 @@ const BUILDERS: Readonly<Record<HarnessStateId, Builder>> = {
       fake: (f) => ({ ...f, health, limits: [] }),
     });
   },
+
+  // «Mantener despierto» (ARCHITECTURE §5.11): the footer chip, the tray and Ajustes.
+  'keep-awake': (now) =>
+    build('keep-awake', now, {
+      label: 'Mantener despierto sin límite',
+      state: makeGuardianState(now, { keepAwake: makeKeepAwake(now - 40 * MIN, null) }),
+    }),
+
+  // The chip's line in the tightest main window: compact density at 1366×768 at 125 %.
+  'keep-awake-until': (now) => {
+    const blocks = threeBlocks(now);
+    const primary = blocks[0];
+    if (!primary) throw new Error('threeBlocks() is empty');
+    return build('keep-awake-until', now, {
+      label: 'Mantener despierto hasta las 18:30 (1366×768 al 125 %)',
+      display: '1366x768@125',
+      state: makeGuardianState(now, {
+        blocks,
+        extensions: [],
+        browsersWithoutExtension: ['chrome'],
+        keepAwake: makeKeepAwake(now - 30 * MIN, 120),
+      }),
+      ops: { ...emptyOps(), extendQueue: [extendEntry(primary, 30, now)] },
+      fake: (f) => ({ ...f, extensions: [] }),
+      warning: 'extension',
+      density: 'compact',
+    });
+  },
+
+  'keep-awake-error': (now) =>
+    build('keep-awake-error', now, {
+      label: 'Mantener despierto: no se ha podido',
+      state: makeGuardianState(now, {
+        blocks: [oneBlock(now)],
+        keepAwake: makeKeepAwake(now - 5 * MIN, 60, { active: false, error: 'failed' }),
+      }),
+    }),
+
+  'keep-awake-ajustes': (now) =>
+    build('keep-awake-ajustes', now, {
+      label: 'Ajustes: mantener despierto',
+      window: 'ajustes',
+      state: makeGuardianState(now, { keepAwake: makeKeepAwake(now - 30 * MIN, 120) }),
+      detailRequest: { name: 'ajustes', group: 'despierto' },
+    }),
+
+  // A machine without a mechanism (no `systemd-inhibit`): Ajustes warns while it is off.
+  'keep-awake-unsupported': (now) =>
+    build('keep-awake-unsupported', now, {
+      label: 'Ajustes: mantener despierto sin soporte',
+      window: 'ajustes',
+      state: makeGuardianState(now, {
+        keepAwake: makeKeepAwake(null, 60, { error: 'unsupported' }),
+      }),
+      detailRequest: { name: 'ajustes', group: 'despierto' },
+    }),
 
   'update-available': (now) =>
     build('update-available', now, {

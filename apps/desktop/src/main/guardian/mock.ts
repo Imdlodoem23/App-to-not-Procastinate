@@ -59,6 +59,7 @@ import {
   isEmergencyRequest,
   isScheduleInput,
   isSettingsRequest,
+  keepAwakeRequestSchema,
   validateRequest,
   validationErrorCode,
   type AttemptRequest,
@@ -85,6 +86,8 @@ import {
   type GuardianErrorCode,
   type GuardianStateResponse,
   type HealthResponse,
+  type KeepAwakeRequest,
+  type KeepAwakeResponse,
   type ListBlocksQuery,
   type ListBlocksResponse,
   type LimitResponse,
@@ -123,6 +126,7 @@ import {
 } from '@centrate/shared/points';
 import type { Clock, TimerHandle } from '../contracts';
 import { checkRedeem, rewardsShop } from './mock-rewards';
+import { MockKeepAwake } from './mock-keep-awake';
 import { MockLimits } from './mock-limits';
 import { applyDuePending, applySettingsPut } from './mock-settings';
 import {
@@ -287,6 +291,7 @@ export class MockGuardian implements GuardianClient {
   /** Occurrence keys already turned into blocks (never re-created). */
   private readonly materialized = new Set<string>();
   private readonly limitBook: MockLimits;
+  private readonly keepAwake: MockKeepAwake;
 
   constructor(options: MockGuardianOptions) {
     this.clock = options.clock;
@@ -359,6 +364,14 @@ export class MockGuardian implements GuardianClient {
           sortBlocks(this.blocks.filter((b) => b.limitId === limitId))[0] ?? null,
       },
       clone(seed?.limits ?? state?.limits ?? []),
+    );
+    this.keepAwake = new MockKeepAwake(
+      {
+        now: () => this.clock.now(),
+        emit: (type, data) => this.emit(type, data),
+        changed: () => this.changed(),
+      },
+      clone(state?.keepAwake ?? null),
     );
     if (!state) {
       this.emit('epoch_started', {
@@ -522,6 +535,7 @@ export class MockGuardian implements GuardianClient {
   private step(): void {
     const now = this.clock.now();
     let dirty = false;
+    this.keepAwake.step();
     // Blocks whose end passed complete (never during a boot hold).
     if (!this.bootHoldActive(now)) {
       const due = this.blocks.filter((b) => Date.parse(b.endsAt) <= now);
@@ -874,6 +888,8 @@ export class MockGuardian implements GuardianClient {
       recent: { endedBlocks: this.ended, endedStudy: null },
       // A seeded state keeps the fixture's `limits` (or their absence) until something changes.
       ...(this.version === this.seedVersion ? {} : { limits: this.limitBook.stateList() }),
+      // …and its `keepAwake` (or its absence) too.
+      ...(this.version === this.seedVersion ? {} : { keepAwake: this.keepAwake.state() }),
     });
   }
 
@@ -1665,6 +1681,28 @@ export class MockGuardian implements GuardianClient {
         balanceAfter: this.points.balance,
       };
     });
+  }
+
+  // «Mantener despierto» (ARCHITECTURE §5.11): `mock-keep-awake.ts`. Accepted in safe mode
+  // (it weakens nothing); refused only in frozen mode, like the real guardian.
+  async getKeepAwake(): Promise<KeepAwakeResponse> {
+    this.step();
+    return { keepAwake: this.keepAwake.state() };
+  }
+
+  async setKeepAwake(body: KeepAwakeRequest): Promise<KeepAwakeResponse> {
+    this.step();
+    if (this.base.guardian.mode === 'frozen') {
+      throw apiError('read_only', 'guardian is read-only', { reason: 'schema_too_new' });
+    }
+    const shape = validateRequest(keepAwakeRequestSchema, body);
+    if (!shape.ok) {
+      throw apiError(validationErrorCode(shape.issue), shape.issue.message, {
+        path: shape.issue.path,
+        issue: shape.issue.issue,
+      });
+    }
+    return { keepAwake: this.keepAwake.set(shape.value) };
   }
 
   async getSettings(): Promise<SettingsResponse> {

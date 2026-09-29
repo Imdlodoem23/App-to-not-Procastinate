@@ -10,7 +10,7 @@
  * says what happened).
  */
 import type { LucideIcon } from 'lucide-react';
-import { BookOpen, Check, ClockPlus, Lock, Timer, TriangleAlert } from 'lucide-react';
+import { BookOpen, Check, ClockPlus, Coffee, Lock, Timer, TriangleAlert } from 'lucide-react';
 import { useMemo } from 'react';
 import type { OsdIcon } from '../../../../shared/platform';
 import { Icon } from '../../components';
@@ -26,6 +26,7 @@ const ICONS: Readonly<Record<OsdIcon, LucideIcon>> = {
   check: Check,
   warning: TriangleAlert,
   study: BookOpen,
+  awake: Coffee,
 };
 
 export default function OsdWindow(): React.JSX.Element {

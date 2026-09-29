@@ -49,6 +49,9 @@ const (
 	EvExtensionRevoked   = "extension_revoked"
 	EvTamperDetected     = "tamper_detected"
 	EvLedgerRepaired     = "ledger_repaired"
+	EvKeepAwakeOn        = "keep_awake_on"
+	EvKeepAwakeUpdated   = "keep_awake_updated"
+	EvKeepAwakeOff       = "keep_awake_off"
 )
 
 // Data of every event type (EventDataMap in domain.ts). Every timestamp inside is
@@ -356,6 +359,18 @@ type LedgerRepairedData struct {
 	DroppedCount      int64  `json:"droppedCount"`
 	ArchivedAs        string `json:"archivedAs"`
 	BalanceCorrection int64  `json:"balanceCorrection"`
+}
+
+// KeepAwakeData is keep_awake_on and keep_awake_updated: the whole configuration after
+// the change (§5.11).
+type KeepAwakeData struct {
+	KeepAwake KeepAwakeConfig `json:"keepAwake"`
+}
+
+// KeepAwakeOffData is keep_awake_off (reason "user" or "expired").
+type KeepAwakeOffData struct {
+	KeepAwake KeepAwakeConfig `json:"keepAwake"`
+	Reason    string          `json:"reason"`
 }
 
 // ---------------------------------------------------------------------------------------

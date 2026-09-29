@@ -447,8 +447,8 @@ export const en: Copy = {
         text: 'For Chrome, Edge, Brave and Firefox: it blocks instantly and shows you your reason.',
       },
       {
-        name: 'Your reason',
-        text: 'A sentence of your own, like “I want to pass math”, that shows up right when you try to get in.',
+        name: 'Keep awake',
+        text: 'Your computer doesn’t go to sleep on its own, even with the app closed, until you turn it off or time runs out.',
       },
       {
         name: 'Reminders',
@@ -460,6 +460,10 @@ export const en: Copy = {
       },
     ],
     spare: [
+      {
+        name: 'Your reason',
+        text: 'A sentence of your own, like “I want to pass math”, that shows up right when you try to get in.',
+      },
       {
         name: 'Mini timer',
         text: 'A small, always-visible countdown you can place wherever you like.',
@@ -1059,7 +1063,7 @@ export const en: Copy = {
             {
               list: [
                 '**Access and portability:** Settings → Data → **Export**, as CSV.',
-                '**Erasure:** Settings → Data → **Delete all my data**, which asks you to type a confirmation word. Running blocks are not deleted: they end on time. Neither are your daily limits or what you have used today, so deleting can’t be used to get around a limit.',
+                '**Erasure:** Settings → Data → **Delete all my data**, which asks you to type a confirmation word. Running blocks are not deleted: they end on time. Neither are your daily limits or what you have used today, so deleting can’t be used to get around a limit, nor your “Keep awake” setting, which is a preference of the computer.',
                 '**Rectification:** change your settings, schedules and templates whenever you want. Points can’t be edited, so nobody can cheat, but they can be deleted.',
               ],
             },

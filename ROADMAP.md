@@ -68,6 +68,7 @@
 
 - [ ] Pomodoro, horarios, modo examen, estadísticas, recompensas, logros, mascota, sonidos, tareas, recordatorios
 - [x] Límites diarios («YouTube máximo 30 minutos al día»): entidad del guardián, uso informado por la extensión y la app, bloqueo hasta las 0:00, parser en español e inglés, sección en Bloqueos, avisos, estadísticas y web (`docs/ARCHITECTURE.md` §5.10 y §10.13)
+- [ ] Mantener despierto (como NoSleep): el guardián evita la suspensión por inactividad con la app cerrada y tras reiniciar (30 min, 1 h, 2 h, 4 h o hasta que lo desactives); la app mantiene la pantalla encendida si se quiere; bandeja, chip del pie, Ajustes y web (`docs/ARCHITECTURE.md` §5.11 y §10.14). Hecho: contrato, tipos compartidos, guardián, app y web; pendiente: probarlo en equipos reales (portátiles con Modern Standby, macOS como LaunchDaemon, suspensión automática de GNOME y KDE)
 - [ ] Ajustes completos, mini temporizador, OSD, auto-actualización, onboarding
 - [ ] Web estilo Apple terminada con capturas y vídeos reales
 - [ ] Release `v1.0.0`

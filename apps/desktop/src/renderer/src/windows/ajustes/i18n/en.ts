@@ -168,6 +168,31 @@ export const AJUSTES_EN: AjustesMessages = {
     durationValue: (minutes: string): string => `${minutes} min`,
     durationSaved: (minutes: string): string => `Punishment length: ${minutes} min`,
   },
+  keepAwake: {
+    title: {
+      off: 'Keep awake: off',
+      forever: 'Keep awake: until you turn it off',
+      until: (until: string): string => `Keep awake: ${until}`,
+    },
+    toggle: 'Keep awake',
+    toggleDesc: {
+      off: 'Stop the computer from sleeping when idle, even with Céntrate closed',
+      on: 'Keeps going if you close Céntrate or restart the computer',
+    },
+    duration: 'Duration',
+    durationDesc: 'Another duration while it is on starts the count again',
+    forever: 'No limit',
+    display: 'Keep the screen on too',
+    displayDesc: 'Only while Céntrate is open, also in the tray',
+    note: 'It only prevents sleeping when idle: closing the lid still puts the computer to sleep',
+    saved: {
+      on: 'Keep awake: on',
+      off: 'Keep awake: off',
+      duration: (label: string): string => `Duration: ${label}`,
+      displayOn: 'The screen will stay on',
+      displayOff: 'The screen will turn off as usual',
+    },
+  },
   sistema: {
     title: {
       ok: 'System: all good',

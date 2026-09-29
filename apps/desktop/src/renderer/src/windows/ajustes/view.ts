@@ -7,6 +7,8 @@
  *   blocks), big notices (OSD) and the global shortcuts;
  * - Bloqueo: default mode, penalties (and the read-only list of what costs points), «cerrar
  *   navegadores sin extensión», the schedule reminders and the 20-20-20 rule;
+ * - Mantener despierto (with the guardian's `keep_awake`): on/off, the duration (30 min … «Sin
+ *   límite»), «Mantener también la pantalla encendida» and what it never does (the lid);
  * - Study Mode (`study` flag only; with it off there is no group at all, since punishments only
  *   come from Study Mode): the punishment level and its duration (15–120 min), guardian
  *   settings that apply at once;
@@ -48,6 +50,15 @@ import {
   maxEscalationIndex,
 } from '@centrate/shared/points';
 import type { GuideId } from '../../../../shared/ipc';
+import {
+  KEEP_AWAKE_CHOICES,
+  keepAwakeIsOn,
+  keepAwakeOf,
+  keepAwakeSupported,
+  keepAwakeTroubleText,
+  keepAwakeUntilLabel,
+  type KeepAwakeChoice,
+} from '../../../../shared/keep-awake';
 import { formatClock, formatInt, formatSignedInt, modeLabel } from '../../../../shared/format';
 import type { ActiveWindowState, UpdaterState } from '../../../../shared/platform';
 import { SHORTCUT_ACTIONS, type AmbientSound, type ShortcutAction } from '../../../../shared/prefs';
@@ -173,6 +184,7 @@ function fixedAjustesKeys(): string[] {
 export const AJUSTES_IDS = {
   general: 'aj-general',
   bloqueo: 'aj-bloqueo',
+  keepAwake: 'aj-despierto',
   study: 'aj-study',
   sistema: 'aj-sistema',
   datos: 'aj-datos',
@@ -404,6 +416,8 @@ export interface AjustesView {
     /** `reminders` flag. */
     reminders: { schedules: boolean; schedulesDesc: string; eyeBreaks: boolean } | null;
   };
+  /** «Mantener despierto» (the guardian's `keep_awake` capability; `null` hides the group). */
+  keepAwake: KeepAwakeGroupView | null;
   /** `study` flag (`null` hides the whole group: punishments only come from Study Mode). */
   study: {
     title: string;
@@ -443,6 +457,55 @@ export interface AjustesView {
     deleteEnabled: boolean;
     deleteHelp: string;
     deleteKey: string;
+  };
+}
+
+export interface KeepAwakeGroupView {
+  /** «Mantener despierto: hasta las 18:30». */
+  title: string;
+  /** The switch: on (and its end not reached). */
+  on: boolean;
+  /** Under the switch: what it does, or (orange) why the computer is not kept awake. */
+  description: string;
+  tone: 'muted' | 'orange';
+  /** The slider's stop (`KEEP_AWAKE_CHOICES` index). */
+  durationIndex: number;
+  display: boolean;
+}
+
+/**
+ * The slider stop of a duration: its preset, else (a duration set through the API) the first
+ * longer preset, else the last timed one.
+ */
+export function keepAwakeDurationIndex(minutes: number | null): number {
+  const exact = KEEP_AWAKE_CHOICES.indexOf(minutes);
+  if (exact >= 0) return exact;
+  const timed = KEEP_AWAKE_CHOICES.flatMap((c, i) =>
+    c !== null && minutes !== null && c >= minutes ? [i] : [],
+  );
+  return timed[0] ?? KEEP_AWAKE_CHOICES.length - 2;
+}
+
+/** «30 min», «1 h» … «Sin límite» (the slider's value). */
+export function keepAwakeDurationLabel(choice: KeepAwakeChoice): string {
+  return choice === null ? A.keepAwake.forever : durationLabel(choice);
+}
+
+/** The «Mantener despierto» group, `null` when the guardian does not offer it. */
+export function keepAwakeGroup(snapshot: UiSnapshot, nowMs: number): KeepAwakeGroupView | null {
+  if (!keepAwakeSupported(snapshot)) return null;
+  const K = A.keepAwake;
+  const state = keepAwakeOf(snapshot);
+  const on = keepAwakeIsOn(state, nowMs);
+  const until = keepAwakeUntilLabel(state);
+  const trouble = keepAwakeTroubleText(state);
+  return {
+    title: !on ? K.title.off : until ? K.title.until(until) : K.title.forever,
+    on,
+    description: trouble ?? (on ? K.toggleDesc.on : K.toggleDesc.off),
+    tone: trouble ? 'orange' : 'muted',
+    durationIndex: keepAwakeDurationIndex(state.durationMinutes),
+    display: state.display,
   };
 }
 
@@ -925,6 +988,7 @@ export function deriveAjustesView(
           }
         : null,
     },
+    keepAwake: keepAwakeGroup(snapshot, nowMs),
     study: feature('study')
       ? {
           title: A.study.title,

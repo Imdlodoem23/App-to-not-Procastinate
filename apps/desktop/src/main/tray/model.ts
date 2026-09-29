@@ -8,7 +8,8 @@
  * - Tooltip: «Céntrate · YouTube · quedan 43 min · 1.240 pts».
  * - Title: «Céntrate», «Céntrate · quedan 42 min», «Céntrate · castigo 38 min».
  * - Menu: the tiles again (status, Ampliar ▸, Bloqueo rápido ▸, the «Mini temporizador»
- *   checkbox with its flag, Abrir, Salir). While a Nuclear punishment is trusted
+ *   checkbox with its flag, «Mantener despierto ▸» with the guardian's `keep_awake`, Abrir,
+ *   Salir). While a Nuclear punishment is trusted
  *   (`nuclearTrusted`) «Salir» gives way to «Salida de emergencia…»: quitting would only drop
  *   the overlay until the guardian relaunches the app, and keyboard users need a way out.
  *
@@ -17,6 +18,18 @@
 import type { Block } from '@centrate/shared/domain';
 import type { TrayMenuItemModel } from '../contracts';
 import { featureEnabled } from '../../shared/features';
+import {
+  KEEP_AWAKE_CHOICES,
+  keepAwakeAvailable,
+  keepAwakeChoiceLabel,
+  keepAwakeChoiceOf,
+  keepAwakeIsOn,
+  keepAwakeOf,
+  keepAwakeTrouble,
+  keepAwakeUntilLabel,
+  type KeepAwakeChoice,
+} from '../../shared/keep-awake';
+import { SHARED } from '../../shared/i18n';
 import {
   formatMinutes,
   formatPointsShort,
@@ -66,6 +79,10 @@ export const TRAY_ITEM = {
   quick: 'quick',
   template: (id: string): string => `template:${id}`,
   miniTimer: 'mini-timer',
+  keepAwake: 'keep-awake',
+  /** «30 min» … «Hasta que lo desactive» (`keep-awake:forever`). */
+  keepAwakeFor: (choice: KeepAwakeChoice): string => `keep-awake:${choice ?? 'forever'}`,
+  keepAwakeOff: 'keep-awake:off',
   open: 'open',
   quit: 'quit',
   emergency: 'emergency',
@@ -76,6 +93,8 @@ export type TrayAction =
   | { type: 'template'; templateId: string }
   /** The «Mini temporizador» checkbox: show or hide it. */
   | { type: 'mini-timer' }
+  /** «Mantener despierto ▸» (also the footer chip's menu): on for that long, or off. */
+  | { type: 'keep-awake'; choice: KeepAwakeChoice | 'off' }
   | { type: 'open' }
   | { type: 'quit' }
   /** «Salida de emergencia…» (Nuclear): Emergencia above the overlay. */
@@ -87,6 +106,12 @@ export function trayActionForItem(id: string): TrayAction | null {
   if (id === TRAY_ITEM.quit) return { type: 'quit' };
   if (id === TRAY_ITEM.emergency) return { type: 'emergency' };
   if (id === TRAY_ITEM.miniTimer) return { type: 'mini-timer' };
+  if (id === TRAY_ITEM.keepAwakeOff) return { type: 'keep-awake', choice: 'off' };
+  const awake = /^keep-awake:(forever|\d{1,4})$/.exec(id);
+  if (awake?.[1]) {
+    const choice = awake[1] === 'forever' ? null : Number(awake[1]);
+    if (KEEP_AWAKE_CHOICES.includes(choice)) return { type: 'keep-awake', choice };
+  }
   const extend = /^extend:(\d{1,4})$/.exec(id);
   if (extend?.[1]) return { type: 'extend', minutes: Number(extend[1]) };
   if (id.startsWith('template:') && id.length > 'template:'.length) {
@@ -189,7 +214,19 @@ function remainingText(s: { remainingMs: number; bootHold?: boolean }): string {
 }
 
 export function trayTooltip(snapshot: UiSnapshot, nowMs: number): string {
-  return truncateTooltip(tooltipFor(situation(snapshot, nowMs)));
+  return truncateTooltip(withAwake(tooltipFor(situation(snapshot, nowMs)), snapshot, nowMs));
+}
+
+/** «… · despierto hasta las 18:30» while «Mantener despierto» is on (nothing while off). */
+function withAwake(tooltip: string, snapshot: UiSnapshot, nowMs: number): string {
+  if (!keepAwakeAvailable(snapshot)) return tooltip;
+  const state = keepAwakeOf(snapshot);
+  if (!keepAwakeIsOn(state, nowMs)) return tooltip;
+  const awake =
+    keepAwakeTrouble(state) !== null
+      ? TRAY.tooltip.awakeFailed
+      : TRAY.tooltip.awake(keepAwakeUntilLabel(state));
+  return join([tooltip, awake]);
 }
 
 function tooltipFor(s: Situation): string {
@@ -339,6 +376,15 @@ export function trayMenu(snapshot: UiSnapshot, nowMs: number): TrayMenuItemModel
     );
   }
 
+  if (keepAwakeAvailable(snapshot)) {
+    items.push(
+      item(TRAY_ITEM.keepAwake, TRAY.menu.keepAwake, {
+        type: 'submenu',
+        submenu: keepAwakeMenuItems(snapshot, nowMs),
+      }),
+    );
+  }
+
   items.push(
     separator('sep-actions'),
     item(TRAY_ITEM.open, TRAY.menu.open),
@@ -349,11 +395,30 @@ export function trayMenu(snapshot: UiSnapshot, nowMs: number): TrayMenuItemModel
   return items;
 }
 
+/**
+ * The «Mantener despierto» choices (the tray submenu and the footer chip's menu): 30 min, 1 h,
+ * 2 h, 4 h and «Hasta que lo desactive», the running one checked, then «Desactivar» while on.
+ * Choosing the running one again changes nothing (the countdown keeps going).
+ */
+export function keepAwakeMenuItems(snapshot: UiSnapshot, nowMs: number): TrayMenuItemModel[] {
+  const current = keepAwakeChoiceOf(keepAwakeOf(snapshot), nowMs);
+  const items = KEEP_AWAKE_CHOICES.map((choice) =>
+    item(TRAY_ITEM.keepAwakeFor(choice), keepAwakeChoiceLabel(choice), {
+      type: 'checkbox',
+      checked: current !== undefined && current === choice,
+    }),
+  );
+  if (current !== undefined) {
+    items.push(separator('sep-keep-awake'), item(TRAY_ITEM.keepAwakeOff, SHARED.keepAwake.turnOff));
+  }
+  return items;
+}
+
 export function trayView(snapshot: UiSnapshot, nowMs: number): TrayView {
   const s = situation(snapshot, nowMs);
   return {
     icon: iconFor(s),
-    tooltip: truncateTooltip(tooltipFor(s)),
+    tooltip: truncateTooltip(withAwake(tooltipFor(s), snapshot, nowMs)),
     title: titleFor(s),
     macTitle: macTitleFor(s),
     menu: trayMenu(snapshot, nowMs),

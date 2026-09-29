@@ -40,7 +40,8 @@ test('blocked.html, the popup and the guide speak English', async ({ extension, 
   const popup = await extension.openPopup();
   await expect(popup.locator('html')).toHaveAttribute('lang', 'en');
   await expect(popup.getByText('Block: YouTube · Strict')).toBeVisible();
-  await expect(popup.getByText(/^until \d{1,2}:\d{2}\s[AP]M$/)).toBeVisible();
+  // «until tomorrow 12:20 AM» when the run is 25 min before midnight (CI runs in Europe/Madrid).
+  await expect(popup.getByText(/^until (tomorrow )?\d{1,2}:\d{2}\s[AP]M$/)).toBeVisible();
   await expect(popup.getByText(PAGES_EN.status.connected)).toBeVisible();
   await expect(popup.getByRole('button', { name: PAGES_EN.common.guide })).toBeVisible();
 

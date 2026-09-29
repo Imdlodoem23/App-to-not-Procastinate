@@ -13,7 +13,7 @@
  * `img`: it is interactive. Colors are set in
  * `estadisticas.css` (classes), never here.
  */
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Bar,
   BarChart,
@@ -49,11 +49,16 @@ function NoTooltip(): null {
   return null;
 }
 
-/** Reports the bar under the pointer or the keyboard to the window. */
-function ActiveBar(props: { onChange(key: string | null): void }): null {
+/**
+ * Reports the bar under the pointer or the keyboard to the window. `engaged`: the pointer is
+ * over the chart or the focus is in it. Recharts throttles its mouse moves, so a quick exit can
+ * leave its active bar set after the pointer has gone; the help line must not keep that day.
+ */
+function ActiveBar(props: { engaged: boolean; onChange(key: string | null): void }): null {
   const active = useIsTooltipActive();
   const label = useActiveTooltipLabel();
-  const key = active && label !== undefined && label !== null ? String(label) : null;
+  const key =
+    props.engaged && active && label !== undefined && label !== null ? String(label) : null;
   const { onChange } = props;
   useEffect(() => onChange(key), [key, onChange]);
   return null;
@@ -110,6 +115,8 @@ export default function BarsChart(props: BarsChartProps): React.JSX.Element {
   const { bars, maxKey, maxLabel, tickLabels } = props;
   const data = bars.map((b) => ({ key: b.key, minutes: b.minutes }));
   const maxMinutes = bars.find((b) => b.key === maxKey)?.minutes ?? 0;
+  const [pointerIn, setPointerIn] = useState(false);
+  const [focusIn, setFocusIn] = useState(false);
 
   // A label that would run past the chart's left edge starts at it («00:00» of a day).
   const renderTick = (tick: TickProps): React.JSX.Element => {
@@ -130,41 +137,55 @@ export default function BarsChart(props: BarsChartProps): React.JSX.Element {
   };
 
   return (
-    <BarChart
-      className="est-bars"
-      data={data}
-      width="100%"
-      height={props.height}
-      responsive
-      margin={MARGIN}
-      barCategoryGap={2}
-      role="group"
-      aria-roledescription={props.roleDescription}
-      title={props.title}
-      aria-describedby={props.describedBy}
+    <div
+      className="est-bars-frame"
+      onPointerEnter={() => setPointerIn(true)}
+      onPointerLeave={() => setPointerIn(false)}
+      onFocus={() => setFocusIn(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setFocusIn(false);
+      }}
     >
-      <XAxis
-        dataKey="key"
-        ticks={[...props.ticks]}
-        interval={0}
-        tickLine={false}
-        tick={renderTick}
-        height={18}
-      />
-      <YAxis hide domain={[0, (max: number) => Math.max(1, max)]} />
-      <Tooltip content={NoTooltip} cursor={{ className: 'est-cursor' }} isAnimationActive={false} />
-      <Bar
-        dataKey="minutes"
-        className="est-bar"
-        radius={RADIUS}
-        maxBarSize={24}
-        minPointSize={minBar}
-        isAnimationActive={false}
-      />
-      {maxKey !== null && maxLabel !== null ? (
-        <MaxLabel maxKey={maxKey} minutes={maxMinutes} text={maxLabel} />
-      ) : null}
-      <ActiveBar onChange={props.onActiveChange} />
-    </BarChart>
+      <BarChart
+        className="est-bars"
+        data={data}
+        width="100%"
+        height={props.height}
+        responsive
+        margin={MARGIN}
+        barCategoryGap={2}
+        role="group"
+        aria-roledescription={props.roleDescription}
+        title={props.title}
+        aria-describedby={props.describedBy}
+      >
+        <XAxis
+          dataKey="key"
+          ticks={[...props.ticks]}
+          interval={0}
+          tickLine={false}
+          tick={renderTick}
+          height={18}
+        />
+        <YAxis hide domain={[0, (max: number) => Math.max(1, max)]} />
+        <Tooltip
+          content={NoTooltip}
+          cursor={{ className: 'est-cursor' }}
+          isAnimationActive={false}
+        />
+        <Bar
+          dataKey="minutes"
+          className="est-bar"
+          radius={RADIUS}
+          maxBarSize={24}
+          minPointSize={minBar}
+          isAnimationActive={false}
+        />
+        {maxKey !== null && maxLabel !== null ? (
+          <MaxLabel maxKey={maxKey} minutes={maxMinutes} text={maxLabel} />
+        ) : null}
+        <ActiveBar engaged={pointerIn || focusIn} onChange={props.onActiveChange} />
+      </BarChart>
+    </div>
   );
 }

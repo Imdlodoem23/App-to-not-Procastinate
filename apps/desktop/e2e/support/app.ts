@@ -186,6 +186,8 @@ function callHarness(electron: ElectronApplication): HarnessClient {
     'trayMenu',
     'clickTrayItem',
     'trayTooltip',
+    'keepAwakeMenu',
+    'keepAwakeDisplay',
     'windowTitle',
     'bounds',
     'snapshot',

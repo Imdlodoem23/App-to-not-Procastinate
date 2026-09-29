@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/imdlodoem23/centrate/guardian/internal/api"
+	"github.com/imdlodoem23/centrate/guardian/internal/awake"
 	"github.com/imdlodoem23/centrate/guardian/internal/engine"
 	"github.com/imdlodoem23/centrate/guardian/internal/hosts"
 	"github.com/imdlodoem23/centrate/guardian/internal/nuclear"
@@ -98,6 +99,10 @@ type Options struct {
 	// down: Unix service managers stop services with the same signal for a shutdown and
 	// for a plain stop (§13). Default SystemShuttingDown.
 	ShuttingDown func() bool
+	// NewInhibitor creates the keep-awake inhibitor (§10.14). Default the OS mechanism
+	// (awake.New); testhooks builds default to an awake.Fake, so end-to-end runs never
+	// keep the test machine awake.
+	NewInhibitor func(onChange func()) awake.Inhibitor
 	// OnFatal is called once when the guardian cannot start (the startup ladder
 	// failed). The binary exits so the service manager restarts it (≥ 3 unclean starts
 	// in 5 minutes lead to safe mode, §10.12). Default: only logged.
@@ -223,6 +228,10 @@ func (r *Runner) Start(ctx context.Context) error {
 	if dns == nil {
 		dns = defaultFlusher(currentHostsPath(hl, o.HostsPath), log)
 	}
+	newInhibitor := o.NewInhibitor
+	if newInhibitor == nil && api.TestHooksEnabled() {
+		newInhibitor = func(onChange func()) awake.Inhibitor { return awake.NewFake(onChange) }
+	}
 	nuc := o.Nuclear
 	if nuc == nil {
 		// The app config.json names is the only one relaunched (§10.5); without it the
@@ -251,6 +260,7 @@ func (r *Runner) Start(ctx context.Context) error {
 		HostsPath:       o.HostsPath,
 		DetectTimezone:  o.DetectTimezone,
 		DisableWatchers: o.DisableWatchers,
+		NewInhibitor:    newInhibitor,
 	})
 	if err != nil {
 		return fmt.Errorf("daemon: engine: %w", err)

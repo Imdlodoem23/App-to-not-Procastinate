@@ -65,6 +65,7 @@ const VALID: Record<string, unknown> = {
   'limits:create': { intentId: 'i-5', input: limitInput },
   'limits:update': { id: LIM, input: limitInput },
   'limits:delete': { id: LIM },
+  'keep-awake:set': { change: { on: true, durationMinutes: 60 } },
   'templates:save': {
     id: null,
     label: 'Mates',
@@ -114,6 +115,16 @@ const INVALID: Record<string, unknown[]> = {
   ],
   'limits:update': [{ id: SCH, input: limitInput }],
   'limits:delete': [{ id: 'lim_1' }],
+  'keep-awake:set': [
+    { change: {} },
+    { change: { on: 'yes' } },
+    { change: { durationMinutes: 4 } },
+    { change: { durationMinutes: 1441 } },
+    { change: { durationMinutes: 30.5 } },
+    { change: { until: null } },
+    { change: { on: true }, extra: 1 },
+    { on: true },
+  ],
   'templates:save': [{ id: null, label: 'x' }],
   'prefs:set': [{ theme: 'blue' }, { token: 'x' }],
   'data:delete': [

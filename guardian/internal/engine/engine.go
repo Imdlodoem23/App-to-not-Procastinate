@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/imdlodoem23/centrate/guardian/internal/awake"
 	"github.com/imdlodoem23/centrate/guardian/internal/catalog"
 	"github.com/imdlodoem23/centrate/guardian/internal/clock"
 	"github.com/imdlodoem23/centrate/guardian/internal/embedded"
@@ -118,6 +119,10 @@ type Options struct {
 	// DisableWatchers keeps Start from running the hosts and process watchers (tests
 	// that drive detections by hand).
 	DisableWatchers bool
+	// NewInhibitor creates the keep-awake inhibitor (§10.14) once the startup ladder is
+	// done; onChange asks the engine for a turn and never blocks. Default awake.New (the
+	// OS mechanism, logging to Logger); tests pass awake.Fake.
+	NewInhibitor func(onChange func()) awake.Inhibitor
 }
 
 // Engine is the guardian's single owner of mutable state (§10.1). Every mutation and
@@ -156,6 +161,8 @@ type Engine struct {
 	watcherErr   atomic.Bool
 	eventsNotify *notifier
 	rulesNotify  *notifier
+	// kaWake is signalled by the keep-awake inhibitor when its status changes.
+	kaWake chan struct{}
 
 	// Everything below is owned by the engine goroutine.
 	det       *clock.Detector
@@ -216,6 +223,11 @@ type Engine struct {
 	kills        []int64
 	tampers      []int64
 	lastCountKey map[string]attemptMemo
+
+	// inh is the keep-awake inhibitor (created at the end of startup) and kaSeen what
+	// /v1/state last showed of it (keepawake.go).
+	inh    awake.Inhibitor
+	kaSeen kaStatus
 }
 
 // command is one unit of work for the engine goroutine.
@@ -286,6 +298,10 @@ func New(o Options) (*Engine, error) {
 	if o.NewTicker == nil {
 		o.NewTicker = newRealTicker
 	}
+	if o.NewInhibitor == nil {
+		logger := o.Logger
+		o.NewInhibitor = func(onChange func()) awake.Inhibitor { return awake.New(onChange, awake.WithLogger(logger)) }
+	}
 	e := &Engine{
 		o:            o,
 		cat:          o.Catalog,
@@ -296,6 +312,7 @@ func New(o Options) (*Engine, error) {
 		loopDone:     make(chan struct{}),
 		eventsNotify: newNotifier(),
 		rulesNotify:  newNotifier(),
+		kaWake:       make(chan struct{}, 1),
 		state:        newEngineState(),
 		mode:         ModeGuardianNormal,
 		errCounts:    map[string]*DiagnosticsError{},
@@ -419,6 +436,10 @@ func (e *Engine) loop(ctx context.Context) {
 			close(c.done)
 		case <-t.C():
 			e.step()
+		case <-e.kaWake:
+			// The keep-awake inhibitor's status changed: show it without waiting a tick.
+			e.timeStep()
+			e.afterTurn()
 		}
 	}
 }
@@ -488,6 +509,9 @@ func (e *Engine) Stop() error {
 	e.wg.Wait()
 	e.inlineMu.Lock()
 	defer e.inlineMu.Unlock()
+	// Keep-awake is released with the service (a clean stop, an uninstall); a crash
+	// releases it with the process (§10.14).
+	e.closeInhibitor()
 	e.waitIO()
 	e.lifeMu.Lock()
 	e.running = false
@@ -716,6 +740,7 @@ func (e *Engine) timeStep() {
 	e.completeBlocks(e.now)
 	e.activateSchedules(e.now)
 	e.limitsStep(e.now, dBoot.Milliseconds())
+	e.keepAwakeStep(e.now)
 	e.studyStep(dAwake.Milliseconds(), e.now)
 	e.emergencyStep()
 	e.pruneHistory(e.now)

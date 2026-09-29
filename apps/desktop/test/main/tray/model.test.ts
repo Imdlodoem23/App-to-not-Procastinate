@@ -19,8 +19,12 @@ import {
   harnessFixture,
   makeBlock,
   makeGuardianState,
+  makeHealth,
+  makeKeepAwake,
   type HarnessStateId,
 } from '../../../src/shared/fixtures';
+import { withLocale } from '../../../src/shared/i18n/locale';
+import { GUARDIAN_CAPABILITIES } from '@centrate/shared/guardian-api';
 import { resolveFeatures } from '../../../src/shared/features';
 import type { UiSnapshot } from '../../../src/shared/ui-state';
 
@@ -96,6 +100,11 @@ const EXPECTED_ICON: Record<HarnessStateId, TrayIconKey> = {
   'limit-confirm': 'idle',
   'limit-block': 'strict',
   'limits-unsupported': 'idle',
+  'keep-awake': 'idle',
+  'keep-awake-until': 'red',
+  'keep-awake-error': 'strict',
+  'keep-awake-ajustes': 'idle',
+  'keep-awake-unsupported': 'idle',
 };
 
 describe('tray icon', () => {
@@ -191,6 +200,7 @@ describe('menu', () => {
       'extend',
       'quick',
       'mini-timer',
+      'keep-awake',
       'sep-actions',
       'open',
       'quit',
@@ -304,5 +314,91 @@ describe('refresh timer', () => {
     }
     expect(nextTrayRefreshDelay(snap('idle'), NOW)).toBeNull();
     expect(nextTrayRefreshDelay(snap('protection-broken'), NOW)).toBeNull();
+  });
+});
+
+describe('«Mantener despierto ▸»', () => {
+  const MIN = 60_000;
+  const labels = (items: readonly TrayMenuItemModel[]): [string, string, boolean][] =>
+    items.map((i) => [i.id, i.label, i.checked]);
+
+  it('offers 30 min, 1 h, 2 h, 4 h and «Hasta que lo desactive» while off', () => {
+    const menu = trayMenu(snap('idle'), NOW);
+    const awake = find(menu, TRAY_ITEM.keepAwake);
+    expect(awake).toMatchObject({ label: 'Mantener despierto', type: 'submenu' });
+    expect(labels(awake?.submenu ?? [])).toEqual([
+      ['keep-awake:30', '30 min', false],
+      ['keep-awake:60', '1 h', false],
+      ['keep-awake:120', '2 h', false],
+      ['keep-awake:240', '4 h', false],
+      ['keep-awake:forever', 'Hasta que lo desactive', false],
+    ]);
+    expect(awake?.submenu.every((i) => i.type === 'checkbox')).toBe(true);
+    // Before «Abrir Céntrate».
+    expect(ids(menu).indexOf('keep-awake')).toBeLessThan(ids(menu).indexOf('open'));
+  });
+
+  it('checks the running choice and adds «Desactivar» while on', () => {
+    const until = find(trayMenu(snap('keep-awake-until'), NOW), TRAY_ITEM.keepAwake);
+    expect(until?.submenu.filter((i) => i.checked).map((i) => i.id)).toEqual(['keep-awake:120']);
+    expect(until?.submenu.at(-1)).toMatchObject({ id: 'keep-awake:off', label: 'Desactivar' });
+    const forever = find(trayMenu(snap('keep-awake'), NOW), TRAY_ITEM.keepAwake);
+    expect(forever?.submenu.filter((i) => i.checked).map((i) => i.id)).toEqual([
+      'keep-awake:forever',
+    ]);
+  });
+
+  it('shows nothing checked once the end passed (before the guardian says it is off)', () => {
+    const later = NOW + 91 * MIN;
+    const awake = find(trayMenu(snap('keep-awake-until'), later), TRAY_ITEM.keepAwake);
+    expect(awake?.submenu.some((i) => i.checked)).toBe(false);
+    expect(find(awake?.submenu ?? [], TRAY_ITEM.keepAwakeOff)).toBeUndefined();
+  });
+
+  it('hides without the capability or while the guardian is down', () => {
+    const s = snap('keep-awake');
+    const older = {
+      ...s,
+      health: makeHealth(NOW, {
+        capabilities: GUARDIAN_CAPABILITIES.filter((c) => c !== 'keep_awake'),
+      }),
+    };
+    expect(find(trayMenu(older, NOW), TRAY_ITEM.keepAwake)).toBeUndefined();
+    expect(trayTooltip(older, NOW)).not.toContain('despierto');
+    expect(find(trayMenu(snap('protection-broken'), NOW), TRAY_ITEM.keepAwake)).toBeUndefined();
+    expect(find(trayMenu(snap('not-installed'), NOW), TRAY_ITEM.keepAwake)).toBeUndefined();
+  });
+
+  it('says it in the tooltip while on', () => {
+    expect(trayTooltip(snap('keep-awake'), NOW)).toBe(
+      'Céntrate · sin bloqueos · 1.240 pts · despierto',
+    );
+    expect(trayTooltip(snap('keep-awake-until'), NOW)).toMatch(/· despierto hasta las 18:30$/);
+    expect(trayTooltip(snap('keep-awake-error'), NOW)).toMatch(/· no se puede mantener despierto$/);
+    expect(trayTooltip(snap('idle'), NOW)).not.toContain('despierto');
+    withLocale('en', () => {
+      expect(trayTooltip(snap('keep-awake-until'), NOW)).toMatch(/· awake until 6:30\sPM$/);
+      expect(find(trayMenu(snap('keep-awake'), NOW), TRAY_ITEM.keepAwakeOff)?.label).toBe(
+        'Turn off',
+      );
+    });
+  });
+
+  it('maps its item ids to actions (and nothing else)', () => {
+    expect(trayActionForItem('keep-awake:30')).toEqual({ type: 'keep-awake', choice: 30 });
+    expect(trayActionForItem('keep-awake:240')).toEqual({ type: 'keep-awake', choice: 240 });
+    expect(trayActionForItem('keep-awake:forever')).toEqual({ type: 'keep-awake', choice: null });
+    expect(trayActionForItem('keep-awake:off')).toEqual({ type: 'keep-awake', choice: 'off' });
+    expect(trayActionForItem('keep-awake')).toBeNull();
+    expect(trayActionForItem('keep-awake:45')).toBeNull();
+    expect(trayActionForItem('keep-awake:9999')).toBeNull();
+  });
+
+  it('keeps an unusual duration set elsewhere unchecked', () => {
+    const s = snap('idle');
+    const state = s.state ? { ...s.state, keepAwake: makeKeepAwake(NOW - MIN, 90) } : null;
+    const awake = find(trayMenu({ ...s, state }, NOW), TRAY_ITEM.keepAwake);
+    expect(awake?.submenu.some((i) => i.checked)).toBe(false);
+    expect(find(awake?.submenu ?? [], TRAY_ITEM.keepAwakeOff)).toBeDefined();
   });
 });

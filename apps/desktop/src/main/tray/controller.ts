@@ -14,6 +14,7 @@ import {
   Menu,
   Tray,
   nativeImage,
+  type BrowserWindow,
   type MenuItemConstructorOptions,
   type NativeImage,
 } from 'electron';
@@ -23,6 +24,7 @@ import type { AppLog } from '../app/log';
 import type { Rect } from '../windows/geometry';
 import { trayIconFileName, trayIconVariant, type TrayIconSpec, type TraySurface } from './icons';
 import {
+  TRAY_ITEM,
   nextTrayRefreshDelay,
   trayActionForItem,
   trayView,
@@ -41,6 +43,11 @@ export interface TrayControllerOptions {
   onAction(action: TrayAction): void;
   /** The view changed (the bootstrap sets the main window's title from it). */
   onView(view: TrayView): void;
+  /**
+   * Harness: popup menus (the footer chip's «Mantener despierto» choices) are only recorded,
+   * never shown (a native menu would hold the pointer grab of the test display).
+   */
+  recordPopups?: boolean;
 }
 
 export class TrayController {
@@ -53,6 +60,7 @@ export class TrayController {
   private tooltipText = '';
   private macTitle = '';
   private timer: TimerHandle | null = null;
+  private lastPopup: TrayMenuItemModel[] | null = null;
   private readonly images = new Map<string, NativeImage>();
 
   constructor(private readonly options: TrayControllerOptions) {}
@@ -113,6 +121,12 @@ export class TrayController {
     }
   }
 
+  /** Builds the context menu again from the current view, whatever Electron did to it. */
+  private rebuildMenu(): void {
+    this.menuJson = '';
+    if (this.view) this.apply(this.view);
+  }
+
   private applyIcon(view: TrayView): void {
     const tray = this.tray;
     if (!tray || tray.isDestroyed()) return;
@@ -161,7 +175,12 @@ export class TrayController {
             label: item.label,
             enabled: item.enabled,
             checked: item.checked,
-            click: () => this.dispatch(item.id),
+            click: () => {
+              this.dispatch(item.id);
+              // Electron flips the check mark on click; when the choice changes nothing (the
+              // running «Mantener despierto» duration) no new view comes to put it back.
+              this.rebuildMenu();
+            },
           };
         case 'normal':
           return {
@@ -197,6 +216,29 @@ export class TrayController {
     }
     const action = trayActionForItem(id);
     if (action) this.options.onAction(action);
+  }
+
+  /**
+   * The main window's «Despierto» chip: the same choices as «Mantener despierto ▸», as a native
+   * popup at `anchor` (CSS px of `window`); their clicks go through `dispatch` like the tray's.
+   * `false` when the submenu is not offered now (the guardian does not answer, no capability).
+   */
+  popupKeepAwake(window: BrowserWindow | null, anchor: { x: number; y: number }): boolean {
+    const items = this.view?.menu.find((i) => i.id === TRAY_ITEM.keepAwake)?.submenu ?? [];
+    if (items.length === 0) return false;
+    this.lastPopup = structuredClone(items);
+    if (this.options.recordPopups || !window || window.isDestroyed()) return true;
+    Menu.buildFromTemplate(this.template(items)).popup({
+      window,
+      x: Math.round(anchor.x),
+      y: Math.round(anchor.y),
+    });
+    return true;
+  }
+
+  /** The last popup's items (harness). */
+  lastPopupMenu(): TrayMenuItemModel[] | null {
+    return this.lastPopup ? structuredClone(this.lastPopup) : null;
   }
 
   currentMenu(): TrayMenuItemModel[] {

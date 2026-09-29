@@ -271,7 +271,14 @@ test('Esc in a detail window: disarms «¿Seguro?» first, then closes the windo
 test('Ctrl+E then 2 extends by 30 min (sent after the 5 s undo); the focus survives the undo line', async () => {
   const launched = await start('one-block');
   const main = await launched.page('main');
-  await expectFocusSomewhere(main, 'after show');
+  // Right after the launch the window may still be placing its focus (slow CI): wait for it,
+  // then the later stages check it never falls.
+  await expect
+    .poll(async () => focusIsSomewhere(await focusInfo(main)), {
+      message: 'after show: the focus fell to <body>',
+      timeout: 3_000,
+    })
+    .toBe(true);
 
   await main.keyboard.press('Control+E');
   await main.keyboard.press('2');

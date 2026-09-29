@@ -133,7 +133,15 @@ export const INITIAL_SHORTCUTS: Readonly<ShortcutStatus> = Object.freeze({ faile
 // ---------------------------------------------------------------------------------------
 
 /** The OSD's 20 px lucide icon (the text always says what happened). */
-export const OSD_ICONS = ['extend', 'block', 'timer', 'check', 'warning', 'study'] as const;
+export const OSD_ICONS = [
+  'extend',
+  'block',
+  'timer',
+  'check',
+  'warning',
+  'study',
+  'awake',
+] as const;
 export type OsdIcon = (typeof OSD_ICONS)[number];
 
 /** The accent of the icon (the pill itself is always black at 60 % with white text). */

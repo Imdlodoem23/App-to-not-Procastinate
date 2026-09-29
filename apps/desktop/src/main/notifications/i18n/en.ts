@@ -39,6 +39,11 @@ export const NOTIFY_EN: NotifyMessages = {
     warningAlso: (count: number): string =>
       count === 1 ? 'one daily limit almost used up' : `${count} limits almost used up`,
   },
+  keepAwake: {
+    title: 'No longer kept awake',
+    body: 'The computer goes back to sleeping when you are away.',
+    also: 'no longer kept awake',
+  },
   also: (parts: readonly string[]): string => `Also: ${parts.join(', ')}`,
   closeHint: {
     title: 'Céntrate is still in the tray',

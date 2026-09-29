@@ -206,6 +206,40 @@ export const AJUSTES_ES = {
     durationValue: (minutes: string): string => `${minutes} min`,
     durationSaved: (minutes: string): string => `Duración del castigo: ${minutes} min`,
   },
+  /**
+   * «Mantener despierto» (ARCHITECTURE §5.11): the guardian keeps the computer from sleeping on
+   * idle, also with Céntrate closed; the app keeps the screen on while it runs.
+   */
+  keepAwake: {
+    /** «Cosa: valor»: what it does now. */
+    title: {
+      off: 'Mantener despierto: desactivado',
+      forever: 'Mantener despierto: hasta que lo desactives',
+      /** «Mantener despierto: hasta las 18:30». */
+      until: (until: string): string => `Mantener despierto: ${until}`,
+    },
+    toggle: 'Mantener despierto',
+    toggleDesc: {
+      off: 'Que el equipo no se suspenda por inactividad, aunque cierres Céntrate',
+      on: 'Sigue aunque cierres Céntrate o reinicies el equipo',
+    },
+    duration: 'Duración',
+    durationDesc: 'Otra duración con él activado empieza la cuenta de nuevo',
+    /** The slider's last stop (the tray says «Hasta que lo desactive»). */
+    forever: 'Sin límite',
+    display: 'Mantener también la pantalla encendida',
+    displayDesc: 'Solo mientras Céntrate está abierto, también en la bandeja',
+    /** Under the group: what it never does. */
+    note: 'Solo evita la suspensión por inactividad: cerrar la tapa sigue suspendiendo el equipo',
+    /** Screen readers, after a change (the switch and the title already show it). */
+    saved: {
+      on: 'Mantener despierto: activado',
+      off: 'Mantener despierto: desactivado',
+      duration: (label: string): string => `Duración: ${label}`,
+      displayOn: 'La pantalla se mantendrá encendida',
+      displayOff: 'La pantalla se apagará como siempre',
+    },
+  },
   sistema: {
     title: {
       ok: 'Sistema: todo en orden',

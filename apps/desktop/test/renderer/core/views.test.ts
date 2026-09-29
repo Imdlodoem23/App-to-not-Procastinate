@@ -212,6 +212,8 @@ describe('section 5 «Pie»', () => {
       // Phase 5 turned the miniTimer flag on (its window starts hidden).
       buttons: ['miniTimer', 'settings', 'quit'],
       miniTimerVisible: false,
+      // «Mantener despierto» is off: no chip.
+      awake: null,
     });
   });
 

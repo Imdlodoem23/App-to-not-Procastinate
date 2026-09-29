@@ -15,6 +15,10 @@ export const PLATFORM_ES = {
     miniTimerHidden: 'Mini temporizador oculto',
     /** «Salir» refused while a Nuclear punishment lasts. */
     nuclearQuit: 'Nuclear en curso · usa la salida de emergencia',
+    /** «Mantener despierto» from the tray: «Despierto hasta las 18:30», «Despierto». */
+    awakeOn: (until: string | null): string => (until ? `Despierto ${until}` : 'Despierto'),
+    awakeOff: 'Ya no se mantiene despierto',
+    awakeFailed: 'No se ha podido cambiar «Mantener despierto»',
   },
   /** Window titles of the surfaces, read by screen readers (the OSD has none: it never focuses). */
   surfaceTitles: {

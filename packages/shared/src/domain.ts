@@ -421,6 +421,46 @@ export interface DailyLimit extends DailyLimitDefinition {
   pendingChange: PendingLimitChange | null;
 }
 
+/**
+ * «Mantener despierto» (ARCHITECTURE §5.11): the user's keep-awake configuration. The
+ * guardian owns and persists it (it survives an app quit and a reboot) and holds the OS
+ * idle-sleep inhibition while `on`. It is **not** an anti-cheat setting: every change
+ * applies at once, and it never touches points, crediting or any block rule. In events its
+ * times are trusted time; in API responses, display time.
+ */
+export interface KeepAwakeConfig {
+  on: boolean;
+  /**
+   * Chosen duration in minutes (`keepAwakeMinMinutes`…`keepAwakeMaxMinutes`; the UI offers
+   * `KEEP_AWAKE_PRESET_MINUTES`), or `null` for «Hasta que lo desactive». Kept while off:
+   * it is the duration the next «Activar» uses.
+   */
+  durationMinutes: number | null;
+  /**
+   * «Mantener también la pantalla encendida». Only the desktop app acts on it, while it runs
+   * (a system service cannot keep the display on); the guardian just stores it.
+   */
+  display: boolean;
+  /** When it was last turned on; `null` while off. */
+  since: IsoUtc | null;
+  /** When it turns itself off (`since`… plus `durationMinutes`); `null` while off or without a duration. */
+  until: IsoUtc | null;
+}
+
+/**
+ * Why the OS inhibition is not held:
+ * - `unsupported`: this machine has no mechanism (for example `systemd-inhibit` is
+ *   missing). May be reported while off, from a probe, so the UI can warn beforehand.
+ * - `failed`: the mechanism failed while on (the guardian keeps retrying) or the guardian
+ *   cannot hold it right now (frozen mode).
+ */
+export const KEEP_AWAKE_ERRORS = ['unsupported', 'failed'] as const;
+export type KeepAwakeError = (typeof KEEP_AWAKE_ERRORS)[number];
+
+/** Why keep-awake turned off (`keep_awake_off.reason`). */
+export const KEEP_AWAKE_OFF_REASONS = ['user', 'expired'] as const;
+export type KeepAwakeOffReason = (typeof KEEP_AWAKE_OFF_REASONS)[number];
+
 export interface PomodoroSpec {
   workMinutes: number;
   breakMinutes: number;
@@ -705,6 +745,11 @@ export interface EpochKeptState {
    * started before daily limits (read it as `[]`).
    */
   limits?: DailyLimit[];
+  /**
+   * The keep-awake configuration (data deletion keeps it: it is a device preference, not
+   * history). Absent in epochs started before keep-awake (read it as the default, off).
+   */
+  keepAwake?: KeepAwakeConfig;
 }
 
 /**
@@ -948,6 +993,18 @@ export interface EventDataMap {
     archivedAs: string;
     balanceCorrection: number;
   };
+  /**
+   * Keep-awake (§5.11). Each event carries the whole resulting configuration (trusted
+   * times), so the reducer only keeps the last snapshot.
+   * - `keep_awake_on`: it was off and a `PUT` turned it on.
+   * - `keep_awake_updated`: a `PUT` changed `durationMinutes` or `display` without turning it
+   *   on or off (a new duration while on restarts the countdown from that moment).
+   * - `keep_awake_off`: the user turned it off, or `until` passed (`expired`, also found at
+   *   startup after the machine was off).
+   */
+  keep_awake_on: { keepAwake: KeepAwakeConfig };
+  keep_awake_updated: { keepAwake: KeepAwakeConfig };
+  keep_awake_off: { keepAwake: KeepAwakeConfig; reason: KeepAwakeOffReason };
 }
 
 export type EventType = keyof EventDataMap;
@@ -993,6 +1050,9 @@ export const EVENT_TYPES = [
   'extension_revoked',
   'tamper_detected',
   'ledger_repaired',
+  'keep_awake_on',
+  'keep_awake_updated',
+  'keep_awake_off',
 ] as const satisfies readonly EventType[];
 
 /** One event of a known type (discriminated on `type`). */

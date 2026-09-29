@@ -35,6 +35,10 @@ func (e *Engine) startFrozen(rep store.RecoveryReport) error {
 	}
 	e.startClock()
 	e.startedAt = e.now
+	// Frozen mode never holds keep-awake (§10.14); the inhibitor still probes support.
+	e.openInhibitor()
+	e.keepAwakeHold()
+	e.kaSeen = e.keepAwakeStatus(e.keepAwake())
 	e.reconcile()
 	return nil
 }

@@ -65,6 +65,15 @@
     opacity: 1;
   }
 
+  /* A theme change swaps every colour at once: without this, the background transitions
+     (tiles, chips) fade while the text colour switches instantly, and for a moment text sits
+     on a half-way background below 4.5:1. Set by WindowChrome for two frames. */
+  html[data-theme-switching] *,
+  html[data-theme-switching] *::before,
+  html[data-theme-switching] *::after {
+    transition: none !important;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,

@@ -31,6 +31,11 @@ export interface WindowIpcOptions {
   quit(): void;
   openGuide(guide: GuideId): void;
   /**
+   * The main window's «Despierto» chip: pop up the «Mantener despierto» choices at this point
+   * of the main window. Without it (tests) the message is ignored.
+   */
+  keepAwakeMenu?(anchor: { x: number; y: number }): void;
+  /**
    * Phase 5 (docs/DESKTOP.md §15): the platform services take the new send channels and the
    * surfaces' readiness. Without them (tests) the new channels are ignored.
    */
@@ -81,6 +86,9 @@ export function createSendHandlers(options: WindowIpcOptions): SendHandlers {
     'app:quit': () => options.quit(),
     // MAIN-GUARDIAN's app log keeps only the first line and frames, scrubbed.
     'app:renderer-error': ({ message, stack }) => logRendererError(message, stack),
+    'keep-awake:menu': (anchor, ctx) => {
+      if (ctx.window === 'main') options.keepAwakeMenu?.(anchor);
+    },
     // Phase 5 (docs/DESKTOP.md §15): PLATFORM's `PlatformServices.sendHandlers`.
     ...(options.platform?.sendHandlers ?? phase5SendStubs()),
   };

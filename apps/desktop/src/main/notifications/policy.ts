@@ -10,10 +10,13 @@
  * - attempt: `attempt` whose envelope `points < 0` («Intento bloqueado: −10 puntos»);
  * - daily limits: `limit_warning` («Te quedan 5 min de YouTube hoy») and `limit_reached`
  *   («Has gastado tus 30 min de YouTube de hoy»). Limit blocks never say «Bloqueo iniciado»
- *   (their `block_created` has source `limit`) nor «Quedan 5 min» (they end at midnight).
+ *   (their `block_created` has source `limit`) nor «Quedan 5 min» (they end at midnight);
+ * - keep-awake ended on its own: `keep_awake_off` with reason `expired` («Ya no se mantiene
+ *   despierto»; turning it off by hand says nothing, the user just did it).
  *
  * Grouping: one notification carries everything queued, titled by the highest priority kind
- * (finished > limit reached > started > limit warning > five minutes > attempts) with the rest in one «También: …» line.
+ * (finished > limit reached > started > limit warning > five minutes > attempts > keep-awake
+ * ended) with the rest in one «También: …» line.
  * Events older than 2 minutes never notify (no storm after sleep or a restart).
  */
 import { getService } from '@centrate/shared/catalog';
@@ -33,7 +36,8 @@ export type NoticeKind =
   | 'block_started'
   | 'limit_warning'
   | 'five_minutes'
-  | 'attempt';
+  | 'attempt'
+  | 'keep_awake_expired';
 
 /** Lower comes first. */
 export const NOTICE_PRIORITY: Readonly<Record<NoticeKind, number>> = Object.freeze({
@@ -43,6 +47,7 @@ export const NOTICE_PRIORITY: Readonly<Record<NoticeKind, number>> = Object.free
   limit_warning: 3,
   five_minutes: 4,
   attempt: 5,
+  keep_awake_expired: 6,
 });
 
 /** Events whose display time is older than this never notify. */
@@ -139,6 +144,18 @@ export function noticesFromEvents(events: readonly WireEvent[], nowMs: number): 
           label: d.name,
           points: 0,
           minutes: d.dailyMinutes,
+        });
+        break;
+      }
+      case 'keep_awake_off': {
+        if (event.data.reason !== 'expired') break;
+        out.push({
+          ...base,
+          kind: 'keep_awake_expired',
+          blockId: null,
+          endsAtMs: null,
+          label: null,
+          points: 0,
         });
         break;
       }
@@ -244,7 +261,8 @@ export function isStale(
     notice.kind === 'block_finished' ||
     notice.kind === 'attempt' ||
     notice.kind === 'limit_warning' ||
-    notice.kind === 'limit_reached'
+    notice.kind === 'limit_reached' ||
+    notice.kind === 'keep_awake_expired'
   ) {
     return false;
   }
@@ -321,6 +339,10 @@ export function composeNotification(notices: readonly Notice[]): NotificationCon
       body = labels.slice(0, 2).join(', ');
       break;
     }
+    case 'keep_awake_expired':
+      title = NOTIFY.keepAwake.title;
+      body = NOTIFY.keepAwake.body;
+      break;
   }
   const also = rest.map((kind) => {
     const g = groups.get(kind) ?? [];
@@ -338,6 +360,8 @@ export function composeNotification(notices: readonly Notice[]): NotificationCon
         return NOTIFY.limits.reachedAlso(g.length);
       case 'limit_warning':
         return NOTIFY.limits.warningAlso(g.length);
+      case 'keep_awake_expired':
+        return NOTIFY.keepAwake.also;
     }
   });
   if (also.length > 0) {

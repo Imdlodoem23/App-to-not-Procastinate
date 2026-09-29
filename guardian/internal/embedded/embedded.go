@@ -305,6 +305,18 @@ type APIContractSnapshot struct {
 	DataDeleteConfirmWords []string         `json:"dataDeleteConfirmWords"`
 	ChromiumExtensionID    string           `json:"chromiumExtensionId"`
 	DefaultSettings        GuardianSettings `json:"defaultSettings"`
+	// DefaultKeepAwake is DEFAULT_KEEP_AWAKE: keep-awake of a fresh install (§5.11).
+	DefaultKeepAwake KeepAwakeConfig `json:"defaultKeepAwake"`
+}
+
+// KeepAwakeConfig mirrors KeepAwakeConfig (domain.ts). In api.json only the fresh-install
+// default: off, no duration («Hasta que lo desactive»), screen kept on too.
+type KeepAwakeConfig struct {
+	On              bool    `json:"on"`
+	DurationMinutes *int    `json:"durationMinutes"`
+	Display         bool    `json:"display"`
+	Since           *string `json:"since"`
+	Until           *string `json:"until"`
 }
 
 // Limits mirrors GUARDIAN_LIMITS. Text lengths count UTF-16 code units; *Ms values are
@@ -376,6 +388,9 @@ type Limits struct {
 	UsageMaxItems             int `json:"usageMaxItems"`
 	UsageSlackMs              int `json:"usageSlackMs"`
 	UsageIdleSeconds          int `json:"usageIdleSeconds"`
+	// Keep-awake (ARCHITECTURE §5.11): durationMinutes range.
+	KeepAwakeMinMinutes int `json:"keepAwakeMinMinutes"`
+	KeepAwakeMaxMinutes int `json:"keepAwakeMaxMinutes"`
 }
 
 // ResponseLimits mirrors RESPONSE_LIMITS: the size caps of the TS response validators,

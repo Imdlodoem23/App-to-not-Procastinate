@@ -33,6 +33,7 @@ import type {
   DailyLimitInput,
   DeleteDataResponse,
   EmergencyPreviewResponse,
+  KeepAwakeState,
   PairingCodeResponse,
   RedeemRewardResponse,
   RewardsResponse,
@@ -49,6 +50,7 @@ import type {
   SoundData,
   UpdaterState,
 } from './platform';
+import type { KeepAwakeChange } from './keep-awake';
 import type { SoundId } from './prefs';
 import type {
   CsvExportKind,
@@ -120,7 +122,12 @@ export type UiCommand =
   /** Tray «Bloqueo rápido ▸»: open the confirmation card for a template. */
   | { type: 'confirm-template'; templateId: string }
   /** Bloqueos «Bloquear…»: open the confirmation card with the form's draft. */
-  | { type: 'confirm-draft'; draft: BlockDraft };
+  | { type: 'confirm-draft'; draft: BlockDraft }
+  /**
+   * A «Mantener despierto» choice from the tray or the footer chip was refused (frozen mode,
+   * the guardian did not answer) while «Avisos grandes» is off: the footer's help line says so.
+   */
+  | { type: 'keep-awake-failed' };
 
 // ---------------------------------------------------------------------------------------
 // Contracts
@@ -189,6 +196,13 @@ export interface InvokeContract {
   'limits:update': { req: { id: LimitId; input: DailyLimitInput }; res: CommandResult<DailyLimit> };
   /** DELETE: never at once, a pending deletion (`pendingChange.definition: null`). */
   'limits:delete': { req: { id: LimitId }; res: CommandResult<DailyLimit> };
+
+  /**
+   * «Mantener despierto» (ARCHITECTURE §5.11): Ajustes changes one field; main reads the
+   * guardian's configuration and sends the whole `PUT /v1/keep-awake` (applied at once, a
+   * repeated choice changes nothing). Only when `health.capabilities` lists `keep_awake`.
+   */
+  'keep-awake:set': { req: { change: KeepAwakeChange }; res: CommandResult<KeepAwakeState> };
 
   'templates:save': { req: TemplateInput; res: CommandResult<BlockTemplate[]> };
   'templates:delete': { req: { id: string }; res: CommandResult<BlockTemplate[]> };
@@ -307,6 +321,11 @@ export interface SendContract {
   /** «Salir» (flushes the extend queue first; blocks stay active). */
   'app:quit': null;
   'app:renderer-error': { message: string; stack: string | null };
+  /**
+   * The main window's «Despierto» chip: main pops up the tray's «Mantener despierto» choices
+   * as a native menu at this point (CSS px of the main window, the chip's bottom-left).
+   */
+  'keep-awake:menu': { x: number; y: number };
 
   // Phase 5 (docs/DESKTOP.md §15); PLATFORM handles them.
   /** Footer «Mini temporizador», tray checkbox, shortcut. `visible: null` toggles. */
@@ -406,6 +425,7 @@ const INVOKE_RECORD = {
   'limits:create': true,
   'limits:update': true,
   'limits:delete': true,
+  'keep-awake:set': true,
   'templates:save': true,
   'templates:delete': true,
   'prefs:set': true,
@@ -449,6 +469,7 @@ const SEND_RECORD = {
   'app:open-guide': true,
   'app:quit': true,
   'app:renderer-error': true,
+  'keep-awake:menu': true,
   'mini-timer:toggle': true,
   'mini-timer:position': true,
   'osd:show': true,

@@ -12,6 +12,21 @@ export const FOOTER_ES = {
     `Descargando v${version} · ${percent} %`,
   /** The same before the first progress report. */
   downloadingStart: (version: string): string => `Descargando v${version}…`,
+  /**
+   * The «Despierto» chip (right of the status line while «Mantener despierto» is on): short,
+   * so it fits beside «Guardián activo · Extensión desconectada».
+   */
+  awake: {
+    /** On but not held: the help line under the buttons says why. */
+    error: 'Despierto: error',
+    /** What pressing it does (its description). */
+    help: 'Cambia cuánto tiempo o desactívalo',
+    /**
+     * A choice from the chip's menu or the tray was refused (e.g. the guardian is frozen) and
+     * «Avisos grandes» is off: the help line under the buttons says so.
+     */
+    failed: 'No se ha podido cambiar «Mantener despierto»',
+  },
   /** Outcome of «Actualizar a vX» on the footer's help line. */
   result: {
     restarting: 'Reiniciando para actualizar. Los bloqueos siguen activos',
