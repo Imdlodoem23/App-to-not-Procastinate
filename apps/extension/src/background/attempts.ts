@@ -29,12 +29,18 @@
  *
  * **Firefox.** DNR's redirect to blocked.html is a new load there (a switch to the
  * extension process), with its own `onBeforeNavigate` for blocked.html and a commit
- * qualified `server_redirect`; webRequest may report the redirect after the commit. An
- * `onBeforeNavigate` of blocked.html within `BLOCKED_PAGE_FOLLOW_MS` of a pending http(s)
- * navigation keeps it, marked `superseded`: only a redirect commit (`server_redirect`)
- * matches it then, never blocked.html opened by hand or by `tabs.update`. Chromium fires
- * no `onBeforeNavigate` for DNR's redirect (e2e/redirect.e2e.ts), so none of this applies
- * there. e2e/firefox/ checks it in a real Firefox.
+ * qualified `server_redirect`. An `onBeforeNavigate` of blocked.html within
+ * `BLOCKED_PAGE_FOLLOW_MS` of a pending http(s) navigation keeps it, marked `superseded`:
+ * only a redirect commit (`server_redirect`) matches it then, never blocked.html opened by
+ * hand or by `tabs.update`. Firefox (128 ESR and 156 checked) delivers a navigation's
+ * webRequest events on another channel than its webNavigation ones, often after the commit
+ * (tens to hundreds of ms): `onBeforeRequest` (who started it), every server redirect
+ * (t.co → instagram.com) and, last, DNR's own redirect, which Firefox does report
+ * (`statusCode` 200, `redirectUrl` blocked.html). So the commit of such a redirect waits
+ * for that report (`REDIRECT_REPORT_MS` at most, then it goes on with what it has): its
+ * `url` is the site DNR blocked, and the request's origin has arrived by then. Chromium
+ * fires no `onBeforeNavigate` for DNR's redirect (e2e/redirect.e2e.ts), so none of this
+ * applies there. e2e/firefox/ checks it in a real Firefox.
  *
  * **Client-side filtering** (the guardian stays authoritative and merges detections of
  * the same target within 30 s itself):
@@ -110,6 +116,12 @@ export const CLIENT_DUPLICATE_MS = 2_000;
  * `onBeforeNavigate` of blocked.html that DNR's redirect of it fires (tens of ms).
  */
 export const BLOCKED_PAGE_FOLLOW_MS = 2_000;
+/**
+ * Firefox: longest wait, at the commit of DNR's redirect to blocked.html, for webRequest's
+ * report of that redirect (usually tens to hundreds of ms after the commit, see the module
+ * comment). It only bounds a report that never comes: the report itself ends the wait.
+ */
+export const REDIRECT_REPORT_MS = 5_000;
 /**
  * A tab a page opened counts its first navigation (a link with `target=_blank`, a popup
  * opened on a click) only this soon after it opened: Chromium's user activation lasts 5 s.
@@ -398,6 +410,19 @@ interface PendingNav {
    * page opened by hand): only a `server_redirect` commit matches it.
    */
   superseded?: boolean;
+  /** webRequest already reported the redirect to blocked.html (`url` is the blocked site). */
+  reported?: boolean;
+}
+
+/**
+ * Firefox: a commit of DNR's redirect waiting for webRequest's late report of it (see the
+ * module comment), with what the tab showed before that commit.
+ */
+interface RedirectWait {
+  /** Ends the wait with the blocked site's URL, or `null` without a report. */
+  finish(url: string | null): void;
+  from: string | undefined;
+  openedAt: number | undefined;
 }
 
 /** Who started a tab's latest top-level request (`webRequest.onBeforeRequest`). */
@@ -476,6 +501,7 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
   const openedByPage = new Map<number, number>();
   /** Tabs this module asked the browser to move to blocked.html, with when. */
   const moves = new Map<number, number>();
+  const redirectWaits = new Map<number, RedirectWait>();
   const extensionOrigin = originOf(base);
 
   const pageUrl = (cause: BlockedCause, serviceId: string | null, enforced: boolean): string =>
@@ -667,6 +693,29 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
     return move(tabId, pageUrl(cause, serviceId, true));
   }
 
+  /**
+   * Firefox: waits for webRequest's report of DNR's redirect in `tabId` (the blocked site's
+   * URL); `null` after `REDIRECT_REPORT_MS` or when the tab moves on without one.
+   */
+  function redirectReport(
+    tabId: number,
+    before: Pick<RedirectWait, 'from' | 'openedAt'>,
+  ): Promise<string | null> {
+    redirectWaits.get(tabId)?.finish(null);
+    return new Promise((resolve) => {
+      const wait: RedirectWait = {
+        ...before,
+        finish: (url) => {
+          clearTimeout(timer);
+          if (redirectWaits.get(tabId) === wait) redirectWaits.delete(tabId);
+          resolve(url);
+        },
+      };
+      const timer = setTimeout(() => wait.finish(null), REDIRECT_REPORT_MS);
+      redirectWaits.set(tabId, wait);
+    });
+  }
+
   /** Who started the navigation that commits now (consumed: one per commit). */
   function takeRequestOrigin(tabId: number): RequestOrigin | undefined {
     const entry = requestOrigins.get(tabId);
@@ -686,7 +735,20 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
     const tabId = details.tabId;
     const nav = pending.get(tabId);
     pending.delete(tabId);
-    const started = nav !== undefined && now() - nav.at <= NAV_MATCH_MS ? nav : undefined;
+    let started = nav !== undefined && now() - nav.at <= NAV_MATCH_MS ? nav : undefined;
+    const blockedPage = isBlockedPageUrl(details.url, base);
+    const serverRedirect = details.transitionQualifiers?.includes('server_redirect') === true;
+    const before = { from: documentOrigins.get(tabId), openedAt: openedByPage.get(tabId) };
+    committedIn(tabId, blockedPage ? extensionOrigin : originOf(details.url));
+
+    if (blockedPage && started?.superseded === true && serverRedirect && !started.reported) {
+      // Firefox, DNR's redirect committed before webRequest reported it: the report says
+      // which site was blocked (not the redirector the navigation started at), and comes
+      // after the request's onBeforeRequest (who started it).
+      const url = await redirectReport(tabId, before);
+      const host = url === null ? null : hostFromUrl(url);
+      if (url !== null && host !== null) started = { ...started, url, host };
+    }
     const request = takeRequestOrigin(tabId);
     const byPage = startedByPage({
       transitionQualifiers: details.transitionQualifiers,
@@ -695,20 +757,13 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
       openedByPageAt: request?.openedAt,
       now: now(),
     });
-    const blockedPage = isBlockedPageUrl(details.url, base);
-    committedIn(tabId, blockedPage ? extensionOrigin : originOf(details.url));
 
     if (blockedPage) {
       // Opened by the extension (its info is already written), by hand or by another page:
       // only a redirect of a navigation seen at onBeforeNavigate is an attempt, for the URL
       // DNR redirected (onBeforeRedirect), not the redirector the navigation started at.
       if (started === undefined) return;
-      if (
-        started.superseded &&
-        details.transitionQualifiers?.includes('server_redirect') !== true
-      ) {
-        return;
-      }
+      if (started.superseded && !serverRedirect) return;
       const rules = await deps.getEffectiveRules();
       await detect(details, started, 'redirected', rules, matchHost(rules, started.host), byPage);
       return;
@@ -759,6 +814,8 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
         }
         return;
       }
+      // A new navigation: a commit still waiting for the previous one's report goes on.
+      redirectWaits.get(details.tabId)?.finish(null);
       const host = hostFromUrl(details.url);
       if (host === null) pending.delete(details.tabId);
       else pending.set(details.tabId, { url: details.url, host, at: now() });
@@ -771,10 +828,28 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
       // which is what DNR sees next. A redirect to blocked.html (DNR's own, where the
       // browser reports it, or a server's) keeps `url`: the site DNR blocked, or a
       // redirector no rule blocks, which is then never an attempt.
-      const url = isBlockedPageUrl(details.redirectUrl, base) ? details.url : details.redirectUrl;
+      const toBlockedPage = isBlockedPageUrl(details.redirectUrl, base);
+      const url = toBlockedPage ? details.url : details.redirectUrl;
+      const wait = redirectWaits.get(details.tabId);
+      if (wait !== undefined) {
+        // Late (Firefox): the commit already took the navigation and waits for DNR's hop.
+        if (toBlockedPage) wait.finish(url);
+        return;
+      }
       const host = hostFromUrl(url);
-      if (host === null) pending.delete(details.tabId);
-      else pending.set(details.tabId, { url, host, at: now() });
+      if (host === null) {
+        pending.delete(details.tabId);
+        return;
+      }
+      // Firefox may report a hop after blocked.html's onBeforeNavigate: still superseded.
+      const superseded = pending.get(details.tabId)?.superseded === true;
+      pending.set(details.tabId, {
+        url,
+        host,
+        at: now(),
+        ...(superseded ? { superseded } : {}),
+        ...(toBlockedPage ? { reported: true } : {}),
+      });
     },
 
     onBeforeRequest(details) {
@@ -782,10 +857,12 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
       if (details.type !== undefined && details.type !== 'main_frame') return;
       // Chromium: `initiator` is an origin; Firefox: `originUrl` is the document's URL.
       const source = details.initiator ?? details.originUrl;
+      // Late (Firefox): the tab already committed blocked.html; what it showed before counts.
+      const wait = redirectWaits.get(details.tabId);
       requestOrigins.set(details.tabId, {
         initiator: originOf(source),
-        from: documentOrigins.get(details.tabId),
-        openedAt: openedByPage.get(details.tabId),
+        from: wait !== undefined ? wait.from : documentOrigins.get(details.tabId),
+        openedAt: wait !== undefined ? wait.openedAt : openedByPage.get(details.tabId),
         at: now(),
       });
     },
@@ -804,6 +881,7 @@ export function createAttemptTracker(deps: AttemptTrackerDeps): AttemptTracker {
     },
 
     async onTabRemoved(tabId) {
+      redirectWaits.get(tabId)?.finish(null);
       pending.delete(tabId);
       documentOrigins.delete(tabId);
       requestOrigins.delete(tabId);

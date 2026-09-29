@@ -14,6 +14,7 @@ import {
   MOVE_GRACE_MS,
   NAV_MATCH_MS,
   OPENED_TAB_GRACE_MS,
+  REDIRECT_REPORT_MS,
   SWEEP_ALARM,
   TICK_ALARM,
   createAttemptTracker,
@@ -439,13 +440,61 @@ describe('createAttemptTracker', () => {
     expect(await h.store.get(5)).toMatchObject({ status: 'counted' });
   });
 
-  // Event orders recorded in Firefox 136 (e2e/firefox/): DNR's redirect is a new load of
-  // blocked.html with its own onBeforeNavigate; webRequest may report it after the commit.
+  // Event orders recorded in Firefox 128 ESR and 156 (e2e/firefox/): DNR's redirect is a new
+  // load of blocked.html with its own onBeforeNavigate, and webRequest's events (the
+  // request, its server redirects and DNR's own redirect, last) often arrive after the
+  // commit.
   const FIREFOX_BASE = 'moz-extension://6a1f3b0e-2c4d-4e5f-8a9b-0c1d2e3f4a5b/';
 
-  function firefoxHarness(): Harness & { page: string } {
-    return Object.assign(harness(FIREFOX_BASE), {
-      page: `${FIREFOX_BASE}blocked.html?cause=domain&service=youtube`,
+  function firefoxHarness(): Harness & {
+    page: string;
+    /** webRequest's events for a top-level request of `tabId` through `hops`, then DNR's. */
+    webRequest(tabId: number, hops: string[], originUrl?: string): void;
+  } {
+    const f = harness(FIREFOX_BASE);
+    const page = `${FIREFOX_BASE}blocked.html?cause=domain&service=youtube`;
+    return Object.assign(f, {
+      page,
+      webRequest(tabId: number, hops: string[], originUrl?: string) {
+        hops.forEach((url, i) => {
+          f.tracker.onBeforeRequest({
+            tabId,
+            frameId: 0,
+            url,
+            type: 'main_frame',
+            ...(originUrl !== undefined ? { originUrl } : {}),
+          });
+          f.tracker.onBeforeRedirect({
+            tabId,
+            frameId: 0,
+            url,
+            redirectUrl: hops[i + 1] ?? page,
+            type: 'main_frame',
+          });
+        });
+      },
+    });
+  }
+
+  /** Lets a commit start (and wait for webRequest) before the late events are sent. */
+  async function commitFirst(): Promise<void> {
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+  }
+
+  /** DNR's redirect committing in Firefox: onBeforeNavigate of blocked.html, then the commit. */
+  function firefoxRedirectCommit(
+    f: ReturnType<typeof firefoxHarness>,
+    tabId: number,
+    qualifiers: string[] = ['server_redirect'],
+  ): Promise<void> {
+    f.advance(30);
+    f.tracker.onBeforeNavigate({ tabId, frameId: 0, url: f.page });
+    return f.tracker.onCommitted({
+      tabId,
+      frameId: 0,
+      url: f.page,
+      transitionType: 'link',
+      transitionQualifiers: qualifiers,
     });
   }
 
@@ -453,32 +502,107 @@ describe('createAttemptTracker', () => {
     const f = firefoxHarness();
     f.tabs.set(4, { id: 4, url: 'about:blank', incognito: false });
     f.tracker.onBeforeNavigate({ tabId: 4, frameId: 0, url: 'https://www.youtube.com/' });
-    f.advance(30);
-    f.tracker.onBeforeNavigate({ tabId: 4, frameId: 0, url: f.page });
-    await f.tracker.onCommitted({
-      tabId: 4,
-      frameId: 0,
-      url: f.page,
-      transitionType: 'link',
-      transitionQualifiers: ['server_redirect'],
-    });
+    const committed = firefoxRedirectCommit(f, 4);
+    // webRequest reports the request and DNR's redirect after the commit, which waits.
+    await commitFirst();
+    expect(f.reports).toEqual([]);
+    f.webRequest(4, ['https://www.youtube.com/']);
+    await committed;
     expect(f.reports).toEqual([{ host: 'www.youtube.com', incognito: false }]);
     expect(await f.store.get(4)).toMatchObject({ status: 'counted', host: 'www.youtube.com' });
 
-    // webRequest's onBeforeRedirect after the commit, then a reload of the page: nothing
-    // changes (the page still shows what the attempt cost).
-    f.tracker.onBeforeRedirect({
-      tabId: 4,
-      frameId: 0,
-      url: 'https://www.youtube.com/',
-      redirectUrl: f.page,
-      type: 'main_frame',
-    });
+    // A reload of the page: nothing changes (the page still shows what the attempt cost).
     f.advance(500);
     f.tracker.onBeforeNavigate({ tabId: 4, frameId: 0, url: f.page });
     await f.tracker.onCommitted({ tabId: 4, frameId: 0, url: f.page, transitionType: 'reload' });
     expect(f.reports).toHaveLength(1);
     expect(await f.store.get(4)).toMatchObject({ status: 'counted', pointsDelta: -10 });
+  });
+
+  it('Firefox: counts the site a redirector led to when webRequest reports it after the commit', async () => {
+    const f = firefoxHarness();
+    f.tabs.set(5, { id: 5, url: 'about:blank', incognito: false });
+    const redirector = 'http://t.co/abc';
+    f.tracker.onBeforeNavigate({ tabId: 5, frameId: 0, url: redirector });
+    const committed = firefoxRedirectCommit(f, 5);
+    await commitFirst();
+    f.webRequest(5, [redirector, 'https://www.youtube.com/watch?v=1']);
+    await committed;
+    expect(f.reports).toEqual([{ host: 'www.youtube.com', incognito: false }]);
+    expect(await f.store.get(5)).toMatchObject({
+      status: 'counted',
+      host: 'www.youtube.com',
+      url: 'https://www.youtube.com/watch?v=1',
+    });
+    // Nothing of that navigation is left for the next commit of the tab.
+    f.advance(CLIENT_DUPLICATE_MS);
+    f.tracker.onBeforeNavigate({ tabId: 5, frameId: 0, url: f.page });
+    await f.tracker.onCommitted({ tabId: 5, frameId: 0, url: f.page, transitionType: 'reload' });
+    expect(f.reports).toHaveLength(1);
+  });
+
+  it('Firefox: tells a click from a page-driven navigation when webRequest reports it late', async () => {
+    const f = firefoxHarness();
+    f.tabs.set(6, { id: 6, url: 'https://news.example/', incognito: false });
+    await f.tracker.onCommitted({
+      tabId: 6,
+      frameId: 0,
+      url: 'https://news.example/',
+      transitionType: 'typed',
+    });
+    // A click on a link of the page the tab shows: counted.
+    f.tracker.onBeforeNavigate({ tabId: 6, frameId: 0, url: 'https://www.youtube.com/' });
+    const clicked = firefoxRedirectCommit(f, 6);
+    await commitFirst();
+    f.webRequest(6, ['https://www.youtube.com/'], 'https://news.example/story');
+    await clicked;
+    expect(f.reports).toEqual([{ host: 'www.youtube.com', incognito: false }]);
+
+    // Driven by another document (its opener, a frame of another site): blocked, not counted.
+    f.advance(60_000);
+    f.tabs.set(7, { id: 7, url: 'https://news.example/', incognito: false });
+    await f.tracker.onCommitted({
+      tabId: 7,
+      frameId: 0,
+      url: 'https://news.example/',
+      transitionType: 'typed',
+    });
+    f.tracker.onBeforeNavigate({ tabId: 7, frameId: 0, url: 'https://www.instagram.com/' });
+    const driven = firefoxRedirectCommit(f, 7);
+    await commitFirst();
+    f.webRequest(7, ['https://www.instagram.com/'], 'https://ads.example/frame');
+    await driven;
+    expect(f.reports).toHaveLength(1);
+    expect(await f.store.get(7)).toMatchObject({ status: 'not_counted', pointsDelta: 0 });
+  });
+
+  it('Firefox: without a report of the redirect, goes on with the navigation it saw', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = firefoxHarness();
+      f.tabs.set(8, { id: 8, url: 'about:blank', incognito: false });
+      f.tracker.onBeforeNavigate({ tabId: 8, frameId: 0, url: 'https://www.youtube.com/' });
+      const committed = firefoxRedirectCommit(f, 8);
+      await vi.advanceTimersByTimeAsync(REDIRECT_REPORT_MS - 1);
+      expect(f.reports).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      await committed;
+      expect(f.reports).toEqual([{ host: 'www.youtube.com', incognito: false }]);
+
+      // A new navigation of the tab ends the wait at once.
+      f.advance(60_000);
+      f.tracker.onBeforeNavigate({ tabId: 8, frameId: 0, url: 'https://www.instagram.com/' });
+      const waiting = firefoxRedirectCommit(f, 8);
+      await commitFirst();
+      f.tracker.onBeforeNavigate({ tabId: 8, frameId: 0, url: 'https://es.wikipedia.org/' });
+      await waiting;
+      expect(f.reports).toEqual([
+        { host: 'www.youtube.com', incognito: false },
+        { host: 'www.instagram.com', incognito: false },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('Firefox: counts the site a server redirect led to when webRequest reports it first', async () => {
@@ -567,14 +691,10 @@ describe('createAttemptTracker', () => {
     f.advance(1_000);
     await f.tracker.onCommitted({ tabId: 9, frameId: 0, url, transitionType: 'link' });
     f.tracker.onBeforeNavigate({ tabId: 9, frameId: 0, url });
-    f.tracker.onBeforeNavigate({ tabId: 9, frameId: 0, url: f.page });
-    await f.tracker.onCommitted({
-      tabId: 9,
-      frameId: 0,
-      url: f.page,
-      transitionType: 'link',
-      transitionQualifiers: ['forward_back', 'server_redirect'],
-    });
+    const committed = firefoxRedirectCommit(f, 9, ['forward_back', 'server_redirect']);
+    await commitFirst();
+    f.webRequest(9, [url]);
+    await committed;
     expect(f.reports).toEqual([]);
     expect(await f.store.get(9)).toMatchObject({ status: 'ignored', pointsDelta: 0 });
   });
