@@ -11,6 +11,11 @@ on:
         description: 'Version to release (X.Y.Z). Empty = version in apps/desktop/package.json'
         required: false
         type: string
+      publish:
+        description: 'Publish the release (off = build every installer only, e.g. from a branch)'
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -26,6 +31,7 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
       proceed: ${{ steps.v.outputs.proceed }}
+      ref: ${{ steps.v.outputs.ref }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -52,14 +58,12 @@ jobs:
               echo "Version 0.0.0 is never released"; PROCEED=false
             elif git rev-parse "v$VERSION" >/dev/null 2>&1; then
               echo "Tag v$VERSION already exists: nothing to release"; PROCEED=false
-            else
-              git config user.name "github-actions[bot]"
-              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-              git tag -a "v$VERSION" -m "Céntrate v$VERSION"
-              git push origin "v$VERSION"
             fi
           fi
+          # The tag is created only when the release is published (publish job), so a failed
+          # build never burns a version.
           echo "proceed=$PROCEED" >> "$GITHUB_OUTPUT"
+          echo "ref=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build (${{ matrix.os }})
@@ -82,7 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: v${{ needs.prepare.outputs.version }}
+          ref: ${{ needs.prepare.outputs.ref }}
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -154,7 +158,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: v${{ needs.prepare.outputs.version }}
+          ref: ${{ needs.prepare.outputs.ref }}
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -176,14 +180,16 @@ jobs:
   publish:
     name: Publish release
     needs: [prepare, build, extension]
+    if: github.event_name != 'workflow_dispatch' || inputs.publish
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
+      REF: ${{ needs.prepare.outputs.ref }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: v${{ needs.prepare.outputs.version }}
+          ref: ${{ needs.prepare.outputs.ref }}
       - uses: actions/download-artifact@v6
         with:
           path: dist
@@ -206,7 +212,8 @@ jobs:
             gh release upload "v$VERSION" dist/* --clobber
             gh release edit "v$VERSION" --draft=false --latest
           else
-            gh release create "v$VERSION" dist/* --title "Céntrate v$VERSION" --notes-file notes.md --latest
+            # Creates the tag v$VERSION on the built commit when it does not exist yet.
+            gh release create "v$VERSION" dist/* --target "$REF" --title "Céntrate v$VERSION" --notes-file notes.md --latest
           fi
 
   verify-links:
