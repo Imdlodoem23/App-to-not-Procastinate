@@ -9,7 +9,7 @@
  * finds (`firefox` on the PATH).
  */
 import type { ChildProcess } from 'node:child_process';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { delimiter, join } from 'node:path';
@@ -54,6 +54,18 @@ export function findGeckodriver(): string | null {
     }
   }
   return onPath('geckodriver');
+}
+
+/**
+ * Whether this geckodriver takes `--allow-system-access` (0.36+). Firefox 138+ only lets
+ * WebDriver into the chrome (privileged) context when started with
+ * `-remote-allow-system-access`; newer geckodrivers refuse that argument in the session's
+ * capabilities («can't be set via capabilities») and pass it to Firefox themselves when they
+ * run with `--allow-system-access`. Older ones need it in `moz:firefoxOptions.args`.
+ */
+export function geckodriverAllowsSystemAccess(executable: string): boolean {
+  const help = spawnSync(executable, ['--help'], { encoding: 'utf8', timeout: 15_000 });
+  return `${help.stdout ?? ''}${help.stderr ?? ''}`.includes('--allow-system-access');
 }
 
 /** `FIREFOX_BIN`, or `firefox` on the PATH; `undefined` lets geckodriver look. */
@@ -109,6 +121,8 @@ async function request<T>(
 
 export interface GeckoDriverOptions {
   executable: string;
+  /** Start geckodriver with `--allow-system-access` (see `geckodriverAllowsSystemAccess`). */
+  allowSystemAccess?: boolean;
   /** Receives geckodriver's and Firefox's output, line by line. */
   log?: (line: string) => void;
 }
@@ -122,9 +136,9 @@ export class GeckoDriver {
 
   static async start(options: GeckoDriverOptions): Promise<GeckoDriver> {
     const port = await freePort();
-    const child = spawn(options.executable, ['--host', '127.0.0.1', '--port', String(port)], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const args = ['--host', '127.0.0.1', '--port', String(port)];
+    if (options.allowSystemAccess) args.push('--allow-system-access');
+    const child = spawn(options.executable, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const log = options.log ?? (() => undefined);
     let pending = '';
     const onData = (chunk: Buffer): void => {

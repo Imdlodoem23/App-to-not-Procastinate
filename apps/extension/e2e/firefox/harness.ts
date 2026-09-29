@@ -15,7 +15,8 @@
  * - Headless unless `CENTRATE_E2E_HEADED=1`. Without geckodriver or Firefox the tests are
  *   skipped locally and fail on CI.
  * - The chrome (privileged) context reopens closed tabs (SessionStore) and reads the event
- *   page's state; Firefox 138+ needs `-remote-allow-system-access` for it.
+ *   page's state; Firefox 138+ needs `-remote-allow-system-access` for it, which geckodriver
+ *   0.36+ passes itself (`--allow-system-access`) and refuses in the capabilities.
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -35,7 +36,13 @@ import { EXTENSION_DIR } from '../support/extension';
 import type { FakeWeb } from './fake-web';
 import { startFakeWeb } from './fake-web';
 import type { FirefoxSession } from './webdriver';
-import { GeckoDriver, WebDriverError, findFirefox, findGeckodriver } from './webdriver';
+import {
+  GeckoDriver,
+  WebDriverError,
+  findFirefox,
+  findGeckodriver,
+  geckodriverAllowsSystemAccess,
+} from './webdriver';
 
 /** The moz-extension UUID the suite pins (lowercase, as Firefox generates them). */
 export const FIREFOX_UUID = '6a1f3b0e-2c4d-4e5f-8a9b-0c1d2e3f4a5b';
@@ -354,13 +361,23 @@ export const test = base.extend<Fixtures & Options>({
     let driver: GeckoDriver | null = null;
     let session: FirefoxSession | null = null;
     try {
-      driver = await GeckoDriver.start({ executable: geckodriver, log: (l) => log.push(l) });
+      // Firefox 138+ opens the chrome context only with -remote-allow-system-access: from
+      // geckodriver itself when it knows the flag, else as a Firefox argument.
+      const allowSystemAccess = geckodriverAllowsSystemAccess(geckodriver);
+      driver = await GeckoDriver.start({
+        executable: geckodriver,
+        allowSystemAccess,
+        log: (l) => log.push(l),
+      });
       session = await driver.newSession({
         browserName: 'firefox',
         pageLoadStrategy: 'normal',
         'moz:firefoxOptions': {
           ...(firefox.binary !== undefined ? { binary: firefox.binary } : {}),
-          args: [...(HEADED ? [] : ['-headless']), '-remote-allow-system-access'],
+          args: [
+            ...(HEADED ? [] : ['-headless']),
+            ...(allowSystemAccess ? [] : ['-remote-allow-system-access']),
+          ],
           prefs: firefoxPrefs(web, geckoId, idleTimeoutMs),
         },
       });
