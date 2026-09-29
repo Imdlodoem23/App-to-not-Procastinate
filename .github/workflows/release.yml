@@ -98,6 +98,16 @@ jobs:
       - name: Build guardian
         shell: bash
         run: node scripts/build-guardian.mjs --version "$VERSION" --out apps/desktop/resources/guardian
+      - name: Install koffi for both Mac architectures
+        # koffi loads @koromix/koffi-<platform>-<arch> at runtime; npm installs only the runner's.
+        # The universal app needs both (electron-builder.yml x64ArchFiles).
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          KOFFI=$(node -p "JSON.parse(require('fs').readFileSync('node_modules/koffi/package.json','utf8')).version")
+          npm install --no-save --force --ignore-scripts --workspaces=false \
+            "@koromix/koffi-darwin-x64@$KOFFI" "@koromix/koffi-darwin-arm64@$KOFFI"
+          ls node_modules/@koromix
       - name: Build app
         run: npm run build -w apps/desktop
       - name: Package

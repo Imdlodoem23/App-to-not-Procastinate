@@ -70,6 +70,8 @@ mac:
   # No Developer ID yet: build/after-pack.cjs signs ad hoc so Apple Silicon does not report the app as damaged.
   identity: null
   hardenedRuntime: false
+  # koffi ships one prebuilt package per arch; both are in both halves of the universal app.
+  x64ArchFiles: '**/node_modules/@koromix/koffi-darwin-*/**'
   gatekeeperAssess: false
   darkModeSupport: true
   extendInfo:

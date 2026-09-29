@@ -4,9 +4,9 @@ Todos los cambios importantes de Céntrate. El formato sigue [Keep a Changelog](
 
 ## [Sin publicar]
 
-## [0.1.1] - 2026-09-29
+## [0.1.2] - 2026-09-29
 
-Primera versión pública (la 0.1.0 no llegó a publicarse: falló el instalador de macOS).
+Primera versión pública (la 0.1.0 y la 0.1.1 no llegaron a publicarse: falló el instalador de macOS).
 
 ### Añadido
 
