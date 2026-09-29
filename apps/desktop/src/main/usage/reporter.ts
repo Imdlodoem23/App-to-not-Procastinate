@@ -9,8 +9,11 @@
  * `usageFastReportIntervalMs` (5 s) while a limit this app counted toward applies today and
  * has less than 30 s left (from the last answer), the counts go to `POST /v1/usage`.
  *
- * Never a retry: a failed report's seconds are added to the next one, which covers at most
- * `usageMaxIntervalMs` (older seconds are dropped). The guardian clamps everything to real
+ * Never a retry: a report the guardian refused (an error status: nothing was credited) has
+ * its seconds added to the next one, which covers at most `usageMaxIntervalMs` (older
+ * seconds are dropped); a report without an answer (timeout, no connection) may have been
+ * credited, so its seconds are dropped and the next report starts after it
+ * (`usageReportRefused`): a report is never counted twice. The guardian clamps everything to real
  * elapsed time and matches the names itself; the app sends every valid process name
  * (`isValidProcessName`) and never a window title. Nothing is logged but counts.
  */
@@ -21,6 +24,7 @@ import {
   type UsageItem,
   type UsageReportRequest,
   type UsageReportResponse,
+  usageReportRefused,
 } from '@centrate/shared/guardian-api';
 import { hasEnabledLimit } from '../../shared/limits';
 import type { Clock, IdleSource, TimerHandle } from '../contracts';
@@ -204,13 +208,20 @@ export class UsageReporter {
         },
         (error: unknown) => {
           if (!this.running) return;
-          // Never retried: its seconds join the next report (still from the same `since`).
           this.nextAt = now + reportIntervalMs(this.last);
-          for (const [name, seconds] of sentCounts) {
-            this.counts.set(name, (this.counts.get(name) ?? 0) + seconds);
+          const refused = usageReportRefused(error);
+          if (refused) {
+            // Never retried: its seconds join the next report (still from the same `since`).
+            for (const [name, seconds] of sentCounts) {
+              this.counts.set(name, (this.counts.get(name) ?? 0) + seconds);
+            }
+          } else {
+            // Maybe credited (the answer was lost): never sent again.
+            this.since = now;
           }
           this.options.log('usage_report_failed', {
             error: error instanceof Error ? error.name : 'unknown',
+            refused,
           });
         },
       )

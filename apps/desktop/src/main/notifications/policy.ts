@@ -76,6 +76,14 @@ export interface Notice {
 /** Notices from one page of `/v1/events` (already filtered by age). */
 export function noticesFromEvents(events: readonly WireEvent[], nowMs: number): Notice[] {
   const out: Notice[] = [];
+  // The display end of each limit block in the page (written with its `limit_reached`).
+  const limitEnds = new Map<string, number>();
+  for (const event of events) {
+    if (!isKnownEvent(event) || event.type !== 'block_created') continue;
+    if (event.data.source !== 'limit') continue;
+    const endsAtMs = Date.parse(event.data.block.endsAt) + event.wallOffsetMs;
+    if (Number.isFinite(endsAtMs)) limitEnds.set(event.data.block.id, endsAtMs);
+  }
   for (const event of events) {
     if (!isKnownEvent(event)) continue;
     const atMs = Date.parse(event.at) + event.wallOffsetMs;
@@ -125,8 +133,9 @@ export function noticesFromEvents(events: readonly WireEvent[], nowMs: number): 
         out.push({
           ...base,
           kind: 'limit_reached',
+          // `blockId: null`: nothing was blocked (less than a minute before midnight).
           blockId: d.blockId,
-          endsAtMs: null,
+          endsAtMs: d.blockId === null ? null : (limitEnds.get(d.blockId) ?? null),
           label: d.name,
           points: 0,
           minutes: d.dailyMinutes,
@@ -204,6 +213,24 @@ export function nextFiveMinuteDue(
 }
 
 /**
+ * A `limit_reached` notice whose block's end was not in its page gets it from the state
+ * (display time); the others are returned as they are.
+ */
+export function withLimitBlockEnds(
+  notices: readonly Notice[],
+  state: GuardianStateResponse | null,
+): Notice[] {
+  return notices.map((n) => {
+    if (n.kind !== 'limit_reached' || n.blockId === null || n.endsAtMs !== null || !state) {
+      return n;
+    }
+    const block = state.blocks.find((b) => b.id === n.blockId);
+    const endsAtMs = block ? Date.parse(block.endsAt) : Number.NaN;
+    return Number.isFinite(endsAtMs) ? { ...n, endsAtMs } : n;
+  });
+}
+
+/**
  * Dropped at flush: a five-minute notice whose block ended or was extended; a started notice
  * whose block is no longer active (the state already reflects its event but lacks the block,
  * or its end passed).
@@ -272,7 +299,11 @@ export function composeNotification(notices: readonly Notice[]): NotificationCon
         group.length === 1
           ? LIMIT_TEXT.reached(latest.label ?? '', latest.minutes ?? 0)
           : NOTIFY.limits.reachedTitleMany(group.length);
-      body = NOTIFY.limits.reachedBody(formatClock(nextMidnight(latest.atMs)));
+      // Only a real block, with its own end (the guardian's time zone, not this machine's).
+      body =
+        latest.blockId !== null && latest.endsAtMs !== null
+          ? NOTIFY.limits.reachedBody(formatClock(latest.endsAtMs))
+          : '';
       break;
     }
     case 'limit_warning': {
@@ -314,12 +345,6 @@ export function composeNotification(notices: readonly Notice[]): NotificationCon
     body = body ? `${body}\n${line}` : line;
   }
   return { title, body, kinds };
-}
-
-/** The first instant of the next local day after `ms` (a limit block's end). */
-function nextMidnight(ms: number): number {
-  const d = new Date(ms);
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
 }
 
 /**

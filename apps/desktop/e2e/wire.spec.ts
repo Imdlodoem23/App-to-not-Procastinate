@@ -7,7 +7,8 @@
  * - main's requests carry the token and **no `Origin`** (GET and POST);
  * - a 304 publishes nothing to the renderers;
  * - a rotated token (guardian restart) is picked up without the link going down;
- * - a stopped guardian shows section 1 within 5 s, and the warning goes once it is back.
+ * - a stopped guardian shows section 1 within 5 s, and the warning goes once it is back;
+ * - a daily limit is created over the wire with the intent as `Idempotency-Key`.
  */
 import type { Page } from '@playwright/test';
 import { GUARDIAN_PATHS } from '@centrate/shared/guardian-api';
@@ -182,4 +183,51 @@ test('a stopped guardian shows the warning within 5 s; it goes when the guardian
 
   await s.start();
   await expect(stoppedWarning(main)).toHaveCount(0, { timeout: 10_000 });
+});
+
+test('a daily limit goes over the wire with its Idempotency-Key, the token and no Origin', async () => {
+  const s = requireServer();
+  const main = await mainPage();
+  await waitForState(200);
+  const input = {
+    name: 'YouTube',
+    enabled: true,
+    targets: {
+      serviceIds: ['youtube'],
+      categoryIds: [],
+      appIds: [],
+      customDomains: [],
+      customProcesses: [],
+    },
+    dailyMinutes: 30,
+    days: [1, 2, 3, 4, 5, 6, 7],
+    mode: 'strict',
+    reason: '',
+    acknowledgeNoEmergency: false,
+  };
+  const result = await main.evaluate(
+    (body) =>
+      (
+        window as unknown as {
+          centrate: {
+            invoke(c: string, p: unknown): Promise<{ ok: boolean; value?: { name: string } }>;
+          };
+        }
+      ).centrate.invoke('limits:create', { intentId: 'intent-wire-limit-1', input: body }),
+    input,
+  );
+  expect(result).toMatchObject({ ok: true, value: { name: 'YouTube' } });
+  const listed = await main.evaluate(() =>
+    (
+      window as unknown as {
+        centrate: { invoke(c: string, p: null): Promise<{ ok: boolean; value?: unknown[] }> };
+      }
+    ).centrate.invoke('limits:list', null),
+  );
+  expect(listed.value).toHaveLength(1);
+  const post = s.requests().find((r) => r.method === 'POST' && r.path === GUARDIAN_PATHS.limits);
+  expect(post?.status).toBe(201);
+  expect(post?.headers['idempotency-key']).toBe('intent-wire-limit-1');
+  expect(post?.headers['origin']).toBeUndefined();
+  expect(post?.headers['authorization']).toBe(`Bearer ${s.token()}`);
 });

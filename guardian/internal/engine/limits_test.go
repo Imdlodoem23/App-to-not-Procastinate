@@ -1056,3 +1056,202 @@ func TestLimitsCalibrationShift(t *testing.T) {
 		t.Fatalf("usage credited again after the clock moved back: %d → %d", used, got)
 	}
 }
+
+// Several clients under one limit: a short report of one never hides the time the other
+// used (§10.13 «Never more than wall time»; review finding: the watermark jumped to now).
+func TestLimitsUsageMixedClients(t *testing.T) {
+	proc := func(name string, seconds int64) UsageItem {
+		return UsageItem{Type: usageTypeProcess, Value: name, Seconds: seconds}
+	}
+	mixed := func(t *testing.T, appEvery time.Duration, appSeconds int64) (DailyLimit, *testEnv) {
+		env := newTestEnv(t)
+		env.open()
+		in := limIn("YouTube", 30, "youtube")
+		in.Targets.CustomProcesses = []string{"notepad"}
+		l := limCreate(t, env, in)
+		for elapsed := time.Duration(0); elapsed < 30*time.Minute; {
+			env.clk.Advance(appEvery)
+			elapsed += appEvery
+			env.e.Step()
+			if _, err := limReport(env, scopeApp, appEvery, proc("notepad", appSeconds)); err != nil {
+				t.Fatal(err)
+			}
+			if elapsed%(30*time.Second) == 0 {
+				if _, err := limReport(env, scopeExt, 30*time.Second, limDomain("www.youtube.com", 29)); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		return l, env
+	}
+	check := func(t *testing.T, l DailyLimit, env *testEnv) {
+		t.Helper()
+		got := limGet(t, env, l.ID)
+		// 30 minutes of real use, 60 extension reports; at most the slack per report on top.
+		if got.UsedTodaySeconds < 30*60-5 || got.UsedTodaySeconds > 30*60+60*2 {
+			t.Fatalf("30 min of mixed use credited as %d s", got.UsedTodaySeconds)
+		}
+		if bl := limBlocks(env.e, l.ID); len(bl) != 1 || bl[0].Status != StatusActive {
+			t.Fatalf("limit not reached: %d blocks", len(bl))
+		}
+	}
+	t.Run("app and extension alternate", func(t *testing.T) {
+		l, env := mixed(t, 30*time.Second, 1)
+		check(t, l, env)
+	})
+	t.Run("a frequent 1 s app reporter", func(t *testing.T) {
+		l, env := mixed(t, 10*time.Second, 1)
+		check(t, l, env)
+	})
+}
+
+// limSetZone applies a time-zone change as a due settings change would, then steps.
+func limSetZone(env *testEnv, zone string) {
+	env.e.state.Settings.Timezone = ptr(zone)
+	env.clk.Advance(time.Second)
+	env.e.Step()
+}
+
+// limActive are the active blocks of a limit.
+func limActive(e *Engine, id string) []*blockRec {
+	return slices.DeleteFunc(limBlocks(e, id), func(b *blockRec) bool { return b.Status != StatusActive })
+}
+
+// A time-zone change that moves the local date back after the rollover: the usage
+// record keeps its (later) day and reaching the limit makes exactly one block.
+func TestLimitsZoneBackAfterRolloverBlocksOnce(t *testing.T) {
+	env := newTestEnv(t)
+	env.open()
+	l := limCreate(t, env, limIn("YouTube", 5, "youtube"))
+	schForwardTo(env, limMidnight.Add(10*time.Minute), time.Minute) // Tue 00:10 Madrid
+	limSetZone(env, "America/Los_Angeles")                          // Mon 15:10 LA
+	limBrowse(t, env, "www.youtube.com", 6*time.Minute)
+	for range 200 {
+		env.clk.Advance(time.Second)
+		env.e.Step()
+	}
+	limBrowse(t, env, "www.youtube.com", time.Minute)
+	bl := limBlocks(env.e, l.ID)
+	wedLA := time.Date(2026, 9, 30, 7, 0, 0, 0, time.UTC).UnixMilli() // the end of Tuesday in LA
+	if len(bl) != 1 || bl[0].EndsAt != wedLA {
+		t.Fatalf("%d limit blocks (want 1 ending %s)", len(bl), fmtMs(wedLA))
+	}
+	if u := env.e.limit(l.ID).Usage; u.Day != "2026-09-29" || u.BlocksToday != 1 {
+		t.Fatalf("usage record %+v", u)
+	}
+	if n := len(env.eventsOf(EvLimitReached)); n != 1 {
+		t.Fatalf("limit_reached %d", n)
+	}
+}
+
+// A time-zone change after the limit was reached never frees the rest of the used-up
+// day: a continuation block lasts until that day ends in the new zone (§2.1, §5.10).
+func TestLimitsZoneBackAfterReachContinues(t *testing.T) {
+	env := newTestEnv(t)
+	env.open()
+	l := limCreate(t, env, limIn("YouTube", 5, "youtube"))
+	schForwardTo(env, limMidnight, time.Minute)         // Tue 00:00 Madrid
+	limBrowse(t, env, "www.youtube.com", 5*time.Minute) // reached at 00:05
+	bl := limBlocks(env.e, l.ID)
+	if len(bl) != 1 || bl[0].EndsAt != limMidnight.Add(24*time.Hour).UnixMilli() {
+		t.Fatalf("first block %d", len(bl))
+	}
+	limSetZone(env, "America/Los_Angeles") // Mon 15:05 LA; Tuesday lasts until Wed 07:00 UTC
+	wedLA := time.Date(2026, 9, 30, 7, 0, 0, 0, time.UTC)
+	bl = limBlocks(env.e, l.ID)
+	if len(bl) != 2 || bl[1].EndsAt != wedLA.UnixMilli() || bl[1].Status != StatusActive {
+		t.Fatalf("no continuation after the zone change: %d blocks", len(bl))
+	}
+	// Past the old zone's midnight the day is still used up and blocked.
+	schForwardTo(env, limMidnight.Add(24*time.Hour+time.Hour), 10*time.Minute)
+	res := limBrowse(t, env, "www.youtube.com", time.Minute)
+	if s := limStatus(res, l.ID); s.BlockedUntil == nil || *s.BlockedUntil != fmtMs(wedLA.UnixMilli()) {
+		t.Fatalf("usage status %+v", s)
+	}
+	if a := limActive(env.e, l.ID); len(a) != 1 || len(limBlocks(env.e, l.ID)) != 2 {
+		t.Fatalf("active %d of %d blocks", len(a), len(limBlocks(env.e, l.ID)))
+	}
+	if n := len(env.eventsOf(EvLimitReached)); n != 1 {
+		t.Fatalf("limit_reached %d", n)
+	}
+}
+
+// The same when the zone moves back by more than a day's worth of hours: the record of
+// the later date stays blocked until that date ends in the new zone.
+func TestLimitsZoneBackAcrossADate(t *testing.T) {
+	env := newTestEnv(t)
+	env.open()
+	l := limCreate(t, env, limIn("YouTube", 30, "youtube"))
+	limSetZone(env, "Pacific/Kiritimati") // Mon 10:00 UTC is Tue 00:00 there
+	limBrowse(t, env, "www.youtube.com", 31*time.Minute)
+	if u := env.e.limit(l.ID).Usage; u.Day != "2026-09-29" || u.ReachedAt == 0 {
+		t.Fatalf("usage record %+v", u)
+	}
+	limSetZone(env, "Europe/Madrid") // back to Monday
+	tueMadrid := limMidnight.Add(24 * time.Hour)
+	// Tuesday in Madrid, after the first block (the end of Tuesday in Kiritimati) ended.
+	schForwardTo(env, time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC), 10*time.Minute)
+	got := limGet(t, env, l.ID)
+	if got.Day != "2026-09-29" || got.ReachedAt == nil || got.ActiveBlockID == nil {
+		t.Fatalf("Tuesday in Madrid unblocked: %+v", got)
+	}
+	if a := limActive(env.e, l.ID); len(a) != 1 || a[0].EndsAt != tueMadrid.UnixMilli() {
+		t.Fatalf("active limit blocks %d", len(a))
+	}
+}
+
+// A pending deletion that applies mid-day still closes the day for the statistics.
+func TestLimitsPendingDeletionClosesTheDay(t *testing.T) {
+	env := newTestEnv(t)
+	env.open()
+	l := limCreate(t, env, limIn("YouTube", 30, "youtube"))
+	if _, err := env.e.DeleteLimit(bg, Request{Scope: scopeApp}, l.ID); err != nil {
+		t.Fatal(err)
+	}
+	schForwardTo(env, time.Date(2026, 9, 29, 9, 0, 0, 0, time.UTC), 10*time.Minute)
+	limBrowse(t, env, "www.youtube.com", 2*time.Minute)
+	schForwardTo(env, time.Date(2026, 9, 29, 10, 10, 0, 0, time.UTC), time.Minute)
+	if limHas(t, env, l.ID) {
+		t.Fatal("the deletion did not apply")
+	}
+	var closed, deleted int64
+	for _, ev := range env.events() {
+		switch ev.Type {
+		case EvLimitDayClosed:
+			if d := mustDecode[LimitDayClosedData](t, ev); d.Day == "2026-09-29" {
+				if d.UsedSeconds != 120 || !d.Applied || d.Reached {
+					t.Fatalf("limit_day_closed %+v", d)
+				}
+				closed = ev.Seq
+			}
+		case EvLimitDeleted:
+			deleted = ev.Seq
+		}
+	}
+	if closed == 0 || deleted == 0 || closed > deleted {
+		t.Fatalf("limit_day_closed seq %d, limit_deleted seq %d", closed, deleted)
+	}
+}
+
+// A report that spans a suspend is clamped to the time the machine was awake.
+func TestLimitsUsageClampIgnoresSuspend(t *testing.T) {
+	env := newTestEnv(t)
+	env.open()
+	l := limCreate(t, env, limIn("YouTube", 60, "youtube"))
+	env.clk.Advance(30 * time.Second)
+	env.e.Step()
+	if _, err := limReport(env, scopeExt, 30*time.Second, limDomain("www.youtube.com", 30)); err != nil {
+		t.Fatal(err)
+	}
+	before := limGet(t, env, l.ID).UsedTodaySeconds
+	env.clk.Advance(10 * time.Second)
+	env.clk.Suspend(time.Hour)
+	env.clk.Advance(5 * time.Second)
+	env.e.Step()
+	if _, err := limReport(env, scopeExt, 105*time.Second, limDomain("www.youtube.com", 100)); err != nil {
+		t.Fatal(err)
+	}
+	if d := limGet(t, env, l.ID).UsedTodaySeconds - before; d > 17 {
+		t.Fatalf("a report across a suspend credited %d s for 15 s awake", d)
+	}
+}

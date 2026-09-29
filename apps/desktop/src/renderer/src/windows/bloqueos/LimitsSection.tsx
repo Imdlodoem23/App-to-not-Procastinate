@@ -151,6 +151,7 @@ export function LimitsSection(props: {
     )?.focus({ preventScroll: false });
   }, [editorOpen]);
 
+  const unsupported = view.status === 'unsupported';
   return (
     <Section
       id={BLOQUEOS_IDS.limits}
@@ -158,6 +159,8 @@ export function LimitsSection(props: {
       title={view.title}
       datum={view.datum}
       datumTone="red"
+      // A door focuses the section root: the reason nothing can be created is read with it.
+      describedBy={unsupported ? BLOQUEOS_IDS.limitsUnsupported : undefined}
     >
       {view.status === 'error' && view.error ? (
         <div className="blq-inline">
@@ -166,6 +169,11 @@ export function LimitsSection(props: {
             {E.limits.retry}
           </TextButton>
         </div>
+      ) : null}
+      {unsupported ? (
+        <p id={BLOQUEOS_IDS.limitsUnsupported} className="blq-note">
+          {E.limits.unsupported}
+        </p>
       ) : null}
       {view.status === 'ready' && view.rows.length === 0 && !editorOpen ? (
         <p className="blq-note">{E.limits.empty}</p>

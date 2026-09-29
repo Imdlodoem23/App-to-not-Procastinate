@@ -111,6 +111,7 @@ const EXPECTED_VARIANT: Record<HarnessStateId, BloqueoVariant> = {
   'limit-editor': 'active',
   'limit-confirm': 'limit',
   'limit-block': 'active',
+  'limits-unsupported': 'idle',
 };
 
 describe('harness registry', () => {

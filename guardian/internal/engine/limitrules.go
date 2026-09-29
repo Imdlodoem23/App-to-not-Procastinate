@@ -7,6 +7,7 @@ package engine
 // never change one side without the other.
 
 import (
+	"cmp"
 	"slices"
 )
 
@@ -132,8 +133,8 @@ func pendingLimitDelayKept(prev, next *DailyLimitDefinition) bool {
 }
 
 // clampUsageInterval is the per-client clamp of a usage report (§10.13): at most the
-// boot-clock time since that client's previous accepted report plus slackMs (sinceLastMs
-// nil: its first report since the guardian started).
+// awake time (suspend excluded) since that client's previous accepted report plus
+// slackMs (sinceLastMs nil: its first report since the guardian started).
 func clampUsageInterval(intervalMs int64, sinceLastMs *int64, slackMs int64) int64 {
 	bound := intervalMs
 	if sinceLastMs != nil {
@@ -142,21 +143,111 @@ func clampUsageInterval(intervalMs int64, sinceLastMs *int64, slackMs int64) int
 	return max(0, min(intervalMs, bound))
 }
 
+// creditSpan is a stretch [start, end) of trusted Unix ms already credited to a limit.
+type creditSpan [2]int64
+
+// usageMaxCreditSpans bounds the spans a limit keeps (usageMaxCreditSpans in
+// guardian-api.ts); past it the two closest spans merge, which only ever credits less.
+const usageMaxCreditSpans = 32
+
 // limitUsageCredit is the milliseconds one report adds to one limit (§10.13), all in
-// trusted Unix ms: the part of [nowMs − intervalMs, nowMs] after the start of the local
-// day and after the limit's watermark creditedUntilMs (minus slackMs), capped by what the
-// report's matching items add up to. The watermark moves to nowMs when something was
-// credited.
-func limitUsageCredit(nowMs, dayStartMs, intervalMs, reportedMs, creditedUntilMs, slackMs int64) (creditMs, newCreditedUntilMs int64) {
-	windowStart := max(nowMs-intervalMs, dayStartMs)
-	from := max(windowStart, creditedUntilMs-slackMs)
-	free := max(0, nowMs-from)
-	creditMs = max(0, min(reportedMs, free, intervalMs))
-	newCreditedUntilMs = creditedUntilMs
-	if creditMs > 0 {
-		newCreditedUntilMs = max(creditedUntilMs, nowMs)
+// trusted Unix ms, and the limit's credited spans after it. The report covers [nowMs −
+// intervalMs, nowMs] (the interval already clamped per client), cut at the start of the
+// local day and at floorMs (nothing before it ever counts: the limit's creation, an epoch
+// start) minus slackMs. Only the part of that window no earlier report credited is free;
+// the credit is what the report's matching items add up to (reportedMs), at most the free
+// time plus slackMs of jitter tolerance, and it is placed in the free gaps earliest first,
+// so a second client can fill what the first did not use while each trusted millisecond
+// counts at most once per limit. Credited time ahead of nowMs (trusted time moved back)
+// blocks everything before its end. Spans no later report can reach (ending
+// maxIntervalMs or more before nowMs) are dropped.
+func limitUsageCredit(nowMs, dayStartMs, intervalMs, reportedMs, floorMs int64, credited []creditSpan, slackMs, maxIntervalMs int64) (creditMs int64, next []creditSpan) {
+	spans := normalizeCreditSpans(credited)
+	lo := max(nowMs-intervalMs, dayStartMs, floorMs-slackMs)
+	if n := len(spans); n > 0 && spans[n-1][1] > nowMs {
+		// Credited time ahead of now: trusted time moved back. Nothing counts until it is
+		// reached again.
+		lo = max(lo, spans[n-1][1])
 	}
-	return creditMs, newCreditedUntilMs
+	if lo < nowMs && reportedMs > 0 {
+		gaps := creditGaps(spans, lo, nowMs)
+		var free int64
+		for _, g := range gaps {
+			free += g[1] - g[0]
+		}
+		creditMs = max(0, min(reportedMs, intervalMs, nowMs-lo, free+slackMs))
+		place := min(creditMs, free)
+		for _, g := range gaps {
+			if place <= 0 {
+				break
+			}
+			n := min(place, g[1]-g[0])
+			spans = append(spans, creditSpan{g[0], g[0] + n})
+			place -= n
+		}
+		spans = normalizeCreditSpans(spans)
+	}
+	spans = slices.DeleteFunc(spans, func(s creditSpan) bool { return s[1] <= nowMs-maxIntervalMs })
+	for len(spans) > usageMaxCreditSpans {
+		best := 0
+		for i := 1; i+1 < len(spans); i++ {
+			if spans[i+1][0]-spans[i][1] < spans[best+1][0]-spans[best][1] {
+				best = i
+			}
+		}
+		spans[best][1] = spans[best+1][1]
+		spans = slices.Delete(spans, best+1, best+2)
+	}
+	if len(spans) == 0 {
+		spans = nil
+	}
+	return creditMs, spans
+}
+
+// normalizeCreditSpans sorts a copy of the spans and merges the ones that touch or
+// overlap (empty spans are dropped).
+func normalizeCreditSpans(in []creditSpan) []creditSpan {
+	s := slices.DeleteFunc(slices.Clone(in), func(c creditSpan) bool { return c[1] <= c[0] })
+	slices.SortFunc(s, func(a, b creditSpan) int {
+		if a[0] != b[0] {
+			return cmp.Compare(a[0], b[0])
+		}
+		return cmp.Compare(a[1], b[1])
+	})
+	out := s[:0]
+	for _, c := range s {
+		if n := len(out); n > 0 && c[0] <= out[n-1][1] {
+			out[n-1][1] = max(out[n-1][1], c[1])
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// creditGaps are the parts of [lo, hi) outside the normalized spans, in order.
+func creditGaps(spans []creditSpan, lo, hi int64) []creditSpan {
+	var gaps []creditSpan
+	cur := lo
+	for _, s := range spans {
+		if s[1] <= cur {
+			continue
+		}
+		if s[0] >= hi {
+			break
+		}
+		if s[0] > cur {
+			gaps = append(gaps, creditSpan{cur, s[0]})
+		}
+		cur = max(cur, s[1])
+		if cur >= hi {
+			break
+		}
+	}
+	if cur < hi {
+		gaps = append(gaps, creditSpan{cur, hi})
+	}
+	return gaps
 }
 
 // limitDefEqual reports whether two definitions are identical (days compared sorted).

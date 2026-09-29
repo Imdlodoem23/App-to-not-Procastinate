@@ -24,6 +24,7 @@ import { LimitsSection } from './LimitsSection';
 import { TargetsSection } from './TargetsSection';
 import { Announcer } from './announcer';
 import { scrollToSection, useBloqueosWindow } from './useBloqueosWindow';
+import { BLOQUEOS } from './i18n';
 import { BLOQUEOS_IDS } from './view';
 import './bloqueos.css';
 
@@ -45,7 +46,7 @@ function presetTabStop(): HTMLElement | null {
 }
 
 export default function BloqueosWindow(): React.JSX.Element {
-  const { view, local, notices, announcement, actions } = useBloqueosWindow();
+  const { view, local, notices, announcement, announce, actions } = useBloqueosWindow();
   const loading =
     view.schedules.status === 'loading' ||
     view.limits.status === 'loading' ||
@@ -55,13 +56,23 @@ export default function BloqueosWindow(): React.JSX.Element {
   // Read by the door effect below, which must run once per door (not when the user picks).
   const missing = useRef<'duration' | 'targets'>('targets');
   missing.current = view.duration.open && view.problem === 'no_duration' ? 'duration' : 'targets';
+  const limitsUnsupported = useRef(false);
+  limitsUnsupported.current = view.limits.status === 'unsupported';
 
   // A door retargets the window: scroll to what it asked for; a seeded form focuses what is
   // missing (the duration row, else the search).
   useLayoutEffect(() => {
     if (!request) return;
     if (request.focus) scrollToSection(FOCUS_SECTIONS[request.focus]);
-    if (request.focus === 'limits' && request.seed) {
+    const limits = request.focus === 'limits';
+    if (limits && limitsUnsupported.current) {
+      // A limit phrase sent here while the guardian has no daily limits: the section root
+      // (described by the note) and the polite region say why nothing was created.
+      document
+        .querySelector<HTMLElement>(`[data-section="${BLOQUEOS_IDS.limits}"]`)
+        ?.focus({ preventScroll: true });
+      announce(BLOQUEOS.limits.unsupported);
+    } else if (limits && request.seed) {
       // From the main window's «Límite diario»: the new limit's editor, seeded.
       document.getElementById(BLOQUEOS_IDS.limitName)?.focus({ preventScroll: true });
     } else if (request.seed && missing.current === 'duration') {
@@ -75,7 +86,7 @@ export default function BloqueosWindow(): React.JSX.Element {
         .querySelector<HTMLElement>(`[data-section="${FOCUS_SECTIONS[request.focus]}"]`)
         ?.focus({ preventScroll: true });
     }
-  }, [request]);
+  }, [request, announce]);
 
   return (
     <div className="blq" data-loading={loading ? '' : undefined}>

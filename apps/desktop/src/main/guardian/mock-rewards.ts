@@ -85,7 +85,8 @@ export type RedeemCheck =
 export function checkRedeem(offerId: string, input: ShopInput): RedeemCheck {
   const offer = findRewardOffer(offerId);
   if (!offer) return { ok: false, code: 'unknown_offer', details: null };
-  if (input.lock !== null) return { ok: false, code: 'rewards_locked', details: { reason: input.lock } };
+  if (input.lock !== null)
+    return { ok: false, code: 'rewards_locked', details: { reason: input.lock } };
   if (!serviceCoveredByBlocks(input.blocks, offer.serviceId)) {
     return { ok: false, code: 'service_not_blocked', details: null };
   }

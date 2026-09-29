@@ -550,22 +550,24 @@ describe('reportUsage', () => {
   it('sends the report with the extension token and returns the answer', async () => {
     const { guardian, background } = await setup();
     const answer = await background.api.reportUsage(body);
-    expect(answer?.limits[0]?.remainingTodaySeconds).toBe(1_200);
+    if (answer === 'refused' || answer === 'lost') throw new Error(`no answer: ${answer}`);
+    expect(answer.limits[0]?.remainingTodaySeconds).toBe(1_200);
     const call = guardian.calls.find((c) => c.url.pathname === '/v1/usage');
     expect(call?.method).toBe('POST');
     expect(call?.headers.get('Authorization')).toBe(`Bearer ${pairingFixture('').token}`);
     expect(call?.body).toEqual(body);
   });
 
-  it('returns null (never retried) when the guardian does not answer, and marks a 401', async () => {
+  it('is lost (maybe credited) without an answer, refused on an error status, never retried', async () => {
     const { guardian, background, store } = await setup();
     guardian.mode = 'down';
-    expect(await background.api.reportUsage(body)).toBeNull();
+    expect(await background.api.reportUsage(body)).toBe('lost');
     expect(guardian.calls.filter((c) => c.url.pathname === '/v1/usage')).toHaveLength(1);
     guardian.mode = 'ok';
     guardian.tokens.clear();
-    expect(await background.api.reportUsage(body)).toBeNull();
+    expect(await background.api.reportUsage(body)).toBe('refused');
     expect((await store.getPairing())?.unauthorizedAt).toBe(NOW);
+    expect(await background.api.reportUsage(body)).toBe('refused');
   });
 
   it('is never sent by the incognito instance (one client per token)', async () => {
@@ -580,7 +582,7 @@ describe('reportUsage', () => {
       now: () => NOW,
       role: 'follower',
     });
-    expect(await background.api.reportUsage(body)).toBeNull();
+    expect(await background.api.reportUsage(body)).toBe('refused');
     expect(guardian.calls).toEqual([]);
   });
 });

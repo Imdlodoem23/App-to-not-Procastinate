@@ -95,6 +95,7 @@ const EXPECTED_ICON: Record<HarnessStateId, TrayIconKey> = {
   'limit-editor': 'strict',
   'limit-confirm': 'idle',
   'limit-block': 'strict',
+  'limits-unsupported': 'idle',
 };
 
 describe('tray icon', () => {

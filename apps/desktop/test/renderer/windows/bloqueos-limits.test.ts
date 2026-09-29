@@ -249,6 +249,35 @@ describe('the Bloqueos view with limits', () => {
     expect(offline.limits.title).toBe('Límites diarios: sin conexión');
   });
 
+  it('says an older guardian has no daily limits (no list, no «Nuevo límite»)', () => {
+    const base = state('limits');
+    const health = base.snapshot.health;
+    if (!health) throw new Error('fixture without health');
+    const old: UiState = {
+      ...base,
+      snapshot: {
+        ...base.snapshot,
+        health: {
+          ...health,
+          capabilities: health.capabilities.filter((c) => c !== 'daily_limits'),
+        },
+      },
+    };
+    const view = deriveBloqueosView(old, NOW, data('limits'));
+    expect(view.limits).toMatchObject({
+      title: 'Límites diarios',
+      status: 'unsupported',
+      rows: [],
+      canCreate: false,
+    });
+  });
+
+  it('the `limits-unsupported` fixture: a note, no list, no «Nuevo límite»', () => {
+    const view = deriveBloqueosView(state('limits-unsupported'), NOW, data('limits-unsupported'));
+    expect(view.limits).toMatchObject({ status: 'unsupported', rows: [], canCreate: false });
+    expect(harnessFixture('limits-unsupported').detailRequest).toMatchObject({ focus: 'limits' });
+  });
+
   it('opens the seeded editor from the main window’s «Editar…»', () => {
     const f = harnessFixture('idle');
     const detail = detailForRequest(

@@ -269,9 +269,7 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
       client = mock;
       tokenSource = staticTokenSource({ missing: false });
       // Its own file, so statistics work in dev too (a new mock epoch wipes it on the first page).
-      db = openDb(
-        internals.eventsDbPath ?? join(options.userDataDir, eventsDbFileName(true)),
-      );
+      db = openDb(internals.eventsDbPath ?? join(options.userDataDir, eventsDbFileName(true)));
     } else {
       if (internals.guardian) {
         client = internals.guardian.client;
@@ -447,7 +445,9 @@ export function createCore(options: CoreOptions, internals: CoreInternals = {}):
     });
   }
 
-  const foreground = live ? createForegroundReader({ platform: options.platform, env, exec }) : null;
+  const foreground = live
+    ? createForegroundReader({ platform: options.platform, env, exec })
+    : null;
   const activeWindow = foreground
     ? new ActiveWindowLayer({
         platform: options.platform,

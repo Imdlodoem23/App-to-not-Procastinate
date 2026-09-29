@@ -40,6 +40,7 @@ import {
   cardWithDraft,
   cardWithMode,
   cardWithReason,
+  limitCardSeed,
   limitCardWithMode,
   limitCardWithReason,
   parseExtendMinutes,
@@ -453,15 +454,7 @@ export function useBloqueo(): {
         const s = api.getState();
         const card = s.main.limitCard;
         if (!card || card.sending) return;
-        const d = card.draft;
-        // The allowance travels as the seed's duration; the limit editor reads it.
-        const seed: DraftSeed = {
-          phrase: card.phrase,
-          targets: d.targets,
-          end: { kind: 'duration', minutes: d.dailyMinutes },
-          mode: d.mode,
-          reason: d.reason,
-        };
+        const seed = limitCardSeed(card);
         openDetail({ name: 'bloqueos', seed, focus: 'limits' });
         s.updateMain((m) => ({ ...m, limitCard: null }));
       },

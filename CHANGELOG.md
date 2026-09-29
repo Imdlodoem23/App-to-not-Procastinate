@@ -4,6 +4,8 @@ Todos los cambios importantes de Céntrate. El formato sigue [Keep a Changelog](
 
 ## [Sin publicar]
 
+## [0.2.0] - 2026-09-29
+
 ### Añadido
 
 - **Límites diarios** («YouTube máximo 30 minutos al día», «redes sociales 1 hora al día entre semana»): mientras te quede tiempo no se bloquea nada; cuando lo gastas, lo que hayas limitado queda bloqueado hasta las 0:00. Se escriben en el campo de la app (también en inglés: «limit YouTube to 30 min a day») o se editan en la sección «Límites diarios» de la ventana Bloqueos, con una barra de progreso («12 de 30 min hoy»).
@@ -11,6 +13,11 @@ Todos los cambios importantes de Céntrate. El formato sigue [Keep a Changelog](
 - Estadísticas de los minutos usados de cada límite por día.
 - Endurecer un límite (menos minutos, más webs o apps, más días o un modo más estricto) se aplica al momento; suavizarlo, desactivarlo o borrarlo espera 24 horas y nunca acorta el bloqueo de hoy.
 - Los límites diarios, en la web («Y mucho más») y en su demo.
+
+### Corregido
+
+- El texto del chip de una web pendiente en la lista blanca se leía mal al pasar el ratón en modo oscuro.
+- Las capturas en inglés mostraban la frase escrita en español.
 
 ## [0.1.2] - 2026-09-29
 

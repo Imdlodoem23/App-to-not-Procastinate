@@ -20,7 +20,10 @@ import { HARNESS_ENV } from '../contracts';
 export const CLIENT_JSON_NAME = 'client.json';
 
 /** The guardian's system directory for a platform (without overrides). */
-export function defaultSysDir(platform: Platform, env: Readonly<Record<string, string | undefined>> = {}): string {
+export function defaultSysDir(
+  platform: Platform,
+  env: Readonly<Record<string, string | undefined>> = {},
+): string {
   if (platform === 'win32') {
     const programData = env['ProgramData'] || env['PROGRAMDATA'] || 'C:\\ProgramData';
     return win32.join(programData, 'Centrate');
@@ -41,7 +44,9 @@ export function resolveSysDir(options: {
 }
 
 export function clientJsonPath(sysDir: string, platform: Platform): string {
-  return platform === 'win32' ? win32.join(sysDir, CLIENT_JSON_NAME) : posix.join(sysDir, CLIENT_JSON_NAME);
+  return platform === 'win32'
+    ? win32.join(sysDir, CLIENT_JSON_NAME)
+    : posix.join(sysDir, CLIENT_JSON_NAME);
 }
 
 function isAbsolutePath(path: string, platform: Platform): boolean {

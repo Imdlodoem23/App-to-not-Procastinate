@@ -34,8 +34,8 @@ import type {
   AttemptResponse,
   ExtRulesResponse,
   UsageReportRequest,
-  UsageReportResponse,
 } from '@centrate/shared/guardian-api';
+import { usageReportRefused } from '@centrate/shared/guardian-api';
 import type { BackgroundContext, RulesLoop, RulesLoopOptions } from './client';
 import {
   createExtensionClient,
@@ -60,6 +60,7 @@ import type {
   GuardianLink,
   GuideSection,
   StateChangedMessage,
+  UsageReportOutcome,
 } from './state';
 import {
   GUIDE_PAGE,
@@ -366,17 +367,18 @@ export function createBackground(options: BackgroundOptions): Background {
     }
   }
 
-  async function reportUsage(body: UsageReportRequest): Promise<UsageReportResponse | null> {
+  async function reportUsage(body: UsageReportRequest): Promise<UsageReportOutcome> {
     // Only the main instance reports (one client per token for the guardian's clamps).
-    if (follower) return null;
+    if (follower) return 'refused';
     const pairing = await store.getPairing();
-    if (pairing === null || pairing.unauthorizedAt !== null) return null;
+    if (pairing === null || pairing.unauthorizedAt !== null) return 'refused';
     try {
       return await createExtensionClient(pairing, ctx.fetch).reportUsage(body);
     } catch (error) {
       const failure = describeError(error, now());
       if (failure.status === 401) await markUnauthorized(ctx, pairing, failure.at);
-      return null;
+      // An error status credited nothing; without an answer it may have been credited.
+      return usageReportRefused(error) ? 'refused' : 'lost';
     }
   }
 

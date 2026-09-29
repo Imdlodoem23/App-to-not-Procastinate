@@ -136,7 +136,8 @@ export function fieldEnter(text: string, parse: ParseResult, prefs: UiPrefs): Fi
       parse.dailyMinutes !== undefined
         ? { kind: 'duration' as const, minutes: parse.dailyMinutes }
         : null;
-    return { kind: 'bloqueos', seed: { ...seed, end }, focus: 'limits' };
+    const days = parse.days && parse.days.length > 0 ? { days: [...parse.days] } : {};
+    return { kind: 'bloqueos', seed: { ...seed, end, ...days }, focus: 'limits' };
   }
   if (parse.kind === 'study') {
     const reason = studyReason(text, parse) || null;
@@ -484,6 +485,23 @@ export function newLimitCard(
     consequenceAt: null,
     sending: false,
     error: null,
+  };
+}
+
+/**
+ * «Editar…» on the «Límite diario» card: the seed Bloqueos › Límites diarios opens with. The
+ * allowance travels as the seed's duration and the days as its days (the limit editor reads
+ * both).
+ */
+export function limitCardSeed(card: LimitCardState): DraftSeed {
+  const d = card.draft;
+  return {
+    phrase: card.phrase,
+    targets: d.targets,
+    end: { kind: 'duration', minutes: d.dailyMinutes },
+    mode: d.mode,
+    reason: d.reason,
+    days: [...d.days],
   };
 }
 

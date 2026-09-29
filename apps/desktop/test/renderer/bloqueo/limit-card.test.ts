@@ -12,9 +12,12 @@ import {
   type MainLocalState,
 } from '../../../src/shared/ui-state';
 import { withLocale } from '../../../src/shared/i18n/locale';
+import { newLimitEditor } from '../../../src/shared/limits';
+import { isDraftSeed } from '../../../src/main/windows/send-guards';
 import {
   fieldEnter,
   limitCardAdvance,
+  limitCardSeed,
   limitCardWithMode,
   newLimitCard,
   parsePhrase,
@@ -75,6 +78,40 @@ describe('a daily-limit phrase', () => {
     });
   });
 
+  it('«Editar…» keeps the days read («entre semana») in the Bloqueos editor', () => {
+    const text = 'redes sociales 1 hora al día entre semana';
+    const opened = enterBloqueo(idle.snapshot, typed(text), NOW, ids());
+    const card = opened.main.limitCard;
+    if (!card) throw new Error('no limit card');
+    const seed = limitCardSeed(card);
+    expect(isDraftSeed(seed)).toBe(true);
+    const editor = newLimitEditor({ seed });
+    expect(editor.input.days).toEqual([1, 2, 3, 4, 5]);
+    expect(editor.input.dailyMinutes).toBe(60);
+    expect(editor.input.targets.categoryIds).toEqual(['social']);
+  });
+
+  it('a limit phrase not fully read keeps its days too', () => {
+    const text = 'YouTube máximo 30 minutos al día entre semana mañana tarde';
+    const enter = fieldEnter(text, parsePhrase(text, NOW), prefs);
+    if (enter.kind !== 'bloqueos') throw new Error(`unexpected ${enter.kind}`);
+    expect(isDraftSeed(enter.seed)).toBe(true);
+    expect(newLimitEditor({ seed: enter.seed }).input.days).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('an allowance out of range reaches the editor as typed', () => {
+    const editor = newLimitEditor({
+      seed: {
+        phrase: null,
+        targets: null,
+        end: { kind: 'duration', minutes: 900 },
+        mode: null,
+        reason: null,
+      },
+    });
+    expect(editor.minutesText).toBe('15 h');
+  });
+
   it('block phrases still open the block card', () => {
     const text = 'no veo YouTube en una hora';
     expect(fieldEnter(text, parsePhrase(text, NOW), prefs).kind).toBe('card');
@@ -119,6 +156,21 @@ describe('a daily-limit phrase', () => {
     expect(escapeBloqueo(idle.snapshot, submit.main, NOW)?.main.limitCard ?? null).not.toBeNull();
     // Esc closes an idle card.
     expect(escapeBloqueo(idle.snapshot, opened.main, NOW)?.main.limitCard).toBeNull();
+  });
+
+  it('an older guardian without daily limits opens Bloqueos › Límites diarios instead', () => {
+    const health = idle.snapshot.health;
+    if (!health) throw new Error('fixture without health');
+    const snapshot = {
+      ...idle.snapshot,
+      health: { ...health, capabilities: health.capabilities.filter((c) => c !== 'daily_limits') },
+    };
+    const out = enterBloqueo(snapshot, typed('YouTube máximo 30 minutos al día'), NOW, ids());
+    expect(out).toMatchObject({
+      kind: 'open-detail',
+      request: { name: 'bloqueos', seed: null, focus: 'limits' },
+    });
+    expect(out.main.limitCard).toBeNull();
   });
 
   it('Hardcore asks first: the red line, a 2 s lock, then the acknowledgement', () => {

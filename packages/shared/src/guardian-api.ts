@@ -609,6 +609,16 @@ export class GuardianApiError extends Error {
   }
 }
 
+/**
+ * Whether a failed `POST /v1/usage` certainly credited nothing (§8.8 «Usage»): the guardian
+ * answered with an error status (it validates and checks the scope before crediting). Any
+ * other failure (no answer, a timeout, an unreadable 2xx) may have been credited, so a client
+ * drops that report's seconds instead of sending them again: a report is never counted twice.
+ */
+export function usageReportRefused(error: unknown): boolean {
+  return error instanceof GuardianApiError && error.status >= 400;
+}
+
 // ---------------------------------------------------------------------------------------
 // Request and response types
 // ---------------------------------------------------------------------------------------
@@ -3175,6 +3185,12 @@ const SIGNATURE_PREFIX = 'v1=';
 const ECDSA_KEY = { name: 'ECDSA', namedCurve: 'P-256' } as const;
 const ECDSA_SIGN = { name: 'ECDSA', hash: 'SHA-256' } as const;
 
+/**
+ * The Web Crypto key type, spelled through `crypto.subtle` so this module also compiles
+ * with Node's lib (no DOM `CryptoKey` type): the parser pulls it into server builds.
+ */
+type WebCryptoKey = Parameters<typeof globalThis.crypto.subtle.sign>[1];
+
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = '';
   for (const b of bytes) binary += String.fromCharCode(b);
@@ -3208,7 +3224,10 @@ export function newRulesNonce(): string {
  * `ecdsa.Sign` and writes r and s as 32-byte big-endian halves, not ASN.1). The guardian
  * signs with `secret/rules.key`; this is for tests and the dev harness.
  */
-export async function computeRulesSignature(body: string, privateKey: CryptoKey): Promise<string> {
+export async function computeRulesSignature(
+  body: string,
+  privateKey: WebCryptoKey,
+): Promise<string> {
   const sig = await globalThis.crypto.subtle.sign(
     ECDSA_SIGN,
     privateKey,
@@ -3232,7 +3251,7 @@ export async function verifyRulesSignature(
   if (signature === null || signature.length !== 64) return false;
   const spki = base64UrlDecode(rulesPublicKey);
   if (spki === null || spki.length === 0) return false;
-  let key: CryptoKey;
+  let key: WebCryptoKey;
   try {
     key = await globalThis.crypto.subtle.importKey('spki', spki, ECDSA_KEY, false, ['verify']);
   } catch {
@@ -3248,7 +3267,7 @@ export async function verifyRulesSignature(
 
 /** A rules key pair as the guardian creates one (tests and the dev harness). */
 export async function generateRulesKeyPair(): Promise<{
-  privateKey: CryptoKey;
+  privateKey: WebCryptoKey;
   publicKey: string;
 }> {
   const pair = await globalThis.crypto.subtle.generateKey(ECDSA_KEY, true, ['sign', 'verify']);
@@ -4087,8 +4106,8 @@ export function pendingLimitDelayKept(
 
 /**
  * The per-client clamp of a usage report (§10.13): the interval it may cover is at most
- * the boot-clock time since that client's previous accepted report plus `usageSlackMs`
- * (`sinceLastMs` is `null` for its first report since the guardian started).
+ * the awake time (suspend excluded) since that client's previous accepted report plus
+ * `usageSlackMs` (`sinceLastMs` is `null` for its first report since the guardian started).
  */
 export function clampUsageInterval(
   intervalMs: number,
@@ -4099,14 +4118,28 @@ export function clampUsageInterval(
   return Math.max(0, Math.min(intervalMs, bound));
 }
 
+/** A stretch `[start, end)` of trusted Unix ms already credited to a limit. */
+export type CreditSpan = [number, number];
+
 /**
- * Milliseconds one report adds to one limit (§10.13), all in trusted Unix ms. The report
- * covers `[nowMs − intervalMs, nowMs]` (the interval already clamped per client), cut at
- * the start of the current local day. Only time after the limit's watermark
- * `creditedUntilMs` (minus `slackMs` of jitter tolerance) can be credited, so each trusted
- * millisecond counts at most once per limit whichever clients report it. `reportedMs` is
- * the sum of the report's matching items for this limit (seconds × 1000). The watermark
- * moves to `nowMs` whenever something was credited.
+ * The most credited spans a limit keeps; past it the two closest spans merge, which only
+ * ever credits less (`usageMaxCreditSpans` in the guardian).
+ */
+export const USAGE_MAX_CREDIT_SPANS = 32;
+
+/**
+ * Milliseconds one report adds to one limit (§10.13), all in trusted Unix ms, and the
+ * limit's credited spans after it. The report covers `[nowMs − intervalMs, nowMs]` (the
+ * interval already clamped per client), cut at the start of the current local day and at
+ * `creditedUntilMs` (the floor: nothing before the limit's creation or an epoch start ever
+ * counts) minus `slackMs`. Only the part of that window no earlier report credited
+ * (`credited`) is free; the credit is `reportedMs` (the sum of the report's matching items
+ * for this limit, seconds × 1000), at most the free time plus `slackMs` of jitter
+ * tolerance, and it is placed in the free gaps earliest first. So a second client fills
+ * what the first did not use, while each trusted millisecond counts at most once per limit
+ * whichever clients report it. Credited time ahead of `nowMs` (trusted time moved back)
+ * blocks everything before its end; spans no later report can reach (ending
+ * `maxIntervalMs` or more before `nowMs`) are dropped.
  */
 export function limitUsageCredit(input: {
   nowMs: number;
@@ -4114,18 +4147,76 @@ export function limitUsageCredit(input: {
   intervalMs: number;
   reportedMs: number;
   creditedUntilMs: number;
+  credited?: readonly CreditSpan[];
   slackMs?: number;
-}): { creditMs: number; creditedUntilMs: number } {
+  maxIntervalMs?: number;
+}): { creditMs: number; credited: CreditSpan[] } {
   const slack = input.slackMs ?? GUARDIAN_LIMITS.usageSlackMs;
-  const windowStart = Math.max(input.nowMs - input.intervalMs, input.dayStartMs);
-  const from = Math.max(windowStart, input.creditedUntilMs - slack);
-  const free = Math.max(0, input.nowMs - from);
-  const creditMs = Math.max(0, Math.min(input.reportedMs, free, input.intervalMs));
-  return {
-    creditMs,
-    creditedUntilMs:
-      creditMs > 0 ? Math.max(input.creditedUntilMs, input.nowMs) : input.creditedUntilMs,
-  };
+  const maxInterval = input.maxIntervalMs ?? GUARDIAN_LIMITS.usageMaxIntervalMs;
+  const { nowMs } = input;
+  let spans = normalizeCreditSpans(input.credited ?? []);
+  let lo = Math.max(nowMs - input.intervalMs, input.dayStartMs, input.creditedUntilMs - slack);
+  const last = spans.at(-1);
+  if (last !== undefined && last[1] > nowMs) lo = Math.max(lo, last[1]);
+  let creditMs = 0;
+  if (lo < nowMs && input.reportedMs > 0) {
+    const gaps = creditGaps(spans, lo, nowMs);
+    const free = gaps.reduce((sum, [a, b]) => sum + (b - a), 0);
+    creditMs = Math.max(0, Math.min(input.reportedMs, input.intervalMs, nowMs - lo, free + slack));
+    let place = Math.min(creditMs, free);
+    for (const [a, b] of gaps) {
+      if (place <= 0) break;
+      const n = Math.min(place, b - a);
+      spans.push([a, a + n]);
+      place -= n;
+    }
+    spans = normalizeCreditSpans(spans);
+  }
+  spans = spans.filter(([, end]) => end > nowMs - maxInterval);
+  while (spans.length > USAGE_MAX_CREDIT_SPANS) {
+    let best = 0;
+    for (let i = 1; i + 1 < spans.length; i++) {
+      const gap = (spans[i + 1] as CreditSpan)[0] - (spans[i] as CreditSpan)[1];
+      const bestGap = (spans[best + 1] as CreditSpan)[0] - (spans[best] as CreditSpan)[1];
+      if (gap < bestGap) best = i;
+    }
+    const merged: CreditSpan = [(spans[best] as CreditSpan)[0], (spans[best + 1] as CreditSpan)[1]];
+    spans.splice(best, 2, merged);
+  }
+  return { creditMs, credited: spans };
+}
+
+/** Sorted copies of the spans with the ones that touch or overlap merged (empty ones dropped). */
+function normalizeCreditSpans(input: readonly CreditSpan[]): CreditSpan[] {
+  const sorted = input
+    .filter(([a, b]) => b > a)
+    .map(([a, b]): CreditSpan => [a, b])
+    .sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+  const out: CreditSpan[] = [];
+  for (const span of sorted) {
+    const prev = out.at(-1);
+    if (prev !== undefined && span[0] <= prev[1]) {
+      prev[1] = Math.max(prev[1], span[1]);
+    } else {
+      out.push(span);
+    }
+  }
+  return out;
+}
+
+/** The parts of `[lo, hi)` outside the normalized spans, in order. */
+function creditGaps(spans: readonly CreditSpan[], lo: number, hi: number): CreditSpan[] {
+  const gaps: CreditSpan[] = [];
+  let cur = lo;
+  for (const [a, b] of spans) {
+    if (b <= cur) continue;
+    if (a >= hi) break;
+    if (a > cur) gaps.push([cur, a]);
+    cur = Math.max(cur, b);
+    if (cur >= hi) break;
+  }
+  if (cur < hi) gaps.push([cur, hi]);
+  return gaps;
 }
 
 /** The `DailyLimitInput` that re-sends a limit's effective definition (cancels a pending change). */

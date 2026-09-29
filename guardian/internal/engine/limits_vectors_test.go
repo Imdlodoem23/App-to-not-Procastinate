@@ -67,19 +67,28 @@ func TestLimitVectors(t *testing.T) {
 		},
 		"limitUsageCredit": func(t *testing.T, v limitVector) any {
 			in := limitArg[struct {
-				NowMs           int64  `json:"nowMs"`
-				DayStartMs      int64  `json:"dayStartMs"`
-				IntervalMs      int64  `json:"intervalMs"`
-				ReportedMs      int64  `json:"reportedMs"`
-				CreditedUntilMs int64  `json:"creditedUntilMs"`
-				SlackMs         *int64 `json:"slackMs"`
+				NowMs           int64        `json:"nowMs"`
+				DayStartMs      int64        `json:"dayStartMs"`
+				IntervalMs      int64        `json:"intervalMs"`
+				ReportedMs      int64        `json:"reportedMs"`
+				CreditedUntilMs int64        `json:"creditedUntilMs"`
+				Credited        []creditSpan `json:"credited"`
+				SlackMs         *int64       `json:"slackMs"`
+				MaxIntervalMs   *int64       `json:"maxIntervalMs"`
 			}](t, v, 0)
 			slack := defaultSlack
 			if in.SlackMs != nil {
 				slack = *in.SlackMs
 			}
-			c, until := limitUsageCredit(in.NowMs, in.DayStartMs, in.IntervalMs, in.ReportedMs, in.CreditedUntilMs, slack)
-			return map[string]int64{"creditMs": c, "creditedUntilMs": until}
+			maxInterval := int64(limits().UsageMaxIntervalMs)
+			if in.MaxIntervalMs != nil {
+				maxInterval = *in.MaxIntervalMs
+			}
+			c, spans := limitUsageCredit(in.NowMs, in.DayStartMs, in.IntervalMs, in.ReportedMs, in.CreditedUntilMs, in.Credited, slack, maxInterval)
+			if spans == nil {
+				spans = []creditSpan{}
+			}
+			return map[string]any{"creditMs": c, "credited": spans}
 		},
 	}
 	seen := map[string]int{}

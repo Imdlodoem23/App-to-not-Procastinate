@@ -19,19 +19,22 @@
  * (its time is credited to its host) and opens the next one. While a segment is open a
  * `FLUSH_MS` timer (and the core's 30 s alarm) closes and reopens it, so a long video
  * without any event keeps being counted and reported. One closing never credits more than
- * `MAX_SEGMENT_MS`: a computer that slept with a tab open (no event, no alarm) is not
- * charged for the night.
+ * `MAX_SEGMENT_MS` (one flush plus one alarm period): a computer that slept with a tab open
+ * (no event, no alarm) is not charged for the night, and the guardian clamps each report to
+ * the time the machine was awake. A segment of Chromium's incognito instance older than
+ * that (the instance was not running: closed, the browser restarted) credits nothing.
  *
  * **Reporting.** Every `usageReportIntervalMs` (30 s) while there are unreported seconds,
  * every `usageFastReportIntervalMs` (5 s) while the counted site has a limit that applies
  * today with less than 30 s left (from the last answer, minus what is still unreported) or
  * while there is no recent answer (so the badge shows up quickly). `intervalMs` is the time
  * since the last successful report (else since the first unreported second), clamped to
- * 1 s … `usageMaxIntervalMs`. **Never retried:** a failed report's seconds stay pending and
- * go with the next report; seconds older than `usageMaxIntervalMs` are dropped (oldest
- * first), and at most `usageMaxItems` hosts are kept (most recent). A report whose answer
- * was lost may be counted twice by us, never by the guardian: it credits each trusted
- * millisecond once per limit (`limitUsageCredit`).
+ * 1 s … `usageMaxIntervalMs`. **Never retried:** a report the guardian refused (an error
+ * status: nothing was credited) keeps its seconds pending for the next report; a report
+ * without an answer (no connection, timeout, the worker died before the answer was applied)
+ * may have been credited, so its seconds are dropped and the next report starts after it
+ * (a report is never counted twice). Seconds older than `usageMaxIntervalMs` are dropped
+ * (oldest first), and at most `usageMaxItems` hosts are kept (most recent).
  *
  * **Chromium's incognito instance** (split mode, index.ts) only sees incognito windows and
  * the main one never sees them, so the two never count the same second. The incognito
@@ -57,13 +60,12 @@ import type {
   LimitUsageStatus,
   UsageItem,
   UsageReportRequest,
-  UsageReportResponse,
 } from '@centrate/shared/guardian-api';
 import { GUARDIAN_LIMITS, isUsageReportResponse } from '@centrate/shared/guardian-api';
 import { PAGES } from '../pages/i18n';
 import { SWEEP_ALARM, TICK_ALARM } from './attempts';
 import { hostFromUrl } from './rules';
-import type { BackgroundApi, BackgroundPlugin } from './state';
+import type { BackgroundApi, BackgroundPlugin, UsageReportOutcome } from './state';
 import { registerBackgroundPlugin } from './state';
 import type { StorageAreaLike } from './storage';
 import { STORAGE_KEYS } from './storage';
@@ -74,12 +76,14 @@ import { STORAGE_KEYS } from './storage';
 
 /** While a segment is open it is closed and reopened this often (and reported when due). */
 export const FLUSH_MS = 15_000;
+/** The period of the core's alarms that wake a sleeping worker (`TICK_ALARM`). */
+const ALARM_PERIOD_MS = 30_000;
 /**
  * Most one segment closing may credit. The segment is closed at least every `FLUSH_MS`
- * while the worker runs and on every 30 s alarm otherwise (Chrome may delay alarms), so only
- * a gap with no timer and no alarm (the computer asleep) reaches it.
+ * while the worker runs and on every 30 s alarm otherwise, so only a gap with no timer and
+ * no alarm (the computer asleep, the worker gone) reaches it.
  */
-export const MAX_SEGMENT_MS = 90_000;
+export const MAX_SEGMENT_MS = FLUSH_MS + ALARM_PERIOD_MS;
 /** A usage answer older than this is not shown on the badge (and asks for a fast report). */
 export const STATUS_FRESH_MS = 5 * 60_000;
 /** Below this many seconds left, reports go every `usageFastReportIntervalMs`. */
@@ -457,8 +461,8 @@ export interface UsageTrackerDeps {
   /** The limits of the rules in force (`[]` or absent: nothing is counted). */
   getLimits(): Promise<readonly ExtRuleLimit[]>;
   readEnv(): Promise<UsageEnv>;
-  /** `POST /v1/usage`; `null` when it was not answered (never retried). */
-  report(body: UsageReportRequest): Promise<UsageReportResponse | null>;
+  /** `POST /v1/usage` (never retried; see `UsageReportOutcome`). */
+  report(body: UsageReportRequest): Promise<UsageReportOutcome>;
   /** `chrome.storage.session` (the main instance's record). */
   session: StorageAreaLike;
   /** `chrome.storage.local` (answers and the incognito totals, shared by both instances). */
@@ -510,6 +514,15 @@ export function createUsageTracker(deps: UsageTrackerDeps): UsageTracker {
   /** Credits `segment` up to `at`, at most `MAX_SEGMENT_MS`. */
   const segmentMs = (segment: Segment | null, at: number): number =>
     segment === null ? 0 : Math.min(Math.max(0, at - segment.since), MAX_SEGMENT_MS);
+  /**
+   * The follower's segment lives in `chrome.storage.local`, which outlives the instance: one
+   * older than `MAX_SEGMENT_MS` was left by an instance that stopped, and credits nothing.
+   */
+  const followerSegmentMs = (segment: Segment | null, at: number): number => {
+    if (segment === null) return 0;
+    const gap = at - segment.since;
+    return gap < 0 || gap > MAX_SEGMENT_MS ? 0 : gap;
+  };
 
   function schedule(delay: number | null): void {
     if (timer !== null) clearTimer(timer);
@@ -553,7 +566,7 @@ export function createUsageTracker(deps: UsageTrackerDeps): UsageTracker {
     const totals = { ...record.totals };
     if (record.segment !== null) {
       const host = record.segment.host;
-      totals[host] = (totals[host] ?? 0) + segmentMs(record.segment, at);
+      totals[host] = (totals[host] ?? 0) + followerSegmentMs(record.segment, at);
     }
     let segment: Segment | null = null;
     let badgeTabId = record.badgeTabId;
@@ -680,9 +693,9 @@ export function createUsageTracker(deps: UsageTrackerDeps): UsageTracker {
   function send(planned: PlannedReport, sentAt: number): void {
     const run = deps
       .report(planned.body)
-      .catch((error: unknown): null => {
+      .catch((error: unknown): UsageReportOutcome => {
         warn('usage report failed', error);
-        return null;
+        return 'lost';
       })
       .then((answer) => enqueue(() => settle(planned, sentAt, answer)));
     const flight: Promise<void> = run.finally(() => {
@@ -691,26 +704,32 @@ export function createUsageTracker(deps: UsageTrackerDeps): UsageTracker {
     inflight = flight;
   }
 
-  /** Applies a report's answer: the seconds it carried are no longer pending. */
+  /**
+   * Applies a report's outcome: answered or lost, the seconds it carried are no longer
+   * pending (a lost one may have been credited) and the next report starts at `sentAt`;
+   * refused, they go with the next report.
+   */
   async function settle(
     planned: PlannedReport,
     sentAt: number,
-    answer: UsageReportResponse | null,
+    outcome: UsageReportOutcome,
   ): Promise<void> {
-    if (answer !== null) {
+    if (outcome !== 'refused') {
       const state = await readState();
       const next: UsageStateRecord = {
         ...state,
         pending: subtractSent(state.pending, planned.sent),
         windowStart: sentAt,
       };
+      await deps.session.set({ [USAGE_KEYS.state]: next });
+    }
+    if (outcome !== 'refused' && outcome !== 'lost') {
       const status: UsageStatusRecord = {
         v: 1,
         at: now(),
-        day: answer.day,
-        limits: answer.limits,
+        day: outcome.day,
+        limits: outcome.limits,
       };
-      await deps.session.set({ [USAGE_KEYS.state]: next });
       await deps.local.set({ [USAGE_KEYS.status]: status });
     }
     // Refresh the badge and the timers with the answer (the segment continues).

@@ -125,7 +125,9 @@ describe('MockGuardian daily limits', () => {
     expect(block?.endsAt).toBe('2026-09-28T22:00:00.000Z');
     const created = mock
       .allEvents()
-      .find((e) => e.type === 'block_created' && e.data.source === 'limit');
+      .find(
+        (e) => e.type === 'block_created' && JSON.stringify(e.data).includes('"source":"limit"'),
+      );
     expect(created).toBeDefined();
     expect(state.limits?.[0]).toMatchObject({
       reachedAt: expect.any(String),
@@ -190,7 +192,11 @@ describe('MockGuardian daily limits', () => {
     expect(
       mock
         .allEvents()
-        .some((e) => e.type === 'limit_updated' && e.data.cause === 'pending_applied'),
+        .some(
+          (e) =>
+            e.type === 'limit_updated' &&
+            JSON.stringify(e.data).includes('"cause":"pending_applied"'),
+        ),
     ).toBe(true);
   });
 

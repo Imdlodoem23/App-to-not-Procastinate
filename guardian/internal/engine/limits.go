@@ -43,9 +43,10 @@ type limitsState struct {
 
 // limitsMem is the in-memory part of the limits state.
 type limitsMem struct {
-	// lastUsageBoot is the boot-clock reading of each client's previous accepted usage
-	// report ("app" or "ext:<extensionId>"); lost on restart (§10.13).
-	lastUsageBoot map[string]time.Duration
+	// lastUsageAwake is the awake-clock reading (it stops during suspend) of each client's
+	// previous accepted usage report ("app" or "ext:<extensionId>"); lost on restart
+	// (§10.13). A report spanning a suspend is clamped to the time the machine was awake.
+	lastUsageAwake map[string]time.Duration
 }
 
 // limitRec is a DailyLimit in trusted time without its derived fields.
@@ -79,16 +80,24 @@ type limitPending struct {
 type limitUsage struct {
 	Day    string `json:"day"`
 	UsedMs int64  `json:"usedMs"`
-	// CreditedUntil is the per-limit watermark (trusted ms): time before it is never
-	// credited again (§10.13). It survives the day rollover.
+	// CreditedUntil is the per-limit floor (trusted ms): time before it never counts (the
+	// limit's creation, an epoch start; §10.13). It survives the day rollover.
 	CreditedUntil int64 `json:"creditedUntil"`
-	WarnedAt      int64 `json:"warnedAt"`
-	ReachedAt     int64 `json:"reachedAt"`
+	// Credited are the recent stretches of trusted time already credited (limitUsageCredit),
+	// so each millisecond counts at most once per limit whichever clients report it. They
+	// survive the day rollover.
+	Credited  []creditSpan `json:"credited,omitempty"`
+	WarnedAt  int64        `json:"warnedAt"`
+	ReachedAt int64        `json:"reachedAt"`
 	// Covered is what limit blocks were materialized for today (whether or not they are
 	// still active), so an emergency never re-triggers one and a strengthening edit adds
 	// only what is new.
 	Covered     limitCovered `json:"covered"`
 	BlocksToday int          `json:"blocksToday"`
+	// CoveredUntil is the latest end of what was materialized for this record (its limit
+	// blocks' ends as created, at least reachedAt), 0 before it is reached. A time-zone
+	// change that moves the end of the record's day past it adds a continuation block.
+	CoveredUntil int64 `json:"coveredUntil,omitempty"`
 }
 
 // limitCovered are the targets and the highest mode rank materialized today (rank −1:
@@ -325,11 +334,11 @@ func (e *Engine) reportUsage(r Request, req UsageReportRequest) (UsageReportResp
 	slack := int64(l.UsageSlackMs)
 	m := e.limitsMem()
 	var since *int64
-	if last, ok := m.lastUsageBoot[client]; ok {
-		since = ptr((e.bootNow - last).Milliseconds())
+	if last, ok := m.lastUsageAwake[client]; ok {
+		since = ptr((e.awakeNow - last).Milliseconds())
 	}
 	interval := clampUsageInterval(req.IntervalMs, since, slack)
-	m.lastUsageBoot[client] = e.bootNow
+	m.lastUsageAwake[client] = e.awakeNow
 	today := e.localDay(e.now)
 	dayStart := e.startOfLocalDay(e.now)
 	credited := map[string]int64{}
@@ -348,9 +357,9 @@ func (e *Engine) reportUsage(r Request, req UsageReportRequest) (UsageReportResp
 			continue
 		}
 		u := limUsageFor(rec, today)
-		c, until := limitUsageCredit(e.now, dayStart, interval, rep, u.CreditedUntil, slack)
+		c, spans := limitUsageCredit(e.now, dayStart, interval, rep, u.CreditedUntil, u.Credited, slack, int64(l.UsageMaxIntervalMs))
 		u.UsedMs += c
-		u.CreditedUntil = until
+		u.Credited = spans
 		credited[rec.ID] = c
 		if c > 0 {
 			e.markDirty(false)
@@ -511,8 +520,8 @@ func (e *Engine) limitsMem() *limitsMem {
 	if st.mem == nil {
 		st.mem = &limitsMem{}
 	}
-	if st.mem.lastUsageBoot == nil {
-		st.mem.lastUsageBoot = map[string]time.Duration{}
+	if st.mem.lastUsageAwake == nil {
+		st.mem.lastUsageAwake = map[string]time.Duration{}
 	}
 	return st.mem
 }
@@ -520,9 +529,17 @@ func (e *Engine) limitsMem() *limitsMem {
 // limDelayMs is limitWeakeningDelayMs.
 func limDelayMs() int64 { return int64(limits().LimitWeakeningDelayMs) }
 
-// freshLimitUsage is an empty usage record for day, keeping the watermark.
-func freshLimitUsage(day string, creditedUntil int64) limitUsage {
-	return limitUsage{Day: day, CreditedUntil: creditedUntil, Covered: limitCovered{Targets: emptyTargets(), Rank: -1}}
+// freshLimitUsage is an empty usage record for day with nothing counting before floor.
+func freshLimitUsage(day string, floor int64) limitUsage {
+	return limitUsage{Day: day, CreditedUntil: floor, Covered: limitCovered{Targets: emptyTargets(), Rank: -1}}
+}
+
+// nextDayUsage is an empty usage record for day after prev, keeping its floor and its
+// credited spans.
+func nextDayUsage(day string, prev limitUsage) limitUsage {
+	u := freshLimitUsage(day, prev.CreditedUntil)
+	u.Credited = prev.Credited
+	return u
 }
 
 // limUsageFor is the usage record of rec for day: a record of an earlier day is replaced
@@ -530,7 +547,7 @@ func freshLimitUsage(day string, creditedUntil int64) limitUsage {
 // never moves to a day that was already counted).
 func limUsageFor(rec *limitRec, day string) *limitUsage {
 	if rec.Usage.Day < day {
-		rec.Usage = freshLimitUsage(day, rec.Usage.CreditedUntil)
+		rec.Usage = nextDayUsage(day, rec.Usage)
 	}
 	return &rec.Usage
 }
@@ -802,6 +819,13 @@ func (e *Engine) limitsApplyPending(T, dBootMs int64) {
 		}
 		b := e.newBatch()
 		if p.Definition == nil {
+			// The day so far still reaches the statistics (limit_days).
+			if u := rec.Usage; u.Day != "" && (u.UsedMs > 0 || u.ReachedAt != 0) {
+				b.add(EvLimitDayClosed, LimitDayClosedData{
+					LimitID: rec.ID, Name: rec.Def.Name, Day: u.Day, DailyMinutes: rec.Def.DailyMinutes,
+					UsedSeconds: u.UsedMs / 1000, Applied: e.limAppliesOn(rec, u.Day), Reached: u.ReachedAt != 0,
+				})
+			}
 			b.add(EvLimitDeleted, LimitDeletedData{LimitID: rec.ID, Name: rec.Def.Name})
 		} else {
 			snap := *rec
@@ -816,15 +840,19 @@ func (e *Engine) limitsApplyPending(T, dBootMs int64) {
 }
 
 // evaluateLimits (§10.13) runs after every step, usage report and limit write: per
-// enabled limit that applies today, in creation order, limit_warning once when 0 <
-// remaining ≤ limitWarningSeconds, and limit_reached plus a limit block until the next
-// local midnight when the allowance ran out (once per day, plus a further block when a
-// strengthening edit widened what is limited, at most limitMaxBlocksPerDay).
+// enabled limit that applies on its usage record's day, in creation order, limit_warning
+// once when 0 < remaining ≤ limitWarningSeconds, and limit_reached plus a limit block
+// until the end of that local day when the allowance ran out (once per day, plus a
+// further block when a strengthening edit widened what is limited, at most
+// limitMaxBlocksPerDay, and a continuation when a time-zone change moved the end of the
+// record's day past what its blocks cover).
 func (e *Engine) evaluateLimits(T int64) {
 	l := limits()
 	today := e.localDay(T)
 	for _, rec := range slices.Clone(e.state.Limits.List) {
-		if !e.limAppliesOn(rec, today) || rec.Usage.Day < today {
+		// A record later than today (a time-zone change moved the local date back) is
+		// still the current one: usage never moves to a day that was already counted.
+		if rec.Usage.Day < today || !e.limAppliesOn(rec, rec.Usage.Day) {
 			continue
 		}
 		u := rec.Usage
@@ -842,15 +870,32 @@ func (e *Engine) evaluateLimits(T int64) {
 			}
 			continue
 		}
+		// The block lasts until the end of the record's day in the current zone, never
+		// less than until the next local midnight (§5.10).
+		end := max(e.nextLocalMidnight(T), e.startOfDayAfter(u.Day))
 		first := u.ReachedAt == 0
-		rank := limitModeRank(rec.Def.Mode)
-		grow := !first && (!targetsCover(u.Covered.Targets, rec.Def.Targets) || rank > u.Covered.Rank)
-		if !first && (!grow || u.BlocksToday >= l.LimitMaxBlocksPerDay) {
+		made := 0
+		if !first {
+			var cancelled bool
+			made, cancelled = e.limRecordBlocks(rec)
+			rank := limitModeRank(rec.Def.Mode)
+			grow := !targetsCover(u.Covered.Targets, rec.Def.Targets) || rank > u.Covered.Rank
+			grow = grow && max(u.BlocksToday, made) < l.LimitMaxBlocksPerDay
+			// A continuation: the record's day now ends after everything materialized for
+			// it (never after an emergency cancelled one of its blocks).
+			cont := !cancelled && u.CoveredUntil != 0 && u.CoveredUntil < end
+			if !grow && !cont {
+				continue
+			}
+		}
+		// Defensive bound: a record never holds more than limitMaxBlocksPerDay blocks plus
+		// continuations, whatever its counters say.
+		if made >= 2*l.LimitMaxBlocksPerDay {
 			continue
 		}
 		b := e.newBatch()
 		var blk *Block
-		if end := e.nextLocalMidnight(T); end-T >= int64(l.LimitMinBlockMs) {
+		if end-T >= int64(l.LimitMinBlockMs) {
 			id := rec.ID
 			snap := e.newBlockSnapshot(blockSpec{
 				Kind: KindLimit, Mode: rec.Def.Mode, Targets: rec.Def.Targets, Allow: emptyAllow(),
@@ -878,6 +923,22 @@ func (e *Engine) evaluateLimits(T int64) {
 			return
 		}
 	}
+}
+
+// limRecordBlocks describes the limit blocks of rec's current usage record (those created
+// at or after it was reached, any status; creation times never shift): how many and
+// whether an emergency cancelled one of them.
+func (e *Engine) limRecordBlocks(rec *limitRec) (n int, cancelled bool) {
+	for _, b := range e.state.Blocks {
+		if b.LimitID == nil || *b.LimitID != rec.ID || b.CreatedAt < rec.Usage.ReachedAt {
+			continue
+		}
+		n++
+		if b.Status == StatusCancelledEmergency {
+			cancelled = true
+		}
+	}
+	return n, cancelled
 }
 
 // limitsCreditVerifiedDowntime subtracts downtime a network time check verified from the
@@ -948,9 +1009,11 @@ func (e *Engine) limUsageFromKept(rec *limitRec, w DailyLimit, at int64) limitUs
 			u.WarnedAt = ms
 			u.Covered = limitCovered{Targets: rec.Def.Targets.normalized(), Rank: limitModeRank(rec.Def.Mode)}
 			n := 0
+			u.CoveredUntil = ms
 			for _, b := range e.state.Blocks {
 				if b.Status == StatusActive && b.LimitID != nil && *b.LimitID == rec.ID {
 					n++
+					u.CoveredUntil = max(u.CoveredUntil, b.EndsAt)
 				}
 			}
 			u.BlocksToday = max(1, n)
@@ -1031,7 +1094,9 @@ func limRecFromWire(w DailyLimit) (*limitRec, error) {
 }
 
 // markLimitBlock records a limit block in its limit's usage record (the reducer of
-// block_created{limit}): what is covered today and how many blocks were materialized.
+// block_created{limit}): what is covered today and how many blocks were materialized. The
+// block always belongs to the current record: the one of the event's day or, after a
+// time-zone change moved the local date back, a later one (limUsageFor keeps it).
 func (e *Engine) markLimitBlock(blk *blockRec, ev *storeEvent) {
 	if blk.LimitID == nil {
 		return
@@ -1041,11 +1106,9 @@ func (e *Engine) markLimitBlock(blk *blockRec, ev *storeEvent) {
 		return
 	}
 	u := limUsageFor(rec, ev.Day)
-	if u.Day != ev.Day {
-		return
-	}
 	u.Covered = limitCovered{Targets: targetsUnion(u.Covered.Targets, blk.Targets).normalized(), Rank: max(u.Covered.Rank, limitModeRank(blk.Mode))}
 	u.BlocksToday++
+	u.CoveredUntil = max(u.CoveredUntil, blk.EndsAt)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1138,6 +1201,7 @@ func (e *Engine) applyLimitReached(ev *storeEvent) error {
 	}
 	u.UsedMs = max(u.UsedMs, d.UsedSeconds*1000)
 	u.ReachedAt = atMs(ev)
+	u.CoveredUntil = max(u.CoveredUntil, u.ReachedAt)
 	if d.BlockID == nil {
 		// Nothing was blocked (less than a minute before midnight): still materialized.
 		u.Covered = limitCovered{Targets: targetsUnion(u.Covered.Targets, rec.Def.Targets).normalized(), Rank: max(u.Covered.Rank, limitModeRank(rec.Def.Mode))}
@@ -1151,7 +1215,7 @@ func (e *Engine) applyLimitDayClosed(ev *storeEvent) error {
 		return err
 	}
 	if rec := e.limit(d.LimitID); rec != nil && rec.Usage.Day == d.Day {
-		rec.Usage = freshLimitUsage(ev.Day, rec.Usage.CreditedUntil)
+		rec.Usage = nextDayUsage(ev.Day, rec.Usage)
 	}
 	return nil
 }

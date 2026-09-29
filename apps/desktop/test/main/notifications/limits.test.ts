@@ -6,6 +6,7 @@ import {
   limitAlertsFromEvents,
   nextFiveMinuteDue,
   noticesFromEvents,
+  withLimitBlockEnds,
 } from '../../../src/main/notifications/policy';
 import { withLocale } from '../../../src/shared/i18n/locale';
 import {
@@ -51,7 +52,7 @@ function warning(atMs = HARNESS_NOW): WireEvent {
   );
 }
 
-function reached(atMs = HARNESS_NOW): WireEvent {
+function reached(atMs = HARNESS_NOW, blockId: string | null = 'blk_fixture0000000031'): WireEvent {
   return ev(
     'limit_reached',
     {
@@ -60,10 +61,17 @@ function reached(atMs = HARNESS_NOW): WireEvent {
       day: '2026-09-28',
       dailyMinutes: 30,
       usedSeconds: 1800,
-      blockId: 'blk_fixture0000000031',
+      blockId,
     },
     atMs,
   );
+}
+
+/** `limit_reached` and its block, as the guardian writes them (one batch). */
+function reachedBatch(endsAtShiftMs = 0): WireEvent[] {
+  const block = limitBlock(HARNESS_NOW);
+  const endsAt = new Date(Date.parse(block.endsAt) + endsAtShiftMs).toISOString();
+  return [reached(), ev('block_created', { block: { ...block, endsAt }, source: 'limit' })];
 }
 
 describe('daily-limit notifications', () => {
@@ -74,7 +82,7 @@ describe('daily-limit notifications', () => {
       body: 'Límite diario',
       kinds: ['limit_warning'],
     });
-    const r = composeNotification(noticesFromEvents([reached()], HARNESS_NOW));
+    const r = composeNotification(noticesFromEvents(reachedBatch(), HARNESS_NOW));
     expect(r).toMatchObject({
       title: 'Has gastado tus 30 min de YouTube de hoy',
       body: 'Bloqueado hasta las 00:00',
@@ -84,10 +92,29 @@ describe('daily-limit notifications', () => {
 
   it('speak English too', () => {
     withLocale('en', () => {
-      const r = composeNotification(noticesFromEvents([reached()], HARNESS_NOW));
+      const r = composeNotification(noticesFromEvents(reachedBatch(), HARNESS_NOW));
       expect(r?.title).toBe("You've used up your 30 min of YouTube for today");
       expect(r?.body).toBe('Blocked until 12:00 AM');
     });
+  });
+
+  it('show the block’s own end, and no block when none was made', () => {
+    // The guardian's time zone may differ from this machine's: the block's end is the truth.
+    const later = composeNotification(noticesFromEvents(reachedBatch(3 * 3_600_000), HARNESS_NOW));
+    expect(later?.body).toBe('Bloqueado hasta las 03:00');
+    // Less than a minute before midnight nothing is blocked.
+    const none = composeNotification(noticesFromEvents([reached(HARNESS_NOW, null)], HARNESS_NOW));
+    expect(none).toMatchObject({ title: 'Has gastado tus 30 min de YouTube de hoy', body: '' });
+    // A block on another page: its end comes from the state at flush time.
+    const alone = noticesFromEvents([reached()], HARNESS_NOW);
+    expect(composeNotification(alone)?.body).toBe('');
+    const state = makeGuardianState(HARNESS_NOW, {
+      blocks: [limitBlock(HARNESS_NOW)],
+      limits: makeLimits(HARNESS_NOW),
+    });
+    expect(composeNotification(withLimitBlockEnds(alone, state))?.body).toBe(
+      'Bloqueado hasta las 00:00',
+    );
   });
 
   it('group with other notices by priority, and are never stale', () => {

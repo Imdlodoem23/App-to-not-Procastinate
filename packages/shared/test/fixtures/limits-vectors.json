@@ -1,5 +1,5 @@
 {
-  "$comment": "Daily-limit parity vectors (docs/ARCHITECTURE.md §5.10, §10.13), written by hand from the rules. Run by packages/shared/test/limits.test.ts and, in place, by the guardian's Go port (go test reads ../../../packages/shared/test/fixtures/limits-vectors.json relative to its package). Each vector calls `fn` with `args` and compares the JSON of the result with `expect`: splitLimitChange(effective, requested) -> {applied, pending|null}; limitDefinitionWeakens(next, prev) -> bool; pendingLimitDelayKept(prev|null, next|null) -> bool (null = pending deletion); clampUsageInterval(intervalMs, sinceLastMs|null, slackMs) -> ms; limitUsageCredit({nowMs, dayStartMs, intervalMs, reportedMs, creditedUntilMs, slackMs?}) -> {creditMs, creditedUntilMs}.",
+  "$comment": "Daily-limit parity vectors (docs/ARCHITECTURE.md §5.10, §10.13), written by hand from the rules. Run by packages/shared/test/limits.test.ts and, in place, by the guardian's Go port (go test reads ../../../packages/shared/test/fixtures/limits-vectors.json relative to its package). Each vector calls `fn` with `args` and compares the JSON of the result with `expect`: splitLimitChange(effective, requested) -> {applied, pending|null}; limitDefinitionWeakens(next, prev) -> bool; pendingLimitDelayKept(prev|null, next|null) -> bool (null = pending deletion); clampUsageInterval(intervalMs, sinceLastMs|null, slackMs) -> ms; limitUsageCredit({nowMs, dayStartMs, intervalMs, reportedMs, creditedUntilMs, credited?, slackMs?, maxIntervalMs?}) -> {creditMs, credited} (credited: sorted, merged [start, end) spans).",
   "formatVersion": 1,
   "vectors": [
     {
@@ -1533,13 +1533,14 @@
           "dayStartMs": 0,
           "intervalMs": 30000,
           "reportedMs": 30000,
-          "creditedUntilMs": 70000,
+          "creditedUntilMs": 0,
+          "credited": [[40000, 70000]],
           "slackMs": 2000
         }
       ],
       "expect": {
         "creditMs": 30000,
-        "creditedUntilMs": 100000
+        "credited": [[40000, 100000]]
       }
     },
     {
@@ -1551,13 +1552,14 @@
           "dayStartMs": 0,
           "intervalMs": 30000,
           "reportedMs": 30000,
-          "creditedUntilMs": 71000,
+          "creditedUntilMs": 0,
+          "credited": [[41000, 71000]],
           "slackMs": 2000
         }
       ],
       "expect": {
         "creditMs": 30000,
-        "creditedUntilMs": 100000
+        "credited": [[41000, 100000]]
       }
     },
     {
@@ -1569,13 +1571,59 @@
           "dayStartMs": 0,
           "intervalMs": 30000,
           "reportedMs": 30000,
-          "creditedUntilMs": 100000,
+          "creditedUntilMs": 0,
+          "credited": [[70000, 100000]],
           "slackMs": 2000
         }
       ],
       "expect": {
         "creditMs": 3000,
-        "creditedUntilMs": 101000
+        "credited": [[70000, 101000]]
+      }
+    },
+    {
+      "name": "credit: a second client fills the gaps the first left",
+      "fn": "limitUsageCredit",
+      "args": [
+        {
+          "nowMs": 100000,
+          "dayStartMs": 0,
+          "intervalMs": 30000,
+          "reportedMs": 29000,
+          "creditedUntilMs": 0,
+          "credited": [
+            [70000, 71000],
+            [80000, 81000],
+            [90000, 91000]
+          ],
+          "slackMs": 2000
+        }
+      ],
+      "expect": {
+        "creditMs": 29000,
+        "credited": [[70000, 100000]]
+      }
+    },
+    {
+      "name": "credit: a short report of one client does not hide the rest of the window",
+      "fn": "limitUsageCredit",
+      "args": [
+        {
+          "nowMs": 100100,
+          "dayStartMs": 0,
+          "intervalMs": 30000,
+          "reportedMs": 29000,
+          "creditedUntilMs": 0,
+          "credited": [
+            [40000, 70000],
+            [70000, 71000]
+          ],
+          "slackMs": 2000
+        }
+      ],
+      "expect": {
+        "creditMs": 29000,
+        "credited": [[40000, 100000]]
       }
     },
     {
@@ -1593,7 +1641,25 @@
       ],
       "expect": {
         "creditMs": 10000,
-        "creditedUntilMs": 100000
+        "credited": [[90000, 100000]]
+      }
+    },
+    {
+      "name": "credit: nothing before the floor counts but the slack",
+      "fn": "limitUsageCredit",
+      "args": [
+        {
+          "nowMs": 100000,
+          "dayStartMs": 0,
+          "intervalMs": 30000,
+          "reportedMs": 30000,
+          "creditedUntilMs": 100000,
+          "slackMs": 2000
+        }
+      ],
+      "expect": {
+        "creditMs": 2000,
+        "credited": [[98000, 100000]]
       }
     },
     {
@@ -1605,17 +1671,18 @@
           "dayStartMs": 0,
           "intervalMs": 30000,
           "reportedMs": 0,
-          "creditedUntilMs": 70000,
+          "creditedUntilMs": 0,
+          "credited": [[40000, 70000]],
           "slackMs": 2000
         }
       ],
       "expect": {
         "creditMs": 0,
-        "creditedUntilMs": 70000
+        "credited": [[40000, 70000]]
       }
     },
     {
-      "name": "credit: a watermark ahead of now (clock moved back) credits nothing",
+      "name": "credit: credited time ahead of now (clock moved back) credits nothing",
       "fn": "limitUsageCredit",
       "args": [
         {
@@ -1623,13 +1690,14 @@
           "dayStartMs": 0,
           "intervalMs": 30000,
           "reportedMs": 30000,
-          "creditedUntilMs": 150000,
+          "creditedUntilMs": 0,
+          "credited": [[120000, 150000]],
           "slackMs": 2000
         }
       ],
       "expect": {
         "creditMs": 0,
-        "creditedUntilMs": 150000
+        "credited": [[120000, 150000]]
       }
     },
     {
@@ -1647,7 +1715,7 @@
       ],
       "expect": {
         "creditMs": 12000,
-        "creditedUntilMs": 100000
+        "credited": [[88000, 100000]]
       }
     },
     {
@@ -1659,13 +1727,14 @@
           "dayStartMs": 0,
           "intervalMs": 30000,
           "reportedMs": 7000,
-          "creditedUntilMs": 70000,
+          "creditedUntilMs": 0,
+          "credited": [[40000, 70000]],
           "slackMs": 2000
         }
       ],
       "expect": {
         "creditMs": 7000,
-        "creditedUntilMs": 100000
+        "credited": [[40000, 77000]]
       }
     },
     {
@@ -1673,16 +1742,128 @@
       "fn": "limitUsageCredit",
       "args": [
         {
-          "nowMs": 100000,
+          "nowMs": 100500,
           "dayStartMs": 0,
           "intervalMs": 30000,
           "reportedMs": 30000,
-          "creditedUntilMs": 100500
+          "creditedUntilMs": 0,
+          "credited": [[70000, 100000]]
         }
       ],
       "expect": {
-        "creditMs": 1500,
-        "creditedUntilMs": 100500
+        "creditMs": 2500,
+        "credited": [[70000, 100500]]
+      }
+    },
+    {
+      "name": "credit: spans no later report can reach are dropped",
+      "fn": "limitUsageCredit",
+      "args": [
+        {
+          "nowMs": 300000,
+          "dayStartMs": 0,
+          "intervalMs": 30000,
+          "reportedMs": 30000,
+          "creditedUntilMs": 0,
+          "maxIntervalMs": 120000,
+          "credited": [
+            [100000, 150000],
+            [170000, 190000]
+          ],
+          "slackMs": 2000
+        }
+      ],
+      "expect": {
+        "creditMs": 30000,
+        "credited": [
+          [170000, 190000],
+          [270000, 300000]
+        ]
+      }
+    },
+    {
+      "name": "credit: past the span cap the two closest spans merge",
+      "fn": "limitUsageCredit",
+      "args": [
+        {
+          "nowMs": 100000,
+          "dayStartMs": 0,
+          "intervalMs": 30000,
+          "reportedMs": 1000,
+          "creditedUntilMs": 0,
+          "credited": [
+            [0, 1000],
+            [2000, 3000],
+            [4000, 5000],
+            [6000, 7000],
+            [8000, 9000],
+            [10000, 11000],
+            [12000, 13000],
+            [14000, 15000],
+            [16000, 17000],
+            [18000, 19000],
+            [20000, 21000],
+            [22000, 23000],
+            [24000, 25000],
+            [26000, 27000],
+            [28000, 29000],
+            [30000, 31000],
+            [32000, 33000],
+            [34000, 35000],
+            [36000, 37000],
+            [38000, 39000],
+            [40000, 41000],
+            [42000, 43000],
+            [44000, 45000],
+            [46000, 47000],
+            [48000, 49000],
+            [50000, 51000],
+            [52000, 53000],
+            [54000, 55000],
+            [56000, 57000],
+            [58000, 59000],
+            [60000, 61000],
+            [62000, 63000]
+          ],
+          "slackMs": 2000
+        }
+      ],
+      "expect": {
+        "creditMs": 1000,
+        "credited": [
+          [0, 3000],
+          [4000, 5000],
+          [6000, 7000],
+          [8000, 9000],
+          [10000, 11000],
+          [12000, 13000],
+          [14000, 15000],
+          [16000, 17000],
+          [18000, 19000],
+          [20000, 21000],
+          [22000, 23000],
+          [24000, 25000],
+          [26000, 27000],
+          [28000, 29000],
+          [30000, 31000],
+          [32000, 33000],
+          [34000, 35000],
+          [36000, 37000],
+          [38000, 39000],
+          [40000, 41000],
+          [42000, 43000],
+          [44000, 45000],
+          [46000, 47000],
+          [48000, 49000],
+          [50000, 51000],
+          [52000, 53000],
+          [54000, 55000],
+          [56000, 57000],
+          [58000, 59000],
+          [60000, 61000],
+          [62000, 63000],
+          [70000, 71000]
+        ]
       }
     }
   ]

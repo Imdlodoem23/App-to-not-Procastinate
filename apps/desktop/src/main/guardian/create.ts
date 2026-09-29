@@ -75,7 +75,10 @@ export class CreateOperation {
       attempts: 1,
       error: null,
     };
-    if (link.status === 'down' && (link.reason === 'unreachable' || link.reason === 'not_installed')) {
+    if (
+      link.status === 'down' &&
+      (link.reason === 'unreachable' || link.reason === 'not_installed')
+    ) {
       // Fail fast: the connection is already known to be refused.
       const error = uiError(link.reason, link.reason);
       this.setCreate({ ...pending, status: 'failed', error });
@@ -171,6 +174,7 @@ export function confirmCreate(
     ...s,
     state: s.state ? { ...s.state, blocks: insertBlockSorted(s.state.blocks, block) } : s.state,
     ops: { ...s.ops, create, lastCreated: { intentId, blockId: block.id } },
-    prefs: reason !== '' && reason !== s.prefs.lastReason ? { ...s.prefs, lastReason: reason } : s.prefs,
+    prefs:
+      reason !== '' && reason !== s.prefs.lastReason ? { ...s.prefs, lastReason: reason } : s.prefs,
   };
 }

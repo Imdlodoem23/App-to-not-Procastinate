@@ -5,7 +5,7 @@
  * - `POST`/`PUT`/`DELETE /v1/limits`: stricter parts apply at once, the rest waits 24 h as
  *   `pendingChange` (`splitLimitChange`, `pendingLimitDelayKept`), a deletion always waits;
  * - `POST /v1/usage`: the app's `process` items (a `domain` item is 403 like the real one), the
- *   per-client clamp (`clampUsageInterval`) and the per-limit watermark (`limitUsageCredit`);
+ *   per-client clamp (`clampUsageInterval`) and the per-limit credited spans (`limitUsageCredit`);
  * - the time step: the local day rolls over (`limit_day_closed`), pending changes apply from
  *   the next day at the earliest, and `evaluateLimits` writes `limit_warning` 5 min before
  *   the end and `limit_reached` + a `limit` block until the next local midnight when the
@@ -44,6 +44,7 @@ import {
   limitUsageCredit,
   pendingLimitDelayKept,
   splitLimitChange,
+  type CreditSpan,
   type DailyLimitInput,
   type GuardianErrorCode,
   type LimitUsageStatus,
@@ -109,6 +110,7 @@ interface LimitRecord {
     day: string;
     usedMs: number;
     creditedUntil: number;
+    credited: CreditSpan[];
     warnedAt: number;
     reachedAt: number;
     covered: Covered | null;
@@ -229,6 +231,7 @@ export class MockLimits {
           day: limit.day === today ? limit.day : today,
           usedMs: limit.day === today ? limit.usedTodaySeconds * 1_000 : 0,
           creditedUntil: 0,
+          credited: [],
           warnedAt:
             limit.day === today &&
             limit.remainingTodaySeconds <= GUARDIAN_LIMITS.limitWarningSeconds
@@ -352,6 +355,7 @@ export class MockLimits {
         day: this.today(now),
         usedMs: 0,
         creditedUntil: 0,
+        credited: [],
         warnedAt: 0,
         reachedAt: 0,
         covered: null,
@@ -429,7 +433,8 @@ export class MockLimits {
       if (!rec.def.enabled) continue;
       let reported = 0;
       for (const item of body.items) {
-        if (usageItemMatches(rec.resolved, item, this.host.platform)) reported += item.seconds * 1_000;
+        if (usageItemMatches(rec.resolved, item, this.host.platform))
+          reported += item.seconds * 1_000;
       }
       reported = Math.min(reported, interval);
       const c = limitUsageCredit({
@@ -438,9 +443,10 @@ export class MockLimits {
         intervalMs: interval,
         reportedMs: reported,
         creditedUntilMs: rec.usage.creditedUntil,
+        credited: rec.usage.credited,
       });
       rec.usage.usedMs += c.creditMs;
-      rec.usage.creditedUntil = c.creditedUntilMs;
+      rec.usage.credited = c.credited;
       credited.set(rec.id, Math.floor(c.creditMs / 1_000));
     }
     const events = this.evaluate(now);
@@ -477,24 +483,12 @@ export class MockLimits {
     let dirty = false;
     for (const rec of this.records) {
       if (rec.usage.day === today) continue;
-      if (rec.usage.usedMs > 0 || rec.usage.reachedAt > 0) {
-        const day = rec.usage.day;
-        const [y, m, d] = day.split('-').map(Number);
-        const weekday = isoWeekday({ year: y ?? 1970, month: m ?? 1, day: d ?? 1 });
-        this.host.emit('limit_day_closed', {
-          limitId: rec.id,
-          name: rec.def.name,
-          day,
-          dailyMinutes: rec.def.dailyMinutes,
-          usedSeconds: Math.floor(rec.usage.usedMs / 1_000),
-          applied: rec.def.enabled && rec.def.days.includes(weekday),
-          reached: rec.usage.reachedAt > 0,
-        });
-      }
+      this.closeDay(rec);
       rec.usage = {
         day: today,
         usedMs: 0,
         creditedUntil: rec.usage.creditedUntil,
+        credited: rec.usage.credited,
         warnedAt: 0,
         reachedAt: 0,
         covered: null,
@@ -509,16 +503,38 @@ export class MockLimits {
       rec.updatedAt = now;
       dirty = true;
       if (next === null) {
+        // The day so far still reaches the statistics (limit_days).
+        this.closeDay(rec);
         this.records = this.records.filter((r) => r.id !== rec.id);
         this.host.emit('limit_deleted', { limitId: rec.id, name: rec.def.name });
         continue;
       }
       rec.def = next;
       rec.resolved = resolveLimit(next, this.host.platform);
-      this.host.emit('limit_updated', { limit: this.view(rec, now, true), cause: 'pending_applied' });
+      this.host.emit('limit_updated', {
+        limit: this.view(rec, now, true),
+        cause: 'pending_applied',
+      });
     }
     if (this.evaluate(now)) dirty = true;
     return dirty;
+  }
+
+  /** `limit_day_closed` for the record's day when it had usage or was reached. */
+  private closeDay(rec: LimitRecord): void {
+    if (rec.usage.usedMs <= 0 && rec.usage.reachedAt <= 0) return;
+    const day = rec.usage.day;
+    const [y, m, d] = day.split('-').map(Number);
+    const weekday = isoWeekday({ year: y ?? 1970, month: m ?? 1, day: d ?? 1 });
+    this.host.emit('limit_day_closed', {
+      limitId: rec.id,
+      name: rec.def.name,
+      day,
+      dailyMinutes: rec.def.dailyMinutes,
+      usedSeconds: Math.floor(rec.usage.usedMs / 1_000),
+      applied: rec.def.enabled && rec.def.days.includes(weekday),
+      reached: rec.usage.reachedAt > 0,
+    });
   }
 
   /** `evaluateLimits(T)` (§10.13). `true` when it wrote events. */

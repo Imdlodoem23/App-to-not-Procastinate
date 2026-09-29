@@ -28,6 +28,7 @@ import {
   subtractSent,
   trimPending,
 } from '../../src/background/usage';
+import type { UsageReportOutcome } from '../../src/background/state';
 import { withPagesLocale } from '../../src/pages/i18n';
 import { NOW, memoryArea } from './fakes';
 
@@ -261,7 +262,7 @@ function harness(
   const state = {
     env: env('https://www.youtube.com/watch?v=1'),
     limits: [YOUTUBE, SOCIAL] as ExtRuleLimit[],
-    answer: answer({ [LIM_YT]: 20 * 60, [LIM_SOCIAL]: 60 * 60 }) as UsageReportResponse | null,
+    answer: answer({ [LIM_YT]: 20 * 60, [LIM_SOCIAL]: 60 * 60 }) as UsageReportOutcome,
   };
   const reports: UsageReportRequest[] = [];
   const badges: Array<[number, BadgeSpec | null]> = [];
@@ -348,11 +349,11 @@ describe('usage tracker (main instance)', () => {
     ]);
   });
 
-  it('never retries a failed report: its seconds go with the next one', async () => {
+  it('never retries a refused report: its seconds go with the next one', async () => {
     const h = harness();
     await h.at(0, 'update');
     await h.at(5 * SEC); // first answer
-    h.state.answer = null; // guardian down
+    h.state.answer = 'refused'; // an error status: nothing was credited
     await h.at(35 * SEC);
     expect(h.reports).toHaveLength(2);
     await h.at(40 * SEC);
@@ -364,6 +365,23 @@ describe('usage tracker (main instance)', () => {
     expect(h.reports[2]).toEqual({
       intervalMs: 60_000,
       items: [{ type: 'domain', value: 'www.youtube.com', seconds: 60 }],
+    });
+  });
+
+  it('drops the seconds of a report whose answer was lost (it may have been credited)', async () => {
+    const h = harness();
+    await h.at(0, 'update');
+    await h.at(5 * SEC); // first answer
+    h.state.answer = 'lost';
+    await h.at(35 * SEC);
+    expect(h.reports).toHaveLength(2);
+    expect((await h.stored()).pending).toEqual([]);
+    h.state.answer = answer({ [LIM_YT]: 600 });
+    await h.at(65 * SEC);
+    expect(h.reports).toHaveLength(3);
+    expect(h.reports[2]).toEqual({
+      intervalMs: 30_000,
+      items: [{ type: 'domain', value: 'www.youtube.com', seconds: 30 }],
     });
   });
 
@@ -458,5 +476,17 @@ describe('Chromium incognito instance (split mode)', () => {
     expect(main.reports.at(-1)?.items).toEqual([
       { type: 'domain', value: 'www.youtube.com', seconds: 10 },
     ]);
+  });
+
+  it('credits nothing for a segment left by an instance that stopped', async () => {
+    const local = memoryArea();
+    const incognito = harness({ role: 'follower', local });
+    await incognito.at(0, 'update');
+    await incognito.at(10 * SEC);
+    // The incognito instance goes away with its segment open; days later it starts again.
+    await incognito.at(3 * 86_400_000, 'update');
+    expect(local.data.get(USAGE_KEYS.incognitoTotals)).toMatchObject({
+      totals: { 'www.youtube.com': 10 * SEC },
+    });
   });
 });

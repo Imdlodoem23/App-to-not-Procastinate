@@ -308,6 +308,8 @@ export interface DraftSeed {
   end: DraftEnd | null;
   mode: BlockMode | null;
   reason: string | null;
+  /** A limit phrase's days («entre semana»), for the Bloqueos limit editor; absent: every day. */
+  days?: IsoWeekday[];
 }
 
 export interface BlockTemplate {

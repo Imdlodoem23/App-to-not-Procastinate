@@ -94,6 +94,7 @@ import {
   limitAutoName,
   limitNeedsConsequence,
   limitReachedToday,
+  limitsSupported,
 } from '../../../../shared/limits';
 import { untilPhrase, whenLabel } from './time';
 import {
@@ -127,6 +128,8 @@ export const BLOQUEOS_IDS = {
   limitName: 'blq-limit-name',
   limitMinutes: 'blq-limit-minutes',
   newLimit: 'blq-new-limit',
+  /** «Límites diarios» of a guardian without them: the note that says why. */
+  limitsUnsupported: 'blq-limits-unsupported',
   whitelist: 'blq-whitelist',
   whitelistDomain: 'blq-whitelist-domain',
   rows: {
@@ -408,7 +411,8 @@ export interface LimitsView {
   title: string;
   /** «1 agotado hoy». */
   datum: string | null;
-  status: LimitsData['status'];
+  /** `unsupported`: the guardian has no daily limits yet (an older version). */
+  status: LimitsData['status'] | 'unsupported';
   error: UiError | null;
   rows: LimitRowView[];
   canCreate: boolean;
@@ -868,6 +872,17 @@ function limitsView(
 ): LimitsView {
   const d = data.limits ?? { status: 'loading' as const };
   const editing = state.detail.bloqueos.limit;
+  if (!limitsSupported(state.snapshot)) {
+    return {
+      title: LIMIT_TEXT.sectionTitle,
+      datum: null,
+      status: 'unsupported',
+      error: null,
+      rows: [],
+      canCreate: false,
+      editor: null,
+    };
+  }
   const editor = limitEditorView(state, data, list, nowMs, keys);
   if (d.status === 'loading' || d.status === 'error') {
     return {

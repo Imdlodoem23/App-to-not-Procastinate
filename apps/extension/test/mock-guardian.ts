@@ -63,6 +63,7 @@ import type {
   PunishmentLevel,
 } from '@centrate/shared/domain';
 import type {
+  CreditSpan,
   AttemptRequest,
   AttemptResponse,
   ExtHeartbeatRequest,
@@ -184,6 +185,7 @@ export interface MockLimit {
   reason: string;
   usedMs: number;
   creditedUntil: number;
+  credited: CreditSpan[];
   /** The block created when the allowance ran out today, if any. */
   blockId: BlockId | null;
 }
@@ -732,10 +734,11 @@ export async function startMockGuardian(options: MockGuardianOptions = {}): Prom
         intervalMs: interval,
         reportedMs: Math.min(reported, interval),
         creditedUntilMs: limit.creditedUntil,
+        credited: limit.credited,
         slackMs: slack,
       });
       limit.usedMs += credit.creditMs;
-      limit.creditedUntil = credit.creditedUntilMs;
+      limit.credited = credit.credited;
       credited.set(limit.id, Math.floor(credit.creditMs / 1_000));
       evaluateLimit(limit, at);
     }
@@ -1296,6 +1299,7 @@ export async function startMockGuardian(options: MockGuardianOptions = {}): Prom
         reason: input.reason ?? '',
         usedMs: 0,
         creditedUntil: 0,
+        credited: [],
         blockId: null,
       };
       limits.set(limit.id, limit);

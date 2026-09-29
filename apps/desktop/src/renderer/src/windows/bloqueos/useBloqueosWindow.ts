@@ -110,6 +110,8 @@ export interface BloqueosWindowApi {
   nowMs: number;
   notices: Partial<Record<NoticeArea, Notice>>;
   announcement: Announcement | null;
+  /** Says `text` through the window's polite region. */
+  announce(text: string): void;
   actions: BloqueosActions;
 }
 
@@ -579,5 +581,5 @@ export function useBloqueosWindow(): BloqueosWindowApi {
     view,
   ]);
 
-  return { view, local: detail.bloqueos, nowMs, notices, announcement, actions };
+  return { view, local: detail.bloqueos, nowMs, notices, announcement, announce, actions };
 }

@@ -1106,7 +1106,13 @@ export const PHASE5_STATES = [
 ] as const;
 
 /** Daily limits («YouTube máximo 30 minutos al día»; ARCHITECTURE §5.10). */
-export const LIMIT_STATES = ['limits', 'limit-editor', 'limit-confirm', 'limit-block'] as const;
+export const LIMIT_STATES = [
+  'limits',
+  'limit-editor',
+  'limit-confirm',
+  'limit-block',
+  'limits-unsupported',
+] as const;
 
 export const HARNESS_STATE_IDS = [
   ...PHASE1_REQUIRED_STATES,
@@ -2176,6 +2182,22 @@ const BUILDERS: Readonly<Record<HarnessStateId, Builder>> = {
       fake: (f) => ({ ...f, limits: makeLimits(now) }),
     }),
 
+  // An older guardian without `daily_limits`: a limit phrase opens «Límites diarios», which
+  // only says why (no list, no «Nuevo límite»).
+  'limits-unsupported': (now) => {
+    const health = makeHealth(now, {
+      capabilities: GUARDIAN_CAPABILITIES.filter((c) => c !== 'daily_limits'),
+    });
+    return build('limits-unsupported', now, {
+      label: 'Bloqueos: límites diarios sin soporte',
+      window: 'bloqueos',
+      state: makeGuardianState(now),
+      health,
+      detailRequest: { name: 'bloqueos', seed: null, focus: 'limits' },
+      fake: (f) => ({ ...f, health, limits: [] }),
+    });
+  },
+
   'update-available': (now) =>
     build('update-available', now, {
       label: 'Actualización lista',
@@ -2293,6 +2315,10 @@ const SAMPLE_TEXT_EN: Readonly<Record<string, string>> = {
   [PHRASE_LIMIT]: 'limit YouTube to 30 min a day',
   [OSD_EXTEND_ES]: '+15 min · until 5:57 PM',
   [ONBOARDING_PHRASE]: ONBOARDING_PHRASE_EN,
+  [PHRASE_OK]: 'no YouTube for an hour',
+  [PHRASE_UNKNOWN]: 'no YouTube tomorrow afternoon',
+  [PHRASE_LONG]: 'block social media for 6 hours',
+  [PHRASE_HARDCORE]: 'no games for an hour and a half',
 };
 
 /** `value` with every string that is exactly a key of `table` swapped (plain data only). */

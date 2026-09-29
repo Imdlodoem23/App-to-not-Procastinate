@@ -1,4 +1,8 @@
-import type { UsageReportRequest, UsageReportResponse } from '@centrate/shared/guardian-api';
+import {
+  GuardianApiError,
+  type UsageReportRequest,
+  type UsageReportResponse,
+} from '@centrate/shared/guardian-api';
 import { describe, expect, it } from 'vitest';
 import { createManualClock } from '../../../src/main/guardian/clock';
 import {
@@ -10,7 +14,12 @@ import {
 import { HARNESS_NOW, makeGuardianState, makeLimits } from '../../../src/shared/fixtures';
 
 function setup(
-  options: { idleSeconds?: () => number; locked?: () => boolean; fail?: boolean } = {},
+  options: {
+    idleSeconds?: () => number;
+    locked?: () => boolean;
+    fail?: boolean;
+    failure?: () => Error;
+  } = {},
 ) {
   const clock = createManualClock(HARNESS_NOW);
   const start = clock.now();
@@ -28,7 +37,8 @@ function setup(
     },
     report: async (body): Promise<UsageReportResponse> => {
       sent.push(body);
-      if (fail) throw new Error('down');
+      if (fail)
+        throw (options.failure ?? (() => new GuardianApiError(503, 'unavailable', 'down')))();
       return {
         day: '2026-09-28',
         limits: [
@@ -131,6 +141,23 @@ describe('UsageReporter', () => {
     const last = sent[1];
     expect(last?.items[0]?.seconds).toBeGreaterThan(50);
     expect(last?.items[0]?.seconds).toBeLessThanOrEqual(Math.ceil((last?.intervalMs ?? 0) / 1000));
+  });
+
+  it('drops the seconds of a report whose answer was lost (it may have been credited)', async () => {
+    const { clock, reporter, sent, setFail } = setup({
+      fail: true,
+      failure: () => new GuardianApiError(0, 'timeout', 'guardian did not answer in time'),
+    });
+    reporter.sync(withLimit, true, true);
+    await seconds(clock, 31);
+    expect(sent).toHaveLength(1);
+    setFail(false);
+    await seconds(clock, 35);
+    expect(sent).toHaveLength(2);
+    const last = sent[1];
+    // Only what was counted after the lost report, over the time since it.
+    expect(last?.items[0]?.seconds).toBeLessThanOrEqual(36);
+    expect(last?.intervalMs).toBeLessThanOrEqual(36_000);
   });
 
   it('reports every 5 s while a limit it counts toward has less than 30 s left', async () => {

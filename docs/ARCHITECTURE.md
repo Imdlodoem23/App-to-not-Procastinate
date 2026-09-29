@@ -403,7 +403,9 @@ Rules:
 - **Reaching the allowance** (`usedMs ≥ dailyMinutes × 60 000` on an applicable day) writes
   `limit_reached` and a block of kind `limit`: the limit's effective targets, mode and reason,
   `whitelistOnly: false`, `startsAt = T`, `endsAt` = the next local midnight (the first
-  instant whose local date is the next day, in trusted time), `limitId` set. It is an ordinary
+  instant whose local date is the next day, in trusted time; after a time-zone change that
+  moved the date back, the end of the used-up day in the new zone, which a continuation block
+  also covers, §10.13), `limitId` set. It is an ordinary
   block for everything else: hosts, process watcher, extension rules, attempts (counted and
   penalized like any other), emergency unlock (normal and strict only; its penalty as always),
   rewards (`hardcore` locks the shop; a hardcore limit block revokes allowances like any
@@ -1216,10 +1218,14 @@ block; the ext token gets such a block as `kind: "manual"` (§8.4), the app toke
   included: a file manager in front is usage of nothing). Anything else → 403
   `insufficient_scope`. No peer check: a forged report can only make the user's own limits
   arrive sooner.
-- **Never a retry.** A failed report's seconds are added to the next report (up to
-  `usageMaxIntervalMs`, older seconds dropped). A report whose answer was lost and is
-  resent anyway is harmless: the per-client and per-limit clamps of §10.13 credit only real
-  elapsed time.
+- **Never a retry, never counted twice.** A report the guardian refused (any error status:
+  it validates and checks the scope before crediting anything) has its seconds added to the
+  next report (up to `usageMaxIntervalMs`, older seconds dropped). A report without an answer
+  (no connection, a timeout, an unreadable 2xx, a worker that died before applying the
+  answer) may have been credited: its seconds are dropped and the next report starts after
+  it (`usageReportRefused` tells the two apart). Resending it would not be harmless: the
+  clamps of §10.13 bound a report by elapsed time, not by real use, so the old seconds would
+  fill the new window.
 - Accepted in safe mode (§8.3); 503 in frozen mode. Rate limits as for their token (§9.6).
 - Response: `{ day, limits: LimitUsageStatus[], serverNow }`: every enabled limit, in creation
   order, with exact `usedTodaySeconds`, `remainingTodaySeconds`, `appliesToday`,
@@ -2104,8 +2110,8 @@ usageIdleSeconds` and the screen is not locked. It reports every valid process n
 ```go
 func (e *Engine) reportUsage(client string, r UsageReportRequest) UsageReportResponse {
     // client: "app" or the extension id. lastUsageBoot is in memory (lost on restart).
-    I := clampUsageInterval(r.IntervalMs, e.sinceLastUsage(client), limits.UsageSlackMs) // boot clock
-    e.lastUsageBoot[client] = bootNow
+    I := clampUsageInterval(r.IntervalMs, e.sinceLastUsage(client), limits.UsageSlackMs) // awake clock
+    e.lastUsageAwake[client] = awakeNow
     dayStart := startOfLocalDay(T)                    // settings.timezone; first instant of today
     for _, L := range e.enabledLimits() {             // creation order
         rep := 0
@@ -2113,8 +2119,9 @@ func (e *Engine) reportUsage(client string, r UsageReportRequest) UsageReportRes
             if L.matches(it) { rep += it.Seconds * 1000 }
         }
         rep = min(rep, I)
-        c := limitUsageCredit(T, dayStart, I, rep, L.Usage.CreditedUntil, limits.UsageSlackMs)
-        L.Usage.UsedMs += c.CreditMs; L.Usage.CreditedUntil = c.CreditedUntilMs
+        c, spans := limitUsageCredit(T, dayStart, I, rep, L.Usage.CreditedUntil, L.Usage.Credited,
+            limits.UsageSlackMs, limits.UsageMaxIntervalMs)
+        L.Usage.UsedMs += c; L.Usage.Credited = spans
     }
     e.evaluateLimits(T)                               // may commit warning/reached batches
     // stateVersion++ only if some floor(usedMs / 60 000) changed; state.json debounced
@@ -2125,30 +2132,45 @@ func (e *Engine) reportUsage(client string, r UsageReportRequest) UsageReportRes
   equals or is under one of its resolved domains and is not equal to or under one of its
   excluded domains; a `process` item when `processNameKey(value, os)` equals the key of one
   of its resolved or custom processes. Items that match nothing are ignored (no error).
-- **Never more than wall time.** `clampUsageInterval` bounds a report by the boot-clock
-  time since that client's previous accepted report (+ `usageSlackMs`); `limitUsageCredit`
-  credits only the part of `[T − I, T]` after the start of the local day and after the
-  limit's watermark `creditedUntil` (− slack), so each trusted millisecond counts at most once
-  per limit even when the app and two extensions report it. Reports never create usage for a
-  disabled limit. Usage is kept in `state.json` only (no event per report); a crash loses at
-  most the last debounce window.
+- **Never more than wall time.** `clampUsageInterval` bounds a report by the awake time
+  (the awake clock stops during suspend) since that client's previous accepted report (+
+  `usageSlackMs`), so a report spanning a sleep is not charged for it. `limitUsageCredit`
+  looks at `[T − I, T]` after the start of the local day and after the limit's floor
+  `creditedUntil` (− slack: nothing before the limit's creation or an epoch start counts).
+  The limit keeps the recent stretches of trusted time already credited (`credited`, sorted
+  `[start, end)` spans, at most 32, dropped once no report can reach them, i.e. older than
+  `usageMaxIntervalMs`); only the part of the window outside them is free. The credit is the
+  report's matching seconds, at most the free time + slack, and it is placed in the free gaps
+  earliest first. So each trusted millisecond counts at most once per limit even when the app
+  and two extensions report it (two clients reporting the same 30 s add at most 30 s +
+  slack), and a short report of one client never hides the time another used in the same
+  window (a watermark that jumped to `T` did: a 1 s report every 10 s cut a browser's credit
+  to a third). Credited time ahead of `T` (trusted time moved back) blocks everything before
+  its end. Reports never create usage for a disabled limit. Usage is kept in `state.json`
+  only (no event per report); a crash loses at most the last debounce window.
 
 **Time step** (`limitsStep(T, dBoot)`, after `activateSchedules`):
 
 1. **Rollover.** For each limit whose usage record's `day` ≠ `localDate(T)`: if it had usage
    or was reached, queue `limit_day_closed{day, usedSeconds, applied, reached, …}`; start a
    fresh record `{day: today, usedMs: 0, warnedAt: 0, reachedAt: 0, covered: ∅,
-blocksToday: 0}` (`creditedUntil` is kept; the day cut makes it harmless). Commit the queued
-   events as one batch; bump `stateVersion` and `extRulesVersion` (`appliesToday` may change).
-   A time-zone change that takes effect (§5.8) can start a new local day early; that is the
-   whole effect (the 24-h delay bounds it to once a day).
+blocksToday: 0, coveredUntil: 0}` (`creditedUntil` and `credited` are kept; the day cut
+   makes them harmless). Commit the queued events as one batch; bump `stateVersion` and
+   `extRulesVersion` (`appliesToday` may change). A time-zone change that takes effect (§5.8)
+   can start a new local day early. One that moves the local date back never re-opens a day
+   that was already counted: a record of a later day stays the current one (no rollover, no
+   second allowance) until that day ends in the new zone, and its limit blocks last until
+   then (below).
 2. **Pending changes** (§5.10): `remainingMs −= dBoot`; when `≤ 0` and `localDate(T) >
 requestedDay`, apply it (`limit_updated{pending_applied}` with re-resolved targets, or
-   `limit_deleted`), bump both versions.
+   `limit_deleted`), bump both versions. A deletion writes `limit_day_closed` for the day so
+   far first (when it had usage or was reached), in the same batch, so its statistics are
+   not lost.
 3. `evaluateLimits(T)`.
 
 `evaluateLimits(T)` (also run after every usage report and every limit write), per limit in
-creation order, skipping disabled limits and days not in `days`:
+creation order, skipping disabled limits and records whose day is not in `days` (the usage
+record's day, which a time-zone change may leave later than today):
 
 ```go
 allowance := L.DailyMinutes * 60_000
@@ -2159,10 +2181,15 @@ if used := L.Usage.UsedMs; used < allowance {
     }
     continue
 }
-end := nextLocalMidnight(T)                               // first instant of the next local date
+end := max(nextLocalMidnight(T), startOfDayAfter(L.Usage.Day)) // the end of the record's day
 first := L.Usage.ReachedAt == 0
-grow := !first && (!L.Usage.Covered.Contains(L.Targets) || rank(L.Mode) > L.Usage.Covered.Rank)
-if !first && (!grow || L.Usage.BlocksToday >= limits.LimitMaxBlocksPerDay) { continue }
+if !first {
+    made, cancelled := recordBlocks(L)                    // blocks created since ReachedAt; an emergency?
+    grow := (!L.Usage.Covered.Contains(L.Targets) || rank(L.Mode) > L.Usage.Covered.Rank) &&
+        max(L.Usage.BlocksToday, made) < limits.LimitMaxBlocksPerDay
+    cont := !cancelled && L.Usage.CoveredUntil != 0 && L.Usage.CoveredUntil < end
+    if (!grow && !cont) || made >= 2*limits.LimitMaxBlocksPerDay { continue }
+}
 var batch []Event
 var blk *Block
 if end-T >= limits.LimitMinBlockMs {
@@ -2179,7 +2206,14 @@ e.commit(batch...)                                        // versions++, enforce
 ```
 
 `Covered` is what was materialized for (limit, today) whether or not those blocks are still
-active, so an emergency never re-triggers a block that day. Limit blocks are guardian-created
+active, so an emergency never re-triggers a block that day. `CoveredUntil` is the latest end
+materialized for the record (its blocks' ends as created, at least `reachedAt`); a time-zone
+change that moves the end of the record's day past it (a backward change: the used-up day
+now lasts longer) adds one continuation block from `T` to the new end, counted like the
+others, unless an emergency cancelled one of the record's blocks. A calibration that shifts
+blocks does not (their `CoveredUntil` is kept). The reducer of `block_created{limit}` always
+marks the current record (never only the event's day), and a record never holds more than
+twice `limitMaxBlocksPerDay` blocks whatever its counters say. Limit blocks are guardian-created
 (never refused, never credited, §10.9) and independent of their limit.
 
 **Honest limits.** Usage is only as good as its reporters: with the extension disabled,

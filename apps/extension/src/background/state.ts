@@ -32,6 +32,12 @@ import type {
 } from '@centrate/shared/guardian-api';
 import type { RulesRecord, StatusError, StatusRecord, PairingRecord } from './storage';
 
+/**
+ * How a usage report ended: the guardian's answer, `'refused'` (not sent, or an error
+ * status: nothing was credited) or `'lost'` (no answer: it may have been credited).
+ */
+export type UsageReportOutcome = UsageReportResponse | 'refused' | 'lost';
+
 // ---------------------------------------------------------------------------------------
 // Timing
 // ---------------------------------------------------------------------------------------
@@ -688,11 +694,13 @@ export interface BackgroundApi {
    */
   reportAttempt(input: { host: string; incognito: boolean }): Promise<AttemptResponse | null>;
   /**
-   * `POST /v1/usage` with the extension token (domain items only, §10.13). `null` when
-   * unpaired, unauthorized, or the guardian did not answer: never retried (usage.ts adds the
-   * seconds to the next report).
+   * `POST /v1/usage` with the extension token (domain items only, §10.13). Never retried:
+   * `'refused'` when it was not sent (unpaired, unauthorized, the incognito instance) or the
+   * guardian answered with an error (nothing credited: usage.ts adds the seconds to the next
+   * report), `'lost'` when no answer came (it may have been credited: its seconds are
+   * dropped).
    */
-  reportUsage(body: UsageReportRequest): Promise<UsageReportResponse | null>;
+  reportUsage(body: UsageReportRequest): Promise<UsageReportOutcome>;
   getSnapshot(): Promise<ExtensionStateSnapshot>;
   browser(): Promise<BrowserInfo>;
 }

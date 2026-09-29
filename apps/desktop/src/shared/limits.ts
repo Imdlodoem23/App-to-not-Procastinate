@@ -26,7 +26,7 @@ import {
 import { durationLabel, parseIntent, type ParseResult } from '@centrate/shared/parser';
 import { targetsLabel } from './format';
 import { localized } from './i18n';
-import type { DraftSeed, LimitDraft, LimitEditorState } from './ui-state';
+import type { DraftSeed, LimitDraft, LimitEditorState, UiSnapshot } from './ui-state';
 
 /**
  * The shared package's words for limits in the active locale: «Límite diario», «12 de 30 min
@@ -180,6 +180,14 @@ export function limitReachedToday(limit: Pick<DailyLimit, 'reachedAt' | 'applies
   return limit.appliesToday && limit.reachedAt !== null;
 }
 
+/**
+ * The guardian can take daily limits (`daily_limits` capability). Unknown until the first
+ * health answer: assumed yes (a refusal then says why).
+ */
+export function limitsSupported(snapshot: Pick<UiSnapshot, 'health'>): boolean {
+  return snapshot.health === null || snapshot.health.capabilities.includes('daily_limits');
+}
+
 /** Every limit of a state (guardians without `daily_limits` send none). */
 export function stateLimits(state: GuardianStateResponse | null): DailyLimit[] {
   return state?.limits ?? [];
@@ -230,19 +238,21 @@ export function withoutLimit(list: readonly DailyLimit[], id: string): DailyLimi
 
 /**
  * A new limit: the targets the form above names (or the seed's), 30 min a day (or the seed's
- * allowance), every day, Estricto. A seed comes from the main window («Editar…» on the
- * «Límite diario» card, or a limit phrase not fully understood).
+ * allowance), every day (or the seed's days), Estricto. A seed comes from the main window
+ * («Editar…» on the «Límite diario» card, or a limit phrase not fully understood); an
+ * allowance out of range is shown as typed (saving then explains the range).
  */
 export function newLimitEditor(
   options: { targets?: TargetSpec | null; seed?: DraftSeed | null } = {},
 ): LimitEditorState {
   const seed = options.seed ?? null;
   const targets = seed?.targets ?? options.targets ?? null;
+  const seeded = seed?.end?.kind === 'duration' && seed.end.minutes > 0 ? seed.end.minutes : null;
   const minutes =
-    seed?.end?.kind === 'duration' &&
-    seed.end.minutes >= GUARDIAN_LIMITS.limitMinMinutes &&
-    seed.end.minutes <= GUARDIAN_LIMITS.limitMaxMinutes
-      ? seed.end.minutes
+    seeded !== null &&
+    seeded >= GUARDIAN_LIMITS.limitMinMinutes &&
+    seeded <= GUARDIAN_LIMITS.limitMaxMinutes
+      ? seeded
       : DEFAULT_LIMIT_MINUTES;
   const mode: LimitMode =
     seed?.mode && (LIMIT_MODES as readonly string[]).includes(seed.mode)
@@ -257,12 +267,13 @@ export function newLimitEditor(
         ? cloneTargets(targets)
         : { serviceIds: [], categoryIds: [], appIds: [], customDomains: [], customProcesses: [] },
       dailyMinutes: minutes,
-      days: [...ALL_WEEKDAYS],
+      days: seed?.days && seed.days.length > 0 ? sortedDays(seed.days) : [...ALL_WEEKDAYS],
       mode,
       reason: seed?.reason ?? '',
       acknowledgeNoEmergency: false,
     },
-    minutesText: durationLabel(minutes),
+    // An allowance out of range stays visible as typed: saving then explains the range.
+    minutesText: durationLabel(seeded ?? minutes),
     error: null,
   };
 }

@@ -36,7 +36,11 @@ function sameValue(a: PendingValue, b: PendingValue): boolean {
 }
 
 /** Whether `candidate` is weaker than `pending` for the same path (restarts the delay). */
-function weakerThanPending(path: PendingSettingPath, candidate: PendingValue, pending: PendingValue): boolean {
+function weakerThanPending(
+  path: PendingSettingPath,
+  candidate: PendingValue,
+  pending: PendingValue,
+): boolean {
   switch (path) {
     case 'dailyGoalMinutes':
       return (candidate as number) < (pending as number);
@@ -98,7 +102,11 @@ export function applySettingsPut(
   } else wait('dailyGoalMinutes', body.dailyGoalMinutes);
 
   // On/off options: turning on applies, turning off waits.
-  for (const path of ['attemptPenalties', 'closeBrowsersWithoutExtension', 'serverTimeCheck'] as const) {
+  for (const path of [
+    'attemptPenalties',
+    'closeBrowsersWithoutExtension',
+    'serverTimeCheck',
+  ] as const) {
     if (body[path] === current[path]) cancel(path);
     else if (body[path]) {
       next[path] = true;

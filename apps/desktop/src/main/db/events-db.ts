@@ -139,7 +139,9 @@ const MIGRATIONS: readonly string[] = [
 ];
 
 /** The `limit_days` row of a `limit_day_closed` event, or `null` for anything else. */
-export function limitDayOf(event: WireEvent): (LimitDayRow & { epoch: string; seq: number }) | null {
+export function limitDayOf(
+  event: WireEvent,
+): (LimitDayRow & { epoch: string; seq: number }) | null {
   if (!isKnownEvent(event) || event.type !== 'limit_day_closed') return null;
   const d = event.data;
   return {

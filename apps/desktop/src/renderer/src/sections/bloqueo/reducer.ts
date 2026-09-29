@@ -29,6 +29,7 @@ import {
   newLimitCard,
   parsePhrase,
 } from './draft';
+import { limitsSupported } from '../../../../shared/limits';
 
 export type NewIntentId = () => IntentId;
 
@@ -276,6 +277,14 @@ export function enterBloqueo(
         focus: 'confirm',
       };
     case 'limit':
+      // An older guardian without daily limits: Bloqueos says so instead of a card that fails.
+      if (!limitsSupported(snapshot)) {
+        return {
+          kind: 'open-detail',
+          request: { name: 'bloqueos', seed: null, focus: 'limits' },
+          ...same(main),
+        };
+      }
       return {
         kind: 'update',
         main: {
