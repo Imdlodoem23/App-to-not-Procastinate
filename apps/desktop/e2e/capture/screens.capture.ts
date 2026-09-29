@@ -156,6 +156,8 @@ async function appFont(app: LaunchedApp): Promise<CaptureFont> {
   return font;
 }
 
+const SETTLE_MS = 15_000;
+
 async function capture(
   app: LaunchedApp,
   font: CaptureFont,
@@ -169,10 +171,18 @@ async function capture(
   const surface = isSurfaceKind(fixture.window) ? fixture.window : null;
   const hasDetail = fixture.detailRequest !== null;
   const kinds: WindowKind[] = hasDetail ? ['detail', 'main'] : ['main'];
-  let settled = (await settleWindow(app, 'main')).settled;
+  // Two parallel Electron apps on a shared CI runner can take longer than the e2e default to
+  // finish the automatic height; a window still unsettled after this is a real bug.
+  const mainSettle = await settleWindow(app, 'main', SETTLE_MS);
+  let settled = mainSettle.settled;
+  if (!settled) console.warn(`[capture] ${fixture.id} ${preset} main: ${mainSettle.detail}`);
   if (hasDetail) {
     await expect.poll(async () => (await app.harness.bounds()).detail?.visible).toBe(true);
-    settled = (await settleWindow(app, 'detail')).settled && settled;
+    const detailSettle = await settleWindow(app, 'detail', SETTLE_MS);
+    if (!detailSettle.settled) {
+      console.warn(`[capture] ${fixture.id} ${preset} detail: ${detailSettle.detail}`);
+    }
+    settled = detailSettle.settled && settled;
   }
   const base = `${fixture.id}-${theme}-${preset}`;
   const shots: CaptureShot[] = [];

@@ -308,6 +308,11 @@
     color: var(--fg-muted);
   }
 
+  /* The hover tile is lighter in dark mode: muted text on it falls under 4.5:1. */
+  .blq-chip[data-kind='pending']:hover {
+    color: var(--fg);
+  }
+
   /* Schedule editor and exam whitelist ------------------------------------------------------ */
 
   /* In place under the list, no card: a sub-heading and the same rows as the form. */
