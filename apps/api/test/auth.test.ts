@@ -489,7 +489,14 @@ describe('sessions', () => {
 
   it('rejects tampered cookies and unknown tokens', async () => {
     const { cookie } = await signIn('ana@example.com');
-    const tampered = cookie.replace(/.(%3D|=)$/, 'A$1');
+    // Change the signature's first character (6 bits of the HMAC), always to a different one.
+    // The last character before the padding only carries 2 bits (A, Q, g or w), so writing
+    // «A» there left one signature in four untouched.
+    const tampered = cookie.replace(
+      /\.([A-Za-z0-9+/_-])([^.]*)$/,
+      (_all, first: string, rest: string) => `.${first === 'A' ? 'B' : 'A'}${rest}`,
+    );
+    expect(tampered).not.toBe(cookie);
     for (const headers of [
       { cookie: tampered },
       { cookie: sessionCookie('x'.repeat(32), testConfig({ BETTER_AUTH_SECRET: 'z'.repeat(40) })) },
