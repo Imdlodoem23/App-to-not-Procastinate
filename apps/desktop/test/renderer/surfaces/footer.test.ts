@@ -115,26 +115,28 @@ describe('footer: «Mini temporizador»', () => {
 });
 
 describe('footer: «Despierto» chip (Mantener despierto)', () => {
-  it('reads «Despierto · hasta las 18:30» or «Despierto» while on', () => {
+  it('reads «Despierto · hasta las 18:30» (the first part only for screen readers) or «Despierto»', () => {
     expect(deriveFooterView(snapshotOf('keep-awake-until')).awake).toEqual({
-      label: 'Despierto · hasta las 18:30',
+      hiddenPrefix: 'Despierto · ',
+      label: 'hasta las 18:30',
       tone: 'blue',
       trouble: null,
     });
     expect(deriveFooterView(snapshotOf('keep-awake')).awake).toEqual({
+      hiddenPrefix: '',
       label: 'Despierto',
       tone: 'blue',
       trouble: null,
     });
     withLocale('en', () => {
-      expect(deriveFooterView(snapshotOf('keep-awake-until')).awake?.label).toMatch(
-        /^Awake · until 6:30\sPM$/,
-      );
+      const awake = deriveFooterView(snapshotOf('keep-awake-until')).awake;
+      expect(`${awake?.hiddenPrefix}${awake?.label}`).toMatch(/^Awake · until 6:30\sPM$/);
     });
   });
 
   it('says «Despierto: error» in orange, and why, when the guardian cannot hold it', () => {
     expect(deriveFooterView(snapshotOf('keep-awake-error')).awake).toEqual({
+      hiddenPrefix: '',
       label: 'Despierto: error',
       tone: 'orange',
       trouble: 'No se ha podido mantener despierto este equipo',

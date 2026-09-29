@@ -35,7 +35,18 @@ function WindowChrome(): null {
   const theme = useAppStore((s) => s.snapshot.prefs.theme);
   useKeyListener(services.keys);
   useLayoutEffect(() => {
-    document.documentElement.dataset['theme'] = theme;
+    const html = document.documentElement;
+    if (html.dataset['theme'] === theme) return;
+    // No colour transitions while the theme swaps (base.css); restored two frames later.
+    html.dataset['themeSwitching'] = '';
+    html.dataset['theme'] = theme;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => delete html.dataset['themeSwitching']);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      delete html.dataset['themeSwitching'];
+    };
   }, [theme]);
   return null;
 }

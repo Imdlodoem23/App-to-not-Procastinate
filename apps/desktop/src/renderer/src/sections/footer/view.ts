@@ -30,6 +30,7 @@ import {
   keepAwakeIsOn,
   keepAwakeOf,
   keepAwakeSummary,
+  keepAwakeUntilLabel,
   keepAwakeTroubleText,
 } from '../../../../shared/keep-awake';
 import type { UpdaterState } from '../../../../shared/platform';
@@ -46,6 +47,11 @@ export type FooterButton = 'miniTimer' | 'settings' | 'quit';
 
 /** The «Despierto» chip: what it says and in which tone. */
 export interface FooterAwake {
+  /**
+   * Read by screen readers before `label` but not shown («Despierto · »): beside the status line
+   * the chip only has room for the coffee icon and «hasta las 18:30». `""` when none.
+   */
+  hiddenPrefix: string;
   label: string;
   tone: 'blue' | 'orange';
   /** Why it is not held («No se ha podido mantener despierto este equipo»), else `null`. */
@@ -87,8 +93,17 @@ export function footerAwake(snapshot: UiSnapshot, nowMs: number): FooterAwake | 
   const state = keepAwakeOf(snapshot);
   if (!keepAwakeIsOn(state, nowMs)) return null;
   const trouble = keepAwakeTroubleText(state);
-  if (trouble) return { label: FOOTER.awake.error, tone: 'orange', trouble };
-  return { label: keepAwakeSummary(state), tone: 'blue', trouble: null };
+  if (trouble) return { hiddenPrefix: '', label: FOOTER.awake.error, tone: 'orange', trouble };
+  const until = keepAwakeUntilLabel(state);
+  if (until === null)
+    return { hiddenPrefix: '', label: keepAwakeSummary(state), tone: 'blue', trouble: null };
+  const summary = keepAwakeSummary(state);
+  return {
+    hiddenPrefix: summary.slice(0, summary.length - until.length),
+    label: until,
+    tone: 'blue',
+    trouble: null,
+  };
 }
 
 /** The version on the right: «v1.2.0», «Actualizar a v1.3.0», «Descargando v1.3.0 · 45 %». */

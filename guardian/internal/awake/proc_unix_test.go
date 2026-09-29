@@ -45,7 +45,8 @@ func TestSupervisorRealChild(t *testing.T) {
 	if !ok {
 		t.Skip("no sleep binary")
 	}
-	argv := []string{sleep, "infinity"}
+	// BSD sleep (macOS) rejects "infinity"; a large count works everywhere.
+	argv := []string{sleep, "100000"}
 	s := newSupervisor("sleep", func() (process, error) { return startProcess(argv) }, realClock{}, newOptions(nil), nil)
 	s.Hold(true)
 	waitFor(t, "active", statusIs(s, Status{Active: true}))

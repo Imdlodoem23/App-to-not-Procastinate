@@ -130,7 +130,10 @@ export function Footer(): React.JSX.Element {
         onPress={openAwakeMenu}
       >
         <Icon icon={Coffee} />
-        <span className="footer-awake-label">{awake.label}</span>
+        <span className="footer-awake-label">
+          {awake.hiddenPrefix ? <span className="sr-only">{awake.hiddenPrefix}</span> : null}
+          {awake.label}
+        </span>
       </TextButton>
       <span id={AWAKE_HELP_ID} className="sr-only">
         {awake.trouble ? `${awake.trouble}. ${FOOTER.awake.help}` : FOOTER.awake.help}
